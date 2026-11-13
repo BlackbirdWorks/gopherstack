@@ -39,7 +39,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -50,6 +51,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const cliGoPath = "internal/app/cli.go"
@@ -169,10 +172,9 @@ func writeJSONReport(path string, results []svcInfo) error {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	return enc.Encode(results)
+	return json.MarshalEncode(enc, results)
 }
 
 func listServiceDirs(servicesDir string) ([]string, error) {

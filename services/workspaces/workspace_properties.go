@@ -1,8 +1,10 @@
 package workspaces
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ModifyEndpointEncryptionMode stores the endpoint encryption mode for a
@@ -151,7 +153,7 @@ func (b *InMemoryBackend) ModifyStreamingProperties(directoryID string, props St
 		merged.GlobalAccelerator = props.GlobalAccelerator
 	}
 
-	raw, err := json.Marshal(merged)
+	raw, err := json.Marshal(merged, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode streaming properties: %w", err)
 	}

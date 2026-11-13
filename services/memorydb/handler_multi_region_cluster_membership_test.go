@@ -1,12 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_MultiRegionCluster_TLSEnabled verifies TLSEnabled defaults to
@@ -60,7 +62,7 @@ func TestHandler_MultiRegionCluster_TLSEnabled(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			mrc, _ := resp["MultiRegionCluster"].(map[string]any)
 			require.NotNil(t, mrc)
 			assert.Equal(t, tt.wantTLS, mrc["TLSEnabled"])
@@ -86,7 +88,7 @@ func TestHandler_DescribeMultiRegionClusters_ShowClusterDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, createMRC.Code)
 
 	var mrcResp map[string]any
-	require.NoError(t, json.Unmarshal(createMRC.Body.Bytes(), &mrcResp))
+	require.NoError(t, json.Unmarshal(createMRC.Body.Bytes(), &mrcResp, jsonx.V1()))
 	mrc, _ := mrcResp["MultiRegionCluster"].(map[string]any)
 	mrcName, _ := mrc["MultiRegionClusterName"].(string)
 	require.NotEmpty(t, mrcName)
@@ -108,7 +110,7 @@ func TestHandler_DescribeMultiRegionClusters_ShowClusterDetails(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		mrcs, _ := resp["MultiRegionClusters"].([]any)
 		require.Len(t, mrcs, 1)
 		got, _ := mrcs[0].(map[string]any)
@@ -125,7 +127,7 @@ func TestHandler_DescribeMultiRegionClusters_ShowClusterDetails(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		mrcs, _ := resp["MultiRegionClusters"].([]any)
 		require.Len(t, mrcs, 1)
 		got, _ := mrcs[0].(map[string]any)
@@ -160,7 +162,7 @@ func TestHandler_CreateCluster_MultiRegionClusterName_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["__type"], "MultiRegionClusterNotFoundFault")
 }
 
@@ -180,7 +182,7 @@ func TestHandler_CreateCluster_MultiRegionClusterName_Linked(t *testing.T) {
 	require.Equal(t, http.StatusOK, createMRC.Code)
 
 	var mrcResp map[string]any
-	require.NoError(t, json.Unmarshal(createMRC.Body.Bytes(), &mrcResp))
+	require.NoError(t, json.Unmarshal(createMRC.Body.Bytes(), &mrcResp, jsonx.V1()))
 	mrc, _ := mrcResp["MultiRegionCluster"].(map[string]any)
 	mrcName, _ := mrc["MultiRegionClusterName"].(string)
 	require.NotEmpty(t, mrcName)
@@ -194,7 +196,7 @@ func TestHandler_CreateCluster_MultiRegionClusterName_Linked(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cl, _ := resp["Cluster"].(map[string]any)
 	assert.Equal(t, mrcName, cl["MultiRegionClusterName"])
 }

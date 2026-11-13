@@ -1,13 +1,15 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDescribeInboundIntegrations verifies integrations are returned from the backend.
@@ -63,7 +65,7 @@ func TestDescribeInboundIntegrations(t *testing.T) {
 			var out struct {
 				InboundIntegrations []any `json:"InboundIntegrations"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(out.InboundIntegrations), tc.wantMinCount)
 		})
 	}
@@ -192,7 +194,7 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.Equal(t, "my-integration", createOut["IntegrationName"])
 	assert.Equal(t, "arn:aws:s3:::my-source-bucket", createOut["SourceArn"])
 	assert.Equal(t, "arn:aws:redshift:us-east-1:123456789012:cluster/my-target", createOut["TargetArn"])
@@ -213,7 +215,7 @@ func TestIntegration(t *testing.T) {
 	var inboundOut struct {
 		InboundIntegrations []any `json:"InboundIntegrations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inboundOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inboundOut, jsonx.V1()))
 	assert.Len(t, inboundOut.InboundIntegrations, 1, "IntegrationArn filter should match the created integration")
 
 	// ModifyIntegration, addressed by ARN like a real client would (see
@@ -222,7 +224,7 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var modifyOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &modifyOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &modifyOut, jsonx.V1()))
 	assert.Equal(t, "my-integration", modifyOut["IntegrationName"])
 	assert.Equal(t, integrationARN, modifyOut["IntegrationArn"])
 	assert.Equal(t, "arn:aws:s3:::my-source-bucket", modifyOut["SourceArn"])
@@ -235,7 +237,7 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteOut, jsonx.V1()))
 	assert.Equal(t, "my-integration", deleteOut["IntegrationName"])
 	assert.Equal(t, integrationARN, deleteOut["IntegrationArn"])
 	assert.Equal(t, "arn:aws:s3:::my-source-bucket", deleteOut["SourceArn"])
@@ -261,7 +263,7 @@ func TestIntegration_ReachesActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.Equal(t, "CREATING", createOut["Status"])
 
 	require.Eventually(t, func() bool {
@@ -277,7 +279,7 @@ func TestIntegration_ReachesActive(t *testing.T) {
 				Status string `json:"Status"`
 			} `json:"Integrations"`
 		}
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 		return len(out.Integrations) == 1 && out.Integrations[0].Status == "ACTIVE"
 	}, 2*time.Second, 10*time.Millisecond)
@@ -297,7 +299,7 @@ func TestListIntegrationResourceProperties_ReturnsStoredEntries(t *testing.T) {
 	var empty struct {
 		IntegrationResourcePropertyList []map[string]any `json:"IntegrationResourcePropertyList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty, jsonx.V1()))
 	assert.Empty(t, empty.IntegrationResourcePropertyList)
 
 	doGlueRequest(t, h, "CreateIntegrationResourceProperty", map[string]any{
@@ -311,7 +313,7 @@ func TestListIntegrationResourceProperties_ReturnsStoredEntries(t *testing.T) {
 	var out struct {
 		IntegrationResourcePropertyList []map[string]any `json:"IntegrationResourcePropertyList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.IntegrationResourcePropertyList, 1)
 	assert.Equal(t, "arn:aws:glue:us-east-1:123456789012:connection/conn1",
 		out.IntegrationResourcePropertyList[0]["ResourceArn"])
@@ -348,7 +350,7 @@ func TestUpdateIntegrationResourceProperty_RequiresExistingEntry(t *testing.T) {
 	var out struct {
 		SourceProcessingProperties map[string]any `json:"SourceProcessingProperties"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "updated", out.SourceProcessingProperties["key"])
 }
 
@@ -387,7 +389,7 @@ func TestUpdateIntegrationTableProperties_RequiresExistingEntry(t *testing.T) {
 	var out struct {
 		SourceTableConfig map[string]string `json:"SourceTableConfig"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "updated", out.SourceTableConfig["key"])
 }
 

@@ -2,7 +2,7 @@ package detective_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/detective"
 )
 
@@ -32,7 +33,7 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Contains(t, resp["GraphArn"], "arn:aws:detective:")
 			},
 		},
@@ -48,7 +49,7 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Contains(t, resp["GraphArn"], "arn:aws:detective:")
 			},
 		},
@@ -86,7 +87,7 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				list, ok := resp["GraphList"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, list)
@@ -104,7 +105,7 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				list, ok := resp["GraphList"].([]any)
 				require.True(t, ok)
 				assert.Len(t, list, 1)
@@ -125,7 +126,7 @@ func TestDetective_Graph(t *testing.T) { //nolint:paralleltest // existing issue
 				// get graphArn from listing
 				listRec := doRequest(t, h, http.MethodPost, "/graphs/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				list := listResp["GraphList"].([]any)
 				if len(list) > 0 {
 					graph := list[0].(map[string]any)
@@ -158,7 +159,7 @@ func TestGraphARN_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, _ := resp["GraphArn"].(string)
 
 	require.NotEmpty(t, arn, "CreateGraph must return a GraphArn")
@@ -187,7 +188,7 @@ func TestListGraphs_CreatedTime_Present(t *testing.T) {
 		} `json:"GraphList"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.GraphList, 1)
 	assert.NotEmpty(t, resp.GraphList[0].CreatedTime, "ListGraphs must include CreatedTime")
 	assert.Contains(t, resp.GraphList[0].CreatedTime, "T",
@@ -209,7 +210,7 @@ func TestListGraphs_Pagination_NextToken_Absent_When_All_Fit(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasToken := resp["NextToken"]
 	assert.False(t, hasToken, "NextToken must be absent when all results fit on one page")
 }

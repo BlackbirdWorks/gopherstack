@@ -2,7 +2,7 @@ package networkmonitor_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/networkmonitor"
 )
 
@@ -36,7 +37,7 @@ func doNMRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		if err != nil {
 			t.Fatalf("marshal body: %v", err)
 		}
@@ -69,7 +70,7 @@ func createMonitorP(t *testing.T, h *networkmonitor.Handler, name string) string
 	require.Equal(t, http.StatusOK, rec.Code, "create monitor: %s", rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	arn, _ := out["monitorArn"].(string)
 	require.NotEmpty(t, arn)
 
@@ -90,7 +91,7 @@ func createProbeP(t *testing.T, h *networkmonitor.Handler, monitorName, destinat
 	require.Equal(t, http.StatusOK, rec.Code, "create probe: %s", rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	id, _ := out["probeId"].(string)
 	require.NotEmpty(t, id)
 

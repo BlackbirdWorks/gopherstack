@@ -1,8 +1,10 @@
 package codecommit
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createBranchInput struct {
@@ -13,7 +15,7 @@ type createBranchInput struct {
 
 func (h *Handler) handleCreateBranch(body []byte) (any, error) {
 	var in createBranchInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -41,7 +43,7 @@ func (h *Handler) handleDeleteBranch(body []byte) (any, error) {
 		RepositoryName string `json:"repositoryName"`
 		BranchName     string `json:"branchName"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -70,7 +72,7 @@ func (h *Handler) handleGetBranch(body []byte) (any, error) {
 		RepositoryName string `json:"repositoryName"`
 		BranchName     string `json:"branchName"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -93,7 +95,7 @@ func (h *Handler) handleListBranches(body []byte) (any, error) {
 		NextToken      string `json:"nextToken"`
 		MaxResults     int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -123,7 +125,7 @@ func (h *Handler) handleUpdateDefaultBranch(body []byte) (any, error) {
 		RepositoryName    string `json:"repositoryName"`
 		DefaultBranchName string `json:"defaultBranchName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

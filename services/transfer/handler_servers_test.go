@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -23,7 +24,7 @@ func mustCreateServer(t *testing.T, h *transfer.Handler) string {
 	var out struct {
 		ServerID string `json:"ServerId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out.ServerID
 }
@@ -40,7 +41,7 @@ func TestHandler_DeleteServerCascade(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		serverID := createResp["ServerId"].(string)
 
 		// Create access and agreement on the server
@@ -66,7 +67,7 @@ func TestHandler_DeleteServerCascade(t *testing.T) {
 
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
-		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1())
 		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
 		deleteRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
@@ -93,7 +94,7 @@ func TestHandler_DeleteServerOnlineSucceeds(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		serverID := createResp["ServerId"].(string)
 
 		// A real server self-starts after CreateServer; see TestHandler_CreateServer.
@@ -101,7 +102,7 @@ func TestHandler_DeleteServerOnlineSucceeds(t *testing.T) {
 
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
-		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1())
 		require.Equal(t, "ONLINE", resp["Server"].(map[string]any)["State"].(string))
 
 		delRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
@@ -125,7 +126,7 @@ func TestHandler_ListServersIncludesIdentityProviderType(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	// Add a user to check UserCount.
@@ -136,7 +137,7 @@ func TestHandler_ListServersIncludesIdentityProviderType(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	servers := listResp["Servers"].([]any)
 	require.Len(t, servers, 1)
@@ -161,7 +162,7 @@ func TestHandler_DescribeServerUserCount(t *testing.T) {
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": s.ServerID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	assert.EqualValues(t, 0, server["UserCount"])
 
@@ -173,7 +174,7 @@ func TestHandler_DescribeServerUserCount(t *testing.T) {
 
 	descRec = doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": s.ServerID})
 	require.Equal(t, http.StatusOK, descRec.Code)
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server = descResp["Server"].(map[string]any)
 	assert.EqualValues(t, 2, server["UserCount"])
 }
@@ -226,7 +227,7 @@ func TestHandler_CreateServer(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp[tt.wantKey])
 		})
 	}
@@ -242,7 +243,7 @@ func TestHandler_DescribeServer(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	tests := []struct {
@@ -286,7 +287,7 @@ func TestHandler_ListServers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.IsType(t, []any{}, resp["Servers"])
 }
 
@@ -355,7 +356,7 @@ func TestHandler_DeleteServer(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		serverID := createResp["ServerId"].(string)
 
 		// AWS requires server to be OFFLINE before deletion; stop it first.
@@ -365,7 +366,7 @@ func TestHandler_DeleteServer(t *testing.T) {
 
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
-		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1())
 		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
 		rec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
@@ -386,7 +387,7 @@ func TestHandler_UpdateServer(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateServer", map[string]any{
@@ -437,7 +438,7 @@ func TestHandler_ListServers_Pagination(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			servers := resp["Servers"].([]any)
 			assert.GreaterOrEqual(t, len(servers), tt.wantMinCount)
 
@@ -497,7 +498,7 @@ func TestHandler_StartStopDeleteServer(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				serverID := createResp["ServerId"].(string)
 
 				body := tt.body
@@ -513,7 +514,7 @@ func TestHandler_StartStopDeleteServer(t *testing.T) {
 
 					descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 					var resp map[string]any
-					_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+					_ = json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1())
 					require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 				}
 

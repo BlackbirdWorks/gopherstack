@@ -1,7 +1,7 @@
 package omics
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -782,7 +783,7 @@ func readJSON(c *echo.Context, v any) error {
 		return nil
 	}
 
-	if jsonErr := json.Unmarshal(body, v); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, v, jsonx.V1()); jsonErr != nil {
 		if writeErr := c.JSON(http.StatusBadRequest, errResp(errValidation, "invalid JSON")); writeErr != nil {
 			return writeErr
 		}

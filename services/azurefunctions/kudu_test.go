@@ -1,13 +1,14 @@
 package azurefunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
 
@@ -133,7 +134,7 @@ func TestKudu_DeploymentsAndDownload(t *testing.T) {
 	_, body = e.do(t, http.MethodPost, scm, "/api/zipdeploy", pkg, auth)
 
 	var first map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &first))
+	require.NoError(t, json.Unmarshal([]byte(body), &first, jsonx.V1()))
 	assert.InDelta(t, 4, first["status"], 0)
 	assert.Equal(t, true, first["complete"])
 	assert.Equal(t, "ZipDeploy", first["deployer"])
@@ -143,7 +144,7 @@ func TestKudu_DeploymentsAndDownload(t *testing.T) {
 	_, body = e.do(t, http.MethodGet, scm, "/api/deployments", nil, auth)
 
 	var list []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &list))
+	require.NoError(t, json.Unmarshal([]byte(body), &list, jsonx.V1()))
 	require.Len(t, list, 2)
 	assert.Equal(t, "OneDeploy", list[0]["deployer"], "newest first")
 	assert.Equal(t, true, list[0]["active"])

@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -50,7 +51,7 @@ func apiNames(t *testing.T, h *apigateway.Handler, region string) []string {
 		} `json:"item"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 
 	names := make([]string, 0, len(out.Item))
 	for _, i := range out.Item {

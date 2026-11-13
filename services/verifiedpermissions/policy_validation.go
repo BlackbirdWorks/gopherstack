@@ -2,19 +2,22 @@ package verifiedpermissions
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
 	cedar "github.com/cedar-policy/cedar-go"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errSchemaMismatch = errors.New("policy validation failed")
 
 type cedarSchemaNamespace struct {
-	EntityTypes map[string]json.RawMessage `json:"entityTypes"`
-	Actions     map[string]json.RawMessage `json:"actions"`
+	EntityTypes map[string]jsontext.Value `json:"entityTypes"`
+	Actions     map[string]jsontext.Value `json:"actions"`
 }
 
 // splitQualified splits "NS::Sub::Name" into its namespace and local name.
@@ -34,7 +37,7 @@ func (b *InMemoryBackend) loadSchemaNamespacesLocked(policyStoreID string) (map[
 	}
 
 	var ns map[string]cedarSchemaNamespace
-	if err := json.Unmarshal([]byte(s.Schema), &ns); err != nil {
+	if err := json.Unmarshal([]byte(s.Schema), &ns, jsonx.V1()); err != nil {
 		return nil, true
 	}
 
@@ -73,7 +76,7 @@ func (b *InMemoryBackend) validateStaticPolicyLocked(policyStoreID, statement st
 		}
 
 		var pj cedarPolicyJSON
-		if json.Unmarshal(raw, &pj) != nil {
+		if json.Unmarshal(raw, &pj, jsonx.V1()) != nil {
 			continue
 		}
 

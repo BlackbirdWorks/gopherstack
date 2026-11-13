@@ -1,9 +1,11 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validateHealthCheckARN checks that the ARN is a Route 53 health check ARN.
@@ -27,7 +29,7 @@ type associateHealthCheckRequest struct {
 
 func (h *Handler) handleAssociateHealthCheck(body []byte) error {
 	var req associateHealthCheckRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -54,7 +56,7 @@ type disassociateHealthCheckRequest struct {
 
 func (h *Handler) handleDisassociateHealthCheck(body []byte) error {
 	var req disassociateHealthCheckRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

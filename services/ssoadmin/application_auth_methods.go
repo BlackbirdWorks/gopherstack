@@ -1,7 +1,7 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, 
 // authMethodType must be IAM; body is the full AuthenticationMethod JSON object.
 func (b *InMemoryBackend) PutApplicationAuthenticationMethod(
 	applicationArn, authMethodType string,
-	body json.RawMessage,
+	body jsontext.Value,
 ) error {
 	b.mu.Lock("PutApplicationAuthenticationMethod")
 	defer b.mu.Unlock()
@@ -45,10 +45,10 @@ func (b *InMemoryBackend) PutApplicationAuthenticationMethod(
 		return ErrApplicationNotFound
 	}
 	if b.applicationAuthMethods[applicationArn] == nil {
-		b.applicationAuthMethods[applicationArn] = make(map[string]json.RawMessage)
+		b.applicationAuthMethods[applicationArn] = make(map[string]jsontext.Value)
 	}
 	if len(body) == 0 {
-		body = json.RawMessage("null")
+		body = jsontext.Value("null")
 	}
 	b.applicationAuthMethods[applicationArn][authMethodType] = body
 
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn st
 	methods := b.applicationAuthMethods[applicationArn]
 	result := make([]AuthMethod, 0, len(methods))
 	for mType, body := range methods {
-		bodyCopy := make(json.RawMessage, len(body))
+		bodyCopy := make(jsontext.Value, len(body))
 		copy(bodyCopy, body)
 		result = append(result, AuthMethod{AuthMethodType: mType, Body: bodyCopy})
 	}
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn st
 // GetApplicationAuthenticationMethod returns a specific auth method body.
 func (b *InMemoryBackend) GetApplicationAuthenticationMethod(
 	applicationArn, authMethodType string,
-) (json.RawMessage, error) {
+) (jsontext.Value, error) {
 	b.mu.RLock("GetApplicationAuthenticationMethod")
 	defer b.mu.RUnlock()
 
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) GetApplicationAuthenticationMethod(
 	if !exists {
 		return nil, ErrAuthMethodNotFound
 	}
-	result := make(json.RawMessage, len(body))
+	result := make(jsontext.Value, len(body))
 	copy(result, body)
 
 	return result, nil

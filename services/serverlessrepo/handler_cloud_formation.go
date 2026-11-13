@@ -2,11 +2,12 @@ package serverlessrepo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -26,7 +27,7 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 	}
 
 	var createReq createCFTemplateRequest
-	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &createReq, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
@@ -51,7 +52,7 @@ func (h *Handler) handleCreateCloudFormationTemplate(
 		resp[keySemanticVersion] = t.SemanticVersion
 	}
 
-	b, marshalErr := json.Marshal(resp)
+	b, marshalErr := json.Marshal(resp, jsonx.V1())
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
@@ -96,7 +97,7 @@ func (h *Handler) handleGetCloudFormationTemplate(req *http.Request) ([]byte, er
 		resp[keySemanticVersion] = t.SemanticVersion
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // createCFChangeSetRequest is the request body for CreateCloudFormationChangeSet.
@@ -120,7 +121,7 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 	}
 
 	var createReq createCFChangeSetRequest
-	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &createReq, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
@@ -162,7 +163,7 @@ func (h *Handler) handleCreateCloudFormationChangeSet(
 		csResp[keySemanticVersion] = cs.SemanticVersion
 	}
 
-	b, marshalErr := json.Marshal(csResp)
+	b, marshalErr := json.Marshal(csResp, jsonx.V1())
 	if marshalErr != nil {
 		return nil, marshalErr
 	}

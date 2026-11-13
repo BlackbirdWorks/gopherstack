@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -105,7 +106,7 @@ func (c *ClusterSchedulerConfig) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(c),
 		CreationTime:     epochSeconds(c.CreationTime),
 		LastModifiedTime: epochSeconds(c.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ClusterSchedulerConfig.MarshalJSON], read
@@ -119,7 +120,7 @@ func (c *ClusterSchedulerConfig) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(c)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -595,7 +596,7 @@ func (q *ComputeQuota) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(q),
 		CreationTime:     epochSeconds(q.CreationTime),
 		LastModifiedTime: epochSeconds(q.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ComputeQuota.MarshalJSON], read by
@@ -609,7 +610,7 @@ func (q *ComputeQuota) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(q)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

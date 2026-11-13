@@ -1,7 +1,7 @@
 package timestreamwrite //nolint:testpackage // needs access to the unexported handleError method.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errUnmatchedForTest = errors.New("boom: matches none of handleError's sentinel checks")
@@ -46,6 +48,6 @@ func TestHandleError_DefaultBranchEmitsInternalServerException(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InternalServerException", body[keyTypeField])
 }

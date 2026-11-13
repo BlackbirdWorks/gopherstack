@@ -3,12 +3,13 @@ package ce
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -233,7 +234,7 @@ func checkPageTokens(body []byte) error {
 		NextToken     string `json:"NextToken"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	for _, tok := range []string{req.NextPageToken, req.NextToken} {
 		if tok == "" {

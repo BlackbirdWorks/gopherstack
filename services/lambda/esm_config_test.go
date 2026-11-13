@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -33,7 +35,7 @@ func TestESM_HTTPLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	uuid := created["UUID"].(string)
 
 	// List by function name
@@ -78,7 +80,7 @@ func TestESM_BatchWindow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(60), out["MaximumBatchingWindowInSeconds"], 0)
 }
 
@@ -98,7 +100,7 @@ func TestESM_TumblingWindow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(300), out["TumblingWindowInSeconds"], 0)
 }
 
@@ -117,7 +119,7 @@ func TestESM_FilterCriteria(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	fc, ok := out["FilterCriteria"].(map[string]any)
 	require.True(t, ok)
 	filters := fc["Filters"].([]any)
@@ -140,7 +142,7 @@ func TestESM_BisectBatchOnError(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, true, out["BisectBatchOnFunctionError"])
 }
 
@@ -160,7 +162,7 @@ func TestESM_MaximumRecordAge(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(3600), out["MaximumRecordAgeInSeconds"], 0)
 }
 
@@ -180,7 +182,7 @@ func TestESM_ParallelizationFactor(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(5), out["ParallelizationFactor"], 0)
 }
 
@@ -200,7 +202,7 @@ func TestESM_DestinationConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	dc, ok := out["DestinationConfig"].(map[string]any)
 	require.True(t, ok)
 	onFail := dc["OnFailure"].(map[string]any)
@@ -222,7 +224,7 @@ func TestESM_UpdateBatchWindow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	uuid := created["UUID"].(string)
 
 	updRec := callInMemoryHandler(t, h, http.MethodPut,
@@ -231,7 +233,7 @@ func TestESM_UpdateBatchWindow(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updated))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updated, jsonx.V1()))
 	assert.InDelta(t, float64(30), updated["MaximumBatchingWindowInSeconds"], 0)
 }
 
@@ -253,7 +255,7 @@ func TestESM_SQS_FullOptions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(10), out["BatchSize"], 0)
 	assert.InDelta(t, float64(5), out["MaximumBatchingWindowInSeconds"], 0)
 	assert.NotNil(t, out["FilterCriteria"])
@@ -279,7 +281,7 @@ func TestESM_DDB_FullOptions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(50), out["BatchSize"], 0)
 	assert.Equal(t, true, out["BisectBatchOnFunctionError"])
 	assert.InDelta(t, float64(3), out["MaximumRetryAttempts"], 0)
@@ -307,7 +309,7 @@ func TestESM_Kinesis_AllWindowOptions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(200), out["BatchSize"], 0)
 	assert.InDelta(t, float64(120), out["MaximumBatchingWindowInSeconds"], 0)
 	assert.InDelta(t, float64(60), out["TumblingWindowInSeconds"], 0)
@@ -336,7 +338,7 @@ func TestESM_ListByFunction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	mappings := out["EventSourceMappings"].([]any)
 	assert.Len(t, mappings, 3)
 }
@@ -353,7 +355,7 @@ func TestESM_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	uuid := created["UUID"].(string)
 
 	// Disable
@@ -365,7 +367,7 @@ func TestESM_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updOut map[string]any
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updOut, jsonx.V1()))
 	assert.Equal(t, "Disabled", updOut["State"])
 
 	// Re-enable
@@ -375,7 +377,7 @@ func TestESM_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusOK, enableRec.Code)
 
 	var enableOut map[string]any
-	require.NoError(t, json.NewDecoder(enableRec.Body).Decode(&enableOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(enableRec.Body), &enableOut, jsonx.V1()))
 	assert.Equal(t, "Enabled", enableOut["State"])
 }
 
@@ -391,7 +393,7 @@ func TestESM_DeleteReturnsMapping(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	uuid := created["UUID"].(string)
 
 	delRec := callInMemoryHandler(t, h, http.MethodDelete,
@@ -399,7 +401,7 @@ func TestESM_DeleteReturnsMapping(t *testing.T) {
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var delOut map[string]any
-	require.NoError(t, json.NewDecoder(delRec.Body).Decode(&delOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(delRec.Body), &delOut, jsonx.V1()))
 	assert.Equal(t, uuid, delOut["UUID"])
 
 	// Get after delete → 404
@@ -425,7 +427,7 @@ func TestESM_MSK_Topics_And_ConsumerGroup(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	topics, _ := out["Topics"].([]any)
 	require.Len(t, topics, 1)
@@ -452,7 +454,7 @@ func TestESM_MSK_Get_PreservesConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	id, _ := created["UUID"].(string)
 	require.NotEmpty(t, id)
 
@@ -460,7 +462,7 @@ func TestESM_MSK_Get_PreservesConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &got, jsonx.V1()))
 
 	topics, _ := got["Topics"].([]any)
 	require.Len(t, topics, 1)
@@ -494,7 +496,7 @@ func TestESM_SelfManagedKafka_Create(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	topics, _ := out["Topics"].([]any)
 	require.Len(t, topics, 1)
@@ -533,7 +535,7 @@ func TestESM_SelfManagedKafka_UpdateSourceAccessConfigs(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	id := created["UUID"].(string)
 
 	updateBody := `{
@@ -546,7 +548,7 @@ func TestESM_SelfManagedKafka_UpdateSourceAccessConfigs(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &out, jsonx.V1()))
 
 	sacs, _ := out["SourceAccessConfigurations"].([]any)
 	assert.Len(t, sacs, 2)
@@ -570,7 +572,7 @@ func TestESM_AmazonMQ_Queues(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	queues, _ := out["Queues"].([]any)
 	require.Len(t, queues, 1)
@@ -600,7 +602,7 @@ func TestESM_DocumentDB_Create(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	docdb, _ := out["DocumentDBEventSourceConfig"].(map[string]any)
 	require.NotNil(t, docdb)
@@ -627,14 +629,14 @@ func TestESM_DocumentDB_Get_PreservesConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	id := created["UUID"].(string)
 
 	getRec := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/event-source-mappings/"+id, "")
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &got, jsonx.V1()))
 
 	docdb, _ := got["DocumentDBEventSourceConfig"].(map[string]any)
 	require.NotNil(t, docdb)
@@ -657,7 +659,7 @@ func TestESM_DocumentDB_NoCollectionName_Omitted(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	docdb, _ := out["DocumentDBEventSourceConfig"].(map[string]any)
 	require.NotNil(t, docdb)
@@ -713,7 +715,7 @@ func TestSourceAccessConfiguration_TypeAndURI(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			sacs, _ := out["SourceAccessConfigurations"].([]any)
 			require.Len(t, sacs, 1)
@@ -779,7 +781,7 @@ func TestListESM_EventSourceArnFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			esms, _ := out["EventSourceMappings"].([]any)
 			assert.Len(t, esms, tc.wantCount,
 				"EventSourceMappings count mismatch for filter=%q", tc.filter)

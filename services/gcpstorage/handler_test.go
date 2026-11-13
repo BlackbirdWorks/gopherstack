@@ -2,7 +2,7 @@ package gcpstorage_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -129,7 +130,7 @@ func TestErrorEnvelope(t *testing.T) {
 				} `json:"error"`
 			}
 
-			require.NoError(t, json.Unmarshal([]byte(body), &env), body)
+			require.NoError(t, json.Unmarshal([]byte(body), &env, jsonx.V1()), body)
 			assert.Equal(t, tt.status, env.Error.Code)
 			assert.NotEmpty(t, env.Error.Message)
 			require.Len(t, env.Error.Errors, 1)
@@ -200,7 +201,7 @@ func TestUploadsAndDownloads(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 
 	var obj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &obj))
+	require.NoError(t, json.Unmarshal([]byte(body), &obj, jsonx.V1()))
 	assert.Equal(t, "a/b.bin", obj["name"])
 	assert.Equal(t, "6", obj["size"])
 	assert.Equal(t, "application/x-bin", obj["contentType"])
@@ -297,7 +298,7 @@ func TestRewriteAndPatch(t *testing.T) {
 		Done     bool           `json:"done"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &rw))
+	require.NoError(t, json.Unmarshal([]byte(body), &rw, jsonx.V1()))
 	assert.Equal(t, "storage#rewriteResponse", rw.Kind)
 	assert.True(t, rw.Done)
 	assert.Equal(t, "4", rw.Total)
@@ -318,7 +319,7 @@ func TestRewriteAndPatch(t *testing.T) {
 		Metageneration string            `json:"metageneration"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &obj))
+	require.NoError(t, json.Unmarshal([]byte(body), &obj, jsonx.V1()))
 	assert.Equal(t, map[string]string{"b": "2"}, obj.Metadata)
 	assert.Empty(t, obj.ContentLang)
 	assert.Equal(t, "3", obj.Metageneration)

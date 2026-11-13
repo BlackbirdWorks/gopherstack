@@ -3,7 +3,7 @@ package lambda
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -641,7 +642,7 @@ func (p *EventSourcePoller) invokeLambda(
 			InvokeIdentityArn: m.FunctionARN,
 			AWSRegion:         p.lambdaBackend.region,
 			EventSourceARN:    m.EventSourceARN,
-		})
+		}, jsonx.V1())
 		if err != nil {
 			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal event", "error", err)
 
@@ -863,7 +864,7 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 				NewImage:                    r.NewImage,
 				OldImage:                    r.OldImage,
 			},
-		})
+		}, jsonx.V1())
 		if err != nil {
 			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal DDB event", "error", err)
 
@@ -876,7 +877,7 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 			arrival = time.Time{}
 		}
 
-		keyJSON, _ := json.Marshal(r.Keys)
+		keyJSON, _ := json.Marshal(r.Keys, jsonx.V1())
 		events = append(events, streamEvent{arrival: arrival, seq: r.SequenceNumber, key: string(keyJSON), raw: raw})
 	}
 
@@ -1068,7 +1069,7 @@ func buildSQSEventPayload(region, esmARN string, msgs []*SQSMessage) ([]byte, er
 		}
 	}
 
-	payload, err := json.Marshal(sqsEvent{Records: records})
+	payload, err := json.Marshal(sqsEvent{Records: records}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal sqs event: %w", err)
 	}
@@ -1161,7 +1162,12 @@ func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQS
 	}
 
 	var failures batchItemFailures
-	if jsonErr := json.Unmarshal(respBody, &failures); jsonErr != nil || len(failures.BatchItemFailures) == 0 {
+	if jsonErr := json.Unmarshal(
+		respBody,
+		&failures,
+		jsonx.V1(),
+	); jsonErr != nil ||
+		len(failures.BatchItemFailures) == 0 {
 		return nil
 	}
 

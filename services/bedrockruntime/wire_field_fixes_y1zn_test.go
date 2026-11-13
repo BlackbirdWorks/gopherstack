@@ -1,7 +1,7 @@
 package bedrockruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestGetAsyncInvoke_NoInventedTagsKey_RealClient covers gopherstack-y1zn.
@@ -38,7 +40,7 @@ func TestGetAsyncInvoke_NoInventedTagsKey_RealClient(t *testing.T) {
 		"neither GetAsyncInvokeOutput nor AsyncInvokeSummary has a tags member")
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	_, hasTags := out["tags"]
 	assert.False(t, hasTags)
 }

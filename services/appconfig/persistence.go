@@ -2,7 +2,7 @@ package appconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -54,7 +54,7 @@ const appconfigSnapshotVersion = 1
 // deploymentTimers is deliberately NOT part of this snapshot -- see its doc
 // comment on InMemoryBackend.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage             `json:"tables"`
+	Tables                map[string]jsontext.Value              `json:"tables"`
 	TagsByArn             map[string]map[string]string           `json:"tagsByArn"`
 	VersionCounters       map[string]map[string]int32            `json:"versionCounters"`
 	DeploymentCounters    map[string]map[string]int32            `json:"deploymentCounters"`

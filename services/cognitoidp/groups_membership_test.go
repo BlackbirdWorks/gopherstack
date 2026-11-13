@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -236,7 +237,7 @@ func TestHandler_Groups_CRUD(t *testing.T) {
 
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "grp-pool"})
 			var poolResp map[string]map[string]any
-			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 			poolID := poolResp["UserPool"]["Id"].(string)
 
 			// Create a group.
@@ -283,7 +284,7 @@ func TestHandler_Groups_CRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, listRec2.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp, jsonx.V1()))
 				groups := listResp["Groups"].([]any)
 				assert.Empty(t, groups)
 			}
@@ -334,7 +335,7 @@ func TestHandler_AdminGroupMembership(t *testing.T) {
 			// Set up pool, user, and group.
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "grp-pool"})
 			var poolResp map[string]map[string]any
-			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 			poolID := poolResp["UserPool"]["Id"].(string)
 
 			doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -405,7 +406,7 @@ func TestHandler_AdminGroupMembership(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, listRec2.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp, jsonx.V1()))
 				groups := listResp["Groups"].([]any)
 				assert.Empty(t, groups)
 			}
@@ -419,7 +420,7 @@ func TestSortedListGroups(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-groups-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	for _, name := range []string{"zeta", "admin", "moderator"} {
@@ -433,7 +434,7 @@ func TestSortedListGroups(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	groups := listResp["Groups"].([]any)
 	require.Len(t, groups, 3)
 	assert.Equal(t, "admin", groups[0].(map[string]any)["GroupName"])
@@ -447,7 +448,7 @@ func TestSortedAdminListGroupsForUser(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "algfu-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	for _, g := range []string{"zeta", "alpha", "beta"} {
@@ -478,7 +479,7 @@ func TestSortedAdminListGroupsForUser(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups := resp["Groups"].([]any)
 	require.Len(t, groups, 3)
 	assert.Equal(t, "alpha", groups[0].(map[string]any)["GroupName"])
@@ -537,7 +538,7 @@ func TestAccessTokenGroupsClaim(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			authResult := resp["AuthenticationResult"].(map[string]any)
 			accessToken := authResult["AccessToken"].(string)
 
@@ -593,7 +594,7 @@ func TestAdminListGroupsForUser_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
 
 	var page1 listOut
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Groups, 2)
 	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more groups remain")
 
@@ -606,7 +607,7 @@ func TestAdminListGroupsForUser_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
 
 	var page2 listOut
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.Groups, 1)
 	require.Empty(t, page2.NextToken)
 

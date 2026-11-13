@@ -2,7 +2,8 @@ package appconfigdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -191,7 +193,7 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
 	var req startSessionRequest
-	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 		log.Error("appconfigdata: failed to decode StartConfigurationSession request", "error", err)
 
 		return writeAWSError(c, http.StatusBadRequest, exceptionBadRequest, "invalid request body")

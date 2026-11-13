@@ -2,7 +2,8 @@ package directoryservice
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -367,7 +369,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -424,8 +426,8 @@ func (h *Handler) handleTwoFieldOp(c *echo.Context, op twoFieldOp) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
 	}
 
-	var raw map[string]json.RawMessage
-	if jsonErr := json.Unmarshal(body, &raw); jsonErr != nil {
+	var raw map[string]jsontext.Value
+	if jsonErr := json.Unmarshal(body, &raw, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -447,14 +449,14 @@ func (h *Handler) handleTwoFieldOp(c *echo.Context, op twoFieldOp) error {
 
 // jsonString returns the string value stored under key in raw, or "" if absent
 // or not a JSON string.
-func jsonString(raw map[string]json.RawMessage, key string) string {
+func jsonString(raw map[string]jsontext.Value, key string) string {
 	v, ok := raw[key]
 	if !ok {
 		return ""
 	}
 
 	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
+	if err := json.Unmarshal(v, &s, jsonx.V1()); err != nil {
 		return ""
 	}
 

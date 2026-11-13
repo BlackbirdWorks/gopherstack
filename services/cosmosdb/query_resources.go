@@ -2,12 +2,14 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // queryResources runs the SQL query in the request body over resource bodies (databases or containers), as
@@ -25,10 +27,15 @@ func (h *Handler) queryResources(c *echo.Context, listKey string, bodies []map[s
 
 	var req queryRequestBody
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsonx.V1())
 
-	if decErr := dec.Decode(&req); decErr != nil || rejectTrailingJSON(dec) != nil {
+	if decErr := json.UnmarshalDecode(
+		dec,
+		&req,
+		jsonx.V1(),
+		jsonx.UseNumber(),
+	); decErr != nil ||
+		rejectTrailingJSON(dec) != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 

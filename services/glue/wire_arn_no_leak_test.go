@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -21,7 +22,7 @@ func assertRawObjectHasNoArn(t *testing.T, body []byte, path ...string) map[stri
 	t.Helper()
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(body, &decoded))
+	require.NoError(t, json.Unmarshal(body, &decoded, jsonx.V1()))
 
 	obj := decoded
 	for i, key := range path {
@@ -50,7 +51,7 @@ func assertNoArnInArray(t *testing.T, body []byte, containerKey string) {
 	t.Helper()
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(body, &decoded))
+	require.NoError(t, json.Unmarshal(body, &decoded, jsonx.V1()))
 
 	arr, ok := decoded[containerKey].([]any)
 	require.Truef(t, ok, "missing array key %q in response", containerKey)

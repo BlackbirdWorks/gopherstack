@@ -1,13 +1,14 @@
 package directoryservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // startADAssessmentRequest mirrors the real StartADAssessmentInput, including
@@ -43,7 +44,7 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 
 	var req startADAssessmentRequest
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -117,7 +118,7 @@ func (h *Handler) handleDeleteADAssessment(c *echo.Context) error {
 		AssessmentID string `json:"AssessmentId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -148,7 +149,7 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 		AssessmentID string `json:"AssessmentId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -246,7 +247,7 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}

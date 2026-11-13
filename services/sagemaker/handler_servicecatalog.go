@@ -2,7 +2,9 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,11 +37,11 @@ func (h *Handler) dispatchServicecatalogOps(
 		return []byte("{}"), true, nil
 	case "GetSagemakerServicecatalogPortfolioStatus":
 		status := h.Backend.GetSagemakerServicecatalogPortfolioStatus(ctx)
-		r, err := json.Marshal(map[string]string{keyStatus: status})
+		r, err := json.Marshal(map[string]string{keyStatus: status}, jsonx.V1())
 
 		return r, true, err
 	case "ListResourceCatalogs":
-		r, err := json.Marshal(map[string]any{"ResourceCatalogs": h.Backend.ListResourceCatalogs()})
+		r, err := json.Marshal(map[string]any{"ResourceCatalogs": h.Backend.ListResourceCatalogs()}, jsonx.V1())
 
 		return r, true, err
 	}

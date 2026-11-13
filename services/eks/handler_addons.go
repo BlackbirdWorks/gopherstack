@@ -1,7 +1,7 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"slices"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -147,7 +148,7 @@ type createAddonBody struct {
 
 func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []byte) error {
 	var in createAddonBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -234,7 +235,7 @@ type updateAddonBody struct {
 func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName string, body []byte) error {
 	var in updateAddonBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

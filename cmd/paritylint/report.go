@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func printReport(w io.Writer, findings []finding) {
@@ -35,7 +38,7 @@ func printReport(w io.Writer, findings []finding) {
 }
 
 func writeJSON(path string, findings []finding) error {
-	data, err := json.MarshalIndent(findings, "", "  ")
+	data, err := json.Marshal(findings, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

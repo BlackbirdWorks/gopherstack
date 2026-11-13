@@ -2,7 +2,7 @@ package expr
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Sentinel errors for evaluator.
@@ -480,9 +481,9 @@ func containsList(l, targetVal any) bool {
 	if !isList {
 		return false
 	}
-	targetJSON, _ := json.Marshal(targetVal)
+	targetJSON, _ := json.Marshal(targetVal, jsonx.V1())
 	for _, item := range items {
-		itemJSON, _ := json.Marshal(item)
+		itemJSON, _ := json.Marshal(item, jsonx.V1())
 		if string(itemJSON) == string(targetJSON) {
 			return true
 		}
@@ -657,7 +658,7 @@ func (e *Evaluator) toString(v any) string {
 	case nil:
 		return ""
 	default:
-		b, _ := json.Marshal(s)
+		b, _ := json.Marshal(s, jsonx.V1())
 
 		return string(b)
 	}

@@ -2,7 +2,7 @@ package acmpca_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acmpca"
 )
 
@@ -568,7 +569,7 @@ func TestACMPCA_DescribeCertificateAuthority_OwnerAccount(t *testing.T) {
 			var createOut struct {
 				CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			descRec := doACMPCARequest(t, h, "DescribeCertificateAuthority", map[string]any{
 				"CertificateAuthorityArn": createOut.CertificateAuthorityArn,
@@ -580,7 +581,7 @@ func TestACMPCA_DescribeCertificateAuthority_OwnerAccount(t *testing.T) {
 					OwnerAccount string `json:"OwnerAccount"`
 				} `json:"CertificateAuthority"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 			assert.Equal(t, testAccountID, descOut.CertificateAuthority.OwnerAccount,
 				"OwnerAccount must match the backend account ID")
@@ -666,7 +667,7 @@ func TestACMPCA_DescribeCertificateAuthority_Serial_AfterActivation(t *testing.T
 					Status string `json:"Status"`
 				} `json:"CertificateAuthority"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 			require.Equal(t, "ACTIVE", descOut.CertificateAuthority.Status)
 			assert.NotEmpty(t, descOut.CertificateAuthority.Serial,

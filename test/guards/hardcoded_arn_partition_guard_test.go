@@ -1,7 +1,7 @@
 package guards_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const hardcodedARNAllowlistPath = "test/guards/testdata/hardcoded_arn_allowlist.json"
@@ -23,7 +25,7 @@ func TestNoNewHardcodedAWSPartitionARNs(t *testing.T) {
 	require.NoError(t, err)
 
 	var allow map[string]int
-	require.NoError(t, json.Unmarshal(raw, &allow))
+	require.NoError(t, json.Unmarshal(raw, &allow, jsonx.V1()))
 
 	got := countHardcodedARNs(t)
 

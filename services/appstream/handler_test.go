@@ -2,7 +2,7 @@ package appstream_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -62,7 +63,7 @@ func doRequest(t *testing.T, h *appstream.Handler, action string, body any) *htt
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -174,7 +175,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, appRec.Code)
 
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appArn := appResp["Application"].(map[string]any)["Arn"].(string)
 	require.NotEmpty(t, appArn)
 
@@ -185,7 +186,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, abRec.Code)
 
 	var abResp map[string]any
-	require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp))
+	require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp, jsonx.V1()))
 	appBlockArn := abResp["AppBlock"].(map[string]any)["Arn"].(string)
 	require.NotEmpty(t, appBlockArn)
 
@@ -193,7 +194,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, imgRec.Code)
 
 	var imgResp map[string]any
-	require.NoError(t, json.Unmarshal(imgRec.Body.Bytes(), &imgResp))
+	require.NoError(t, json.Unmarshal(imgRec.Body.Bytes(), &imgResp, jsonx.V1()))
 	imageArn := imgResp["Image"].(map[string]any)["Arn"].(string)
 	require.NotEmpty(t, imageArn)
 
@@ -204,7 +205,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		apps := resp["Applications"].([]any)
 		require.Len(t, apps, 1)
 		assert.Equal(t, "arn-app", apps[0].(map[string]any)["Name"])
@@ -217,7 +218,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		blocks := resp["AppBlocks"].([]any)
 		require.Len(t, blocks, 1)
 		assert.Equal(t, "arn-appblock", blocks[0].(map[string]any)["Name"])
@@ -230,7 +231,7 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		images := resp["Images"].([]any)
 		require.Len(t, images, 1)
 		assert.Equal(t, "arn-image", images[0].(map[string]any)["Name"])
@@ -260,7 +261,7 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		require.Equal(t, http.StatusOK, appRec.Code)
 
 		var appResp map[string]any
-		require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+		require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 		appArn := appResp["Application"].(map[string]any)["Arn"].(string)
 		require.NotEmpty(t, appArn)
 
@@ -275,7 +276,7 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		require.Equal(t, http.StatusOK, descRec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		assocs := descResp["ApplicationFleetAssociations"].([]any)
 		require.Len(t, assocs, 1)
 		assert.Equal(t, "assoc-arn-fleet", assocs[0].(map[string]any)["FleetName"])
@@ -294,7 +295,7 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		require.Equal(t, http.StatusOK, abRec.Code)
 
 		var abResp map[string]any
-		require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp))
+		require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp, jsonx.V1()))
 		appBlockArn := abResp["AppBlock"].(map[string]any)["Arn"].(string)
 		require.NotEmpty(t, appBlockArn)
 
@@ -309,7 +310,7 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		require.Equal(t, http.StatusOK, descRec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		assocs := descResp["AppBlockBuilderAppBlockAssociations"].([]any)
 		require.Len(t, assocs, 1)
 		assert.Equal(t, appBlockArn, assocs[0].(map[string]any)["AppBlockArn"])

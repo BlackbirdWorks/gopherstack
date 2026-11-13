@@ -2,7 +2,7 @@ package gcpdispatch_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHTTPToRPC(t *testing.T) {
@@ -81,7 +82,7 @@ func TestTokens(t *testing.T) {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(raw, &claims))
+	require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
 	assert.Equal(t, "https://x.test/y", claims["aud"])
 	assert.Equal(t, "sa@p.iam", claims["email"])
 

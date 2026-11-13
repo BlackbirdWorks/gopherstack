@@ -1,10 +1,12 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -188,11 +190,11 @@ func (a *samAPI) stageProps(depID string) map[string]any {
 func (a *samAPI) body() (map[string]any, error) {
 	doc := map[string]any{}
 	if def := asMap(a.props["DefinitionBody"]); def != nil {
-		raw, err := json.Marshal(def)
+		raw, err := json.Marshal(def, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}
-		if err = json.Unmarshal(raw, &doc); err != nil {
+		if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	} else {

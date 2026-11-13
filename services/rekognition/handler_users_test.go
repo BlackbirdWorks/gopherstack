@@ -1,12 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestUsers(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -43,7 +45,7 @@ func TestUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				users, ok := resp["Users"].([]any)
 				require.True(t, ok)
 				assert.Len(t, users, 1)
@@ -91,7 +93,7 @@ func TestAssociateFaces(t *testing.T) { //nolint:paralleltest // existing issue.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var indexResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &indexResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &indexResp, jsonx.V1()))
 	faceRecords := indexResp["FaceRecords"].([]any)
 	require.Len(t, faceRecords, 1)
 	faceID := faceRecords[0].(map[string]any)["Face"].(map[string]any)["FaceId"].(string)
@@ -109,7 +111,7 @@ func TestAssociateFaces(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		associated, ok := resp["AssociatedFaces"].([]any)
 		require.True(t, ok)
 		assert.Len(t, associated, 1)
@@ -125,7 +127,7 @@ func TestAssociateFaces(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		unsuccessful, ok := resp["UnsuccessfulFaceAssociations"].([]any)
 		require.True(t, ok)
 		assert.Len(t, unsuccessful, 1)
@@ -141,7 +143,7 @@ func TestAssociateFaces(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		disassociated, ok := resp["DisassociatedFaces"].([]any)
 		require.True(t, ok)
 		assert.Len(t, disassociated, 1)
@@ -179,7 +181,7 @@ func TestSearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, faceModelVersion, resp["FaceModelVersion"])
 				matches, ok := resp["UserMatches"].([]any)
 				require.True(t, ok)
@@ -201,7 +203,7 @@ func TestSearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, faceModelVersion, resp["FaceModelVersion"])
 				matches, ok := resp["UserMatches"].([]any)
 				require.True(t, ok)
@@ -220,7 +222,7 @@ func TestSearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				matches, ok := resp["UserMatches"].([]any)
 				require.True(t, ok)
 				assert.Len(t, matches, 2)

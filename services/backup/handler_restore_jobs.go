@@ -1,11 +1,13 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // RestoreJobsFilterFromQuery builds a ListRestoreJobsFilter from ListRestoreJobs
@@ -92,7 +94,7 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 		ResourceType     string            `json:"ResourceType"`
 		IdempotencyToken string            `json:"IdempotencyToken"`
 	}
-	if err := json.Unmarshal(body, &reqBody); err != nil {
+	if err := json.Unmarshal(body, &reqBody, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 	if reqBody.RecoveryPointArn == "" {
@@ -126,7 +128,7 @@ func (h *Handler) handlePutRestoreValidationResult(c *echo.Context, restoreJobID
 		ValidationStatus        string `json:"ValidationStatus"`
 		ValidationStatusMessage string `json:"ValidationStatusMessage"`
 	}
-	if err := json.Unmarshal(body, &reqBody); err != nil {
+	if err := json.Unmarshal(body, &reqBody, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 

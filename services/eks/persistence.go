@@ -2,9 +2,11 @@ package eks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -50,7 +52,7 @@ import (
 const eksSnapshotVersion = 2
 
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage                       `json:"tables"`
+	Tables            map[string]jsontext.Value                        `json:"tables"`
 	AccessPolicies    map[string]map[string][]*AccessPolicyAssociation `json:"accessPolicies,omitempty"`
 	EncryptionConfigs map[string][]EncryptionConfig                    `json:"encryptionConfigs,omitempty"`
 	AccountID         string                                           `json:"accountId"`
@@ -79,7 +81,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:            b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "eks: Snapshot marshal failed", "error", err)
 

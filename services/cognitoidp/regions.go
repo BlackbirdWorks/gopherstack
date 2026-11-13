@@ -3,7 +3,7 @@ package cognitoidp
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
 
@@ -265,7 +266,7 @@ func targetHints(r *http.Request) ownerHints {
 		Session     string `json:"Session"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return ownerHints{
 		poolID: req.UserPoolID, arn: req.ResourceArn, clientID: req.ClientID,

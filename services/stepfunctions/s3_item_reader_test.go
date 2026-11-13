@@ -2,13 +2,14 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -73,7 +74,7 @@ func TestStartExecution_MapItemReader_S3(t *testing.T) {
 		require.Equal(t, "SUCCEEDED", described.Status, "cause=%s error=%s", described.Cause, described.Error)
 
 		var output []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(described.Output), &output))
+		require.NoError(t, json.Unmarshal([]byte(described.Output), &output, jsonx.V1()))
 		assert.Len(t, output, 3, "expected one output entry per S3-sourced item")
 	})
 }

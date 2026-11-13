@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -42,7 +43,7 @@ func TestListRecoveryPointsByBackupVault_NoStorageClassLeak(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	items, ok := listResp["RecoveryPoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
@@ -58,6 +59,6 @@ func TestListRecoveryPointsByBackupVault_NoStorageClassLeak(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "WARM", descResp["StorageClass"], "DescribeRecoveryPoint genuinely has StorageClass")
 }

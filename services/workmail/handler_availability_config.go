@@ -2,8 +2,11 @@ package workmail
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Availability Configurations ----
@@ -117,12 +120,12 @@ type listAvailabilityConfigsReq struct {
 }
 
 type availabilityConfigJSON struct {
-	EwsProvider    *json.RawMessage `json:"EwsProvider,omitempty"`
-	LambdaProvider *json.RawMessage `json:"LambdaProvider,omitempty"`
-	DomainName     string           `json:"DomainName"`
-	ProviderType   string           `json:"ProviderType"`
-	DateCreated    int64            `json:"DateCreated"`
-	DateModified   int64            `json:"DateModified"`
+	EwsProvider    *jsontext.Value `json:"EwsProvider,omitempty"`
+	LambdaProvider *jsontext.Value `json:"LambdaProvider,omitempty"`
+	DomainName     string          `json:"DomainName"`
+	ProviderType   string          `json:"ProviderType"`
+	DateCreated    int64           `json:"DateCreated"`
+	DateModified   int64           `json:"DateModified"`
 }
 
 type listAvailabilityConfigsResp struct {
@@ -153,12 +156,12 @@ func (h *Handler) handleListAvailabilityConfigurations(
 			raw, _ := json.Marshal(map[string]string{
 				"EwsEndpoint": c.EwsEndpoint,
 				"EwsUsername": c.EwsUsername,
-			})
-			rm := json.RawMessage(raw)
+			}, jsonx.V1())
+			rm := jsontext.Value(raw)
 			item.EwsProvider = &rm
 		} else {
-			raw, _ := json.Marshal(map[string]string{"LambdaArn": c.LambdaARN})
-			rm := json.RawMessage(raw)
+			raw, _ := json.Marshal(map[string]string{"LambdaArn": c.LambdaARN}, jsonx.V1())
+			rm := jsontext.Value(raw)
 			item.LambdaProvider = &rm
 		}
 		result = append(result, item)

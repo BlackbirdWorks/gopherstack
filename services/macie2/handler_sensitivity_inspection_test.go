@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -25,7 +26,7 @@ func TestUpdateSensitivityInspectionTemplate_FieldsSurviveIndependentUpdates(t *
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	templates, _ := listResp["sensitivityInspectionTemplates"].([]any)
 	require.Len(t, templates, 1)
 	tmpl0, _ := templates[0].(map[string]any)
@@ -53,7 +54,7 @@ func TestUpdateSensitivityInspectionTemplate_FieldsSurviveIndependentUpdates(t *
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 
 	assert.Equal(t, "original description", updated["description"],
 		"description must survive an Update that never mentioned it")
@@ -84,7 +85,7 @@ func TestSensitivityInspectionTemplates(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				templates, _ := listResp["sensitivityInspectionTemplates"].([]any)
 				require.Len(t, templates, 1)
 
@@ -97,7 +98,7 @@ func TestSensitivityInspectionTemplates(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Equal(t, templateID, getResp["sensitivityInspectionTemplateId"])
 
 				// UpdateSensitivityInspectionTemplate
@@ -118,7 +119,7 @@ func TestSensitivityInspectionTemplates(t *testing.T) {
 				// Verify update
 				rec = doRequest(t, h, http.MethodGet, "/templates/sensitivity-inspections/"+templateID, nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				assert.Equal(t, "Updated description", updated["description"])
 			},
 		},

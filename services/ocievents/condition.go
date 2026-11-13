@@ -2,11 +2,14 @@ package ocievents
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseCondition decodes a rule condition: a JSON object whose leaves are strings, numbers, booleans or
@@ -16,15 +19,15 @@ func parseCondition(s string) (map[string]any, *APIError) {
 		return nil, errMissing("condition is required")
 	}
 
-	dec := json.NewDecoder(bytes.NewReader([]byte(s)))
-	dec.UseNumber()
+	data := []byte(s)
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, errParam("condition is not valid JSON: " + err.Error())
 	}
 
-	if dec.More() {
+	if rest := bytes.TrimLeft(data[dec.InputOffset():], " \t\r\n"); len(rest) > 0 && rest[0] != ']' && rest[0] != '}' {
 		return nil, errParam("condition must be a single JSON object")
 	}
 
@@ -64,7 +67,7 @@ func validateNode(path string, v any) *APIError {
 				return errParam(path + ": array elements must be strings, numbers or booleans")
 			}
 		}
-	case string, json.Number, bool:
+	case string, jsonx.Number, bool:
 	default:
 		return errParam(path + ": null is not a valid filter value")
 	}
@@ -74,7 +77,7 @@ func validateNode(path string, v any) *APIError {
 
 func isScalar(v any) bool {
 	switch v.(type) {
-	case string, json.Number, float64, bool:
+	case string, jsonx.Number, float64, bool:
 		return true
 	default:
 		return false
@@ -85,7 +88,7 @@ func scalarString(v any) string {
 	switch t := v.(type) {
 	case string:
 		return t
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	case float64:
 		return strconv.FormatFloat(t, 'f', -1, 64)

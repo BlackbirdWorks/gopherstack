@@ -6,7 +6,7 @@
 package cloudfrontkeyvaluestore
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -451,7 +452,7 @@ func (h *Handler) handlePutKey(c *echo.Context, kvs *cloudfrontbackend.KeyValueS
 
 	var req putKeyInput
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return writeAWSError(c, http.StatusBadRequest, exceptionValidation, "invalid JSON body")
 		}
 	}
@@ -549,7 +550,7 @@ func (h *Handler) handleUpdateKeys(c *echo.Context, kvs *cloudfrontbackend.KeyVa
 
 	var req updateKeysInput
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return writeAWSError(c, http.StatusBadRequest, exceptionValidation, "invalid JSON body")
 		}
 	}
@@ -656,7 +657,7 @@ func epochSeconds(rfc3339 string) float64 {
 // typical REST delete, their outputs carry a body, so 204 No Content is not
 // an option).
 func writeJSON(c *echo.Context, v any) error {
-	body, err := json.Marshal(v)
+	body, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return writeAWSError(c, http.StatusInternalServerError, exceptionInternalServer, "response marshal failed")
 	}

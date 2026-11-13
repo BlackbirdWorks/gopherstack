@@ -1,9 +1,11 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 )
 
@@ -56,11 +58,11 @@ func updateConnectWorkspace(c *connectCall, physicalID string) error {
 		return err
 	}
 
-	theme := connectbackend.UpdateWorkspaceThemeInput{Theme: json.RawMessage("null")}
+	theme := connectbackend.UpdateWorkspaceThemeInput{Theme: jsontext.Value("null")}
 	theme.InstanceID, theme.WorkspaceID = meta.InstanceID, meta.WorkspaceID
 
 	if t, ok := c.wire["Theme"]; ok {
-		raw, err := json.Marshal(t)
+		raw, err := json.Marshal(t, jsonx.V1())
 		if err != nil {
 			return err
 		}

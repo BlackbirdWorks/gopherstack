@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -45,13 +45,13 @@ type UserProfile struct {
 	Status                     string            `json:"Status"`
 	SingleSignOnUserIdentifier string            `json:"SingleSignOnUserIdentifier,omitempty"`
 	SingleSignOnUserValue      string            `json:"SingleSignOnUserValue,omitempty"`
-	UserSettings               json.RawMessage   `json:"UserSettings,omitempty"`
+	UserSettings               jsontext.Value    `json:"UserSettings,omitempty"`
 }
 
 func cloneUserProfile(up *UserProfile) *UserProfile {
 	cp := *up
 	cp.Tags = maps.Clone(up.Tags)
-	cp.UserSettings = append(json.RawMessage(nil), up.UserSettings...)
+	cp.UserSettings = append(jsontext.Value(nil), up.UserSettings...)
 
 	return &cp
 }
@@ -60,7 +60,7 @@ func cloneUserProfile(up *UserProfile) *UserProfile {
 type CreateUserProfileOptions struct {
 	SingleSignOnUserIdentifier string
 	SingleSignOnUserValue      string
-	UserSettings               json.RawMessage
+	UserSettings               jsontext.Value
 }
 
 // CreateUserProfile creates a new user profile in a domain.
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) DeleteUserProfile(ctx context.Context, domainID, name 
 // (api_op_UpdateUserProfile.go:26-38). UserSettings is omitted from the
 // request when unset, so only a non-empty value is applied.
 type UpdateUserProfileOptions struct {
-	UserSettings json.RawMessage
+	UserSettings jsontext.Value
 }
 
 // UpdateUserProfile updates a user profile in a domain. Returns the updated profile.

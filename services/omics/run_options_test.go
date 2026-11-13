@@ -1,20 +1,22 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func decodeBody(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(body, &m))
+	require.NoError(t, json.Unmarshal(body, &m, jsonx.V1()))
 
 	return m
 }

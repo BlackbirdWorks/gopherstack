@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -216,14 +217,14 @@ func TestBatch1_FoundationModel_ResponseStreamingSupported_Bool(t *testing.T) {
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
 	details := out["modelDetails"].(map[string]any)
-	rawBytes, err := json.Marshal(details)
+	rawBytes, err := json.Marshal(details, jsonx.V1())
 	require.NoError(t, err)
 
 	var typed struct {
 		InferenceTypesSupported    []string `json:"inferenceTypesSupported"`
 		ResponseStreamingSupported bool     `json:"responseStreamingSupported"`
 	}
-	require.NoError(t, json.Unmarshal(rawBytes, &typed))
+	require.NoError(t, json.Unmarshal(rawBytes, &typed, jsonx.V1()))
 	assert.True(t, typed.ResponseStreamingSupported)
 	assert.NotEmpty(t, typed.InferenceTypesSupported)
 
@@ -234,13 +235,13 @@ func TestBatch1_FoundationModel_ResponseStreamingSupported_Bool(t *testing.T) {
 	var out2 map[string]any
 	mustUnmarshal(t, rec2, &out2)
 	details2 := out2["modelDetails"].(map[string]any)
-	rawBytes2, err := json.Marshal(details2)
+	rawBytes2, err := json.Marshal(details2, jsonx.V1())
 	require.NoError(t, err)
 
 	var typed2 struct {
 		ResponseStreamingSupported bool `json:"responseStreamingSupported"`
 	}
-	require.NoError(t, json.Unmarshal(rawBytes2, &typed2))
+	require.NoError(t, json.Unmarshal(rawBytes2, &typed2, jsonx.V1()))
 	assert.False(t, typed2.ResponseStreamingSupported)
 }
 
@@ -270,7 +271,7 @@ func TestAccuracy_FoundationModel_ListIsNonEmpty(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries := out["modelSummaries"].([]any)
 			assert.NotEmpty(t, summaries, "foundation models must be seeded on init")
 		})
@@ -294,7 +295,7 @@ func TestAccuracy_FoundationModel_FieldsPresentOnList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	summaries := out["modelSummaries"].([]any)
 	require.NotEmpty(t, summaries)
 
@@ -336,7 +337,7 @@ func TestParity_FoundationModel_ARNIncludesRegion(t *testing.T) {
 					ModelID  string `json:"modelId"`
 				} `json:"modelDetails"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arn := resp.ModelDetails.ModelArn
 			assert.True(t, strings.HasPrefix(arn, "arn:aws:bedrock:us-east-1::foundation-model/"),
@@ -363,7 +364,7 @@ func TestParity_ListFoundationModels_ARNFormat(t *testing.T) {
 			ModelArn string `json:"modelArn"`
 		} `json:"modelSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp.ModelSummaries, "ListFoundationModels must return at least one model")
 
 	for _, m := range resp.ModelSummaries {
@@ -402,7 +403,7 @@ func TestParity_FoundationModel_ModelLifecyclePresent(t *testing.T) {
 					} `json:"modelLifecycle"`
 				} `json:"modelDetails"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, "ACTIVE", resp.ModelDetails.ModelLifecycle.Status,
 				"modelLifecycle.status must be ACTIVE for available models")
@@ -427,7 +428,7 @@ func TestParity_ListFoundationModels_ModelLifecyclePresent(t *testing.T) {
 			ModelID string `json:"modelId"`
 		} `json:"modelSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp.ModelSummaries)
 
 	for _, m := range resp.ModelSummaries {
@@ -470,7 +471,7 @@ func TestParity_GetFoundationModel_ByARN(t *testing.T) {
 					ModelArn string `json:"modelArn"`
 				} `json:"modelDetails"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.modelID, resp.ModelDetails.ModelID,
 				"GetFoundationModel by ARN must return the correct model")
 			assert.Equal(t, expectedARN, resp.ModelDetails.ModelArn,
@@ -501,7 +502,7 @@ func TestParity_GetFoundationModel_NotFound(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			errType, _ := resp["__type"].(string)
 			assert.Contains(t, errType, "ResourceNotFoundException")
 		})

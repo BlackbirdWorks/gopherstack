@@ -7,7 +7,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type dataFormat int
@@ -454,12 +457,12 @@ func jsonRaw(v any) string {
 		return ""
 	case string:
 		return t
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	case bool:
 		return strconv.FormatBool(t)
 	default:
-		b, _ := json.Marshal(t)
+		b, _ := json.Marshal(t, jsonx.V1())
 
 		return string(b)
 	}
@@ -475,12 +478,11 @@ func (l *tableLoader) decodeJSON(ctx context.Context, rd io.Reader, f tableForma
 			continue
 		}
 
-		dec := json.NewDecoder(bytes.NewReader(line))
-		dec.UseNumber()
+		dec := jsontext.NewDecoder(bytes.NewReader(line))
 
 		var obj map[string]any
 
-		if err := dec.Decode(&obj); err != nil {
+		if err := json.UnmarshalDecode(dec, &obj, jsonx.V1(), jsonx.UseNumber()); err != nil {
 			if f.ignoreBad {
 				continue
 			}

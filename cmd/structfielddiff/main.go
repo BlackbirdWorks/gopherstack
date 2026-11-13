@@ -38,7 +38,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -50,6 +51,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/cmd/internal/sdkshape"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dirModuleOverride maps services/<dir> to its aws-sdk-go-v2/service module
@@ -261,10 +263,9 @@ func writeJSON(path string, dumps []opDump) {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", " ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(" "))
 
-	if encErr := enc.Encode(dumps); encErr != nil {
+	if encErr := json.MarshalEncode(enc, dumps); encErr != nil {
 		fatal(encErr)
 	}
 

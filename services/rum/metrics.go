@@ -3,13 +3,14 @@ package rum
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
@@ -184,7 +185,7 @@ func (b *InMemoryBackend) ListRumMetricsDestinations(
 
 func jsonObjectOf(s string) (map[string]any, error) {
 	var out map[string]any
-	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
+	if err := json.Unmarshal([]byte(s), &out, jsonx.V1()); err != nil || out == nil {
 		return nil, invalid("EventPattern must be a JSON object")
 	}
 

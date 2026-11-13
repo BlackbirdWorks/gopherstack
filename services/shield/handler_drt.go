@@ -1,8 +1,10 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // associateDRTLogBucketRequest is the request body for AssociateDRTLogBucket.
@@ -12,7 +14,7 @@ type associateDRTLogBucketRequest struct {
 
 func (h *Handler) handleAssociateDRTLogBucket(body []byte) error {
 	var req associateDRTLogBucketRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -34,7 +36,7 @@ type disassociateDRTLogBucketRequest struct {
 
 func (h *Handler) handleDisassociateDRTLogBucket(body []byte) error {
 	var req disassociateDRTLogBucketRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -52,7 +54,7 @@ type associateDRTRoleRequest struct {
 
 func (h *Handler) handleAssociateDRTRole(body []byte) error {
 	var req associateDRTRoleRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -83,5 +85,5 @@ func (h *Handler) handleDescribeDRTAccess() ([]byte, error) {
 		resp["RoleArn"] = access.RoleArn
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

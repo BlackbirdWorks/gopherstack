@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -36,7 +37,7 @@ func TestPublishingDestinations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				destID, _ := createResp["destinationId"].(string)
 				require.NotEmpty(t, destID)
 
@@ -45,7 +46,7 @@ func TestPublishingDestinations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "S3", descResp["destinationType"])
 
 				// UpdatePublishingDestination
@@ -62,7 +63,7 @@ func TestPublishingDestinations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				dests, _ := listResp["destinations"].([]any)
 				assert.Len(t, dests, 1)
 
@@ -72,7 +73,7 @@ func TestPublishingDestinations(t *testing.T) {
 
 				// List after delete
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/publishingDestination", nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				destsAfter, _ := listResp["destinations"].([]any)
 				assert.Empty(t, destsAfter)
 			},

@@ -2,7 +2,8 @@ package directconnect
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // CloudFormation resource types provisioned through CreateCFNResource.
@@ -94,15 +97,14 @@ func coerceNumbers(m map[string]any, keys ...string) {
 }
 
 func decodeStrict(m map[string]any, out any) error {
-	raw, err := json.Marshal(lowerKeys(m))
+	raw, err := json.Marshal(lowerKeys(m), jsonx.V1())
 	if err != nil {
 		return clientError(err.Error())
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
-	if err = dec.Decode(out); err != nil {
+	if err = json.UnmarshalDecode(dec, out, jsonx.V1(), json.RejectUnknownMembers(true)); err != nil {
 		return clientError("invalid properties: " + err.Error())
 	}
 

@@ -2,7 +2,8 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 )
@@ -227,7 +229,7 @@ func startCFNResponseServer(
 		}
 
 		var resp cfnCustomResourceResponse
-		_ = json.NewDecoder(r.Body).Decode(&resp)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &resp, jsonx.V1())
 
 		select {
 		case respCh <- resp:
@@ -318,7 +320,7 @@ func (rc *ResourceCreator) createCustomResource(
 		ResourceProperties: props,
 	}
 
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		return defaultPhysID, nil
 	}
@@ -421,7 +423,7 @@ func (rc *ResourceCreator) updateCustomResource(
 		OldResourceProperties: oldProps,
 	}
 
-	payload, merr := json.Marshal(event)
+	payload, merr := json.Marshal(event, jsonx.V1())
 	if merr != nil {
 		return nil
 	}
@@ -487,7 +489,7 @@ func (rc *ResourceCreator) deleteCustomResource(
 		ResourceProperties: props,
 	}
 
-	payload, merr := json.Marshal(event)
+	payload, merr := json.Marshal(event, jsonx.V1())
 	if merr != nil {
 		return nil
 	}
@@ -674,14 +676,14 @@ func (r *MacroRegistry) InvokeMacro(
 	event := map[string]any{
 		"region":                  cfnDefaultRegion,
 		"accountId":               "000000000000",
-		"fragment":                json.RawMessage(fragmentJSON),
+		"fragment":                jsontext.Value(fragmentJSON),
 		"transformId":             macroName,
 		"params":                  map[string]any{},
 		"templateParameterValues": params,
 		"requestedTransforms":     []string{macroName},
 	}
 
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		return fragmentJSON, err
 	}
@@ -699,12 +701,12 @@ func (r *MacroRegistry) InvokeMacro(
 
 	// Parse macro response: {"status": "success", "fragment": {...}}
 	var resp struct {
-		Status       string          `json:"status"`
-		ErrorMessage string          `json:"errorMessage,omitempty"`
-		Fragment     json.RawMessage `json:"fragment"`
+		Status       string         `json:"status"`
+		ErrorMessage string         `json:"errorMessage,omitempty"`
+		Fragment     jsontext.Value `json:"fragment"`
 	}
 
-	if unmarshalErr := json.Unmarshal(result, &resp); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(result, &resp, jsonx.V1()); unmarshalErr != nil {
 		return fragmentJSON, unmarshalErr
 	}
 

@@ -1,7 +1,8 @@
 package client_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	compatcontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type fakeDaemon struct {
@@ -26,7 +28,7 @@ func (f *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/containers/create"):
 		f.mu.Lock()
-		_ = json.NewDecoder(r.Body).Decode(&f.createBody)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &f.createBody, jsonx.V1())
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"Id":"abc","Warnings":[]}`))

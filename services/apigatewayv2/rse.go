@@ -2,11 +2,13 @@ package apigatewayv2
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // EvalRouteSelectionExpression evaluates an AWS API Gateway v2 route-selection
@@ -95,7 +97,7 @@ func parseJSONBody(r *http.Request) map[string]any {
 	}
 
 	var obj map[string]any
-	if jsonErr := json.Unmarshal(raw, &obj); jsonErr != nil {
+	if jsonErr := json.Unmarshal(raw, &obj, jsonx.V1()); jsonErr != nil {
 		return nil
 	}
 

@@ -2,12 +2,13 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -306,7 +307,7 @@ func TestDeleteStack_ClearsDriftMaps(t *testing.T) {
 		ResourceDriftStatus map[string]map[string]string `json:"resourceDriftStatus"`
 		ResourceDriftDetail map[string]map[string]any    `json:"resourceDriftDetail"`
 	}
-	require.NoError(t, json.Unmarshal(b.Snapshot(context.Background()), &probe))
+	require.NoError(t, json.Unmarshal(b.Snapshot(context.Background()), &probe, jsonx.V1()))
 	assert.NotContains(t, probe.ResourceDriftStatus, stack.StackID)
 	assert.NotContains(t, probe.ResourceDriftDetail, stack.StackID)
 	assert.Contains(t, probe.ResourceDriftStatus, otherStack.StackID,

@@ -2,12 +2,14 @@ package resourceexplorer2_test
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed supported_types.json
@@ -21,7 +23,7 @@ func TestDocumentedTypesCatalog(t *testing.T) {
 		Types  []string `json:"types"`
 	}
 
-	require.NoError(t, json.Unmarshal(documentedTypes, &c))
+	require.NoError(t, json.Unmarshal(documentedTypes, &c, jsonx.V1()))
 
 	tests := []struct {
 		check func(t *testing.T)

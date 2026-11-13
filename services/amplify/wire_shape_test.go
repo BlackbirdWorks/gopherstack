@@ -1,7 +1,7 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
@@ -163,7 +164,7 @@ func TestGetBackendEnvironment_NoFabricatedAppID(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			be, ok := resp["backendEnvironment"].(map[string]any)
 			require.True(t, ok)
 
@@ -205,7 +206,7 @@ func TestGetDomainAssociation_NoFabricatedAppID(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			da, ok := resp["domainAssociation"].(map[string]any)
 			require.True(t, ok)
 

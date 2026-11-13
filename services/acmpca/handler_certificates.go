@@ -2,11 +2,13 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -169,7 +171,7 @@ type revokeCertificateOutput struct{}
 
 func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 	var input issueCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgs
 	}
 
@@ -486,7 +488,7 @@ func decodeGeneralName(gn generalNameWire) (APIPassthroughSAN, error) {
 
 func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -511,7 +513,7 @@ func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonRevokeCert(ctx context.Context, body []byte) (any, error) {
 	var input revokeCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 

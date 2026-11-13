@@ -2,11 +2,12 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
@@ -85,7 +86,7 @@ func (b *InMemoryBackend) resolveRegistryAuth(ctx context.Context, cd ContainerD
 		Password string `json:"password"`
 	}
 
-	if json.Unmarshal([]byte(raw), &creds) != nil || creds.Username == "" || creds.Password == "" {
+	if json.Unmarshal([]byte(raw), &creds, jsonx.V1()) != nil || creds.Username == "" || creds.Password == "" {
 		return "", secretLaunchError(sourceASM, param, errRegistryCredentials)
 	}
 

@@ -2,7 +2,8 @@ package gcpsql
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -160,7 +162,7 @@ func decode[T any](c *echo.Context) (T, error) {
 		return v, nil
 	}
 
-	if err = json.Unmarshal(data, &v); err != nil {
+	if err = json.Unmarshal(data, &v, jsonx.V1()); err != nil {
 		return v, errInvalid("Invalid JSON payload received: %v", err)
 	}
 
@@ -171,7 +173,7 @@ func decode[T any](c *echo.Context) (T, error) {
 func decodeContext[T any](c *echo.Context, key string) (T, map[string]any, error) {
 	var typed T
 
-	wrapper, err := decode[map[string]json.RawMessage](c)
+	wrapper, err := decode[map[string]jsontext.Value](c)
 	if err != nil {
 		return typed, nil, err
 	}
@@ -181,13 +183,13 @@ func decodeContext[T any](c *echo.Context, key string) (T, map[string]any, error
 		return typed, nil, errInvalid("Missing parameter: %s.", key)
 	}
 
-	if err = json.Unmarshal(raw, &typed); err != nil {
+	if err = json.Unmarshal(raw, &typed, jsonx.V1()); err != nil {
 		return typed, nil, errInvalid("Invalid %s: %v", key, err)
 	}
 
 	var echoed map[string]any
 
-	_ = json.Unmarshal(raw, &echoed)
+	_ = json.Unmarshal(raw, &echoed, jsonx.V1())
 
 	return typed, echoed, nil
 }

@@ -3,7 +3,7 @@ package appsync
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"math/big"
@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resolverError is an error raised from a mapping template or handler
@@ -168,13 +170,13 @@ func utilCore() map[string]utilFn {
 			return newKSUID(), nil
 		},
 		"toJson": func(_ *utilEnv, a []any) (any, error) {
-			b, err := json.Marshal(argAt(a, 0))
+			b, err := json.Marshal(argAt(a, 0), jsonx.V1())
 
 			return string(b), err
 		},
 		"parseJson": func(_ *utilEnv, a []any) (any, error) {
 			var v any
-			if err := json.Unmarshal([]byte(argStr(a, 0)), &v); err != nil {
+			if err := json.Unmarshal([]byte(argStr(a, 0)), &v, jsonx.V1()); err != nil {
 				return nil, fmt.Errorf("%w: invalid JSON", ErrValidation)
 			}
 
@@ -405,7 +407,7 @@ func fmtNum(v any) string {
 		return strconv.Itoa(t)
 	case float64:
 		return strconv.FormatFloat(t, 'f', -1, 64)
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	}
 

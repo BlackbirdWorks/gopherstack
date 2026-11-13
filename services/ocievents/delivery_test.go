@@ -1,7 +1,7 @@
 package ocievents_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocinotifications "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstorage "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
@@ -167,7 +168,7 @@ func TestFilterMatching(t *testing.T) {
 			require.Len(t, got, 1)
 
 			var env map[string]any
-			require.NoError(t, json.Unmarshal([]byte(got[0]), &env))
+			require.NoError(t, json.Unmarshal([]byte(got[0]), &env, jsonx.V1()))
 			assert.Equal(t, tt.event.EventType, env["eventType"])
 			assert.Equal(t, "0.1", env["cloudEventsVersion"])
 			assert.Equal(t, "2.0", env["eventTypeVersion"])
@@ -379,7 +380,7 @@ func (p *pipeline) streamed(t *testing.T) []map[string]any {
 
 	for _, m := range msgs {
 		var env map[string]any
-		require.NoError(t, json.Unmarshal(m.Value, &env))
+		require.NoError(t, json.Unmarshal(m.Value, &env, jsonx.V1()))
 
 		out = append(out, env)
 	}
@@ -438,7 +439,7 @@ func TestObjectEventsDelivered(t *testing.T) {
 		assert.Equal(t, ociobjectstorage.DefaultNamespace, details["namespace"])
 
 		var fromFn map[string]any
-		require.NoError(t, json.Unmarshal([]byte(invoked[i]), &fromFn))
+		require.NoError(t, json.Unmarshal([]byte(invoked[i]), &fromFn, jsonx.V1()))
 		assert.Equal(t, streamed[i]["eventID"], fromFn["eventID"])
 	}
 

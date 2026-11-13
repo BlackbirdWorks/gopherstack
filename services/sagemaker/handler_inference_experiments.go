@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,7 +37,7 @@ type createInferenceExperimentInput struct {
 func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req createInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -69,7 +71,7 @@ func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn}, jsonx.V1())
 }
 
 // describeInferenceExperimentInput mirrors DescribeInferenceExperimentInput
@@ -81,7 +83,7 @@ type describeInferenceExperimentInput struct {
 func (h *Handler) handleDescribeInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -94,7 +96,7 @@ func (h *Handler) handleDescribeInferenceExperiment(ctx context.Context, body []
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // stopInferenceExperimentInput mirrors StopInferenceExperimentInput
@@ -115,7 +117,7 @@ type stopInferenceExperimentInput struct {
 func (h *Handler) handleStopInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -133,7 +135,7 @@ func (h *Handler) handleStopInferenceExperiment(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn}, jsonx.V1())
 }
 
 // deleteInferenceExperimentInput mirrors DeleteInferenceExperimentInput
@@ -149,7 +151,7 @@ type deleteInferenceExperimentInput struct {
 func (h *Handler) handleDeleteInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -162,7 +164,7 @@ func (h *Handler) handleDeleteInferenceExperiment(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyInferenceExperimentArn: arn})
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: arn}, jsonx.V1())
 }
 
 // startInferenceExperimentInput mirrors StartInferenceExperimentInput
@@ -174,7 +176,7 @@ type startInferenceExperimentInput struct {
 func (h *Handler) handleStartInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req startInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -187,7 +189,7 @@ func (h *Handler) handleStartInferenceExperiment(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn}, jsonx.V1())
 }
 
 // updateInferenceExperimentInput mirrors UpdateInferenceExperimentInput
@@ -205,7 +207,7 @@ type updateInferenceExperimentInput struct {
 func (h *Handler) handleUpdateInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateInferenceExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -224,7 +226,7 @@ func (h *Handler) handleUpdateInferenceExperiment(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
+	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn}, jsonx.V1())
 }
 
 // listInferenceExperimentsInput mirrors ListInferenceExperimentsInput
@@ -249,7 +251,7 @@ type listInferenceExperimentsInput struct {
 func (h *Handler) handleListInferenceExperiments(ctx context.Context, body []byte) ([]byte, error) {
 	var req listInferenceExperimentsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

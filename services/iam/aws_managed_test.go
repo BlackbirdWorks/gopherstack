@@ -1,7 +1,8 @@
 package iam_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io/fs"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -475,13 +477,13 @@ func TestAWSManagedPolicyCatalog_Integrity(t *testing.T) {
 
 	var file struct {
 		Policies []struct {
-			Name             string          `json:"name"`
-			Path             string          `json:"path"`
-			DefaultVersionID string          `json:"defaultVersionId"`
-			Document         json.RawMessage `json:"document"`
+			Name             string         `json:"name"`
+			Path             string         `json:"path"`
+			DefaultVersionID string         `json:"defaultVersionId"`
+			Document         jsontext.Value `json:"document"`
 		} `json:"policies"`
 	}
-	require.NoError(t, json.Unmarshal(raw, &file))
+	require.NoError(t, json.Unmarshal(raw, &file, jsonx.V1()))
 
 	seen := map[string]bool{}
 
@@ -496,7 +498,7 @@ func TestAWSManagedPolicyCatalog_Integrity(t *testing.T) {
 			Version   string `json:"Version"`
 			Statement []any  `json:"Statement"`
 		}
-		require.NoError(t, json.Unmarshal(p.Document, &d), key)
+		require.NoError(t, json.Unmarshal(p.Document, &d, jsonx.V1()), key)
 		assert.Equal(t, "2012-10-17", d.Version, key)
 		assert.NotEmpty(t, d.Statement, key)
 	}

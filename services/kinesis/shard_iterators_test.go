@@ -3,7 +3,7 @@ package kinesis_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -60,7 +61,7 @@ func TestGetShardIterator_ByARN(t *testing.T) {
 			var resp struct {
 				ShardIterator string `json:"ShardIterator"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.ShardIterator)
 		})
 	}
@@ -203,7 +204,7 @@ func TestGetShardIteratorBadIteratorType(t *testing.T) {
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	shardID := descResp.StreamDescription.Shards[0].ShardID
 
 	rec = doRequest(t, h, "GetShardIterator", map[string]any{
@@ -264,7 +265,7 @@ func testGetShardIteratorAtTimestamp(t *testing.T) {
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	require.Len(t, descResp.StreamDescription.Shards, 1)
 	shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -288,7 +289,7 @@ func testGetShardIteratorAtTimestamp(t *testing.T) {
 	var iterResp struct {
 		ShardIterator string `json:"ShardIterator"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp, jsonx.V1()))
 	assert.NotEmpty(t, iterResp.ShardIterator)
 
 	// GetRecords should return the record.
@@ -302,7 +303,7 @@ func testGetShardIteratorAtTimestamp(t *testing.T) {
 			Data []byte `json:"Data"`
 		} `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Len(t, getResp.Records, 1)
 	assert.Equal(t, []byte("hello"), getResp.Records[0].Data)
 }
@@ -328,7 +329,7 @@ func TestGetShardIterator_AtTimestampRequiresTimestamp(t *testing.T) {
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	shardID := descResp.StreamDescription.Shards[0].ShardID
 
 	rec = doRequest(t, h, "GetShardIterator", map[string]any{
@@ -342,7 +343,7 @@ func TestGetShardIterator_AtTimestampRequiresTimestamp(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", errResp.Type)
 }
 
@@ -423,7 +424,7 @@ func testGetRecordsNextShardIteratorHasExpiry(t *testing.T) {
 	require.NoError(t, err)
 
 	var next kinesis.ShardIterator
-	require.NoError(t, json.Unmarshal(raw, &next))
+	require.NoError(t, json.Unmarshal(raw, &next, jsonx.V1()))
 
 	assert.False(t, next.CreatedAt.IsZero(),
 		"NextShardIterator must carry a CreatedAt so ExpiredIteratorException can ever fire on a chained token")

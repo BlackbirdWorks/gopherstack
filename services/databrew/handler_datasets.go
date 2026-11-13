@@ -2,9 +2,11 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseDatasetOp(method, name string) string {
@@ -72,7 +74,7 @@ func (h *Handler) handleCreateDataset(ctx context.Context, body []byte) ([]byte,
 		Name          string               `json:"Name"`
 		Format        string               `json:"Format"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	ds, err := h.Backend.CreateDataset(
@@ -82,14 +84,14 @@ func (h *Handler) handleCreateDataset(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: ds.Name})
+	return json.Marshal(map[string]string{keyName: ds.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	ds, err := h.Backend.DescribeDataset(ctx, req.Name)
@@ -100,7 +102,7 @@ func (h *Handler) handleDescribeDataset(ctx context.Context, body []byte) ([]byt
 	cp := *ds
 	cp.AccountID = ""
 
-	return json.Marshal(cp)
+	return json.Marshal(cp, jsonx.V1())
 }
 
 func (h *Handler) handleListDatasets(ctx context.Context, body []byte) ([]byte, error) {
@@ -108,7 +110,7 @@ func (h *Handler) handleListDatasets(ctx context.Context, body []byte) ([]byte, 
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -127,7 +129,7 @@ func (h *Handler) handleUpdateDataset(ctx context.Context, body []byte) ([]byte,
 		Name          string               `json:"Name"`
 		Format        string               `json:"Format"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateDataset(
@@ -136,19 +138,19 @@ func (h *Handler) handleUpdateDataset(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteDataset(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }

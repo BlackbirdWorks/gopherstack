@@ -1,8 +1,10 @@
 package serverlessrepo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, error) {
@@ -60,5 +62,5 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 		resp["nextToken"] = encodePageToken(deps[end-1].ApplicationID)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

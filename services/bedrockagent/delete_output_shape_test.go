@@ -1,7 +1,7 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
 
@@ -86,7 +87,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 				require.Equal(t, http.StatusOK, agRec.Code, agRec.Body.String())
 
 				var agOut map[string]map[string]any
-				require.NoError(t, json.Unmarshal(agRec.Body.Bytes(), &agOut))
+				require.NoError(t, json.Unmarshal(agRec.Body.Bytes(), &agOut, jsonx.V1()))
 				groupID, _ := agOut["agentActionGroup"]["actionGroupId"].(string)
 				require.NotEmpty(t, groupID)
 
@@ -121,7 +122,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 				require.Equal(t, http.StatusCreated, verRec.Code, verRec.Body.String())
 
 				var verBody map[string]any
-				require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody))
+				require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody, jsonx.V1()))
 				version, _ := verBody["version"].(string)
 				require.NotEmpty(t, version)
 
@@ -143,7 +144,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 				require.Equal(t, http.StatusCreated, aliasRec.Code, aliasRec.Body.String())
 
 				var aliasBody map[string]any
-				require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody))
+				require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody, jsonx.V1()))
 				aliasID, _ := aliasBody["id"].(string)
 				require.NotEmpty(t, aliasID)
 
@@ -242,7 +243,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 				require.Equal(t, http.StatusCreated, verRec.Code, verRec.Body.String())
 
 				var verBody map[string]any
-				require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody))
+				require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody, jsonx.V1()))
 				version, _ := verBody["version"].(string)
 				require.NotEmpty(t, version)
 
@@ -269,7 +270,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			gotKeys := make([]string, 0, len(out))
 			for k := range out {
@@ -296,7 +297,7 @@ func createTestAgentForDeleteSweep(t *testing.T, h *bedrockagent.Handler, e *ech
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	agentID, _ := out["agent"]["agentId"].(string)
 	require.NotEmpty(t, agentID)
 
@@ -318,7 +319,7 @@ func createTestAgentAliasForDeleteSweep(
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	aliasID, _ := out["agentAlias"]["agentAliasId"].(string)
 	require.NotEmpty(t, aliasID)
 
@@ -342,7 +343,7 @@ func createTestFlowForDeleteSweep(t *testing.T, h *bedrockagent.Handler, e *echo
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	flowID, _ := out["id"].(string)
 	require.NotEmpty(t, flowID)
 
@@ -361,7 +362,7 @@ func createTestKBForDeleteSweep(t *testing.T, h *bedrockagent.Handler, e *echo.E
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	kbID, _ := out["knowledgeBase"]["knowledgeBaseId"].(string)
 	require.NotEmpty(t, kbID)
 
@@ -378,7 +379,7 @@ func createTestDSForDeleteSweep(t *testing.T, h *bedrockagent.Handler, e *echo.E
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	dsID, _ := out["dataSource"]["dataSourceId"].(string)
 	require.NotEmpty(t, dsID)
 
@@ -398,7 +399,7 @@ func createTestPromptForDeleteSweep(t *testing.T, h *bedrockagent.Handler, e *ec
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	promptID, _ := out["id"].(string)
 	require.NotEmpty(t, promptID)
 

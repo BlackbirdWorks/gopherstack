@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -613,7 +614,7 @@ func TestSizeInBytes_IncludesStorageClassBreakdown(t *testing.T) {
 	var createOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	descRec := doREST(t, h, http.MethodGet,
 		"/2015-02-01/file-systems?FileSystemId="+createOut.FileSystemID, nil)
@@ -624,7 +625,7 @@ func TestSizeInBytes_IncludesStorageClassBreakdown(t *testing.T) {
 			SizeInBytes map[string]any `json:"SizeInBytes"`
 		} `json:"FileSystems"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.Len(t, descOut.FileSystems, 1)
 
 	sib := descOut.FileSystems[0].SizeInBytes
@@ -655,7 +656,7 @@ func TestDeleteFileSystem_RejectedWhenMountTargetsExist(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	mtRec := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
 		"FileSystemId": fsOut.FileSystemID,
@@ -685,7 +686,7 @@ func TestFileSystem_CreatingToAvailableLifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		assert.Equal(t, "creating", out["LifeCycleState"],
 			"newly created FS should be in 'creating' state immediately after CreateFileSystem")
@@ -701,7 +702,7 @@ func TestFileSystem_CreatingToAvailableLifecycle(t *testing.T) {
 					LifeCycleState string `json:"LifeCycleState"`
 				} `json:"FileSystems"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			require.NotEmpty(t, descOut.FileSystems)
 
 			return descOut.FileSystems[0].LifeCycleState
@@ -850,7 +851,7 @@ func TestDescribeFileSystems_PaginationMarker(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var page fsPage
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page, jsonx.V1()))
 		require.NotEmpty(t, page.FileSystems, "page must not be empty while a marker is being followed")
 
 		pageSizes = append(pageSizes, len(page.FileSystems))

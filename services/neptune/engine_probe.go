@@ -7,7 +7,7 @@ import (
 	"crypto/sha1" //nolint:gosec // RFC 6455 mandates SHA-1 for the handshake accept key
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -98,7 +100,7 @@ func ProbeGremlin(ctx context.Context, addr string) error {
 	}
 
 	var resp gremlinResponse
-	if err = json.Unmarshal(reply, &resp); err != nil {
+	if err = json.Unmarshal(reply, &resp, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode gremlin response: %w", err)
 	}
 
@@ -114,7 +116,7 @@ func gremlinPayload() ([]byte, error) {
 		RequestID: uuid.NewString(),
 		Op:        "eval",
 		Args:      map[string]any{"gremlin": gremlinProbeQ, "language": "gremlin-groovy"},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode gremlin request: %w", err)
 	}

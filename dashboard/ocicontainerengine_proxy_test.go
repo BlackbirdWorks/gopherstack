@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 )
 
@@ -50,7 +51,7 @@ func newOKEDashboard(t *testing.T) (*dashboard.DashboardHandler, string, string)
 	}
 
 	require.NoError(t, json.Unmarshal(okeSeed(t, e, http.MethodGet,
-		"/20180222/clusters?compartmentId="+okeComp, ""), &clusters))
+		"/20180222/clusters?compartmentId="+okeComp, ""), &clusters, jsonx.V1()))
 	require.Len(t, clusters, 1)
 
 	okeSeed(t, e, http.MethodPost, "/20180222/nodePools",
@@ -66,7 +67,7 @@ func newOKEDashboard(t *testing.T) (*dashboard.DashboardHandler, string, string)
 	}
 
 	require.NoError(t, json.Unmarshal(okeSeed(t, e, http.MethodGet,
-		"/20180222/nodePools?compartmentId="+okeComp, ""), &pools))
+		"/20180222/nodePools?compartmentId="+okeComp, ""), &pools, jsonx.V1()))
 	require.Len(t, pools, 1)
 
 	return dashboard.NewHandler(dashboard.Config{OCIContainerEngineOps: ops}), clusters[0].ID, pools[0].ID

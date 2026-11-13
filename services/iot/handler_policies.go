@@ -1,7 +1,8 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -189,7 +191,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -218,7 +220,7 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -307,7 +309,7 @@ func (h *Handler) handleDetachPolicy(c *echo.Context) error {
 		Target string `json:"target"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -343,7 +345,7 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 		Target    string `json:"target"`
 		Recursive bool   `json:"recursive"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -408,7 +410,7 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 		PolicyDocument string `json:"policyDocument"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}

@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -129,7 +130,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	require.Equal(t, http.StatusCreated, modelRec.Code, modelRec.Body.String())
 
 	var modelOut map[string]any
-	require.NoError(t, json.Unmarshal(modelRec.Body.Bytes(), &modelOut))
+	require.NoError(t, json.Unmarshal(modelRec.Body.Bytes(), &modelOut, jsonx.V1()))
 	modelARN := modelOut["modelArn"].(string)
 
 	// Create deployment for the model
@@ -140,7 +141,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	require.Equal(t, http.StatusCreated, depRec.Code)
 
 	var depOut map[string]any
-	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &depOut))
+	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &depOut, jsonx.V1()))
 	depARN := depOut["customModelDeploymentArn"].(string)
 	assert.NotEmpty(t, depARN)
 
@@ -148,7 +149,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "my-deployment", getOut["modelDeploymentName"])
 	// Creating is right immediately after create, but this test's own name
 	// promises "StatusIsActive" -- an assertion that only checks the first
@@ -162,7 +163,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var getOut2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2, jsonx.V1()))
 	assert.Equal(t, "Active", getOut2["status"])
 }
 
@@ -184,7 +185,7 @@ func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	deployments := listOut["modelDeploymentSummaries"].([]any)
 	assert.GreaterOrEqual(t, len(deployments), 3)
 }
@@ -203,7 +204,7 @@ func TestAccuracy_CustomModelDeployment_DeleteRemovesFromList(t *testing.T) {
 	require.Equal(t, http.StatusCreated, depRec.Code)
 
 	var depOut map[string]any
-	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &depOut))
+	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &depOut, jsonx.V1()))
 	depARN := depOut["customModelDeploymentArn"].(string)
 
 	// Delete it

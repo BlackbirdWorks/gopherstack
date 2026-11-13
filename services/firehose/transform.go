@@ -3,7 +3,7 @@ package firehose
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -94,7 +95,7 @@ func failureRecord(raw []byte, lambdaARN, code, msg string, attempts int) []byte
 		AttemptEndingTimestamp: now,
 		RawData:                base64.StdEncoding.EncodeToString(raw),
 		LambdaARN:              lambdaARN,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return raw
 	}
@@ -126,7 +127,7 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) ([]
 		}
 	}
 
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		return nil, nil
 	}
@@ -145,7 +146,7 @@ func parseLambdaTransformResponse(
 		ErrorMessage string                          `json:"errorMessage"`
 		Records      []lambdaTransformResponseRecord `json:"records"`
 	}
-	if err := json.Unmarshal(result, &resp); err != nil {
+	if err := json.Unmarshal(result, &resp, jsonx.V1()); err != nil {
 		return transformOutcome{}, &transformError{code: codeLambdaJSON, err: err}
 	}
 

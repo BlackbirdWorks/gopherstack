@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleReservedInstancesRoutes handles GET /reservedInstances → DescribeReservedInstances.
@@ -68,7 +69,7 @@ func (h *Handler) handlePurchaseReservedInstanceOffering(w http.ResponseWriter, 
 		InstanceCount              int    `json:"InstanceCount"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if req.InstanceCount == 0 {

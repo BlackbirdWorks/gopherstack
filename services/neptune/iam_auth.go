@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -289,7 +290,7 @@ func (ca clusterAuth) authenticateBolt(auth map[string]any, now time.Time) (*iam
 	}
 
 	var tok map[string]string
-	if err := json.Unmarshal([]byte(raw), &tok); err != nil {
+	if err := json.Unmarshal([]byte(raw), &tok, jsonx.V1()); err != nil {
 		return nil, errIAMBadBoltToken
 	}
 
@@ -435,7 +436,7 @@ func authorizeProxied(w http.ResponseWriter, r *http.Request) bool {
 			Gremlin string `json:"gremlin"`
 		}
 
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 		script = cmp.Or(req.Gremlin, script)
 	}
 

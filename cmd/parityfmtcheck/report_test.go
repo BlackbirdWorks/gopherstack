@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPrintReport(t *testing.T) {
@@ -68,7 +70,7 @@ func TestWriteJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	var got []jsonResult
-	require.NoError(t, json.Unmarshal(data, &got))
+	require.NoError(t, json.Unmarshal(data, &got, jsonx.V1()))
 	require.Len(t, got, 2)
 
 	assert.Equal(t, "dlm", got[0].Service)

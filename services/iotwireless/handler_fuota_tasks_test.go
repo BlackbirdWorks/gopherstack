@@ -1,13 +1,16 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_FuotaTask_LoRaWANRoundTrip verifies the LoRaWANFuotaTask
@@ -27,7 +30,7 @@ func TestHandler_FuotaTask_LoRaWANRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, _ := createResp["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -35,7 +38,7 @@ func TestHandler_FuotaTask_LoRaWANRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok := getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "US915", loRaWAN["RfRegion"])
@@ -48,7 +51,7 @@ func TestHandler_FuotaTask_LoRaWANRoundTrip(t *testing.T) {
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/fuota-tasks/"+id, "")
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok = getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "EU868", loRaWAN["RfRegion"])
@@ -114,7 +117,7 @@ func TestHandler_UpdateFuotaTask_Fields(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id, _ := createResp["Id"].(string)
 			require.NotEmpty(t, id)
 
@@ -125,7 +128,7 @@ func TestHandler_UpdateFuotaTask_Fields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.wantValue, getResp[tt.wantField])
 		})
 	}
@@ -163,7 +166,7 @@ func TestHandler_StartFuotaTask_StartTime(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id, _ := createResp["Id"].(string)
 			require.NotEmpty(t, id)
 
@@ -174,7 +177,7 @@ func TestHandler_StartFuotaTask_StartTime(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			loRaWAN, hasLoRaWAN := getResp["LoRaWAN"].(map[string]any)
 
 			if tt.wantStartTime == "" {
@@ -225,7 +228,7 @@ func TestHandler_CreateFuotaTask(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["Id"])
 			assert.NotEmpty(t, resp["Arn"])
 		})
@@ -310,7 +313,7 @@ func TestHandler_ListMulticastGroupsByFuotaTask(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ftResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ftResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ftResp, jsonx.V1()))
 	ftID := ftResp["Id"].(string)
 
 	// Create a multicast group
@@ -318,7 +321,7 @@ func TestHandler_ListMulticastGroupsByFuotaTask(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var mgResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mgResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mgResp, jsonx.V1()))
 	mgID := mgResp["Id"].(string)
 
 	// Associate multicast group with FUOTA task; AssociateMulticastGroupWithFuotaTask
@@ -332,7 +335,7 @@ func TestHandler_ListMulticastGroupsByFuotaTask(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	groups, ok := listResp["MulticastGroupList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, groups, 1)
@@ -343,7 +346,7 @@ func TestHandler_ListMulticastGroupsByFuotaTask(t *testing.T) {
 
 	// List again should return empty
 	rec = doIoTWRequest(t, h, http.MethodGet, "/fuota-tasks/"+ftID+"/multicast-groups", "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	groups = listResp["MulticastGroupList"].([]any)
 	assert.Empty(t, groups)
 }
@@ -364,7 +367,7 @@ func TestHandler_FuotaTaskUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Update
@@ -377,7 +380,7 @@ func TestHandler_FuotaTaskUpdate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "ft1-updated", getResp["Name"])
 }
 
@@ -397,7 +400,7 @@ func TestHandler_StartFuotaTask(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Start the task
@@ -421,7 +424,7 @@ func TestHandler_DisassociateWirelessDeviceFromFuotaTask(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	ftID := createResp["Id"].(string)
 
 	// Create a device
@@ -435,7 +438,7 @@ func TestHandler_DisassociateWirelessDeviceFromFuotaTask(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var devResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp, jsonx.V1()))
 	devID := devResp["Id"].(string)
 
 	// Associate device with FUOTA task; AssociateWirelessDeviceWithFuotaTask
@@ -482,7 +485,7 @@ func TestHandler_FuotaTask_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id := createResp["Id"].(string)
 			require.NotEmpty(t, id)
 
@@ -491,7 +494,7 @@ func TestHandler_FuotaTask_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.taskName, getResp["Name"])
 			assert.Equal(t, id, getResp["Id"])
 
@@ -500,7 +503,7 @@ func TestHandler_FuotaTask_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			list, ok := listResp["FuotaTaskList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, list, 1)
@@ -543,7 +546,7 @@ func TestHandler_FuotaTasks_FullLifecycle(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	fuotaID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, fuotaID, "CreateFuotaTask must return an Id")
 

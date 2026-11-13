@@ -2,7 +2,7 @@ package bedrockagentcore
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -127,7 +128,7 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return b
 }
@@ -147,7 +148,7 @@ func readJSONBody(r *http.Request) (doc, error) {
 		return d, nil
 	}
 
-	if err = json.Unmarshal(body, &d); err != nil {
+	if err = json.Unmarshal(body, &d, jsonx.V1()); err != nil {
 		return nil, invalid("request body is not valid JSON")
 	}
 

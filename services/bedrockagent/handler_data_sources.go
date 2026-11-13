@@ -2,10 +2,12 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,7 +25,7 @@ func (h *Handler) handleCreateDS(ctx context.Context, c *echo.Context, kbID stri
 		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -66,7 +68,7 @@ func (h *Handler) handleUpdateDS(
 		DataDeletionPolicy      string         `json:"dataDeletionPolicy"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 

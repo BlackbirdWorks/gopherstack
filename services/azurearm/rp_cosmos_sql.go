@@ -1,12 +1,14 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type cosmosChildKind int
@@ -608,7 +610,7 @@ func rawJSON(v any) []byte {
 		return nil
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil
 	}
@@ -618,7 +620,7 @@ func rawJSON(v any) []byte {
 
 func jsonOr(raw []byte, def map[string]any) map[string]any {
 	var m map[string]any
-	if len(raw) > 0 && json.Unmarshal(raw, &m) == nil && m != nil {
+	if len(raw) > 0 && json.Unmarshal(raw, &m, jsonx.V1()) == nil && m != nil {
 		return m
 	}
 

@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetCoverageStatistics(detectorID string, body []byte) (any, int, error) {
@@ -11,7 +13,7 @@ func (h *Handler) handleGetCoverageStatistics(detectorID string, body []byte) (a
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -35,7 +37,7 @@ func (h *Handler) handleListCoverage(detectorID string, body []byte) (any, int, 
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}

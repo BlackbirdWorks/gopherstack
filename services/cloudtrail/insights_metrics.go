@@ -1,11 +1,13 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -80,7 +82,7 @@ func eventErrorCode(ev Event) string {
 		ErrorCode string `json:"errorCode"`
 	}
 
-	if ev.CloudTrailEvent == "" || json.Unmarshal([]byte(ev.CloudTrailEvent), &rec) != nil {
+	if ev.CloudTrailEvent == "" || json.Unmarshal([]byte(ev.CloudTrailEvent), &rec, jsonx.V1()) != nil {
 		return ""
 	}
 

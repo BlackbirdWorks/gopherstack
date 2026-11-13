@@ -3,7 +3,8 @@
 package iceberg
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -35,11 +38,11 @@ var (
 
 // Field is one schema field; Type is a primitive name or a nested type object.
 type Field struct {
-	Name     string          `json:"name"`
-	Doc      string          `json:"doc,omitempty"`
-	Type     json.RawMessage `json:"type"`
-	ID       int             `json:"id"`
-	Required bool            `json:"required"`
+	Name     string         `json:"name"`
+	Doc      string         `json:"doc,omitempty"`
+	Type     jsontext.Value `json:"type"`
+	ID       int            `json:"id"`
+	Required bool           `json:"required"`
 }
 
 // Schema is an Iceberg struct schema.
@@ -98,12 +101,12 @@ type Ref struct {
 type TableMetadata struct {
 	Properties         map[string]string `json:"properties"`
 	Refs               map[string]Ref    `json:"refs,omitempty"`
-	extra              map[string]json.RawMessage
+	extra              map[string]jsontext.Value
 	TableUUID          string             `json:"table-uuid"`
 	Location           string             `json:"location"`
 	Schemas            []Schema           `json:"schemas"`
 	PartitionSpecs     []PartitionSpec    `json:"partition-specs"`
-	SortOrders         []json.RawMessage  `json:"sort-orders"`
+	SortOrders         []jsontext.Value   `json:"sort-orders"`
 	Snapshots          []Snapshot         `json:"snapshots"`
 	SnapshotLog        []SnapshotLogEntry `json:"snapshot-log"`
 	MetadataLog        []MetadataLogEntry `json:"metadata-log"`
@@ -140,11 +143,11 @@ func (m *TableMetadata) UnmarshalJSON(b []byte) error {
 
 	a.CurrentSnapshotID = NoSnapshot
 
-	if err := json.Unmarshal(b, &a); err != nil {
+	if err := json.Unmarshal(b, &a, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidMetadata, err)
 	}
 
-	if err := json.Unmarshal(b, &v1); err != nil {
+	if err := json.Unmarshal(b, &v1, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidMetadata, err)
 	}
 
@@ -157,8 +160,8 @@ func (m *TableMetadata) UnmarshalJSON(b []byte) error {
 		a.PartitionSpecs = []PartitionSpec{{SpecID: 0, Fields: v1.PartitionSpecV1}}
 	}
 
-	raw := map[string]json.RawMessage{}
-	_ = json.Unmarshal(b, &raw)
+	raw := map[string]jsontext.Value{}
+	_ = json.Unmarshal(b, &raw, jsonx.V1())
 
 	for _, k := range modeledKeys() {
 		delete(raw, k)
@@ -174,28 +177,28 @@ func (m *TableMetadata) UnmarshalJSON(b []byte) error {
 func (m *TableMetadata) MarshalJSON() ([]byte, error) {
 	out := maps.Clone(m.extra)
 	if out == nil {
-		out = map[string]json.RawMessage{}
+		out = map[string]jsontext.Value{}
 	}
 
-	typed, err := json.Marshal(metadataAlias(*m))
+	typed, err := json.Marshal(metadataAlias(*m), jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
-	var fields map[string]json.RawMessage
-	if err = json.Unmarshal(typed, &fields); err != nil {
+	var fields map[string]jsontext.Value
+	if err = json.Unmarshal(typed, &fields, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
 	maps.Copy(out, fields)
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 // ParseMetadata decodes and validates a metadata.json document.
 func ParseMetadata(data []byte) (*TableMetadata, error) {
 	var m TableMetadata
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -310,7 +313,7 @@ type NewParams struct {
 	Now        time.Time
 	Properties map[string]string
 	Location   string
-	SortOrder  json.RawMessage
+	SortOrder  jsontext.Value
 	Schema     Schema
 	Spec       PartitionSpec
 }
@@ -333,7 +336,7 @@ func NewTableMetadata(p NewParams) *TableMetadata {
 
 	order := p.SortOrder
 	if order == nil {
-		order = json.RawMessage(`{"order-id":0,"fields":[]}`)
+		order = jsontext.Value(`{"order-id":0,"fields":[]}`)
 	}
 
 	props := map[string]string{}
@@ -349,7 +352,7 @@ func NewTableMetadata(p NewParams) *TableMetadata {
 		DefaultSpecID:      p.Spec.SpecID,
 		PartitionSpecs:     []PartitionSpec{p.Spec},
 		LastPartitionID:    lastPart,
-		SortOrders:         []json.RawMessage{order},
+		SortOrders:         []jsontext.Value{order},
 		Properties:         props,
 		CurrentSnapshotID:  NoSnapshot,
 		Snapshots:          []Snapshot{},
@@ -359,12 +362,12 @@ func NewTableMetadata(p NewParams) *TableMetadata {
 	}
 }
 
-func sortOrderID(order json.RawMessage) int {
+func sortOrderID(order jsontext.Value) int {
 	var o struct {
 		ID int `json:"order-id"`
 	}
 
-	_ = json.Unmarshal(order, &o)
+	_ = json.Unmarshal(order, &o, jsonx.V1())
 
 	return o.ID
 }

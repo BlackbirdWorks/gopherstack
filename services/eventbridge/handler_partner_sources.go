@@ -2,8 +2,10 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createPartnerEventSourceOutput struct {
@@ -28,7 +30,7 @@ func (h *Handler) partnerSourceActions() map[string]actionFn {
 				Name    string `json:"Name"`
 				Account string `json:"Account"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			src, err := h.Backend.CreatePartnerEventSource(ctx, input.Name, input.Account)
@@ -48,7 +50,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -58,7 +60,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -70,7 +72,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				NextToken  string `json:"NextToken"`
 				Limit      int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			srcs, next, err := h.Backend.ListPartnerEventSources(
@@ -93,7 +95,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				EventSourceName string `json:"EventSourceName"`
 				NextToken       string `json:"NextToken"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if input.EventSourceName == "" {
@@ -121,7 +123,7 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 		},
 		"PutPartnerEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putEventsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			entries, err := h.Backend.PutPartnerEvents(ctx, input.Entries)

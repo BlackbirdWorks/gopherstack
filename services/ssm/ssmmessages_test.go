@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
@@ -188,7 +190,7 @@ func newServer(t *testing.T, withShell bool) *httptest.Server {
 func ssmCall(t *testing.T, srv *httptest.Server, op string, in any) map[string]any {
 	t.Helper()
 
-	body, err := json.Marshal(in)
+	body, err := json.Marshal(in, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader(string(body)))
@@ -202,7 +204,7 @@ func ssmCall(t *testing.T, srv *httptest.Server, op string, in any) map[string]a
 	defer resp.Body.Close()
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	return out
 }
@@ -232,7 +234,7 @@ func (c *dcClient) open(token string) {
 	b, _ := json.Marshal(ssm.OpenDataChannelInput{
 		MessageSchemaVersion: "1.0", RequestID: uuid.NewString(), TokenValue: token,
 		ClientID: uuid.NewString(), ClientVersion: "1.2.0.0",
-	})
+	}, jsonx.V1())
 	require.NoError(c.t, c.ws.WriteMessage(websocket.TextMessage, b))
 }
 
@@ -280,7 +282,7 @@ func (c *dcClient) nextNonAck(acked map[int64]bool) *ssm.StreamMessage {
 		}
 
 		var a ssm.AckPayload
-		require.NoError(c.t, json.Unmarshal(m.Payload, &a))
+		require.NoError(c.t, json.Unmarshal(m.Payload, &a, jsonx.V1()))
 		acked[a.SequenceNumber] = true
 	}
 }
@@ -296,7 +298,7 @@ func (c *dcClient) handshake(acked map[int64]bool) {
 	resp, _ := json.Marshal(ssm.HandshakeResponsePayload{
 		ClientVersion:          "1.2.0.0",
 		ProcessedClientActions: []ssm.ProcessedClientAction{{ActionType: "SessionType", ActionStatus: 1}},
-	})
+	}, jsonx.V1())
 	c.input(ssm.PayloadHandshakeResponse, resp)
 
 	done := c.nextNonAck(acked)

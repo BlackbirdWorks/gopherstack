@@ -3,7 +3,7 @@ package cognitoidentity
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -119,7 +120,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		IdentityID     string `json:"IdentityId"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.IdentityPoolID != "" {
 		return req.IdentityPoolID
@@ -186,7 +187,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -252,11 +253,11 @@ func resolveErrorType(err error) (string, int) {
 		}
 	}
 
-	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
+	if _, ok := jsonx.SyntaxError(err); ok {
 		return ErrInvalidParameter.Error(), http.StatusBadRequest
 	}
 
-	if _, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
+	if _, ok := jsonx.TypeError(err); ok {
 		return ErrInvalidParameter.Error(), http.StatusBadRequest
 	}
 

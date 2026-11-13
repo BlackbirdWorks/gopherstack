@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -102,7 +104,7 @@ func TestHandler_CreateAPICache_Validation(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			gqlAPI := resp["graphqlApi"].(map[string]any)
 			apiID := gqlAPI["apiId"].(string)
 
@@ -130,7 +132,7 @@ func TestHandler_GetApiCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["apiCache"])
 }
 
@@ -174,7 +176,7 @@ func TestHandler_UpdateApiCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	cache := resp["apiCache"].(map[string]any)
 	assert.Equal(t, "LARGE", cache["type"])
 }

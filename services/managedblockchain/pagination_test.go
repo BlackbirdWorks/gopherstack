@@ -1,13 +1,15 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListNetworks_Pagination verifies ListNetworks honors
@@ -33,7 +35,7 @@ func TestHandler_ListNetworks_Pagination(t *testing.T) {
 
 	rec := doRequestWithQuery(t, h, "/networks", map[string]string{"maxResults": "2"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Networks, 2)
 	require.NotEmpty(t, page1.NextToken, "a 5-item list capped at maxResults=2 must return a NextToken")
 
@@ -41,7 +43,7 @@ func TestHandler_ListNetworks_Pagination(t *testing.T) {
 
 	rec = doRequestWithQuery(t, h, "/networks", map[string]string{"maxResults": "2", "nextToken": page1.NextToken})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Networks, 2)
 	require.NotEmpty(t, page2.NextToken)
 
@@ -49,7 +51,7 @@ func TestHandler_ListNetworks_Pagination(t *testing.T) {
 
 	rec = doRequestWithQuery(t, h, "/networks", map[string]string{"maxResults": "2", "nextToken": page2.NextToken})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page3))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page3, jsonx.V1()))
 	assert.Len(t, page3.Networks, 1)
 	assert.Empty(t, page3.NextToken, "the final page must omit NextToken")
 
@@ -69,7 +71,7 @@ func TestHandler_ListNetworks_Pagination(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/networks", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &unpaged))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &unpaged, jsonx.V1()))
 	assert.Len(t, unpaged.Networks, 5)
 	assert.Empty(t, unpaged.NextToken)
 }
@@ -109,7 +111,7 @@ func TestHandler_ListMembers_Pagination(t *testing.T) {
 
 	rec := doRequestWithQuery(t, h, "/networks/"+networkID+"/members", map[string]string{"maxResults": "3"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Members, 3)
 	require.NotEmpty(t, page1.NextToken)
 
@@ -121,7 +123,7 @@ func TestHandler_ListMembers_Pagination(t *testing.T) {
 	rec = doRequestWithQuery(t, h, "/networks/"+networkID+"/members",
 		map[string]string{"maxResults": "3", "nextToken": page1.NextToken})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Members, 1)
 	assert.Empty(t, page2.NextToken)
 }

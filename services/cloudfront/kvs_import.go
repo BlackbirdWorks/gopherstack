@@ -2,9 +2,11 @@ package cloudfront
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -64,7 +66,7 @@ func (h *Handler) readKVSImport(ctx context.Context, src *kvsImportSourceXML) ([
 
 func parseKVSImport(raw []byte) ([]*KVSItem, error) {
 	var doc kvsImportDocument
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: import source is not valid JSON: %w", ErrValidation, err)
 	}
 

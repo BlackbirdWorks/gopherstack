@@ -2,11 +2,13 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // EngineLogin identifies the master login of a cluster's live SQL engine.
@@ -196,7 +198,7 @@ func resultSize(rs *ResultSet) int64 {
 		return 0
 	}
 
-	raw, err := json.Marshal(rs.Rows)
+	raw, err := json.Marshal(rs.Rows, jsonx.V1())
 	if err != nil {
 		return 0
 	}

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -71,7 +73,7 @@ func newS3Target(ep EndpointConfig, store ObjectStore) (Target, error) {
 
 	var o s3Options
 	if ep.S3Settings != "" {
-		if err := json.Unmarshal([]byte(ep.S3Settings), &o); err != nil {
+		if err := json.Unmarshal([]byte(ep.S3Settings), &o, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("invalid S3Settings: %w", err)
 		}
 	}

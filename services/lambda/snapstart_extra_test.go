@@ -1,13 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -62,7 +64,7 @@ func TestSnapStart_ReportedOnPublishedVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ver lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&ver))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ver, jsonx.V1()))
 	require.NotNil(t, ver.SnapStart)
 	assert.Equal(t, "PublishedVersions", ver.SnapStart.ApplyOn)
 	assert.Equal(t, "On", ver.SnapStart.OptimizationStatus)
@@ -85,6 +87,6 @@ func TestSnapStart_OmittedWhenUnset(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ver lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&ver))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ver, jsonx.V1()))
 	assert.Nil(t, ver.SnapStart)
 }

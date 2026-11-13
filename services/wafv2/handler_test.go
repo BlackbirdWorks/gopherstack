@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
@@ -37,7 +38,7 @@ func doWafv2Request(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -133,7 +134,7 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var result map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidOperationException", result["__type"])
 }
 
@@ -261,7 +262,7 @@ func TestLockTokenEnforcement(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, recBad.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(recBad.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(recBad.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFOptimisticLockException", errResp["__type"])
 
 	// Update with correct lock token should succeed.
@@ -388,7 +389,7 @@ func TestLockTokenRequired_MissingTokenRejected(t *testing.T) {
 			)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "WAFInvalidParameterException", resp["__type"])
 		})
 	}
@@ -413,7 +414,7 @@ func TestVisibilityConfigMissingMetricName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidParameterException", resp["__type"])
 }
 
@@ -445,7 +446,7 @@ func TestListPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page1Rec.Code)
 
 	var page1Resp map[string]any
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp, jsonx.V1()))
 
 	acls1, ok := page1Resp["WebACLs"].([]any)
 	require.True(t, ok)
@@ -469,7 +470,7 @@ func TestListPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page2Rec.Code)
 
 	var page2Resp map[string]any
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2Resp))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2Resp, jsonx.V1()))
 
 	acls2, ok := page2Resp["WebACLs"].([]any)
 	require.True(t, ok)
@@ -496,7 +497,7 @@ func TestScopeValidationOnGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Get with wrong scope should fail.
@@ -571,7 +572,7 @@ func TestHandler_Reset(t *testing.T) {
 	// Verify it exists.
 	rec := doWafv2Request(t, h, "ListWebACLs", map[string]any{"Scope": "REGIONAL"})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["WebACLs"].([]any)
 	assert.Len(t, items, 1)
 
@@ -580,7 +581,7 @@ func TestHandler_Reset(t *testing.T) {
 
 	// Verify it's gone.
 	rec = doWafv2Request(t, h, "ListWebACLs", map[string]any{"Scope": "REGIONAL"})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ = resp["WebACLs"].([]any)
 	assert.Empty(t, items)
 }
@@ -727,7 +728,7 @@ func TestValidation_ScopeMismatch(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "scope mismatch should return 400")
 
 		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 	})
 

@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -42,7 +44,7 @@ func TestVpcConfig_Ipv6AllowedForDualStack_Create(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	vpc, _ := out["VpcConfig"].(map[string]any)
 	require.NotNil(t, vpc)
@@ -63,7 +65,7 @@ func TestVpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	vpc, _ := out["VpcConfig"].(map[string]any)
 	require.NotNil(t, vpc)
 	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
@@ -87,7 +89,7 @@ func TestVpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	vpc, _ := out["VpcConfig"].(map[string]any)
 	require.NotNil(t, vpc)
 	// omitempty: nil pointer → field absent in JSON
@@ -118,7 +120,7 @@ func TestVpcConfig_Ipv6AllowedForDualStack_GetConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out, jsonx.V1()))
 	vpc, _ := out["VpcConfig"].(map[string]any)
 	require.NotNil(t, vpc)
 	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
@@ -142,7 +144,7 @@ func TestVpcConfig_CreateAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var created lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &created, jsonx.V1()))
 	require.NotNil(t, created.VpcConfig)
 	assert.Equal(t, []string{"subnet-abc"}, created.VpcConfig.SubnetIDs)
 	assert.Equal(t, []string{"sg-xyz"}, created.VpcConfig.SecurityGroupIDs)
@@ -151,10 +153,10 @@ func TestVpcConfig_CreateAndGet(t *testing.T) {
 	rec2 := auditGetFunction(t, h, "vpc-fn")
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out, jsonx.V1()))
 	var cfg lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg))
+	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg, jsonx.V1()))
 	require.NotNil(t, cfg.VpcConfig)
 	assert.Equal(t, []string{"subnet-abc"}, cfg.VpcConfig.SubnetIDs)
 }
@@ -171,7 +173,7 @@ func TestVpcConfig_UpdateAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.VpcConfig)
 	assert.Equal(t, []string{"subnet-new"}, fn.VpcConfig.SubnetIDs)
 }
@@ -186,7 +188,7 @@ func TestTracingConfig_CreateDefault(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	// Default TracingConfig is PassThrough
 	require.NotNil(t, fn.TracingConfig)
 	assert.Equal(t, "PassThrough", fn.TracingConfig.Mode)
@@ -208,7 +210,7 @@ func TestTracingConfig_CreateActive(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.TracingConfig)
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
 }
@@ -224,7 +226,7 @@ func TestTracingConfig_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.TracingConfig)
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
 }
@@ -249,7 +251,7 @@ func TestFileSystemConfigs_CreateAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.Len(t, fn.FileSystemConfigs, 1)
 	assert.Equal(t, "arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc",
 		fn.FileSystemConfigs[0].Arn)
@@ -270,7 +272,7 @@ func TestFileSystemConfigs_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 	require.Len(t, fn.FileSystemConfigs, 1)
 	assert.Equal(t, "/mnt/new", fn.FileSystemConfigs[0].LocalMountPath)
 }
@@ -293,7 +295,7 @@ func TestDeadLetterConfig_CreateAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.DeadLetterConfig)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:my-dlq", fn.DeadLetterConfig.TargetArn)
 }
@@ -310,7 +312,7 @@ func TestDeadLetterConfig_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.DeadLetterConfig)
 	assert.Equal(t, "arn:aws:sns:us-east-1:123:my-topic", fn.DeadLetterConfig.TargetArn)
 }
@@ -339,7 +341,7 @@ func TestDurableConfig_CreateAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.DurableConfig)
 	require.NotNil(t, fn.DurableConfig.ExecutionTimeout)
 	assert.Equal(t, int32(3600), *fn.DurableConfig.ExecutionTimeout)
@@ -360,7 +362,7 @@ func TestDurableConfig_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.DurableConfig)
 	require.NotNil(t, fn.DurableConfig.ExecutionTimeout)
 	assert.Equal(t, int32(7200), *fn.DurableConfig.ExecutionTimeout)
@@ -386,7 +388,7 @@ func TestDurableConfig_PublishedVersionCarriesConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, pubRec.Code)
 
 	var ver lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&ver))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pubRec.Body), &ver, jsonx.V1()))
 	require.NotNil(t, ver.DurableConfig)
 	require.NotNil(t, ver.DurableConfig.ExecutionTimeout)
 	assert.Equal(t, int32(1800), *ver.DurableConfig.ExecutionTimeout)
@@ -631,7 +633,7 @@ func TestEphemeralStorage_DefaultOn_Create(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.EphemeralStorage)
 	assert.Equal(t, int32(512), fn.EphemeralStorage.Size)
 }
@@ -673,7 +675,7 @@ func TestEphemeralStorage_Create(t *testing.T) {
 
 			if tc.wantCode == http.StatusCreated {
 				var fn lambda.FunctionConfiguration
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 				require.NotNil(t, fn.EphemeralStorage)
 				assert.Equal(t, int32(tc.size), fn.EphemeralStorage.Size)
 			}
@@ -716,7 +718,7 @@ func TestEphemeralStorage_Update(t *testing.T) {
 
 			if tc.wantCode == http.StatusOK {
 				var fn lambda.FunctionConfiguration
-				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 				require.NotNil(t, fn.EphemeralStorage)
 				assert.Equal(t, int32(tc.size), fn.EphemeralStorage.Size)
 			}
@@ -742,7 +744,7 @@ func TestImageConfig_Persisted_Create(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.ImageConfigResponse)
 	require.NotNil(t, fn.ImageConfigResponse.ImageConfig)
 	assert.Equal(t, []string{"serve"}, fn.ImageConfigResponse.ImageConfig.Command)
@@ -768,10 +770,10 @@ func TestImageConfig_InGetFunction(t *testing.T) {
 	rec2 := auditGetFunction(t, h, "imgcfg-get-fn")
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out, jsonx.V1()))
 	var cfg lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg))
+	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg, jsonx.V1()))
 	require.NotNil(t, cfg.ImageConfigResponse)
 	require.NotNil(t, cfg.ImageConfigResponse.ImageConfig)
 	assert.Equal(t, []string{"run"}, cfg.ImageConfigResponse.ImageConfig.Command)
@@ -785,7 +787,7 @@ func TestImageConfig_NotSetForZip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Nil(t, fn.ImageConfigResponse)
 }
 
@@ -928,7 +930,7 @@ func TestAllNewFields_PersistInGetConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 
 	require.NotNil(t, fn.VpcConfig)
 	assert.Equal(t, []string{"subnet-1"}, fn.VpcConfig.SubnetIDs)
@@ -1049,14 +1051,14 @@ func TestVpcConfig_JSONShape(t *testing.T) {
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &raw, jsonx.V1()))
 
 	vpcRaw, ok := raw["VpcConfig"]
 	require.True(t, ok, "VpcConfig key missing from response")
 
-	var vpc map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(vpcRaw, &vpc))
+	var vpc map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(vpcRaw, &vpc, jsonx.V1()))
 	assert.Contains(t, vpc, "SubnetIds")
 	assert.Contains(t, vpc, "SecurityGroupIds")
 }
@@ -1068,8 +1070,8 @@ func TestTracingConfig_JSONShape(t *testing.T) {
 	rec := auditCreateFunction(t, h, baseImageFn("tracing-shape-fn"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &raw, jsonx.V1()))
 
 	_, ok := raw["TracingConfig"]
 	assert.True(t, ok, "TracingConfig key missing from response")
@@ -1104,7 +1106,7 @@ func TestMultipleFields_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 
 	// VpcConfig updated
 	require.NotNil(t, fn.VpcConfig)
@@ -1153,7 +1155,7 @@ func TestGetFunctionConfiguration_IncludesNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &fn, jsonx.V1()))
 
 	require.NotNil(t, fn.VpcConfig)
 	assert.Equal(t, []string{"subnet-gc"}, fn.VpcConfig.SubnetIDs)
@@ -1192,10 +1194,10 @@ func TestListFunctions_IncludesNewFields(t *testing.T) {
 	require.NoError(t, h.Handler()(c))
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out, jsonx.V1()))
 	var fns []lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(out["Functions"], &fns))
+	require.NoError(t, json.Unmarshal(out["Functions"], &fns, jsonx.V1()))
 	require.Len(t, fns, 1)
 	require.NotNil(t, fns[0].VpcConfig)
 	assert.Equal(t, []string{"subnet-list"}, fns[0].VpcConfig.SubnetIDs)

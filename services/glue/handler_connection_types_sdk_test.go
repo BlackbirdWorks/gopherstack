@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -121,7 +122,7 @@ func TestConnectionTypeWireShape(t *testing.T) {
 						SupportedDataOperations      []string `json:"SupportedDataOperations"`
 					} `json:"Capabilities"`
 				}
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.ElementsMatch(t, []string{"READ", "WRITE"}, out.Capabilities.SupportedDataOperations)
 			},
 		},
@@ -133,7 +134,7 @@ func TestConnectionTypeWireShape(t *testing.T) {
 				t.Helper()
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.NotContains(t, out, "Category",
 					"DescribeConnectionTypeOutput has no Category member on the real wire")
 			},
@@ -151,7 +152,7 @@ func TestConnectionTypeWireShape(t *testing.T) {
 						Categories     []string `json:"Categories"`
 					} `json:"ConnectionTypes"`
 				}
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 				found := false
 

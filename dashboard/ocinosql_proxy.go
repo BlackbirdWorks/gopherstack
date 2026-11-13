@@ -2,11 +2,14 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -135,16 +138,16 @@ func ociNoSQLCreateBody(c *echo.Context) ([]byte, bool) {
 
 	b, err := json.Marshal(map[string]any{
 		ociKeyCompartment: in.CompartmentID, ociKeyName: in.Name, "ddlStatement": in.DDL, "tableLimits": limits,
-	})
+	}, jsonx.V1())
 
 	return b, err == nil
 }
 
 func ociNoSQLRowBody(c *echo.Context) ([]byte, bool) {
 	var in struct {
-		CompartmentID string          `json:"compartmentId"`
-		Option        string          `json:"option"`
-		Value         json.RawMessage `json:"value"`
+		CompartmentID string         `json:"compartmentId"`
+		Option        string         `json:"option"`
+		Value         jsontext.Value `json:"value"`
 	}
 
 	if !ociDecodeBody(c, &in) || in.CompartmentID == "" || !bytes.HasPrefix(bytes.TrimSpace(in.Value), []byte("{")) {
@@ -160,7 +163,7 @@ func ociNoSQLRowBody(c *echo.Context) ([]byte, bool) {
 		out["option"] = in.Option
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }
@@ -182,7 +185,7 @@ func ociNoSQLQueryBody(c *echo.Context) ([]byte, bool) {
 		out["consistency"] = in.Consistency
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }

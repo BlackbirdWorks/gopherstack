@@ -2,12 +2,14 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body [
 		IdleSessionTTLInSeconds  int               `json:"idleSessionTTLInSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -92,7 +94,7 @@ func (h *Handler) handleUpdateAgent(
 		IdleSessionTTLInSeconds  int               `json:"idleSessionTTLInSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 

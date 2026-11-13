@@ -2,13 +2,14 @@ package workspaces_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -29,7 +30,7 @@ func TestDescribeWorkspaceDirectories_PaginatesResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dirs, _ := resp["Directories"].([]any)
 	assert.Len(t, dirs, 2, "both registered directories must be returned")
@@ -42,7 +43,7 @@ func TestDescribeWorkspaceDirectories_PaginatesResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	dirs2, _ := resp2["Directories"].([]any)
 	require.Len(t, dirs2, 1, "cursor should skip d-aaa and return only d-bbb")
@@ -61,7 +62,7 @@ func TestDescribeWorkspaceDirectories_AfterRegister(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dirs := resp["Directories"].([]any)
 	assert.Empty(t, dirs, "DescribeWorkspaceDirectories must be empty before registration")
 
@@ -77,7 +78,7 @@ func TestDescribeWorkspaceDirectories_AfterRegister(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 	dirs3 := resp3["Directories"].([]any)
 	require.Len(t, dirs3, 1)
 
@@ -108,7 +109,7 @@ func TestDescribeWorkspaceDirectories_FilterByID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dirs := resp["Directories"].([]any)
 	require.Len(t, dirs, 1)
 	assert.Equal(t, "d-aaaa", dirs[0].(map[string]any)["DirectoryId"])
@@ -131,7 +132,7 @@ func TestDescribeWorkspaceDirectories_AfterDeregister(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dirs := resp["Directories"].([]any)
 	assert.Empty(t, dirs, "deregistered directory must not appear")
 }
@@ -156,7 +157,7 @@ func TestRegisterWorkspaceDirectory_DuplicateRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec2.Code, "body: %s", rec2.Body)
 
 	var errOut map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "ResourceAlreadyExistsException", errOut["__type"])
 }
 
@@ -195,7 +196,7 @@ func TestDeregisterWorkspaceDirectory_BlockedByWorkspaces(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec2.Code, "body: %s", rec2.Body)
 
 	var errOut map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "InvalidResourceStateException", errOut["__type"])
 
 	// The directory must still be registered -- deregistration was rejected,

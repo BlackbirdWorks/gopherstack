@@ -1,13 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -346,7 +347,7 @@ func TestSnapshotRestore_PreservesAllState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.InDelta(t, float64(1), descResp["FaceCount"], 0)
 
 	// Verify face survives.
@@ -354,7 +355,7 @@ func TestSnapshotRestore_PreservesAllState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var facesResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &facesResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &facesResp, jsonx.V1()))
 	faces, _ := facesResp["Faces"].([]any)
 	assert.Len(t, faces, 1)
 
@@ -382,7 +383,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -396,7 +397,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp, jsonx.V1()))
 	versionARN := verResp["ProjectVersionArn"].(string)
 
 	rec = doRequest(t, h, "StartProjectVersion", map[string]any{
@@ -410,7 +411,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var dstProjResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp, jsonx.V1()))
 	dstProjectARN := dstProjResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CopyProjectVersion", map[string]any{
@@ -432,7 +433,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"].(string)
 
 	snap := backend.Snapshot(t.Context())
@@ -446,7 +447,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
 	desc := versions[0].(map[string]any)
@@ -461,7 +462,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	rec = doRequest(t, h2, "DescribeProjectVersions", map[string]any{"ProjectArn": dstProjectARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	dstVersions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, dstVersions, 1)
 	assert.Equal(t, versionARN, dstVersions[0].(map[string]any)["SourceProjectVersionArn"])
@@ -470,7 +471,7 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "persist-tag", getResp["JobTag"])
 
 	video, _ := getResp["Video"].(map[string]any)
@@ -493,7 +494,7 @@ func TestSnapshotRestore_TagsSurvive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["CollectionArn"].(string)
 
 	doRequest(t, h, "TagResource", map[string]any{
@@ -511,7 +512,7 @@ func TestSnapshotRestore_TagsSurvive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, _ := tagResp["Tags"].(map[string]any)
 	assert.Equal(t, "val1", tags["key1"])
 	assert.Equal(t, "val2", tags["key2"])

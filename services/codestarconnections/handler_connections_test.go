@@ -2,13 +2,14 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_CreateConnection(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out[tt.wantKey])
 		})
 	}
@@ -119,7 +120,7 @@ func TestHandler_GetConnection(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			conn, ok := out["Connection"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "test-conn", conn["ConnectionName"])
@@ -209,7 +210,7 @@ func TestHandler_ListConnections(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			conns, ok := out["Connections"].([]any)
 			require.True(t, ok)
 			assert.Len(t, conns, tt.wantCount)
@@ -339,7 +340,7 @@ func TestSortedListConnections(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	conns := out["Connections"].([]any)
 	require.Len(t, conns, 3)
 
@@ -372,7 +373,7 @@ func TestGetConnectionIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 	conn := out["Connection"].(map[string]any)
 	_, hasTags := conn["Tags"]
 	assert.False(t, hasTags, "GetConnection should not include Tags in response")
@@ -381,7 +382,7 @@ func TestGetConnectionIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTags.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := tagsOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["Key"].(string))

@@ -1,13 +1,14 @@
 package swf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/swf"
 )
 
@@ -597,7 +598,7 @@ func TestRespondDecisionTask_ViaHandler(t *testing.T) {
 
 			if tt.wantExecStatus != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				// Verify via describe - pick the right domain/workflowID
 				var domainName, wfID string
 				if tt.wantExecStatus == "COMPLETED" {

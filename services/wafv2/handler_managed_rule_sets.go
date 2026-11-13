@@ -2,9 +2,10 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -33,7 +34,7 @@ type getManagedRuleSetRequest struct {
 // handleGetManagedRuleSet returns the stored managed rule set.
 func (h *Handler) handleGetManagedRuleSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getManagedRuleSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -64,7 +65,7 @@ func (h *Handler) handleGetManagedRuleSet(ctx context.Context, body []byte) ([]b
 			"RecommendedVersion": ms.RecommendedVersion,
 		},
 		keyLockToken: ms.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // listManagedRuleSetsRequest is the request body for ListManagedRuleSets.
@@ -77,7 +78,7 @@ type listManagedRuleSetsRequest struct {
 // handleListManagedRuleSets lists all stored managed rule sets, filtered by scope.
 func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([]byte, error) {
 	var req listManagedRuleSetsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -115,7 +116,7 @@ func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // putManagedRuleSetVersionsRequest is the request body for PutManagedRuleSetVersions.
@@ -130,7 +131,7 @@ type putManagedRuleSetVersionsRequest struct {
 
 func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req putManagedRuleSetVersionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -165,7 +166,7 @@ func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []by
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: put managed rule set versions", "id", req.ID)
 
-	return json.Marshal(map[string]string{keyNextLockToken: ms.LockToken})
+	return json.Marshal(map[string]string{keyNextLockToken: ms.LockToken}, jsonx.V1())
 }
 
 // updateManagedRuleSetVersionExpiryDateRequest is the request body for
@@ -187,7 +188,7 @@ type updateManagedRuleSetVersionExpiryDateRequest struct {
 
 func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateManagedRuleSetVersionExpiryDateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -235,7 +236,7 @@ func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Contex
 		keyNextLockToken:  ms.LockToken,
 		"ExpiringVersion": req.VersionToExpire,
 		"ExpiryTimestamp": req.ExpiryTimestamp,
-	})
+	}, jsonx.V1())
 }
 
 // managedRuleSetDispatchOps returns the ManagedRuleSet-family operation dispatch entries.

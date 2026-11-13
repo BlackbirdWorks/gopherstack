@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractAppsCollectionOp returns the operation for the apps collection.
@@ -78,7 +79,7 @@ func (h *Handler) handleCreateApp(c *echo.Context) error {
 
 	var req createAppRequest
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 

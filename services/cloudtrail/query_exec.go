@@ -2,13 +2,15 @@ package cloudtrail
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // This file implements a bounded, honest subset of CloudTrail Lake SQL
@@ -96,7 +98,7 @@ func eventToRow(ev Event) map[string]string {
 
 	if ev.CloudTrailEvent != "" {
 		var detail map[string]any
-		if err := json.Unmarshal([]byte(ev.CloudTrailEvent), &detail); err == nil {
+		if err := json.Unmarshal([]byte(ev.CloudTrailEvent), &detail, jsonx.V1()); err == nil {
 			flattenJSONInto(row, "", detail)
 		}
 	}
@@ -126,7 +128,7 @@ func flattenJSONInto(row map[string]string, prefix string, obj map[string]any) {
 			// missing/null field.
 		default:
 			if _, exists := row[key]; !exists {
-				if b, err := json.Marshal(tv); err == nil {
+				if b, err := json.Marshal(tv, jsonx.V1()); err == nil {
 					row[key] = string(b)
 				}
 			}

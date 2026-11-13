@@ -1,7 +1,7 @@
 package gcpdns
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"github.com/miekg/dns"
 	dnsapi "google.golang.org/api/dns/v1"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -52,8 +53,8 @@ func sameRRSet(a, b *dnsapi.ResourceRecordSet) bool {
 		return false
 	}
 
-	ar, _ := json.Marshal(a.RoutingPolicy)
-	br, _ := json.Marshal(b.RoutingPolicy)
+	ar, _ := json.Marshal(a.RoutingPolicy, jsonx.V1())
+	br, _ := json.Marshal(b.RoutingPolicy, jsonx.V1())
 
 	return string(ar) == string(br)
 }

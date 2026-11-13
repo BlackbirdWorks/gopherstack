@@ -2,11 +2,14 @@ package gcpcloudbuild
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errBindingMissing = errors.New("not present in the payload")
@@ -32,10 +35,9 @@ func bindPayload(subs map[string]string, body []byte) (map[string]string, error)
 		}
 
 		if !parsed {
-			dec := json.NewDecoder(bytes.NewReader(body))
-			dec.UseNumber()
+			dec := jsontext.NewDecoder(bytes.NewReader(body))
 
-			if err := dec.Decode(&doc); err != nil {
+			if err := json.UnmarshalDecode(dec, &doc, jsonx.V1(), jsonx.UseNumber()); err != nil {
 				return nil, errInvalid(
 					"The webhook payload is not valid JSON, so $(body...) bindings cannot resolve: %v.", err)
 			}
@@ -79,13 +81,13 @@ func lookupBinding(doc any, path string) (string, error) {
 		return "", nil
 	case string:
 		return v, nil
-	case json.Number:
+	case jsonx.Number:
 		return v.String(), nil
 	case bool:
 		return strconv.FormatBool(v), nil
 	}
 
-	raw, err := json.Marshal(cur)
+	raw, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return "", errBindingMissing
 	}

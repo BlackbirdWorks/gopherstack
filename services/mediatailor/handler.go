@@ -1,7 +1,8 @@
 package mediatailor
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -277,7 +279,12 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 	var body map[string]any
 	if c.Request().ContentLength != 0 {
-		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && err.Error() != "EOF" {
+		if err := json.UnmarshalDecode(
+			jsontext.NewDecoder(c.Request().Body),
+			&body,
+			jsonx.V1(),
+		); err != nil &&
+			err.Error() != "EOF" {
 			c.Response().Header().Set(amznErrorTypeHeader, "BadRequestException")
 
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "invalid JSON body"})

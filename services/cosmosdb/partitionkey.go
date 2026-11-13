@@ -1,9 +1,12 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxPartitionKeyPaths is the hierarchical (MultiHash) partition key depth limit.
@@ -66,7 +69,7 @@ func partitionKeyForBody(body map[string]any, paths []string) (string, error) {
 		vals[i] = v
 	}
 
-	data, err := json.Marshal(vals)
+	data, err := json.Marshal(vals, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("cosmosdb: encode partition key: %w", err)
 	}
@@ -90,8 +93,8 @@ func partitionKeyArity(pkJSON string) int {
 		return 1
 	}
 
-	var arr []json.RawMessage
-	if err := json.Unmarshal([]byte(pkJSON), &arr); err != nil {
+	var arr []jsontext.Value
+	if err := json.Unmarshal([]byte(pkJSON), &arr, jsonx.V1()); err != nil {
 		return 0
 	}
 

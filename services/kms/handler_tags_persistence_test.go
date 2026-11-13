@@ -16,12 +16,13 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -95,7 +96,7 @@ func TestHandlerRestore_LegacyBackendOnlySnapshot(t *testing.T) {
 	require.NotEmpty(t, legacy)
 
 	var probe map[string]any
-	require.NoError(t, json.Unmarshal(legacy, &probe))
+	require.NoError(t, json.Unmarshal(legacy, &probe, jsonx.V1()))
 	_, hasHandlerFormat := probe["handlerFormat"]
 	require.False(t, hasHandlerFormat, "precondition: a raw backend snapshot has no handlerFormat marker")
 

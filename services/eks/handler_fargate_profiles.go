@@ -1,11 +1,12 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -102,7 +103,7 @@ type createFargateProfileBody struct {
 
 func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string, body []byte) error {
 	var in createFargateProfileBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 

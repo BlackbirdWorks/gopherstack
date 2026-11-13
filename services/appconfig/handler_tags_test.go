@@ -1,13 +1,14 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -21,7 +22,7 @@ func TestHandler_TagResource(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
 
@@ -52,7 +53,7 @@ func TestHandler_TagResource_VerifyTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, created.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &app, jsonx.V1()))
 
 	resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
 
@@ -66,7 +67,7 @@ func TestHandler_TagResource_VerifyTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "prod", resp["Tags"]["env"])
 	assert.Equal(t, "1.0", resp["Tags"]["version"])
 
@@ -78,7 +79,7 @@ func TestHandler_TagResource_VerifyTags(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp["Tags"], 1)
 	assert.Equal(t, "1.0", resp["Tags"]["version"])
 }

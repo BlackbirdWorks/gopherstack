@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -252,7 +253,7 @@ func TestHandler_GetExecutionHistory(t *testing.T) {
 
 				if tt.wantEvents > 0 {
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 					assert.Len(t, resp["events"].([]any), tt.wantEvents)
 				}
 			})

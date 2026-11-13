@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -69,7 +70,7 @@ func TestHandler_ListAllowedNodeTypeUpdates_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out["ScaleUpNodeTypes"])
 	assert.NotNil(t, out["ScaleDownNodeTypes"])
 }
@@ -114,7 +115,7 @@ func TestHandler_FailoverShard_EmitsEvent_ViaMinimalBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "failover: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cl, _ := resp["Cluster"].(map[string]any)
 	assert.Equal(t, "failover-cluster", cl["Name"])
 
@@ -124,7 +125,7 @@ func TestHandler_FailoverShard_EmitsEvent_ViaMinimalBody(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, evRec.Code)
 	var evResp map[string]any
-	require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &evResp))
+	require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &evResp, jsonx.V1()))
 	events, _ := evResp["Events"].([]any)
 	assert.GreaterOrEqual(t, len(events), 2, "create + failover events expected")
 }
@@ -277,7 +278,7 @@ func TestHandler_UpdateCluster_ShardConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			cl := resp["Cluster"].(map[string]any)
 			assert.InDelta(t, tt.wantShards, cl["NumberOfShards"], 0)
 			assert.InDelta(t, tt.wantReplicas, firstShardReplicaCount(t, cl), 0)
@@ -335,7 +336,7 @@ func TestHandler_DescribeClusters_ShowShardDetails(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			clusters := resp["Clusters"].([]any)
 			require.Len(t, clusters, 1)
 			cl := clusters[0].(map[string]any)
@@ -398,7 +399,7 @@ func TestHandler_ShardNodes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			clusters := resp["Clusters"].([]any)
 			cl := clusters[0].(map[string]any)
 
@@ -489,7 +490,7 @@ func TestHandler_FailoverShard(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["Cluster"])
 			}
 		})
@@ -520,7 +521,7 @@ func TestHandler_FailoverShard_EmitsEvent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	events := resp["Events"].([]any)
 
 	found := false
@@ -584,7 +585,7 @@ func TestHandler_ListAllowedNodeTypeUpdates(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["ScaleUpNodeTypes"])
 				assert.NotNil(t, resp["ScaleDownNodeTypes"])
 			}

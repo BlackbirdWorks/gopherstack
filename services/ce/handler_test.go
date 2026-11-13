@@ -3,7 +3,8 @@ package ce_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
@@ -27,7 +29,7 @@ func doRequestWithMeta(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	ctx := awsmeta.Set(context.Background(), meta)
@@ -55,7 +57,7 @@ func doRequest(t *testing.T, h *ce.Handler, action string, body any) *httptest.R
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -369,7 +371,7 @@ func TestHandler_Reset(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	refs, _ := listOut["CostCategoryReferences"].([]any)
 	assert.Empty(t, refs)
 }
@@ -472,7 +474,7 @@ func TestHandler_ErrorWireShape(t *testing.T) {
 			var out struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out.Type)
 		})
 	}

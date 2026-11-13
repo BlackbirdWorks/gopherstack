@@ -1,11 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // slLifecyclePolicyResourceTypeIndex is the only real ResourceType value
@@ -53,7 +55,7 @@ type lifecyclePolicyDocument struct {
 // (matching every other serverless policy family in this package).
 func parseLifecycleRules(policy string) []lifecycleRule {
 	var doc lifecyclePolicyDocument
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 

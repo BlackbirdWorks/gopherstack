@@ -3,11 +3,13 @@ package connect
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -59,13 +61,13 @@ type MediaItem struct {
 type Workspace struct {
 	Tags map[string]string `json:"Tags,omitempty"`
 	Stamp
-	Arn         string          `json:"Arn"`
-	ID          string          `json:"Id"`
-	Name        string          `json:"Name"`
-	Description string          `json:"Description,omitempty"`
-	Title       string          `json:"Title,omitempty"`
-	Visibility  string          `json:"Visibility"`
-	Theme       json.RawMessage `json:"Theme,omitempty"`
+	Arn         string         `json:"Arn"`
+	ID          string         `json:"Id"`
+	Name        string         `json:"Name"`
+	Description string         `json:"Description,omitempty"`
+	Title       string         `json:"Title,omitempty"`
+	Visibility  string         `json:"Visibility"`
+	Theme       jsontext.Value `json:"Theme,omitempty"`
 }
 
 // WorkspaceSummary is the list shape of a workspace.
@@ -112,19 +114,19 @@ type wsRef struct {
 	instPath
 }
 
-func checkTheme(raw json.RawMessage) error {
+func checkTheme(raw jsontext.Value) error {
 	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil
 	}
 
-	var modes map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &modes); err != nil {
+	var modes map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &modes, jsonx.V1()); err != nil {
 		return invalidParamErr("Theme must be an object")
 	}
 
 	for k, v := range modes {
-		var cfg map[string]json.RawMessage
-		if k != "Light" && k != "Dark" || json.Unmarshal(v, &cfg) != nil {
+		var cfg map[string]jsontext.Value
+		if k != "Light" && k != "Dark" || json.Unmarshal(v, &cfg, jsonx.V1()) != nil {
 			return invalidParamErr("Theme may only hold Light and Dark theme configurations")
 		}
 	}
@@ -151,7 +153,7 @@ type CreateWorkspaceInput struct {
 	Description string
 	Title       string
 	instPath
-	Theme json.RawMessage
+	Theme jsontext.Value
 }
 
 type createWorkspaceOut struct {
@@ -261,7 +263,7 @@ func (b *Backend) UpdateWorkspaceMetadata(ctx context.Context, in *UpdateWorkspa
 // UpdateWorkspaceThemeInput is the UpdateWorkspaceTheme request.
 type UpdateWorkspaceThemeInput struct {
 	wsRef
-	Theme json.RawMessage
+	Theme jsontext.Value
 }
 
 // UpdateWorkspaceTheme replaces the theme of a workspace.
@@ -371,8 +373,8 @@ func (b *Backend) checkPageFields(inst string, in *pageFields) error {
 	}
 
 	if in.InputData != nil {
-		var obj map[string]json.RawMessage
-		if json.Unmarshal([]byte(*in.InputData), &obj) != nil {
+		var obj map[string]jsontext.Value
+		if json.Unmarshal([]byte(*in.InputData), &obj, jsonx.V1()) != nil {
 			return invalidParamErr("InputData must be a JSON object")
 		}
 	}

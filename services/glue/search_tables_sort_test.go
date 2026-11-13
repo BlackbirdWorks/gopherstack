@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSearchTables_SortCriteria(t *testing.T) {
@@ -76,7 +78,7 @@ func TestSearchTables_SortCriteria(t *testing.T) {
 					Name string `json:"Name"`
 				} `json:"TableList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			got := make([]string, 0, len(out.TableList))
 			for _, tbl := range out.TableList {

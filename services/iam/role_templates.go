@@ -1,13 +1,14 @@
 package iam
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func roleTemplateVersionKey(templateArn string, minorVersion int32) string {
@@ -196,7 +197,7 @@ type acquiredRoleSpec struct {
 // returning an error without having mutated any backend state.
 func buildAcquiredRoleSpec(tv *RoleTemplateVersion, values map[string]string) (*acquiredRoleSpec, error) {
 	assumeRolePolicy := substituteTemplateParams(tv.AssumeRolePolicyDocumentTemplate, values)
-	if assumeRolePolicy != "" && !json.Valid([]byte(assumeRolePolicy)) {
+	if assumeRolePolicy != "" && !jsontext.Value([]byte(assumeRolePolicy)).IsValid(jsonx.V1()) {
 		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
 	}
 

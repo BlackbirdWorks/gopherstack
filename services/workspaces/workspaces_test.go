@@ -2,7 +2,7 @@ package workspaces_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -39,7 +40,7 @@ func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pending, _ := resp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
 
@@ -64,7 +65,7 @@ func describeWorkspacesPage(
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	wsList, _ := resp["Workspaces"].([]any)
 	ids := make([]string, 0, len(wsList))
@@ -236,7 +237,7 @@ func TestStopWorkspaces_TransitionsToStopped(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	assert.Empty(t, failures)
 
@@ -258,7 +259,7 @@ func TestStopWorkspaces_StateVisibleInDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 	stopFailures, _ := stopResp["FailedRequests"].([]any)
 	require.Empty(t, stopFailures, "StopWorkspaces must succeed to reach STOPPED")
 
@@ -268,7 +269,7 @@ func TestStopWorkspaces_StateVisibleInDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList, _ := resp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 	ws := wsList[0].(map[string]any)
@@ -299,7 +300,7 @@ func TestStartWorkspaces_ResumesFromStopped(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	assert.Empty(t, failures)
 
@@ -328,7 +329,7 @@ func TestStopWorkspaces_AlreadyStopped_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, firstStopRec.Code)
 
 	var firstStopResp map[string]any
-	require.NoError(t, json.Unmarshal(firstStopRec.Body.Bytes(), &firstStopResp))
+	require.NoError(t, json.Unmarshal(firstStopRec.Body.Bytes(), &firstStopResp, jsonx.V1()))
 	firstStopFailures, _ := firstStopResp["FailedRequests"].([]any)
 	require.Empty(t, firstStopFailures, "first StopWorkspaces call must succeed to reach STOPPED")
 
@@ -338,7 +339,7 @@ func TestStopWorkspaces_AlreadyStopped_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	require.Len(t, failures, 1, "stopping an already-STOPPED workspace must fail")
 	failed := failures[0].(map[string]any)
@@ -362,7 +363,7 @@ func TestStartWorkspaces_AlreadyAvailable_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	require.Len(t, failures, 1, "starting an already-AVAILABLE workspace must fail")
 	failed := failures[0].(map[string]any)
@@ -393,7 +394,7 @@ func TestStopWorkspaces_AlwaysOnRunningMode_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	require.Len(t, failures, 1,
 		"stopping an ALWAYS_ON workspace must fail even though its state is AVAILABLE")
@@ -430,7 +431,7 @@ func TestStartWorkspaces_AlwaysOnRunningMode_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	require.Len(t, failures, 1,
 		"starting an ALWAYS_ON workspace must fail even though its state is STOPPED")
@@ -458,7 +459,7 @@ func TestStopStartWorkspaces_AutoStopRunningMode_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 	stopFailures, _ := stopResp["FailedRequests"].([]any)
 	assert.Empty(t, stopFailures, "AUTO_STOP workspace must be stoppable")
 	require.Equal(t, "STOPPED", workspaces.WorkspaceState(backend, wsID))
@@ -469,7 +470,7 @@ func TestStopStartWorkspaces_AutoStopRunningMode_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	startFailures, _ := startResp["FailedRequests"].([]any)
 	assert.Empty(t, startFailures, "AUTO_STOP workspace must be startable")
 	assert.Equal(t, "AVAILABLE", workspaces.WorkspaceState(backend, wsID))
@@ -492,7 +493,7 @@ func TestStopWorkspaces_UnknownID_ReturnsFailure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	assert.Len(t, failures, 1, "unknown workspace must produce one FailedRequest")
 
@@ -514,7 +515,7 @@ func TestStartWorkspaces_UnknownID_ReturnsFailure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failures, _ := resp["FailedRequests"].([]any)
 	assert.Len(t, failures, 1, "unknown workspace must produce one FailedRequest")
 }
@@ -576,7 +577,7 @@ func TestModifyWorkspaceProperties_VisibleInDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList, _ := resp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 
@@ -606,7 +607,7 @@ func TestWorkspaceProperties_DefaultRunningModeBeforeModify(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList, _ := resp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 
@@ -639,7 +640,7 @@ func TestTerminateWorkspaces_RemovedFromDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList, _ := resp["Workspaces"].([]any)
 	assert.Empty(t, wsList, "terminated workspace must not appear in DescribeWorkspaces")
 }
@@ -771,7 +772,7 @@ func TestPagination_FilteredByDirectoryID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList := resp["Workspaces"].([]any)
 	assert.Len(t, wsList, 2, "filter by DirectoryId must return only matching workspaces")
 }
@@ -809,7 +810,7 @@ func TestWorkspace_RealMembersPopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			wsList, ok := resp["Workspaces"].([]any)
 			require.True(t, ok)
 			require.Len(t, wsList, 1)
@@ -853,7 +854,7 @@ func TestWorkspace_WorkspaceNameThreadedThrough(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	pending, _ := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
 	pendingItem := pending[0].(map[string]any)
@@ -867,7 +868,7 @@ func TestWorkspace_WorkspaceNameThreadedThrough(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList, _ := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 	ws := wsList[0].(map[string]any)
@@ -901,7 +902,7 @@ func describeOneWorkspace(t *testing.T, h *workspaces.Handler, workspaceID strin
 	var out struct {
 		Workspaces []describedWorkspace `json:"Workspaces"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Workspaces, 1)
 
 	return out.Workspaces[0]
@@ -956,7 +957,7 @@ func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {
 					WorkspaceID string `json:"WorkspaceId"`
 				} `json:"PendingStandbyRequests"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.Empty(t, out.FailedStandbyRequests)
 			require.Len(t, out.PendingStandbyRequests, 1)
 
@@ -1001,7 +1002,7 @@ func TestCreateStandbyWorkspaces_UnknownPrimaryFails(t *testing.T) {
 		} `json:"FailedStandbyRequests"`
 		PendingStandbyRequests []any `json:"PendingStandbyRequests"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.Empty(t, out.PendingStandbyRequests)
 	require.Len(t, out.FailedStandbyRequests, 1)

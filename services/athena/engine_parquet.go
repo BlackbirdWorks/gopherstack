@@ -3,13 +3,14 @@ package athena
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -124,7 +125,7 @@ func parquetCell(v any) string {
 	case bool:
 		return strconv.FormatBool(t)
 	default:
-		b, err := json.Marshal(t)
+		b, err := json.Marshal(t, jsonx.V1())
 		if err != nil {
 			return fmt.Sprint(t)
 		}

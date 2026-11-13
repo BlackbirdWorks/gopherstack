@@ -1,10 +1,12 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // getResourceLogLevelResponse mirrors GetResourceLogLevelOutput, which
@@ -52,7 +54,7 @@ func (h *Handler) updateLogLevelsByResourceTypes(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	cfg := LogLevelsConfig{
 		DefaultLogLevel:           req.DefaultLogLevel,
@@ -95,7 +97,7 @@ func (h *Handler) putResourceLogLevel(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.PutResourceLogLevel(id, req.LogLevel); err != nil {
 		return handleError(c, err)

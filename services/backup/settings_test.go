@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -44,7 +45,7 @@ func TestGlobalSettingsLastUpdateTimeEpoch(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			lastUpdate, exists := data["LastUpdateTime"]
 			require.True(t, exists, "LastUpdateTime must be present")

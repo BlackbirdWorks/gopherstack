@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHTTP_PopulateIDMappingTable(t *testing.T) {
@@ -22,7 +24,7 @@ func TestHTTP_PopulateIDMappingTable(t *testing.T) {
 	})
 	rec := doRequest(t, e, "GET", "/collaborations", nil)
 	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp, jsonx.V1()))
 	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create Membership
@@ -30,7 +32,7 @@ func TestHTTP_PopulateIDMappingTable(t *testing.T) {
 		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
 	})
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1()))
 	mID := memResp["membership"].(map[string]any)["id"].(string)
 
 	// Create Table
@@ -44,7 +46,7 @@ func TestHTTP_PopulateIDMappingTable(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["idMappingTable"]["id"].(string)
 
 	// Populate
@@ -68,7 +70,7 @@ func createIntermediateTable(t *testing.T, e *echo.Echo, mID string) string {
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["intermediateTable"].(map[string]any)["id"].(string)
 }
@@ -220,7 +222,7 @@ func TestHTTP_UpdateIntermediateTable(t *testing.T) {
 				map[string]any{"description": "updated"})
 			require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
 			var updResp map[string]any
-			require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+			require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 			assert.Equal(t, "updated", updResp["intermediateTable"].(map[string]any)["description"])
 		})
 	}
@@ -268,7 +270,7 @@ func TestHTTP_UpdateIntermediateTableAnalysisRule(t *testing.T) {
 				"/memberships/"+mID+"/intermediateTables/"+tableID+"/analysisRule/CUSTOM", nil)
 			require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			rule := getResp["analysisRule"].(map[string]any)
 			policy := rule["analysisRulePolicy"].(map[string]any)
 			v1 := policy["v1"].(map[string]any)
@@ -312,7 +314,7 @@ func TestHTTP_PopulateIntermediateTable_AdvancesToSuccess(t *testing.T) {
 				"/memberships/"+mID+"/intermediateTables/"+tableID+"/populate", nil)
 			require.Equal(t, http.StatusOK, popRec.Code, popRec.Body.String())
 			var popResp map[string]any
-			require.NoError(t, json.Unmarshal(popRec.Body.Bytes(), &popResp))
+			require.NoError(t, json.Unmarshal(popRec.Body.Bytes(), &popResp, jsonx.V1()))
 			assert.Equal(t, tt.wants.analysisType, popResp["analysisType"])
 			assert.NotEmpty(t, popResp["analysisId"])
 			assert.NotEmpty(t, popResp["versionId"])
@@ -321,7 +323,7 @@ func TestHTTP_PopulateIntermediateTable_AdvancesToSuccess(t *testing.T) {
 				"/memberships/"+mID+"/intermediateTables/"+tableID, nil)
 			require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			it := getResp["intermediateTable"].(map[string]any)
 			assert.Equal(t, "POPULATE_SUCCESS", it["status"])
 			assert.Contains(t, it, "intermediateTableVersion")
@@ -332,7 +334,7 @@ func TestHTTP_PopulateIntermediateTable_AdvancesToSuccess(t *testing.T) {
 				"/memberships/"+mID+"/intermediateTables/"+tableID+"/versions", nil)
 			require.Equal(t, http.StatusOK, verRec.Code, verRec.Body.String())
 			var verResp map[string]any
-			require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp))
+			require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp, jsonx.V1()))
 			versions, ok := verResp["intermediateTableVersionSummaries"].([]any)
 			require.True(t, ok)
 			require.Len(t, versions, 1)
@@ -429,7 +431,7 @@ func TestIntermediateTables_WireShape(t *testing.T) {
 			getRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/intermediateTables/"+tableID, nil)
 			require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			it := getResp["intermediateTable"].(map[string]any)
 			assert.Contains(t, it, "id")
 			assert.NotContains(t, it, "intermediateTableIdentifier")
@@ -446,7 +448,7 @@ func TestIntermediateTables_WireShape(t *testing.T) {
 				})
 			require.Equal(t, http.StatusOK, ruleRec.Code, ruleRec.Body.String())
 			var ruleResp map[string]any
-			require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
+			require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp, jsonx.V1()))
 			rule := ruleResp["analysisRule"].(map[string]any)
 			assert.Contains(t, rule, "intermediateTableIdentifier")
 			assert.Equal(t, tableID, rule["intermediateTableIdentifier"])

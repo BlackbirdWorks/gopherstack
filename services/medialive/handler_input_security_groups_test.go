@@ -1,13 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -26,7 +27,7 @@ func TestInputSecurityGroup_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	sg := createResp["securityGroup"].(map[string]any)
 	groupID := sg["id"].(string)
 
@@ -53,7 +54,7 @@ func TestInputSecurityGroup_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	updatedSG := updateResp["securityGroup"].(map[string]any)
 	updatedRules := updatedSG["whitelistRules"].([]any)
 	assert.Len(t, updatedRules, 2)
@@ -62,7 +63,7 @@ func TestInputSecurityGroup_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputSecurityGroups", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["inputSecurityGroups"], 1)
 
 	// Delete: real AWS's DeleteInputSecurityGroup marks the group DELETED
@@ -77,7 +78,7 @@ func TestInputSecurityGroup_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputSecurityGroups/"+groupID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "DELETED", describeResp["state"])
 }
 
@@ -89,6 +90,6 @@ func TestListInputSecurityGroups_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["inputSecurityGroups"])
 }

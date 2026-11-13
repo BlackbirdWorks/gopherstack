@@ -2,7 +2,8 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
@@ -231,7 +233,7 @@ func TestCapacityProvider_StateTransitionAndTags(t *testing.T) {
 			CapacityProviderArn string `json:"CapacityProviderArn"`
 		} `json:"CapacityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec = callInMemoryHandler(t, h, http.MethodGet, "/2025-11-30/capacity-providers/tagged", "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -544,7 +546,7 @@ func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut lambda.UpdateCapacityProviderOutput
-	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &updateOut, jsonx.V1()))
 	require.NotNil(t, updateOut.CapacityProvider)
 	require.NotNil(t, updateOut.CapacityProvider.CapacityProviderScalingConfig)
 	require.NotNil(t, updateOut.CapacityProvider.CapacityProviderScalingConfig.MaxVCpuCount)
@@ -555,7 +557,7 @@ func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListCapacityProvidersOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.CapacityProviders, 1)
 
 	// Delete — real AWS returns 200 with the deleted provider's state, not 204
@@ -564,7 +566,7 @@ func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var deleteOut lambda.DeleteCapacityProviderOutput
-	require.NoError(t, json.NewDecoder(delRec.Body).Decode(&deleteOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(delRec.Body), &deleteOut, jsonx.V1()))
 	require.NotNil(t, deleteOut.CapacityProvider)
 	assert.True(t, strings.HasSuffix(deleteOut.CapacityProvider.CapacityProviderArn, "capacity-provider:test-cp"))
 
@@ -573,7 +575,7 @@ func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listOut2 lambda.ListCapacityProvidersOutput
-	require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec2.Body), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2.CapacityProviders)
 }
 
@@ -626,7 +628,7 @@ func TestListFunctionVersionsByCapacityProvider(t *testing.T) {
 				var out struct {
 					FunctionVersions []any `json:"FunctionVersions"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Empty(t, out.FunctionVersions)
 			}
 		})
@@ -667,7 +669,7 @@ func TestCapacityProvider_TelemetryConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createOut lambda.CreateCapacityProviderOutput
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	require.NotNil(t, createOut.CapacityProvider.TelemetryConfig)
 	require.NotNil(t, createOut.CapacityProvider.TelemetryConfig.LoggingConfig)
 	assert.Equal(t, "WARN", createOut.CapacityProvider.TelemetryConfig.LoggingConfig.SystemLogLevel)
@@ -678,7 +680,7 @@ func TestCapacityProvider_TelemetryConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut lambda.UpdateCapacityProviderOutput
-	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &updateOut, jsonx.V1()))
 	require.NotNil(t, updateOut.CapacityProvider.TelemetryConfig)
 	require.NotNil(t, updateOut.CapacityProvider.TelemetryConfig.LoggingConfig)
 	assert.Equal(t, "DEBUG", updateOut.CapacityProvider.TelemetryConfig.LoggingConfig.SystemLogLevel)

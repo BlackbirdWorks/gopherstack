@@ -1,7 +1,7 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -401,7 +401,7 @@ type RecoveryPoint struct {
 	SourceBackupVaultArn      string               `json:"sourceBackupVaultArn,omitempty"`
 	ParentRecoveryPointArn    string               `json:"parentRecoveryPointArn,omitempty"`
 	CompositeMemberIdentifier string               `json:"compositeMemberIdentifier,omitempty"`
-	Snapshot                  json.RawMessage      `json:"snapshot,omitempty"`
+	Snapshot                  jsontext.Value       `json:"snapshot,omitempty"`
 	BackupSizeInBytes         int64                `json:"backupSizeInBytes,omitempty"`
 	IsEncrypted               bool                 `json:"isEncrypted,omitempty"`
 }

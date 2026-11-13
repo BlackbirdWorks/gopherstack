@@ -11,7 +11,7 @@
 package azure_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -162,7 +163,7 @@ func verifyServiceBusQueueRoundTrip(t *testing.T) {
 	assert.Equal(t, messageBody, string(gotBody))
 
 	var bp sbBrokerProperties
-	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get("Brokerproperties")), &bp))
+	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get("Brokerproperties")), &bp, jsonx.V1()))
 	require.NotEmpty(t, bp.LockToken)
 
 	location := resp.Header.Get("Location")

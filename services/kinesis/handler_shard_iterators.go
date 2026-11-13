@@ -2,9 +2,11 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonGetShardIteratorReq struct {
@@ -27,7 +29,7 @@ func (h *Handler) handleGetShardIterator(
 	body []byte,
 ) (any, error) {
 	var req jsonGetShardIteratorReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

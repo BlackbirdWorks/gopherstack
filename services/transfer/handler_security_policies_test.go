@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListSecurityPolicies(t *testing.T) {
@@ -42,7 +44,7 @@ func TestHandler_ListSecurityPoliciesIncludesCurrentNames(t *testing.T) {
 	var resp struct {
 		SecurityPolicyNames []string `json:"SecurityPolicyNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	names := make(map[string]bool, len(resp.SecurityPolicyNames))
 	for _, n := range resp.SecurityPolicyNames {
@@ -85,7 +87,7 @@ func TestHandler_DescribeSecurityPolicy_ServerShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pol := resp["SecurityPolicy"].(map[string]any)
 
 	assert.Equal(t, "SERVER", pol["Type"])
@@ -109,7 +111,7 @@ func TestHandler_DescribeSecurityPolicy_ConnectorShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pol := resp["SecurityPolicy"].(map[string]any)
 
 	assert.Equal(t, "CONNECTOR", pol["Type"])
@@ -129,6 +131,6 @@ func TestHandler_DescribeSecurityPolicy_UnknownName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }

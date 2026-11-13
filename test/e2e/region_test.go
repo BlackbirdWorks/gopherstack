@@ -225,6 +225,7 @@ func TestE2E_Region_ClientConstructionHonorsSelector(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/redshift")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForRedshiftPage(t, page)
 
 	initial := waitForRequestCount(t, capture, 1, "initial page load, before any region selection")
@@ -240,6 +241,7 @@ func TestE2E_Region_ClientConstructionHonorsSelector(t *testing.T) {
 	// construction time instead of a hardcoded "us-east-1" literal.
 	_, err = page.Goto(server.URL + "/dashboard/redshift")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForRedshiftPage(t, page)
 
 	afterNav := waitForRequestCount(t, capture, 2, "after re-navigating with eu-west-2 selected")
@@ -316,6 +318,7 @@ func TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForDynamoDBPage(t, page)
 
 	initial := waitForRequestCount(t, capture, 1, "initial page load, before any region selection")
@@ -378,6 +381,7 @@ func TestE2E_Region_AdminFetchCarriesRegionHeader(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/apigatewaymanagementapi")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	require.Eventually(t, func() bool {
 		r, n := last()

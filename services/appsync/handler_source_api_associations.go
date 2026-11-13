@@ -2,13 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleSourceAPIs handles /v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations[/{assocId}].
@@ -86,7 +87,7 @@ func (h *Handler) associateMergedGraphqlAPI(ctx context.Context, c *echo.Context
 	}
 
 	var input associateAPIInput
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -173,7 +174,7 @@ func (h *Handler) associateSourceGraphqlAPI(ctx context.Context, c *echo.Context
 	}
 
 	var input associateAPIInput
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -237,7 +238,7 @@ func (h *Handler) updateSourceAPIAssociation(
 		Description                string                      `json:"description"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

@@ -1,9 +1,10 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -19,7 +20,7 @@ type createProtectionGroupRequest struct {
 
 func (h *Handler) handleCreateProtectionGroup(body []byte) error {
 	var req createProtectionGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -50,7 +51,7 @@ type describeProtectionGroupRequest struct {
 
 func (h *Handler) handleDescribeProtectionGroup(body []byte) ([]byte, error) {
 	var req describeProtectionGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -65,7 +66,7 @@ func (h *Handler) handleDescribeProtectionGroup(body []byte) ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"ProtectionGroup": protectionGroupToMap(pg),
-	})
+	}, jsonx.V1())
 }
 
 // listProtectionGroupsRequest is the request body for ListProtectionGroups.
@@ -83,7 +84,7 @@ type listProtectionGroupsRequest struct {
 func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
 	var req listProtectionGroupsRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -108,7 +109,7 @@ func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
 	}
 
 	if start >= len(groups) {
-		return json.Marshal(map[string]any{"ProtectionGroups": []map[string]any{}})
+		return json.Marshal(map[string]any{"ProtectionGroups": []map[string]any{}}, jsonx.V1())
 	}
 
 	end := start + maxResults
@@ -134,7 +135,7 @@ func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // protectionGroupMatchesFilters returns true if pg passes all filter sets.
@@ -200,7 +201,7 @@ type updateProtectionGroupRequest struct {
 
 func (h *Handler) handleUpdateProtectionGroup(body []byte) error {
 	var req updateProtectionGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -246,7 +247,7 @@ type deleteProtectionGroupRequest struct {
 
 func (h *Handler) handleDeleteProtectionGroup(body []byte) error {
 	var req deleteProtectionGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -266,7 +267,7 @@ type listResourcesInProtectionGroupRequest struct {
 
 func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, error) {
 	var req listResourcesInProtectionGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -287,7 +288,7 @@ func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, err
 	}
 
 	if start >= len(arns) {
-		return json.Marshal(map[string]any{"ResourceArns": []string{}})
+		return json.Marshal(map[string]any{"ResourceArns": []string{}}, jsonx.V1())
 	}
 
 	end := start + maxResults
@@ -306,5 +307,5 @@ func (h *Handler) handleListResourcesInProtectionGroup(body []byte) ([]byte, err
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

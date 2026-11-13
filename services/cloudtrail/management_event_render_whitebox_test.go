@@ -1,10 +1,12 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRenderManagementEventMatchesJSONMarshal(t *testing.T) {
@@ -56,7 +58,7 @@ func TestRenderManagementEventMatchesJSONMarshal(t *testing.T) {
 			d := base
 			tt.mutate(&d)
 
-			want, err := json.Marshal(d)
+			want, err := json.Marshal(d, jsonx.V1())
 			require.NoError(t, err)
 			require.Equal(t, string(want), renderManagementEvent(&d))
 		})

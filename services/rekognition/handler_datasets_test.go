@@ -2,12 +2,14 @@ package rekognition_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractLabels extracts the label list from a ListDatasetLabels response
@@ -18,7 +20,7 @@ func extractLabels(t *testing.T, body []byte) []any {
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	v, _ := resp["DatasetLabelDescriptions"].([]any)
 
@@ -36,7 +38,7 @@ func TestListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "lbl-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
@@ -45,7 +47,7 @@ func TestListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // 
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 	dsARN := dsResp["DatasetArn"].(string)
 
 	// Add two entries: cat appears twice, dog once
@@ -83,7 +85,7 @@ func TestListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // s
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "ml-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
 		"ProjectArn":  projResp["ProjectArn"].(string),
@@ -91,7 +93,7 @@ func TestListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // s
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 	dsARN := dsResp["DatasetArn"].(string)
 
 	// Multi-label entry: sunglasses + hat
@@ -121,7 +123,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "page-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
 		"ProjectArn":  projResp["ProjectArn"].(string),
@@ -129,7 +131,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 	dsARN := dsResp["DatasetArn"].(string)
 
 	// Add 3 entries with distinct labels
@@ -137,7 +139,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 		entry, _ := json.Marshal(map[string]any{
 			"source-ref":      "s3://b/img" + string(rune('0'+i)) + ".jpg",
 			"labels-metadata": map[string]any{"class-name": lbl},
-		})
+		}, jsonx.V1())
 		rec = doRequest(t, h, "UpdateDatasetEntries", map[string]any{
 			"DatasetArn": dsARN,
 			"Changes":    map[string]any{"GroundTruth": entry},
@@ -156,7 +158,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 	require.Len(t, firstPageLabels, 2)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	nextToken, hasToken := page1["NextToken"].(string)
 	require.True(t, hasToken, "expected NextToken for more pages")
@@ -166,7 +168,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 	decoded, err := base64.RawURLEncoding.DecodeString(nextToken)
 	require.NoError(t, err)
 	var tok map[string]any
-	require.NoError(t, json.Unmarshal(decoded, &tok))
+	require.NoError(t, json.Unmarshal(decoded, &tok, jsonx.V1()))
 	assert.InDelta(t, float64(2), tok["o"], 0)
 
 	// Second page
@@ -181,7 +183,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 	require.Len(t, secondPageLabels, 1, "expected 1 label on second page")
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	_, hasMore := page2["NextToken"].(string)
 	assert.False(t, hasMore, "should not have next token on last page")
 }
@@ -192,7 +194,7 @@ func TestListDatasetLabels_InvalidToken(t *testing.T) { //nolint:paralleltest //
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "inv-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
 		"ProjectArn":  projResp["ProjectArn"].(string),
@@ -200,7 +202,7 @@ func TestListDatasetLabels_InvalidToken(t *testing.T) { //nolint:paralleltest //
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 
 	// Invalid token treated as offset 0 (returns from start, no error)
 	rec = doRequest(t, h, "ListDatasetLabels", map[string]any{
@@ -220,7 +222,7 @@ func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:parall
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "dist-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
@@ -229,7 +231,7 @@ func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:parall
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 	dsARN := dsResp["DatasetArn"].(string)
 
 	rec = doRequest(t, h, "DistributeDatasetEntries", map[string]any{
@@ -244,7 +246,7 @@ func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:parall
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	desc := descResp["DatasetDescription"].(map[string]any)
 	assert.Equal(t, "UPDATE_IN_PROGRESS", desc["Status"])
 }
@@ -260,7 +262,7 @@ func TestDeleteDataset_WhileUpdating_Rejected(t *testing.T) { //nolint:parallelt
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "del-ds-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
@@ -269,7 +271,7 @@ func TestDeleteDataset_WhileUpdating_Rejected(t *testing.T) { //nolint:parallelt
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var dsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 	dsARN := dsResp["DatasetArn"].(string)
 
 	rec = doRequest(t, h, "DistributeDatasetEntries", map[string]any{
@@ -283,7 +285,7 @@ func TestDeleteDataset_WhileUpdating_Rejected(t *testing.T) { //nolint:parallelt
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUseException", errResp["__type"])
 }
 
@@ -308,7 +310,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	tests := []struct {
@@ -329,7 +331,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) string {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				arn := resp["DatasetArn"].(string)
 				assert.Contains(t, arn, "arn:aws:rekognition:")
 
@@ -362,7 +364,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		desc := resp["DatasetDescription"].(map[string]any)
 		assert.Equal(t, "CREATE_COMPLETE", desc["Status"])
 		assert.Equal(t, "TRAIN", desc["DatasetType"])
@@ -388,7 +390,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.NotNil(t, resp["DatasetEntries"])
 	})
 
@@ -403,7 +405,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.NotNil(t, resp["DatasetLabelDescriptions"])
 	})
 
@@ -429,7 +431,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var dsResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dsResp, jsonx.V1()))
 		freshARN := dsResp["DatasetArn"].(string)
 
 		rec = doRequest(t, h, "DeleteDataset", map[string]any{"DatasetArn": freshARN})
@@ -456,7 +458,7 @@ func TestCreateDataset_DuplicateProjectAndType_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateDataset", map[string]any{
@@ -473,7 +475,7 @@ func TestCreateDataset_DuplicateProjectAndType_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceAlreadyExistsException", errResp["__type"])
 
 	// Same project, different DatasetType -> allowed.

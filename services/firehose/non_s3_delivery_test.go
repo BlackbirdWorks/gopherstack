@@ -3,7 +3,8 @@ package firehose_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -50,7 +52,7 @@ func newCaptureServer(t *testing.T, statusCode int) *captureServer {
 		cs.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{
 			"requestId": r.Header.Get("X-Amz-Firehose-Request-Id"),
 			"timestamp": time.Now().UnixMilli(),
 		})
@@ -151,7 +153,7 @@ func TestFirehose_HTTPEndpoint_Delivery(t *testing.T) {
 				} `json:"records"`
 				Timestamp int64 `json:"timestamp"`
 			}
-			require.NoError(t, json.Unmarshal(reqs[0].body, &payload))
+			require.NoError(t, json.Unmarshal(reqs[0].body, &payload, jsonx.V1()))
 
 			assert.NotEmpty(t, payload.RequestID)
 			assert.Positive(t, payload.Timestamp)

@@ -2,7 +2,8 @@ package codebuild_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
@@ -32,7 +34,7 @@ func doRequest(t *testing.T, h *codebuild.Handler, action string, body any) *htt
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -125,7 +127,7 @@ func projectARN(t *testing.T, h *codebuild.Handler, name string) string {
 			Arn string `json:"arn"`
 		} `json:"projects"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Projects)
 
 	return out.Projects[0].Arn
@@ -498,7 +500,7 @@ func TestHandler_Reset(t *testing.T) {
 	listRec := doRequest(t, h, "ListProjects", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["projects"], 1)
 
 	// Reset.
@@ -508,7 +510,7 @@ func TestHandler_Reset(t *testing.T) {
 	listRec2 := doRequest(t, h, "ListProjects", nil)
 	require.Equal(t, http.StatusOK, listRec2.Code)
 	var listOut2 map[string]any
-	require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec2.Body), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2["projects"])
 }
 
@@ -665,7 +667,7 @@ func TestHandler_ErrorTypeMapping(t *testing.T) {
 				var errResp struct {
 					Type string `json:"__type"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})

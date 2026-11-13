@@ -1,12 +1,14 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -122,7 +124,7 @@ func TestCreationTags_Decoded(t *testing.T) {
 				var out struct {
 					Arn string `json:"Arn"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 				return out.Arn
 			},

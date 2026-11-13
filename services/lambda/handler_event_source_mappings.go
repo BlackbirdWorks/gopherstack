@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleESMRoute dispatches event-source-mapping REST API requests.
@@ -74,7 +75,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 
 		var req handleCreateESMInput
 
-		if err = json.Unmarshal(body, &req); err != nil {
+		if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 
@@ -216,7 +217,7 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	}
 
 	var req handleUpdateESMInput
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 

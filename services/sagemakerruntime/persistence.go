@@ -2,9 +2,11 @@ package sagemakerruntime
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -32,10 +34,10 @@ const sagemakerruntimeSnapshotVersion = 1
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables      map[string]json.RawMessage `json:"tables"`
-	Invocations []*Invocation              `json:"invocations"`
-	NextID      uint64                     `json:"nextId"`
-	Version     int                        `json:"version"`
+	Tables      map[string]jsontext.Value `json:"tables"`
+	Invocations []*Invocation             `json:"invocations"`
+	NextID      uint64                    `json:"nextId"`
+	Version     int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -64,7 +66,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextID:      b.nextID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "sagemakerruntime: failed to marshal snapshot", "error", err)
 

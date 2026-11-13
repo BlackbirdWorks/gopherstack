@@ -2,11 +2,13 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseProjectOp(method, name, subOp string) string {
@@ -88,7 +90,7 @@ func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte,
 		RoleArn     string            `json:"RoleArn"`
 		Sample      Sample            `json:"Sample"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	p, err := h.Backend.CreateProject(
@@ -104,14 +106,14 @@ func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: p.Name})
+	return json.Marshal(map[string]string{keyName: p.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	p, err := h.Backend.DescribeProject(ctx, req.Name)
@@ -122,7 +124,7 @@ func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byt
 	cp := *p
 	cp.AccountID = ""
 
-	return json.Marshal(cp)
+	return json.Marshal(cp, jsonx.V1())
 }
 
 func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {
@@ -130,7 +132,7 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -149,28 +151,28 @@ func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte,
 		RoleArn string `json:"RoleArn"`
 		Sample  Sample `json:"Sample"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateProject(ctx, req.Name, req.RoleArn, req.Sample); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteProject(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 // handleStartProjectSession handles StartProjectSession. It cannot emulate a
@@ -182,7 +184,7 @@ func (h *Handler) handleStartProjectSession(ctx context.Context, body []byte) ([
 		Name          string `json:"Name"`
 		AssumeControl bool   `json:"AssumeControl"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if _, err := h.Backend.OpenProjectSession(ctx, req.Name); err != nil {
@@ -192,7 +194,7 @@ func (h *Handler) handleStartProjectSession(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]string{
 		keyName:           req.Name,
 		"ClientSessionId": uuid.New().String(),
-	})
+	}, jsonx.V1())
 }
 
 // handleSendProjectSessionAction handles SendProjectSessionAction. Applying
@@ -203,12 +205,12 @@ func (h *Handler) handleSendProjectSessionAction(ctx context.Context, body []byt
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if _, err := h.Backend.DescribeProject(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }

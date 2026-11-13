@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -46,7 +47,7 @@ func TestHandler_ListDataQualityJobDefinitions(t *testing.T) {
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.JobDefinitionSummaries, 3)
 }
 
@@ -67,7 +68,7 @@ func TestHandler_ListDataQualityJobDefinitions_FilterByEndpointName(t *testing.T
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.JobDefinitionSummaries, 2)
 
 	for _, s := range resp.JobDefinitionSummaries {
@@ -94,7 +95,7 @@ func TestHandler_ListDataQualityJobDefinitions_NameContainsAndSort(t *testing.T)
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.JobDefinitionSummaries, 2)
 	assert.Equal(t, "alpha-job", resp.JobDefinitionSummaries[0]["MonitoringJobDefinitionName"])
 	assert.Equal(t, "alpha-other", resp.JobDefinitionSummaries[1]["MonitoringJobDefinitionName"])
@@ -120,7 +121,7 @@ func TestHandler_ListDataQualityJobDefinitions_Pagination(t *testing.T) {
 		NextToken              string           `json:"NextToken"`
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.JobDefinitionSummaries, 2)
 	require.NotEmpty(t, page1.NextToken)
 
@@ -134,7 +135,7 @@ func TestHandler_ListDataQualityJobDefinitions_Pagination(t *testing.T) {
 	var page2 struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.JobDefinitionSummaries, 1)
 }
 
@@ -149,7 +150,7 @@ func TestHandler_ListModelBiasJobDefinitions_Empty(t *testing.T) {
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.JobDefinitionSummaries)
 }
 
@@ -168,7 +169,7 @@ func TestHandler_ListModelQualityJobDefinitions_ReturnsCreated(t *testing.T) {
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.JobDefinitionSummaries, 1)
 	assert.Equal(t, "mq-list-1", resp.JobDefinitionSummaries[0]["MonitoringJobDefinitionName"])
 }
@@ -188,7 +189,7 @@ func TestHandler_ListModelExplainabilityJobDefinitions_ReturnsCreated(t *testing
 	var resp struct {
 		JobDefinitionSummaries []map[string]any `json:"JobDefinitionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.JobDefinitionSummaries, 1)
 	assert.Equal(t, "me-list-1", resp.JobDefinitionSummaries[0]["MonitoringJobDefinitionName"])
 }
@@ -230,7 +231,7 @@ func TestHandler_UpdateMonitoringAlert_CreatesThenUpdates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["MonitoringScheduleArn"], "mm-sched")
 	assert.Equal(t, "alert-1", resp["MonitoringAlertName"])
 
@@ -251,7 +252,7 @@ func TestHandler_UpdateMonitoringAlert_CreatesThenUpdates(t *testing.T) {
 	var listResp struct {
 		MonitoringAlertSummaries []map[string]any `json:"MonitoringAlertSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.MonitoringAlertSummaries, 1)
 	assert.InEpsilon(t, float64(5), listResp.MonitoringAlertSummaries[0]["DatapointsToAlert"], 0)
 	assert.InEpsilon(t, float64(6), listResp.MonitoringAlertSummaries[0]["EvaluationPeriod"], 0)
@@ -335,7 +336,7 @@ func TestHandler_ListMonitoringAlerts_MaxResults(t *testing.T) {
 		NextToken                string           `json:"NextToken"`
 		MonitoringAlertSummaries []map[string]any `json:"MonitoringAlertSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.MonitoringAlertSummaries, 2)
 	assert.NotEmpty(t, resp.NextToken)
 }
@@ -369,7 +370,7 @@ func TestHandler_ListMonitoringAlerts_EmptyForFreshSchedule(t *testing.T) {
 	var resp struct {
 		MonitoringAlertSummaries []map[string]any `json:"MonitoringAlertSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.MonitoringAlertSummaries)
 }
 
@@ -403,7 +404,7 @@ func TestHandler_ListMonitoringAlertHistory_FiltersByScheduleAndStatus(t *testin
 	var resp struct {
 		MonitoringAlertHistory []map[string]any `json:"MonitoringAlertHistory"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.MonitoringAlertHistory, 1)
 	assert.Equal(t, "sched-1", resp.MonitoringAlertHistory[0]["MonitoringScheduleName"])
 	assert.Equal(t, "InAlert", resp.MonitoringAlertHistory[0]["AlertStatus"])
@@ -446,7 +447,7 @@ func TestHandler_ListMonitoringAlertHistory_SortByStatus(t *testing.T) {
 	var defaultResp struct {
 		MonitoringAlertHistory []map[string]any `json:"MonitoringAlertHistory"`
 	}
-	require.NoError(t, json.Unmarshal(defaultRec.Body.Bytes(), &defaultResp))
+	require.NoError(t, json.Unmarshal(defaultRec.Body.Bytes(), &defaultResp, jsonx.V1()))
 	require.Len(t, defaultResp.MonitoringAlertHistory, 2)
 	assert.Equal(t, "InAlert", defaultResp.MonitoringAlertHistory[0]["AlertStatus"])
 
@@ -462,7 +463,7 @@ func TestHandler_ListMonitoringAlertHistory_SortByStatus(t *testing.T) {
 	var statusResp struct {
 		MonitoringAlertHistory []map[string]any `json:"MonitoringAlertHistory"`
 	}
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp, jsonx.V1()))
 	require.Len(t, statusResp.MonitoringAlertHistory, 2)
 	assert.Equal(t, "OK", statusResp.MonitoringAlertHistory[0]["AlertStatus"], "SortBy=Status must be honored")
 }
@@ -501,7 +502,7 @@ func TestHandler_ListMonitoringExecutions_FiltersByScheduleAndStatus(t *testing.
 	var resp struct {
 		MonitoringExecutionSummaries []map[string]any `json:"MonitoringExecutionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.MonitoringExecutionSummaries, 1)
 	assert.Equal(t, "sched-a", resp.MonitoringExecutionSummaries[0]["MonitoringScheduleName"])
 	assert.Equal(t, "Completed", resp.MonitoringExecutionSummaries[0]["MonitoringExecutionStatus"])
@@ -518,6 +519,6 @@ func TestHandler_ListMonitoringExecutions_EmptyWhenNoneSeeded(t *testing.T) {
 	var resp struct {
 		MonitoringExecutionSummaries []map[string]any `json:"MonitoringExecutionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.MonitoringExecutionSummaries)
 }

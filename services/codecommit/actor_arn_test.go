@@ -2,7 +2,7 @@ package codecommit_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
 
@@ -30,7 +31,7 @@ func doRequestAsActor(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -80,7 +81,7 @@ func createTestPRForActorArn(t *testing.T, h *codecommit.Handler) (string, strin
 			RevisionID    string `json:"revisionId"`
 		} `json:"pullRequest"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp.PullRequest.PullRequestID)
 	require.NotEmpty(t, resp.PullRequest.RevisionID)
 
@@ -153,7 +154,7 @@ func TestOverridePullRequestApprovalRules_RecordsCallerAsActorArn(t *testing.T) 
 			var resp struct {
 				PullRequestEvents []map[string]any `json:"pullRequestEvents"`
 			}
-			require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.PullRequestEvents, tt.wantCount)
 
 			if tt.wantCount > 0 {

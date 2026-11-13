@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -24,7 +25,7 @@ func TestFirewallRuleGroup_ShareStatusAndTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rg := resp["FirewallRuleGroup"].(map[string]any)
 
 	assert.Equal(t, "NOT_SHARED", rg["ShareStatus"])
@@ -80,7 +81,7 @@ func TestFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
-			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			assocBody := map[string]any{
@@ -98,7 +99,7 @@ func TestFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 
 			if tt.wantAssocCode == http.StatusOK && tt.tryDisassociate {
 				var assocResp map[string]any
-				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 				assocID := assocResp["FirewallRuleGroupAssociation"].(map[string]any)["Id"].(string)
 
 				disassocRec := doRequest(t, h, "DisassociateFirewallRuleGroup", map[string]any{
@@ -139,7 +140,7 @@ func TestUpdateFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
-			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
@@ -150,7 +151,7 @@ func TestUpdateFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, assocRec.Code)
 			var assocResp map[string]any
-			require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+			require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 			assocID := assocResp["FirewallRuleGroupAssociation"].(map[string]any)["Id"].(string)
 
 			rec := doRequest(t, h, "UpdateFirewallRuleGroupAssociation", map[string]any{
@@ -161,7 +162,7 @@ func TestUpdateFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assoc := resp["FirewallRuleGroupAssociation"].(map[string]any)
 				assert.Equal(t, tt.mutationProtection, assoc["MutationProtection"])
 			}
@@ -184,7 +185,7 @@ func TestUpdateFirewallRuleGroupAssociation_RejectedMutationProtectionLeavesStat
 	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "upd-mp-partial-grp"})
 	require.Equal(t, http.StatusOK, grpRec.Code)
 	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 	groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 	assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
@@ -195,7 +196,7 @@ func TestUpdateFirewallRuleGroupAssociation_RejectedMutationProtectionLeavesStat
 	})
 	require.Equal(t, http.StatusOK, assocRec.Code)
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	assocID := assocResp["FirewallRuleGroupAssociation"].(map[string]any)["Id"].(string)
 
 	updateRec := doRequest(t, h, "UpdateFirewallRuleGroupAssociation", map[string]any{
@@ -211,7 +212,7 @@ func TestUpdateFirewallRuleGroupAssociation_RejectedMutationProtectionLeavesStat
 	})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assoc := getResp["FirewallRuleGroupAssociation"].(map[string]any)
 	assert.Equal(t, "original-name", assoc["Name"])
 	assert.InDelta(t, float64(100), assoc["Priority"], 0)
@@ -227,7 +228,7 @@ func TestFirewallRuleGroupAssociation_CreatorAndTimestamps(t *testing.T) {
 	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "assoc-ts-grp"})
 	require.Equal(t, http.StatusOK, grpRec.Code)
 	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 	groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 	assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
@@ -240,7 +241,7 @@ func TestFirewallRuleGroupAssociation_CreatorAndTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &resp, jsonx.V1()))
 	assoc := resp["FirewallRuleGroupAssociation"].(map[string]any)
 
 	assert.Equal(t, "req-assoc-ts-1", assoc["CreatorRequestId"])
@@ -314,7 +315,7 @@ func TestListFirewallRuleGroups_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			groups, _ := resp["FirewallRuleGroups"].([]any)
 			assert.Len(t, groups, tt.wantLen)
 			nextToken, _ := resp["NextToken"].(string)
@@ -362,7 +363,7 @@ func TestCreateFirewallRuleGroup(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				grp, ok := resp["FirewallRuleGroup"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, grp["Name"])
@@ -393,7 +394,7 @@ func TestAssociateFirewallRuleGroup(t *testing.T) {
 				rec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "grp-assoc"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 			},
@@ -449,7 +450,7 @@ func TestAssociateFirewallRuleGroup(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assoc, ok := resp["FirewallRuleGroupAssociation"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantStatus, assoc["Status"])
@@ -511,7 +512,7 @@ func TestListFirewallRuleGroupAssociations_Pagination(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, grpRec.Code)
 		var grpOut map[string]any
-		require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpOut))
+		require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpOut, jsonx.V1()))
 		grpID := grpOut["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 		assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
@@ -548,7 +549,7 @@ func TestListFirewallRuleGroupAssociations_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListFirewallRuleGroupAssociations", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			assocs, _ := out["FirewallRuleGroupAssociations"].([]any)
 			assert.Len(t, assocs, tt.wantLen)
 			if tt.wantNextToken {
@@ -575,7 +576,7 @@ func TestListFirewallRuleGroupAssociations_PriorityStatusFilters(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, grpRec.Code)
 		var grpOut map[string]any
-		require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpOut))
+		require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpOut, jsonx.V1()))
 		grpID := grpOut["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 		assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
@@ -603,7 +604,7 @@ func TestListFirewallRuleGroupAssociations_PriorityStatusFilters(t *testing.T) {
 			listRec := doRequest(t, h, "ListFirewallRuleGroupAssociations", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			assocs, _ := out["FirewallRuleGroupAssociations"].([]any)
 			assert.Len(t, assocs, tt.wantLen)
 		})

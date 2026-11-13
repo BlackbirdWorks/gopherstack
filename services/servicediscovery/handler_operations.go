@@ -2,12 +2,13 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getOperationRequest struct {
@@ -16,7 +17,7 @@ type getOperationRequest struct {
 
 func (h *Handler) handleGetOperation(_ context.Context, body []byte) ([]byte, error) {
 	var req getOperationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -31,7 +32,7 @@ func (h *Handler) handleGetOperation(_ context.Context, body []byte) ([]byte, er
 
 	return json.Marshal(map[string]any{
 		"Operation": operationToMap(op),
-	})
+	}, jsonx.V1())
 }
 
 type operationFilter struct {
@@ -106,7 +107,7 @@ func buildOperationsFilter(filters []operationFilter) ListOperationsFilter {
 
 func (h *Handler) handleListOperations(_ context.Context, body []byte) ([]byte, error) {
 	var req listOperationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

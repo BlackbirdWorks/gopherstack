@@ -2,9 +2,11 @@ package directoryservice
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -52,7 +54,7 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage                      `json:"tables"`
+	Tables            map[string]jsontext.Value                       `json:"tables"`
 	Aliases           map[string]map[string]string                    `json:"aliases"`
 	IPRoutes          map[string]map[string][]storedIpRoute           `json:"ipRoutes"`
 	DirDataAccess     map[string]map[string]bool                      `json:"dirDataAccess"`
@@ -257,7 +259,7 @@ func unwrapRegionalDTOs[V any](dtos *store.Table[regionalDTO[V]], setRegion func
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dto := buildPersistenceDTOTables()
 
 	if err := dto.registry.RestoreAll(tables); err != nil {
@@ -361,7 +363,7 @@ func (b *InMemoryBackend) BackendSnapshot() []byte {
 		Region:            b.region,
 	}
 
-	data, _ := json.Marshal(snap)
+	data, _ := json.Marshal(snap, jsonx.V1())
 
 	return data
 }

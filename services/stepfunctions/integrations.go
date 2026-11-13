@@ -3,7 +3,7 @@ package stepfunctions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 
@@ -12,6 +12,7 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dynamodbpkg "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -182,12 +183,12 @@ func (a *s3ResultWriterAdapter) PutObjectBytes(ctx context.Context, bucket, key 
 
 // convertViaJSON converts a value to a target type by marshaling to JSON and back.
 func convertViaJSON(input, target any) error {
-	b, err := json.Marshal(input)
+	b, err := json.Marshal(input, jsonx.V1())
 	if err != nil {
 		return err
 	}
 
-	return json.Unmarshal(b, target)
+	return json.Unmarshal(b, target, jsonx.V1())
 }
 
 // outputToAny converts a typed SDK output struct to an untyped map via JSON round-trip.

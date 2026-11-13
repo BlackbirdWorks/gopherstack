@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -23,7 +24,7 @@ func TestWAF_GeoMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	gmsMap := createResp["GeoMatchSet"].(map[string]any)
 	id := gmsMap["GeoMatchSetId"].(string)
 	require.NotEmpty(t, id)
@@ -48,7 +49,7 @@ func TestWAF_GeoMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "GetGeoMatchSet", map[string]any{"GeoMatchSetId": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	gms := resp["GeoMatchSet"].(map[string]any)
 	constraints := gms["GeoMatchConstraints"].([]any)
 	require.Len(t, constraints, 1)
@@ -81,7 +82,7 @@ func TestWAF_GeoMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = wafDo(t, h, "GetGeoMatchSet", map[string]any{"GeoMatchSetId": id})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	gms = resp["GeoMatchSet"].(map[string]any)
 	constraints = gms["GeoMatchConstraints"].([]any)
 	require.Len(t, constraints, 1)
@@ -90,7 +91,7 @@ func TestWAF_GeoMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	// List
 	rec = wafDo(t, h, "ListGeoMatchSets", map[string]any{"Limit": 100})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	sets := listResp["GeoMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
@@ -137,7 +138,7 @@ func wafCreateGeoMatchSet(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["GeoMatchSet"].(map[string]any)
 	id := m["GeoMatchSetId"].(string)
 	require.NotEmpty(t, id)

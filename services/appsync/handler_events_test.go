@@ -1,12 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateApi(t *testing.T) {
@@ -44,7 +47,7 @@ func TestHandler_CreateApi(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				api, ok := resp["api"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, api["name"])
@@ -64,7 +67,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	apiID := createResp["api"].(map[string]any)["apiId"].(string)
 
 	// List APIs.
@@ -72,7 +75,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &listResp, jsonx.V1()))
 	items := listResp["apis"].([]any)
 	assert.Len(t, items, 1)
 
@@ -81,7 +84,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec3.Body), &getResp, jsonx.V1()))
 	assert.Equal(t, "MyEventAPI", getResp["api"].(map[string]any)["name"])
 
 	// Delete API.
@@ -97,7 +100,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec6.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.NewDecoder(rec6.Body).Decode(&listResp2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec6.Body), &listResp2, jsonx.V1()))
 	assert.Empty(t, listResp2["apis"])
 }
 
@@ -129,7 +132,7 @@ func TestHandler_UpdateAPI(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &createResp, jsonx.V1()))
 	apiID := createResp["api"].(map[string]any)["apiId"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPut, "/v2/apis/"+apiID,
@@ -137,7 +140,7 @@ func TestHandler_UpdateAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp, jsonx.V1()))
 	api := resp["api"].(map[string]any)
 	assert.Equal(t, "UpdatedAPI", api["name"])
 	assert.Equal(t, "ops@example.com", api["ownerContact"])

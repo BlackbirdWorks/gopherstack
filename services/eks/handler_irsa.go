@@ -1,7 +1,8 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -111,7 +113,7 @@ func (h *Handler) serveMintToken(c *echo.Context, cluster string) error {
 	var in serviceAccountTokenBody
 
 	if c.Request().Body != nil {
-		if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 			return h.handleError(c, errMsgf(ErrValidation, "invalid request body"))
 		}
 	}

@@ -2,7 +2,7 @@ package fsx
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -198,7 +199,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		ResourceARN  string `json:"ResourceARN"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	switch {
 	case req.ResourceARN != "":
@@ -326,7 +327,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	out, err := json.Marshal(result)
+	out, err := json.Marshal(result, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -67,7 +67,7 @@ func secretSnapshotKeyFn(ss *secretSnapshot) string {
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage                    `json:"tables"`
+	Tables             map[string]jsontext.Value                     `json:"tables"`
 	ResourcePolicies   map[string]map[string]string                  `json:"resourcePolicies,omitempty"`
 	ReplicationConfigs map[string]map[string][]ReplicationStatusType `json:"replicationConfigs,omitempty"`
 	AccountID          string                                        `json:"accountID"`

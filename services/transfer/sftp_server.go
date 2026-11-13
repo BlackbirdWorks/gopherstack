@@ -3,7 +3,7 @@ package transfer
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -106,7 +107,7 @@ func (s *sftpServer) serve(conn net.Conn) {
 
 	var sess sftpSession
 	if raw := sc.Permissions.Extensions[sftpSessionExtension]; raw != "" {
-		if jerr := json.Unmarshal([]byte(raw), &sess); jerr != nil {
+		if jerr := json.Unmarshal([]byte(raw), &sess, jsonx.V1()); jerr != nil {
 			return
 		}
 	}
@@ -176,7 +177,7 @@ func (s *sftpServer) authenticate(c ssh.ConnMetadata, key ssh.PublicKey, passwor
 
 	sess.User = c.User()
 
-	raw, err := json.Marshal(sess)
+	raw, err := json.Marshal(sess, jsonx.V1())
 	if err != nil {
 		return nil, errSFTPDenied
 	}
@@ -288,7 +289,7 @@ func (s *sftpServer) lambdaLogin(
 		event["password"] = password
 	}
 
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +300,7 @@ func (s *sftpServer) lambdaLogin(
 	}
 
 	var resp idpAuthResponse
-	if jerr := json.Unmarshal(out, &resp); jerr != nil {
+	if jerr := json.Unmarshal(out, &resp, jsonx.V1()); jerr != nil {
 		return nil, errSFTPDenied
 	}
 
@@ -340,7 +341,7 @@ func parseLambdaMappings(details string) ([]HomeDirectoryMapEntry, error) {
 		Entry  string `json:"Entry"`
 		Target string `json:"Target"`
 	}
-	if err := json.Unmarshal([]byte(details), &raw); err != nil {
+	if err := json.Unmarshal([]byte(details), &raw, jsonx.V1()); err != nil {
 		return nil, errSFTPDenied
 	}
 

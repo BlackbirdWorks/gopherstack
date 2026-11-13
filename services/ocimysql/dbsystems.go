@@ -1,7 +1,8 @@
 package ocimysql
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -64,7 +66,7 @@ type BackupPolicyIn struct {
 	WindowStartTime *string                    `json:"windowStartTime"`
 	RetentionInDays *int                       `json:"retentionInDays"`
 	SoftDelete      string                     `json:"softDelete"`
-	CopyPolicies    json.RawMessage            `json:"copyPolicies"`
+	CopyPolicies    jsontext.Value             `json:"copyPolicies"`
 }
 
 // DeletionPolicyIn is the create/update deletion policy.
@@ -89,33 +91,33 @@ type SourceIn struct {
 // CreateDBSystemIn is the CreateDBSystem body.
 type CreateDBSystemIn struct {
 	Tags
-	Extra             map[string]json.RawMessage `json:"-"`
-	IsHighlyAvailable *bool                      `json:"isHighlyAvailable"`
-	DataStorageGBs    *int                       `json:"dataStorageSizeInGBs"`
-	Port              *int                       `json:"port"`
-	PortX             *int                       `json:"portX"`
-	DataStorage       *DataStorageIn             `json:"dataStorage"`
-	BackupPolicy      *BackupPolicyIn            `json:"backupPolicy"`
-	Source            *SourceIn                  `json:"source"`
-	DeletionPolicy    *DeletionPolicyIn          `json:"deletionPolicy"`
-	Maintenance       map[string]any             `json:"maintenance"`
-	Description       string                     `json:"description"`
-	AdminPassword     string                     `json:"adminPassword"`
-	DisplayName       string                     `json:"displayName"`
-	ShapeName         string                     `json:"shapeName"`
-	AvailabilityDom   string                     `json:"availabilityDomain"`
-	FaultDomain       string                     `json:"faultDomain"`
-	ConfigurationID   string                     `json:"configurationId"`
-	MysqlVersion      string                     `json:"mysqlVersion"`
-	AdminUsername     string                     `json:"adminUsername"`
-	SubnetID          string                     `json:"subnetId"`
-	HostnameLabel     string                     `json:"hostnameLabel"`
-	IPAddress         string                     `json:"ipAddress"`
-	CrashRecovery     string                     `json:"crashRecovery"`
-	DBManagement      string                     `json:"databaseManagement"`
-	DatabaseMode      string                     `json:"databaseMode"`
-	AccessMode        string                     `json:"accessMode"`
-	CompartmentID     string                     `json:"compartmentId"`
+	Extra             map[string]jsontext.Value `json:"-"`
+	IsHighlyAvailable *bool                     `json:"isHighlyAvailable"`
+	DataStorageGBs    *int                      `json:"dataStorageSizeInGBs"`
+	Port              *int                      `json:"port"`
+	PortX             *int                      `json:"portX"`
+	DataStorage       *DataStorageIn            `json:"dataStorage"`
+	BackupPolicy      *BackupPolicyIn           `json:"backupPolicy"`
+	Source            *SourceIn                 `json:"source"`
+	DeletionPolicy    *DeletionPolicyIn         `json:"deletionPolicy"`
+	Maintenance       map[string]any            `json:"maintenance"`
+	Description       string                    `json:"description"`
+	AdminPassword     string                    `json:"adminPassword"`
+	DisplayName       string                    `json:"displayName"`
+	ShapeName         string                    `json:"shapeName"`
+	AvailabilityDom   string                    `json:"availabilityDomain"`
+	FaultDomain       string                    `json:"faultDomain"`
+	ConfigurationID   string                    `json:"configurationId"`
+	MysqlVersion      string                    `json:"mysqlVersion"`
+	AdminUsername     string                    `json:"adminUsername"`
+	SubnetID          string                    `json:"subnetId"`
+	HostnameLabel     string                    `json:"hostnameLabel"`
+	IPAddress         string                    `json:"ipAddress"`
+	CrashRecovery     string                    `json:"crashRecovery"`
+	DBManagement      string                    `json:"databaseManagement"`
+	DatabaseMode      string                    `json:"databaseMode"`
+	AccessMode        string                    `json:"accessMode"`
+	CompartmentID     string                    `json:"compartmentId"`
 }
 
 func validPassword(p string) bool {
@@ -906,13 +908,13 @@ func (h *Handler) createDBSystem(q *req) error {
 	return q.json(http.StatusOK, d, etag)
 }
 
-func extras(body []byte) map[string]json.RawMessage {
-	var all map[string]json.RawMessage
-	if json.Unmarshal(body, &all) != nil {
+func extras(body []byte) map[string]jsontext.Value {
+	var all map[string]jsontext.Value
+	if json.Unmarshal(body, &all, jsonx.V1()) != nil {
 		return nil
 	}
 
-	out := map[string]json.RawMessage{}
+	out := map[string]jsontext.Value{}
 
 	for _, k := range extraKeys {
 		if v, ok := all[k]; ok && string(v) != "null" {

@@ -1,7 +1,7 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"sort"
 	"time"
@@ -15,7 +15,7 @@ import (
 // UpdateAnalyzer all accept the AnalyzerConfiguration union as an optional
 // parameter this way so existing call sites (which never set it) do not
 // need to change.
-func firstConfiguration(cs []json.RawMessage) json.RawMessage {
+func firstConfiguration(cs []jsontext.Value) jsontext.Value {
 	if len(cs) == 0 {
 		return nil
 	}
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateAnalyzer(
 	name string,
 	analyzerType AnalyzerType,
 	tags map[string]string,
-	configuration ...json.RawMessage,
+	configuration ...jsontext.Value,
 ) (*Analyzer, error) {
 	if name == "" {
 		return nil, ErrValidation
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 // AnalyzerConfiguration union body (see Analyzer.Configuration).
 func (b *InMemoryBackend) CreateServiceLinkedAnalyzer(
 	analyzerType AnalyzerType,
-	configuration ...json.RawMessage,
+	configuration ...jsontext.Value,
 ) (*Analyzer, error) {
 	name := "_AccessAnalyzerForInternalUse-" + uuid.NewString()[:8]
 
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) CreateServiceLinkedAnalyzer(
 // AnalyzerConfiguration; otherwise the existing configuration is left
 // untouched and simply echoed back, matching UpdateAnalyzerOutput's
 // contract of always returning the analyzer's current configuration.
-func (b *InMemoryBackend) UpdateAnalyzer(name string, configuration ...json.RawMessage) (*Analyzer, error) {
+func (b *InMemoryBackend) UpdateAnalyzer(name string, configuration ...jsontext.Value) (*Analyzer, error) {
 	b.mu.Lock("UpdateAnalyzer")
 	defer b.mu.Unlock()
 

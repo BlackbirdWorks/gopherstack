@@ -2,7 +2,8 @@ package translate_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svc "github.com/blackbirdworks/gopherstack/services/translate"
 )
@@ -183,8 +185,8 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			snap := src.Snapshot(context.Background())
 			require.NotNil(t, snap)
 
-			var doc map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(snap, &doc))
+			var doc map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(snap, &doc, jsonx.V1()))
 
 			if _, ok := doc["regions"]; ok != tc.remote {
 				t.Fatalf("regions key present = %v, want %v", ok, tc.remote)

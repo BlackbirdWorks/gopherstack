@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -47,10 +47,10 @@ func (h *Handler) handleVirtualNodes(c *echo.Context, segs []string, meshName st
 
 func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) error {
 	var body struct {
-		VirtualNodeName string          `json:"virtualNodeName"`
-		ClientToken     string          `json:"clientToken"`
-		Spec            json.RawMessage `json:"spec"`
-		Tags            []tagInput      `json:"tags"`
+		VirtualNodeName string         `json:"virtualNodeName"`
+		ClientToken     string         `json:"clientToken"`
+		Spec            jsontext.Value `json:"spec"`
+		Tags            []tagInput     `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualNodeName) {
 		return c.JSON(
@@ -77,8 +77,8 @@ func (h *Handler) handleDescribeVirtualNode(c *echo.Context, meshName, name stri
 
 func (h *Handler) handleUpdateVirtualNode(c *echo.Context, meshName, name string) error {
 	var body struct {
-		ClientToken string          `json:"clientToken"`
-		Spec        json.RawMessage `json:"spec"`
+		ClientToken string         `json:"clientToken"`
+		Spec        jsontext.Value `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))

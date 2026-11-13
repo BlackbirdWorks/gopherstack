@@ -3,12 +3,14 @@ package rum
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
@@ -79,11 +81,11 @@ func validateEvents(in *PutEventsInput) error {
 			return invalid("RumEvents[%d] requires id, type and a timestamp", i)
 		}
 
-		if !json.Valid([]byte(e.Details)) {
+		if !jsontext.Value([]byte(e.Details)).IsValid(jsonx.V1()) {
 			return invalid("RumEvents[%d].details must be valid JSON", i)
 		}
 
-		if e.Metadata != "" && !json.Valid([]byte(e.Metadata)) {
+		if e.Metadata != "" && !jsontext.Value([]byte(e.Metadata)).IsValid(jsonx.V1()) {
 			return invalid("RumEvents[%d].metadata must be valid JSON", i)
 		}
 	}
@@ -98,7 +100,7 @@ func decodeJSON(s string) any {
 
 	var v any
 
-	_ = json.Unmarshal([]byte(s), &v)
+	_ = json.Unmarshal([]byte(s), &v, jsonx.V1())
 
 	return v
 }
@@ -202,7 +204,7 @@ func (b *InMemoryBackend) storeEvents(in *PutEventsInput) (delivery, error) {
 
 		doc := eventDoc(m, in, e)
 
-		raw, merr := json.Marshal(doc)
+		raw, merr := json.Marshal(doc, jsonx.V1())
 		if merr != nil {
 			return delivery{}, internalError("could not encode event %s", e.ID)
 		}

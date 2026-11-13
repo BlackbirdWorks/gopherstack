@@ -3,7 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"testing"
@@ -21,6 +21,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const cfnPipelineTemplate = `{"Parameters":{"Env":{"Type":"String","Default":"dev"}},` +
@@ -509,7 +511,7 @@ func TestCodePipelineECRSource(t *testing.T) {
 			}
 
 			var detail map[string]any
-			require.NoError(t, json.Unmarshal([]byte(env.object(t, "out/imageDetail.json")), &detail))
+			require.NoError(t, json.Unmarshal([]byte(env.object(t, "out/imageDetail.json")), &detail, jsonx.V1()))
 
 			imgs, err := ecrc.DescribeImages(ctx, &ecr.DescribeImagesInput{
 				RepositoryName: aws.String(

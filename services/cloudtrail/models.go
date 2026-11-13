@@ -1,10 +1,11 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -75,7 +76,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	}{
 		alias:     alias(e),
 		EventTime: awstime.Epoch(e.EventTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of MarshalJSON: it decodes the epoch-seconds
@@ -92,7 +93,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		EventTime float64 `json:"EventTime"`
 	}{alias: (*alias)(e)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

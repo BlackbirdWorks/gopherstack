@@ -2,7 +2,8 @@ package fis_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -74,13 +76,13 @@ func TestFISHandler_GetSafetyLever_NoTagsFieldOnWire(t *testing.T) {
 	rec2 := doRequest(t, h, http.MethodGet, "/safetyLevers/000000000000", nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 
 	mustJSON(t, rec2, &raw)
 
-	var lever map[string]json.RawMessage
+	var lever map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(raw["safetyLever"], &lever))
+	require.NoError(t, json.Unmarshal(raw["safetyLever"], &lever, jsonx.V1()))
 
 	_, hasTags := lever["tags"]
 	assert.False(t, hasTags, "GetSafetyLever response must not include a tags field")

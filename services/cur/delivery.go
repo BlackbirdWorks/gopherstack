@@ -2,7 +2,7 @@ package cur
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path"
 	"slices"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -224,7 +225,7 @@ func writeManifests(
 	periodDir, dataDir string,
 	athena bool,
 ) error {
-	mb, err := json.Marshal(m)
+	mb, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode manifest: %w", err)
 	}
@@ -303,7 +304,7 @@ func redshiftManifest(dataURI string) []byte {
 		"globalUploadSettings": map[string]string{
 			"format": "CSV", "delimiter": ",", "textqualifier": "\"", "containsHeader": "true",
 		},
-	})
+	}, jsonx.V1())
 
 	return b
 }
@@ -314,7 +315,7 @@ func quicksightManifest(dataURI string) []byte {
 		"globalUploadSettings": map[string]string{
 			"format": "CSV", "delimiter": ",", "textqualifier": "\"", "containsHeader": "true",
 		},
-	})
+	}, jsonx.V1())
 
 	return b
 }

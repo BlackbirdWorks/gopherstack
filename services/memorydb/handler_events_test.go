@@ -2,7 +2,7 @@ package memorydb_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -98,7 +99,7 @@ func TestWireEpoch_DescribeEvents_DateIsNumber(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	events, _ := resp["Events"].([]any)
 	require.NotEmpty(t, events, "expected at least one event for the created cluster")
@@ -130,7 +131,7 @@ func TestWireEpoch_DescribeEvents_StartTimeAcceptsEpochNumber(t *testing.T) {
 		"DescribeEvents must accept an epoch-seconds StartTime the way a real SDK client sends it")
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	events, _ := resp["Events"].([]any)
 	assert.NotEmpty(t, events, "StartTime=0 (epoch start) should not filter out the cluster-creation event")
@@ -143,7 +144,7 @@ func TestWireEpoch_DescribeEvents_StartTimeAcceptsEpochNumber(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp = nil
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	events, _ = resp["Events"].([]any)
 	assert.Empty(t, events, "a future StartTime should filter out all past events")
 }
@@ -183,7 +184,7 @@ func TestHandler_DescribeEvents(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			events := resp["Events"].([]any)
 			assert.Len(t, events, tt.wantCount)
 		})
@@ -242,7 +243,7 @@ func TestHandler_Events_Generated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			events, _ := resp["Events"].([]any)
 			assert.NotEmpty(t, events, "expected events for %s", tt.wantSrcName)
 		})
@@ -308,7 +309,7 @@ func TestHandler_Events_SourceTypeFiltering(t *testing.T) {
 			require.Equal(t, http.StatusOK, evRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &resp, jsonx.V1()))
 			events, _ := resp["Events"].([]any)
 			assert.GreaterOrEqual(t, len(events), tt.wantEventCount)
 		})
@@ -435,7 +436,7 @@ func TestHandler_Events_AutoPopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			events := resp["Events"].([]any)
 			require.NotEmpty(t, events, "expected at least one event for source %q type %q", tt.wantSrc, tt.wantType)
 
@@ -501,7 +502,7 @@ func TestHandler_DescribeEvents_Duration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			events := resp["Events"].([]any)
 			assert.GreaterOrEqual(t, len(events), tt.wantMinCount)
 		})

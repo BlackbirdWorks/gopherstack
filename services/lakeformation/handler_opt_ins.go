@@ -2,15 +2,17 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateLakeFormationOptIn(_ context.Context, c *echo.Context, body []byte) error {
 	var in createLakeFormationOptInInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -31,7 +33,7 @@ func (h *Handler) handleCreateLakeFormationOptIn(_ context.Context, c *echo.Cont
 
 func (h *Handler) handleDeleteLakeFormationOptIn(_ context.Context, c *echo.Context, body []byte) error {
 	var in deleteLakeFormationOptInInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -53,7 +55,7 @@ func (h *Handler) handleDeleteLakeFormationOptIn(_ context.Context, c *echo.Cont
 func (h *Handler) handleListLakeFormationOptIns(_ context.Context, c *echo.Context, body []byte) error {
 	var in listLakeFormationOptInsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}

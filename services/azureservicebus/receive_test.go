@@ -1,7 +1,7 @@
 package azureservicebus_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 )
 
@@ -42,7 +43,7 @@ func peek(t *testing.T, h *azureservicebus.Handler, path string) []peekResp {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out []peekResp
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }

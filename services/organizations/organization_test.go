@@ -1,13 +1,15 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -122,7 +124,7 @@ func TestHandler_CreateOrganization(t *testing.T) {
 
 			if tt.wantOrgID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				org, ok := resp["Organization"].(map[string]any)
 				require.True(t, ok, "response should contain Organization")
 				assert.NotEmpty(t, org["Id"])
@@ -326,7 +328,7 @@ func TestAvailablePolicyTypes_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	org := resp["Organization"].(map[string]any)
 	pts, ok := org["AvailablePolicyTypes"].([]any)
@@ -549,7 +551,7 @@ func TestDeleteOrganization_WithMembers_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "OrganizationNotEmptyException", errResp["__type"])
 }
 

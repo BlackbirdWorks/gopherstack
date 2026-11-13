@@ -1,13 +1,15 @@
 package batch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
 
@@ -378,7 +380,7 @@ func TestHandler_DeleteJobQueue_TerminatesJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var submitResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp, jsonx.V1()))
 	jobID := submitResp["jobId"].(string)
 
 	// Delete the queue — associated jobs must be terminated (FAILED), not
@@ -402,7 +404,7 @@ func TestHandler_DeleteJobQueue_TerminatesJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	jobs := descResp["jobs"].([]any)
 	require.Len(t, jobs, 1, "job history must survive job queue deletion")
 	job, _ := jobs[0].(map[string]any)
@@ -524,21 +526,21 @@ func TestHandler_GetJobQueueSnapshot_WireShape(t *testing.T) {
 	rec = post(t, h, "/v1/getjobqueuesnapshot", map[string]any{"jobQueue": "q-snap-wire"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var rawMap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap))
+	var rawMap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap, jsonx.V1()))
 
-	var frontOfQueue map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rawMap["frontOfQueue"], &frontOfQueue))
+	var frontOfQueue map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rawMap["frontOfQueue"], &frontOfQueue, jsonx.V1()))
 
 	_, hasTimestamp := frontOfQueue["timestamp"]
 	assert.False(t, hasTimestamp, "wire shape must not have a legacy \"timestamp\" field")
 
 	var lastUpdatedAt int64
-	require.NoError(t, json.Unmarshal(frontOfQueue["lastUpdatedAt"], &lastUpdatedAt))
+	require.NoError(t, json.Unmarshal(frontOfQueue["lastUpdatedAt"], &lastUpdatedAt, jsonx.V1()))
 	assert.Positive(t, lastUpdatedAt, "lastUpdatedAt should be a positive epoch-millisecond value")
 
 	var jobs []map[string]any
-	require.NoError(t, json.Unmarshal(frontOfQueue["jobs"], &jobs))
+	require.NoError(t, json.Unmarshal(frontOfQueue["jobs"], &jobs, jsonx.V1()))
 	require.Len(t, jobs, 1)
 	assert.Contains(t, jobs[0]["jobArn"], "job/")
 
@@ -583,7 +585,7 @@ func TestDescribeJobQueues_TagsPresentNoTags(t *testing.T) {
 	items := out["jobQueues"].([]any)
 	require.Len(t, items, 1)
 
-	itemBytes, err := json.Marshal(items[0])
+	itemBytes, err := json.Marshal(items[0], jsonx.V1())
 	require.NoError(t, err)
 	assertTagsPresent(t, itemBytes)
 }
@@ -597,8 +599,8 @@ func TestDescribeJobQueues_EmptyList(t *testing.T) {
 	rec := post(t, h, "/v1/describejobqueues", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var rawMap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap))
+	var rawMap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap, jsonx.V1()))
 	raw, ok := rawMap["jobQueues"]
 	require.True(t, ok, "jobQueues key must be present")
 	assert.Equal(t, "[]", string(raw), "jobQueues must be [] not null when empty")

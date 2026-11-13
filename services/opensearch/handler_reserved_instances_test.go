@@ -1,12 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
@@ -21,7 +24,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, lor.StatusCode)
 
 	var loOut map[string]any
-	require.NoError(t, json.NewDecoder(lor.Body).Decode(&loOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lor.Body), &loOut, jsonx.V1()))
 	offerings, ok := loOut["ReservedInstanceOfferings"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, offerings, "must have at least one offering")
@@ -40,7 +43,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, pr.StatusCode)
 
 	var pOut map[string]any
-	require.NoError(t, json.NewDecoder(pr.Body).Decode(&pOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pr.Body), &pOut, jsonx.V1()))
 	assert.NotEmpty(t, pOut["ReservedInstanceId"])
 	assert.Equal(t, "my-reservation", pOut["ReservationName"])
 
@@ -51,7 +54,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	instances, ok := dOut["ReservedInstances"].([]any)
 	require.True(t, ok)
 	require.Len(t, instances, 1)
@@ -67,7 +70,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, fr.StatusCode)
 
 	var fOut map[string]any
-	require.NoError(t, json.NewDecoder(fr.Body).Decode(&fOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(fr.Body), &fOut, jsonx.V1()))
 	filtered := fOut["ReservedInstances"].([]any)
 	require.Len(t, filtered, 1)
 	assert.Equal(t, reservationID, filtered[0].(map[string]any)["ReservedInstanceId"])
@@ -79,7 +82,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, ofr.StatusCode)
 
 	var ofOut map[string]any
-	require.NoError(t, json.NewDecoder(ofr.Body).Decode(&ofOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ofr.Body), &ofOut, jsonx.V1()))
 	filteredOfferings := ofOut["ReservedInstanceOfferings"].([]any)
 	require.Len(t, filteredOfferings, 1)
 	assert.Equal(t, offeringID, filteredOfferings[0].(map[string]any)["ReservedInstanceOfferingId"])

@@ -1,7 +1,8 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -61,7 +63,7 @@ func TestDescribeConfigRulesAcceptsFilters(t *testing.T) {
 			ConfigRuleName string `json:"ConfigRuleName"`
 		} `json:"ConfigRules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConfigRules, 1)
 	assert.Equal(t, "rule-detective", out.ConfigRules[0].ConfigRuleName)
 }
@@ -125,7 +127,7 @@ func TestConfigRuleScopeRoundtrip(t *testing.T) {
 			} `json:"Scope"`
 		} `json:"ConfigRules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConfigRules, 1)
 	require.NotNil(t, out.ConfigRules[0].Scope)
 	assert.Contains(t, out.ConfigRules[0].Scope.ComplianceResourceTypes, "AWS::S3::Bucket")
@@ -251,7 +253,7 @@ func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotNil(t, out[tt.wantField])
 		})
 	}
@@ -394,11 +396,11 @@ func TestAWSConfigHandler_DescribeConfigRules_BackedByStorage(t *testing.T) {
 			rec := doAWSConfigRequest(t, h, "DescribeConfigRules", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			var out map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			var out map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			var rules []any
-			require.NoError(t, json.Unmarshal(out["ConfigRules"], &rules))
+			require.NoError(t, json.Unmarshal(out["ConfigRules"], &rules, jsonx.V1()))
 			assert.Len(t, rules, tt.wantCount)
 		})
 	}

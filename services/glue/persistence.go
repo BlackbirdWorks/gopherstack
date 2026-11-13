@@ -2,7 +2,7 @@ package glue
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 
@@ -47,7 +47,7 @@ const glueSnapshotVersion = 3
 // singletons and JobRun*At timer maps, is not a map[string]*T at all) -- and
 // so is still persisted directly, exactly as before this refactor.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage                `json:"tables"`
+	Tables                    map[string]jsontext.Value                 `json:"tables"`
 	PartitionIndexes          map[string]*PartitionIndex                `json:"partitionIndexes"`
 	TableColumnStats          map[string]*ColumnStatistics              `json:"tableColumnStats"`
 	PartitionColumnStats      map[string]*ColumnStatistics              `json:"partitionColumnStats"`

@@ -2,7 +2,7 @@ package gcpbigtable
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
@@ -34,35 +34,35 @@ type rowSnap struct {
 }
 
 type tableSnap struct {
-	Table  json.RawMessage `json:"table"`
-	Policy json.RawMessage `json:"policy,omitempty"`
-	Splits [][]byte        `json:"splits,omitempty"`
-	Rows   []rowSnap       `json:"rows,omitempty"`
+	Table  jsontext.Value `json:"table"`
+	Policy jsontext.Value `json:"policy,omitempty"`
+	Splits [][]byte       `json:"splits,omitempty"`
+	Rows   []rowSnap      `json:"rows,omitempty"`
 }
 
 type backupSnap struct {
-	Backup json.RawMessage `json:"backup"`
-	Policy json.RawMessage `json:"policy,omitempty"`
-	Table  tableSnap       `json:"table"`
+	Backup jsontext.Value `json:"backup"`
+	Policy jsontext.Value `json:"policy,omitempty"`
+	Table  tableSnap      `json:"table"`
 }
 
 type instSnap struct {
-	Clusters map[string]json.RawMessage `json:"clusters,omitempty"`
-	Profiles map[string]json.RawMessage `json:"profiles,omitempty"`
-	Tables   map[string]tableSnap       `json:"tables,omitempty"`
-	Backups  map[string]backupSnap      `json:"backups,omitempty"`
-	Instance json.RawMessage            `json:"instance"`
-	Policy   json.RawMessage            `json:"policy,omitempty"`
+	Clusters map[string]jsontext.Value `json:"clusters,omitempty"`
+	Profiles map[string]jsontext.Value `json:"profiles,omitempty"`
+	Tables   map[string]tableSnap      `json:"tables,omitempty"`
+	Backups  map[string]backupSnap     `json:"backups,omitempty"`
+	Instance jsontext.Value            `json:"instance"`
+	Policy   jsontext.Value            `json:"policy,omitempty"`
 }
 
 type backendSnapshot struct {
-	Instances  map[string]instSnap        `json:"instances"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	Version    int                        `json:"version"`
-	Seq        uint64                     `json:"seq"`
+	Instances  map[string]instSnap       `json:"instances"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	Version    int                       `json:"version"`
+	Seq        uint64                    `json:"seq"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	if m == nil || !m.ProtoReflect().IsValid() {
 		return nil
 	}
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	for name, r := range b.instances {
 		s := instSnap{
 			Instance: marshalPB(r.pb), Policy: marshalPB(r.policy),
-			Clusters: map[string]json.RawMessage{}, Profiles: map[string]json.RawMessage{},
+			Clusters: map[string]jsontext.Value{}, Profiles: map[string]jsontext.Value{},
 			Tables: map[string]tableSnap{}, Backups: map[string]backupSnap{},
 		}
 

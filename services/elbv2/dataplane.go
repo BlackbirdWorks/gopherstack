@@ -2,7 +2,8 @@ package elbv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -300,5 +303,5 @@ func (h *Handler) serveListenerEndpoints(w http.ResponseWriter) {
 	sort.Slice(out, func(i, j int) bool { return out[i].ListenerArn < out[j].ListenerArn })
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), out)
 }

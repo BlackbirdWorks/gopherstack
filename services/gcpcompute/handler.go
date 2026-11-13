@@ -2,7 +2,7 @@ package gcpcompute
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -264,11 +265,11 @@ func decode[T any](rq *request) (*T, map[string]any, *APIError) {
 		return v, raw, nil
 	}
 
-	if err := json.Unmarshal(rq.body, v); err != nil {
+	if err := json.Unmarshal(rq.body, v, jsonx.V1()); err != nil {
 		return nil, nil, errInvalid("Invalid JSON payload received. %v", err)
 	}
 
-	if err := json.Unmarshal(rq.body, &raw); err != nil {
+	if err := json.Unmarshal(rq.body, &raw, jsonx.V1()); err != nil {
 		return nil, nil, errInvalid("Invalid JSON payload received. %v", err)
 	}
 

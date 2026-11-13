@@ -1,7 +1,7 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -309,7 +310,7 @@ func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, rec1.Body.String())
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	firstID, _ := out1["ImageId"].(string)
 	require.NotEmpty(t, firstID)
 
@@ -319,7 +320,7 @@ func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
 	var before struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before, jsonx.V1()))
 
 	rejectedRec := doTargetRequest(
 		t, h, "CreateWorkspaceImage", createWorkspaceImageReq("ws-doesnotexist"),
@@ -332,7 +333,7 @@ func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
 	var after struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after, jsonx.V1()))
 
 	assert.Len(t, after.Images, len(before.Images), "rejected create must not add an image")
 
@@ -340,7 +341,7 @@ func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	secondID, _ := out2["ImageId"].(string)
 	require.NotEmpty(t, secondID)
 
@@ -462,7 +463,7 @@ func TestCopyWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testing.T) {
 	var before struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before, jsonx.V1()))
 
 	rejectedRec := doTargetRequest(
 		t, h, "CopyWorkspaceImage", createCopyImageReq("wsi-doesnotexist", "us-east-1"),
@@ -475,7 +476,7 @@ func TestCopyWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testing.T) {
 	var after struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after, jsonx.V1()))
 
 	assert.Len(t, after.Images, len(before.Images), "rejected copy must not add an image")
 
@@ -577,7 +578,7 @@ func TestCreateUpdatedWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testi
 	var before struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before, jsonx.V1()))
 
 	rejectedRec := doTargetRequest(
 		t, h, "CreateUpdatedWorkspaceImage", createUpdatedImageReq("wsi-doesnotexist"),
@@ -590,7 +591,7 @@ func TestCreateUpdatedWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testi
 	var after struct {
 		Images []map[string]any `json:"Images"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after, jsonx.V1()))
 
 	assert.Len(t, after.Images, len(before.Images), "rejected create must not add an image")
 

@@ -1,10 +1,12 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // The types below mirror the GraphQL specification's introspection system
@@ -110,7 +112,7 @@ func marshalIntrospectionSchema(schema *ast.Schema, includeDirectives bool) ([]b
 		},
 	}
 
-	return json.Marshal(doc)
+	return json.Marshal(doc, jsonx.V1())
 }
 
 func buildRootRef(def *ast.Definition) *rootTypeRef {

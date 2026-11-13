@@ -1,7 +1,7 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,8 @@ import (
 	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestGetAccount tests the GetAccount operation.
@@ -114,7 +116,7 @@ func TestGetBlacklistReports(t *testing.T) {
 		var out struct {
 			BlacklistReport map[string][]string `json:"BlacklistReport"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Contains(t, out.BlacklistReport, "1.2.3.4")
 		assert.Contains(t, out.BlacklistReport, "5.6.7.8")
 		assert.Empty(t, out.BlacklistReport["1.2.3.4"])

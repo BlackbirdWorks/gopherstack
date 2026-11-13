@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getModelInput struct {
@@ -47,7 +49,7 @@ func (h *Handler) schemaModelActions() map[string]actionFn {
 
 func (h *Handler) createModelAction(b []byte) (int, any, error) {
 	var input CreateModelInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -61,7 +63,7 @@ func (h *Handler) createModelAction(b []byte) (int, any, error) {
 
 func (h *Handler) getModelAction(b []byte) (int, any, error) {
 	var input getModelInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName, input.Flatten == litTrue)
@@ -72,9 +74,10 @@ func (h *Handler) getModelAction(b []byte) (int, any, error) {
 	return http.StatusOK, m, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getModelsAction(b []byte) (int, any, error) {
 	var input getModelsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	ms, err := h.Backend.GetModels(input.RestAPIID)
@@ -94,7 +97,7 @@ func (h *Handler) getModelsAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteModelAction(b []byte) (int, any, error) {
 	var input deleteModelInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteModel(input.RestAPIID, input.ModelName); err != nil {
@@ -106,7 +109,7 @@ func (h *Handler) deleteModelAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateModelAction(b []byte) (int, any, error) {
 	var input updateModelInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	m, err := h.Backend.UpdateModel(input.RestAPIID, input.ModelName, input.UpdateModelInput)
@@ -122,7 +125,7 @@ func (h *Handler) getModelTemplateAction(b []byte) (int, any, error) {
 		RestAPIID string `json:"restApiId"`
 		ModelName string `json:"modelName"`
 	}
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GetModelTemplate(params.RestAPIID, params.ModelName)

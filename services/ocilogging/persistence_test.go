@@ -1,7 +1,7 @@
 package ocilogging_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	oci "github.com/blackbirdworks/gopherstack/services/ocilogging"
 )
 
@@ -220,7 +221,7 @@ func TestAdminKeyEndpoint(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	pub, err := json.Marshal(e.kp.pubPEM)
+	pub, err := json.Marshal(e.kp.pubPEM, jsonx.V1())
 	require.NoError(t, err)
 
 	status, _ := rawDo(t, http.MethodPost, e.base+"/_gopherstack/oci/keys",

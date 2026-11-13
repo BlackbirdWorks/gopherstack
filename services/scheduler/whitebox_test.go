@@ -3,7 +3,7 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,12 +12,14 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func doWhiteboxRequest(t *testing.T, h *Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()

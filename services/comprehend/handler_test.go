@@ -2,7 +2,7 @@ package comprehend_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/comprehend"
 )
 
@@ -67,7 +68,7 @@ func mergedBody(base, extra map[string]any) map[string]any {
 func request(t *testing.T, handler *comprehend.Handler, operation string, input map[string]any) map[string]any {
 	t.Helper()
 
-	payload, err := json.Marshal(input)
+	payload, err := json.Marshal(input, jsonx.V1())
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -78,7 +79,7 @@ func request(t *testing.T, handler *comprehend.Handler, operation string, input 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var output map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &output))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &output, jsonx.V1()))
 
 	return output
 }
@@ -107,7 +108,7 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -118,7 +119,7 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func toJSON(t *testing.T, input map[string]any) string {
 	t.Helper()
 
-	payload, err := json.Marshal(input)
+	payload, err := json.Marshal(input, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(payload)
@@ -892,7 +893,7 @@ func TestProtocolOpList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var ops []string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 	assert.NotEmpty(t, ops, "GET / must return non-empty operation list")
 	assert.Contains(t, ops, "DetectSentiment")
 	assert.Contains(t, ops, "DetectEntities")

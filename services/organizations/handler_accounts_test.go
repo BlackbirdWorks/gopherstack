@@ -1,7 +1,8 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -96,7 +98,7 @@ func TestCreateAccountStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	status := createResp["CreateAccountStatus"].(map[string]any)
 	requestID, ok := status["Id"].(string)
 	require.True(t, ok, "CreateAccountStatus.Id must be present")
@@ -106,7 +108,7 @@ func TestCreateAccountStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	statuses, ok := listResp["CreateAccountStatuses"].([]any)
 	require.True(t, ok)
 
@@ -208,7 +210,7 @@ func TestCreateAccount_RoleName(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			// Describe account.
 			status := resp["CreateAccountStatus"].(map[string]any)
@@ -218,7 +220,7 @@ func TestCreateAccount_RoleName(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&descResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &descResp, jsonx.V1()))
 
 			acct := descResp["Account"].(map[string]any)
 			assert.NotContains(t, acct, "RoleName")
@@ -283,7 +285,7 @@ func TestCreateAccount_IamUserAccessToBilling(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantIamAccess != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				status := resp["CreateAccountStatus"].(map[string]any)
 				accountID := status["AccountId"].(string)
@@ -292,7 +294,7 @@ func TestCreateAccount_IamUserAccessToBilling(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&descResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &descResp, jsonx.V1()))
 
 				acct := descResp["Account"].(map[string]any)
 				assert.NotContains(t, acct, "IamUserAccessToBilling")
@@ -325,7 +327,7 @@ func TestCloseAccount_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	statusObj := createResp["CreateAccountStatus"].(map[string]any)
 	accountID := statusObj["AccountId"].(string)
 
@@ -371,7 +373,7 @@ func TestEmailUniqueness_ViaHandler(t *testing.T) {
 			AccountID     string `json:"AccountId"`
 		} `json:"CreateAccountStatus"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "FAILED", resp.CreateAccountStatus.State)
 	assert.Equal(t, "EMAIL_ALREADY_EXISTS", resp.CreateAccountStatus.FailureReason)
 	assert.Empty(t, resp.CreateAccountStatus.AccountID)
@@ -392,7 +394,7 @@ func TestCreateAccount_NoGovCloudID_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	statusObj, ok := resp["CreateAccountStatus"].(map[string]any)
 	require.True(t, ok, "response must have CreateAccountStatus")
@@ -417,7 +419,7 @@ func TestGovCloudAccount_HasGovCloudID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	statusObj, ok := resp["CreateAccountStatus"].(map[string]any)
 	require.True(t, ok, "response must have CreateAccountStatus")
@@ -458,7 +460,7 @@ func TestHandler_ListAccounts(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			accounts, ok := resp["Accounts"].([]any)
 			require.True(t, ok)
 			assert.NotEmpty(t, accounts)
@@ -531,7 +533,7 @@ func TestHandler_DescribeCreateAccountStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 			status := createResp["CreateAccountStatus"].(map[string]any)
 			statusID := status["Id"].(string)
 
@@ -599,7 +601,7 @@ func TestHandler_MoveAccount(t *testing.T) {
 			require.Equal(t, http.StatusOK, ouRec.Code)
 
 			var ouResp map[string]any
-			require.NoError(t, json.NewDecoder(ouRec.Body).Decode(&ouResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ouRec.Body), &ouResp, jsonx.V1()))
 			ou := ouResp["OrganizationalUnit"].(map[string]any)
 			ouID := ou["Id"].(string)
 
@@ -658,7 +660,7 @@ func TestHandler_CloseAccount(t *testing.T) {
 				require.Equal(t, http.StatusOK, acctRec.Code)
 
 				var acctResp map[string]any
-				require.NoError(t, json.NewDecoder(acctRec.Body).Decode(&acctResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(acctRec.Body), &acctResp, jsonx.V1()))
 
 				status := acctResp["CreateAccountStatus"].(map[string]any)
 				body = map[string]any{"AccountId": status["AccountId"]}
@@ -736,7 +738,7 @@ func TestHandler_CreateGovCloudAccount(t *testing.T) {
 
 			if tt.wantGovID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				status, ok := resp["CreateAccountStatus"].(map[string]any)
 				require.True(t, ok, "response must have CreateAccountStatus")

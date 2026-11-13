@@ -1,7 +1,7 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
 )
 
@@ -325,7 +326,7 @@ func TestHandler_Reset(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["WirelessDeviceList"].([]any)
 	require.True(t, ok)
@@ -411,7 +412,7 @@ func TestHandler_ListEmpty_NonNil(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			list, ok := resp[tt.listKey].([]any)
 			require.True(t, ok, "key %q should be a JSON array, got %T", tt.listKey, resp[tt.listKey])
@@ -482,7 +483,7 @@ func Test_RouteMatcher_TagOperations(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	resourceArn := created["Arn"].(string)
 	require.NotEmpty(t, resourceArn)
 
@@ -503,7 +504,7 @@ func Test_RouteMatcher_TagOperations(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed, jsonx.V1()))
 	require.Len(t, listed.Tags, 1)
 	assert.Equal(t, "env", listed.Tags[0].Key)
 	assert.Equal(t, "prod", listed.Tags[0].Value)
@@ -531,7 +532,7 @@ func Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["Arn"])
 
 	sidewalk, ok := resp["Sidewalk"].(map[string]any)
@@ -545,7 +546,7 @@ func Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, true, getResp["AccountLinked"])
 }
 
@@ -594,7 +595,7 @@ func Test_ErrorResponse_SetsAmznErrortypeHeader(t *testing.T) {
 			assert.Equal(t, tt.wantErrType, rec.Header().Get("X-Amzn-Errortype"))
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, body["__type"])
 			assert.NotEmpty(t, body["Message"])
 		})

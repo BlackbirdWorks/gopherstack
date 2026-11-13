@@ -1,12 +1,13 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -44,7 +45,7 @@ type createTrailBody struct {
 
 func (h *Handler) handleCreateTrail(c *echo.Context, body []byte) error {
 	var in createTrailBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -87,7 +88,7 @@ type getTrailBody struct {
 
 func (h *Handler) handleGetTrail(c *echo.Context, body []byte) error {
 	var in getTrailBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -109,7 +110,7 @@ type describeTrailsBody struct {
 func (h *Handler) handleDescribeTrails(c *echo.Context, body []byte) error {
 	var in describeTrailsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -144,7 +145,7 @@ type updateTrailBody struct {
 
 func (h *Handler) handleUpdateTrail(c *echo.Context, body []byte) error {
 	var in updateTrailBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -176,7 +177,7 @@ type deleteTrailBody struct {
 
 func (h *Handler) handleDeleteTrail(c *echo.Context, body []byte) error {
 	var in deleteTrailBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -195,7 +196,7 @@ type startLoggingBody struct {
 
 func (h *Handler) handleStartLogging(c *echo.Context, body []byte) error {
 	var in startLoggingBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -218,7 +219,7 @@ type stopLoggingBody struct {
 
 func (h *Handler) handleStopLogging(c *echo.Context, body []byte) error {
 	var in stopLoggingBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -241,7 +242,7 @@ type getTrailStatusBody struct {
 
 func (h *Handler) handleGetTrailStatus(c *echo.Context, body []byte) error {
 	var in getTrailStatusBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -277,7 +278,7 @@ type listTrailsBody struct {
 func (h *Handler) handleListTrails(c *echo.Context, body []byte) error {
 	var in listTrailsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -313,7 +314,7 @@ type deregisterOrgDelegatedAdminBody struct {
 
 func (h *Handler) handleDeregisterOrganizationDelegatedAdmin(c *echo.Context, body []byte) error {
 	var in deregisterOrgDelegatedAdminBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -332,7 +333,7 @@ type registerOrgDelegatedAdminBody struct {
 
 func (h *Handler) handleRegisterOrganizationDelegatedAdmin(c *echo.Context, body []byte) error {
 	var in registerOrgDelegatedAdminBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

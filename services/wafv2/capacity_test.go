@@ -1,13 +1,14 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -29,7 +30,7 @@ func checkCapacityFor(t *testing.T, h *wafv2.Handler, stmt map[string]any) int {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 	consumed, ok := result["Capacity"].(float64)
 	require.True(t, ok)
@@ -358,7 +359,7 @@ func TestCheckCapacity_MultipleRulesSum(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	consumed, ok := result["Capacity"].(float64)
 	require.True(t, ok)
 	assert.InDelta(t, float64(1+40), consumed, 0)

@@ -1,9 +1,11 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 )
 
@@ -348,10 +350,10 @@ func connectRuleActionMembers() map[string][2]string {
 
 // ruleActions turns the template's Actions object (one list per action kind) into the API's list of
 // {ActionType, <Kind>Action} entries.
-func (c *connectCall) ruleActions() ([]json.RawMessage, error) {
+func (c *connectCall) ruleActions() ([]jsontext.Value, error) {
 	actions, _ := c.wire["Actions"].(map[string]any)
 
-	var out []json.RawMessage
+	var out []jsontext.Value
 
 	for _, key := range sortedKeys(actions) {
 		kind, known := connectRuleActionMembers()[key]
@@ -361,7 +363,7 @@ func (c *connectCall) ruleActions() ([]json.RawMessage, error) {
 
 		list, _ := actions[key].([]any)
 		for _, item := range list {
-			raw, err := json.Marshal(map[string]any{"ActionType": kind[0], kind[1]: item})
+			raw, err := json.Marshal(map[string]any{"ActionType": kind[0], kind[1]: item}, jsonx.V1())
 			if err != nil {
 				return nil, err
 			}

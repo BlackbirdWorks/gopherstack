@@ -1,7 +1,7 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/inspector2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestUpdateOrganizationConfiguration_AutoEnableAlwaysPresent proves
@@ -53,6 +55,6 @@ func TestUpdateOrganizationConfiguration_MissingAutoEnableRejected(t *testing.T)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }

@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_CreateWorkflowInvalidStepTypeRejected verifies that CreateWorkflow returns 400
@@ -61,7 +63,7 @@ func TestHandler_DescribeWorkflowIncludesArnAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeWorkflow", map[string]any{
@@ -70,7 +72,7 @@ func TestHandler_DescribeWorkflowIncludesArnAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wf := resp["Workflow"].(map[string]any)
 
 	arn, hasArn := wf["Arn"].(string)
@@ -96,7 +98,7 @@ func TestHandler_ListWorkflowsIncludesArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	workflows := resp["Workflows"].([]any)
 	require.NotEmpty(t, workflows)
 
@@ -117,7 +119,7 @@ func TestHandler_CreateWorkflowReturnsWorkflowID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["WorkflowId"])
 }
 
@@ -205,7 +207,7 @@ func TestHandler_CreateWorkflow(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["WorkflowId"])
 		})
 	}
@@ -222,7 +224,7 @@ func TestHandler_DescribeWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeWorkflow", map[string]any{
@@ -250,7 +252,7 @@ func TestHandler_DeleteWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	rec := doTransferRequest(t, h, "DeleteWorkflow", map[string]any{
@@ -270,7 +272,7 @@ func TestHandler_ListExecutions(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	rec := doTransferRequest(t, h, "ListExecutions", map[string]any{
@@ -321,7 +323,7 @@ func TestHandler_DescribeWorkflowTypedCopyStepDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeWorkflow", map[string]any{
@@ -330,7 +332,7 @@ func TestHandler_DescribeWorkflowTypedCopyStepDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	wf := descResp["Workflow"].(map[string]any)
 	steps := wf["Steps"].([]any)
 	require.Len(t, steps, 1)

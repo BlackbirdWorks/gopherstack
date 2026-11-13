@@ -1,12 +1,13 @@
 package cloudfront_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -131,7 +132,7 @@ func TestDeleteDistribution_CleansUpSideMaps(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	var probe distSnapshotProbe
-	require.NoError(t, json.Unmarshal(data, &probe))
+	require.NoError(t, json.Unmarshal(data, &probe, jsonx.V1()))
 
 	_, leaked := probe.FuncAssocs[d.ID]
 	require.False(t, leaked, "distributionFunctionAssociations must not retain a deleted distribution's entry")

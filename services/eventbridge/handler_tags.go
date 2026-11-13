@@ -2,9 +2,10 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -34,7 +35,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) {
 			var input listTagsForResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.requireTaggable(ctx, input.ResourceARN); err != nil {
@@ -50,7 +51,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 		},
 		"TagResource": func(ctx context.Context, b []byte) (any, error) {
 			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.requireTaggable(ctx, input.ResourceARN); err != nil {
@@ -66,7 +67,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 		},
 		"UntagResource": func(ctx context.Context, b []byte) (any, error) {
 			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.requireTaggable(ctx, input.ResourceARN); err != nil {

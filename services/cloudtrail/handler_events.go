@@ -1,7 +1,7 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- LookupEvents ---
@@ -25,7 +26,7 @@ type lookupEventsBody struct {
 func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 	var in lookupEventsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),

@@ -2,11 +2,12 @@ package sns
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -16,7 +17,7 @@ func parseTopicEffectivePolicy(topicEffectivePolicy, protocol string) *int {
 			NumRetries *int `json:"numRetries"`
 		} `json:"defaultHealthyRetryPolicy"`
 	}
-	if err := json.Unmarshal([]byte(topicEffectivePolicy), &tp); err == nil {
+	if err := json.Unmarshal([]byte(topicEffectivePolicy), &tp, jsonx.V1()); err == nil {
 		pKey := protocol
 		if pKey == protocolHTTPS {
 			pKey = protocolHTTP
@@ -35,7 +36,7 @@ func parseSubPolicy(subPolicy string) *int {
 			NumRetries *int `json:"numRetries"`
 		} `json:"healthyRetryPolicy"`
 	}
-	if err := json.Unmarshal([]byte(subPolicy), &sp); err == nil {
+	if err := json.Unmarshal([]byte(subPolicy), &sp, jsonx.V1()); err == nil {
 		return sp.HealthyRetryPolicy.NumRetries
 	}
 
@@ -183,7 +184,7 @@ func buildHTTPDeliveryPayload(d httpDelivery) string {
 			env.Subject = d.subject
 		}
 
-		if enc, err := json.Marshal(env); err == nil {
+		if enc, err := json.Marshal(env, jsonx.V1()); err == nil {
 			body = string(enc)
 		}
 	}
@@ -256,7 +257,7 @@ func sendSubscriptionDLQ(ctx context.Context, d httpDelivery) {
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
 	}
 
-	if err := json.Unmarshal([]byte(d.redrivePolicy), &policy); err != nil {
+	if err := json.Unmarshal([]byte(d.redrivePolicy), &policy, jsonx.V1()); err != nil {
 		return
 	}
 

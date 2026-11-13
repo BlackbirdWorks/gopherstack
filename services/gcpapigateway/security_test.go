@@ -6,7 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"math/big"
@@ -19,6 +20,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -110,7 +113,7 @@ func newSigner(t *testing.T) *signer {
 
 	s := &signer{rsa: sharedRSA(), ec: ec}
 	s.jwks = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"keys": []map[string]string{
 			{"kty": "RSA", "kid": "rsa-1", "n": b64u(s.rsa.N), "e": b64u(big.NewInt(int64(s.rsa.E)))},
 			{
 				"kty": "EC",
@@ -396,7 +399,7 @@ func TestJWTUserinfoForwarded(t *testing.T) {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(raw, &claims))
+	require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
 	assert.Equal(t, "user-1", claims["sub"])
 	assert.Equal(t, "u@example.com", claims["email"])
 	assert.Equal(t, "Bearer "+tok, hdr["X-Forwarded-Authorization"])

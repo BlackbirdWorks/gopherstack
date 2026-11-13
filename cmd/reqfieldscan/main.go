@@ -206,7 +206,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
@@ -214,6 +215,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -335,8 +338,7 @@ func writeJSON(path string, reports []serviceReport) error {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	return enc.Encode(reports)
+	return json.MarshalEncode(enc, reports)
 }

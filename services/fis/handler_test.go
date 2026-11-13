@@ -3,7 +3,7 @@ package fis_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
@@ -36,7 +37,7 @@ func doRequest(t *testing.T, h *fis.Handler, method, path string, body any) *htt
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -55,7 +56,7 @@ func doRequest(t *testing.T, h *fis.Handler, method, path string, body any) *htt
 
 func mustJSON(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1()))
 }
 
 // ----------------------------------------
@@ -99,7 +100,7 @@ func seedTemplate(t *testing.T, h *fis.Handler) string {
 // jsonUnmarshalFIS decodes JSON from a recorder into v.
 func jsonUnmarshalFIS(t *testing.T, data []byte, v any) {
 	t.Helper()
-	require.NoError(t, json.Unmarshal(data, v))
+	require.NoError(t, json.Unmarshal(data, v, jsonx.V1()))
 }
 
 func TestFISHandler_Name(t *testing.T) {

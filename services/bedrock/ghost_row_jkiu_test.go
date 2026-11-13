@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,7 +24,7 @@ func TestDeleteAutomatedReasoningPolicy_PrunesVersionCounterAndAnnotations(t *te
 	wf, err := b.StartAutomatedReasoningPolicyBuildWorkflow(
 		policy.PolicyArn,
 		"INGEST_CONTENT",
-		json.RawMessage(`{}`),
+		jsontext.Value(`{}`),
 	)
 	require.NoError(t, err)
 
@@ -68,7 +68,7 @@ func TestDeleteAutomatedReasoningPolicyBuildWorkflow_PrunesAnnotations(t *testin
 	wf, err := b.StartAutomatedReasoningPolicyBuildWorkflow(
 		policy.PolicyArn,
 		"INGEST_CONTENT",
-		json.RawMessage(`{}`),
+		jsontext.Value(`{}`),
 	)
 	require.NoError(t, err)
 

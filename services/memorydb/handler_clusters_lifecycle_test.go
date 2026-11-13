@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -46,7 +47,7 @@ func TestHandler_DescribeClusters_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			clusters := resp["Clusters"].([]any)
 			assert.Len(t, clusters, tt.wantCount)
@@ -88,7 +89,7 @@ func TestHandler_DescribeClusters_NextToken(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp1 map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1, jsonx.V1()))
 
 			// NextToken may be empty or non-empty depending on implementation
 			nextToken, _ := resp1["NextToken"].(string)
@@ -98,7 +99,7 @@ func TestHandler_DescribeClusters_NextToken(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var resp2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 			clusters := resp2["Clusters"].([]any)
 			// At minimum should return a valid response
@@ -137,7 +138,7 @@ func TestHandler_DescribeClusters_ShowShards(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			clusters := resp["Clusters"].([]any)
 			require.Len(t, clusters, 1)
@@ -574,7 +575,7 @@ func TestHandler_BatchUpdateCluster_Mixed(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			processed := resp["ProcessedClusters"].([]any)
 			unprocessed := resp["UnprocessedClusters"].([]any)
@@ -681,7 +682,7 @@ func TestHandler_Engine_Valkey(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cl := resp["Cluster"].(map[string]any)
 				assert.Equal(t, tt.wantEngine, cl["Engine"])
 				assert.Equal(t, tt.wantVersion, cl["EngineVersion"])
@@ -880,7 +881,7 @@ func TestHandler_UpdateCluster_AutoMinorVersionUpgradeNotSettable(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cl := resp["Cluster"].(map[string]any)
 	assert.Equal(t, true, cl["AutoMinorVersionUpgrade"], "no real client can change this via UpdateCluster")
 }
@@ -1076,7 +1077,7 @@ func TestHandler_CreateCluster_RestoreFromSnapshot(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cl := resp["Cluster"].(map[string]any)
 				assert.Equal(t, tt.wantEngineVersion, cl["EngineVersion"])
 				assert.Equal(t, "restored-cluster", cl["Name"])
@@ -1215,7 +1216,7 @@ func TestHandler_BatchUpdateCluster_MissingNames(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				processed := resp["ProcessedClusters"].([]any)
 				unprocessed := resp["UnprocessedClusters"].([]any)
 				assert.Len(t, processed, tt.wantProcessed)

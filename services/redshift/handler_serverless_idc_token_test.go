@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_GetIdentityCenterAuthToken(t *testing.T) {
@@ -28,7 +31,7 @@ func TestServerless_GetIdentityCenterAuthToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	token1, _ := resp["token"].(string)
 	require.NotEmpty(t, token1)
@@ -40,7 +43,7 @@ func TestServerless_GetIdentityCenterAuthToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp2, jsonx.V1()))
 	token2, _ := resp2["token"].(string)
 	require.NotEmpty(t, token2)
 
@@ -86,7 +89,7 @@ func TestServerless_GetIdentityCenterAuthToken_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -113,6 +116,6 @@ func TestServerless_GetIdentityCenterAuthToken_OneUnknownAmongMany(t *testing.T)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }

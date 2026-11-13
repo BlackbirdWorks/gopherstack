@@ -3,7 +3,7 @@ package azurecontainerregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -292,7 +293,7 @@ func (b *InMemoryBackend) deliver(reg string, w Webhook, content EventContent) {
 }
 
 func (b *InMemoryBackend) send(ctx context.Context, reg string, w Webhook, content EventContent) {
-	body, err := json.Marshal(content)
+	body, err := json.Marshal(content, jsonx.V1())
 	if err != nil {
 		return
 	}

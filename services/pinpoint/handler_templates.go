@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractTemplateOperation resolves the operation name for paths under /v1/templates/.
@@ -221,7 +222,7 @@ func (h *Handler) createTemplateByType(body []byte, region, templateName, templa
 
 func (h *Handler) createEmailTemplateARN(body []byte, region, templateName string) (string, error) {
 	var req createEmailTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", errInvalidRequestBody
 	}
 
@@ -235,7 +236,7 @@ func (h *Handler) createEmailTemplateARN(body []byte, region, templateName strin
 
 func (h *Handler) createInAppTemplateARN(body []byte, region, templateName string) (string, error) {
 	var req createInAppTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", errInvalidRequestBody
 	}
 
@@ -249,7 +250,7 @@ func (h *Handler) createInAppTemplateARN(body []byte, region, templateName strin
 
 func (h *Handler) createPushTemplateARN(body []byte, region, templateName string) (string, error) {
 	var req createPushTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", errInvalidRequestBody
 	}
 
@@ -263,7 +264,7 @@ func (h *Handler) createPushTemplateARN(body []byte, region, templateName string
 
 func (h *Handler) createSMSTemplateARN(body []byte, region, templateName string) (string, error) {
 	var req createSmsTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", errInvalidRequestBody
 	}
 
@@ -277,7 +278,7 @@ func (h *Handler) createSMSTemplateARN(body []byte, region, templateName string)
 
 func (h *Handler) createVoiceTemplateARN(body []byte, region, templateName string) (string, error) {
 	var req createVoiceTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", errInvalidRequestBody
 	}
 
@@ -381,7 +382,7 @@ func (h *Handler) applyTemplateUpdate(body []byte, templateName, templateType, v
 // updateEmailTemplateFromBody parses and applies an email template update.
 func (h *Handler) updateEmailTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createEmailTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return errInvalidRequestBody
 	}
 
@@ -396,7 +397,7 @@ func (h *Handler) updateEmailTemplateFromBody(body []byte, name, version string,
 // updateInAppTemplateFromBody parses and applies an in-app template update.
 func (h *Handler) updateInAppTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createInAppTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return errInvalidRequestBody
 	}
 
@@ -411,7 +412,7 @@ func (h *Handler) updateInAppTemplateFromBody(body []byte, name, version string,
 // updatePushTemplateFromBody parses and applies a push template update.
 func (h *Handler) updatePushTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createPushTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return errInvalidRequestBody
 	}
 
@@ -426,7 +427,7 @@ func (h *Handler) updatePushTemplateFromBody(body []byte, name, version string, 
 // updateSMSTemplateFromBody parses and applies an SMS template update.
 func (h *Handler) updateSMSTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createSmsTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return errInvalidRequestBody
 	}
 
@@ -441,7 +442,7 @@ func (h *Handler) updateSMSTemplateFromBody(body []byte, name, version string, c
 // updateVoiceTemplateFromBody parses and applies a voice template update.
 func (h *Handler) updateVoiceTemplateFromBody(body []byte, name, version string, createNew bool) error {
 	var req createVoiceTemplateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return errInvalidRequestBody
 	}
 
@@ -555,7 +556,7 @@ func (h *Handler) handleUpdateTemplateActiveVersion(c *echo.Context, templateNam
 		Version string `json:"Version"`
 	}
 
-	if len(body) > 0 && json.Unmarshal(body, &req) != nil {
+	if len(body) > 0 && json.Unmarshal(body, &req, jsonx.V1()) != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 

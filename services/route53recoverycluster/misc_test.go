@@ -1,7 +1,7 @@
 package route53recoverycluster_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	cluster "github.com/blackbirdworks/gopherstack/services/route53recoverycluster"
 )
@@ -96,7 +97,7 @@ func TestErrorBodyShape(t *testing.T) {
 			assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.NotEmpty(t, body["message"])
 			assert.Equal(t, body["message"], body["Message"])
 			assert.False(

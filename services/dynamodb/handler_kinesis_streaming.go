@@ -7,11 +7,12 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -64,7 +65,7 @@ func (h *DynamoDBHandler) handleDescribeKinesisStreamingDestination(
 	body []byte,
 ) (any, error) {
 	var req describeKinesisInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +97,7 @@ func (h *DynamoDBHandler) handleDisableKinesisStreamingDestination(
 	body []byte,
 ) (any, error) {
 	var req disableKinesisInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -154,7 +155,7 @@ func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 	body []byte,
 ) (any, error) {
 	var req enableKinesisInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -229,7 +230,7 @@ func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
 	body []byte,
 ) (any, error) {
 	var req updateKinesisStreamingDestinationInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

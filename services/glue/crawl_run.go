@@ -1,7 +1,7 @@
 package glue
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -186,7 +187,7 @@ func configuredMergeNewColumns(cfg string) bool {
 		} `json:"CrawlerOutput"`
 	}
 
-	if err := json.Unmarshal([]byte(cfg), &doc); err != nil {
+	if err := json.Unmarshal([]byte(cfg), &doc, jsonx.V1()); err != nil {
 		return false
 	}
 

@@ -1,7 +1,7 @@
 package workmail_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workmail"
 )
 
@@ -41,7 +42,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -190,7 +191,7 @@ func TestWorkMail_Protocol_GetRoot_Returns_OpList(t *testing.T) {
 	require.NoError(t, h.Handler()(c))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var ops []string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 	assert.NotEmpty(t, ops)
 }
 

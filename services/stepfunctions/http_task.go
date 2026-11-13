@@ -3,7 +3,7 @@ package stepfunctions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -374,7 +375,7 @@ func mergeHTTPBody(spec httpSpec, connBody []NameValue) ([]byte, error) {
 		}
 	}
 
-	out, err := json.Marshal(body)
+	out, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		return nil, runtimeFailure("RequestBody is not serializable")
 	}
@@ -455,7 +456,7 @@ func fetchOAuthToken(ctx context.Context, client *http.Client, o *OAuthCredentia
 		AccessToken string `json:"access_token"`
 	}
 
-	if json.Unmarshal(data, &tok) != nil || tok.AccessToken == "" {
+	if json.Unmarshal(data, &tok, jsonx.V1()) != nil || tok.AccessToken == "" {
 		return "", errOAuthToken
 	}
 
@@ -510,7 +511,7 @@ func doHTTP(client *http.Client, req *http.Request, trace *httpTrace) (any, erro
 		return out, nil
 	}
 
-	cause, _ := json.Marshal(out)
+	cause, _ := json.Marshal(out, jsonx.V1())
 
 	return nil, &asl.FailError{ErrCode: httpStatusPrefix + strconv.Itoa(resp.StatusCode), Cause: string(cause)}
 }
@@ -559,7 +560,7 @@ func httpOutput(resp *http.Response, data []byte) map[string]any {
 	media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if media == "application/json" || strings.HasSuffix(media, "+json") {
 		var parsed any
-		if json.Unmarshal(data, &parsed) == nil {
+		if json.Unmarshal(data, &parsed, jsonx.V1()) == nil {
 			body = parsed
 		}
 	}

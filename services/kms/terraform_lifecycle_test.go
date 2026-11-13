@@ -20,7 +20,7 @@ package kms_test
 // regression (e.g. "KeyId" vs "KeyID") would also be caught, not just a Go-side one.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -65,7 +66,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	keyID := createOut.KeyMetadata.KeyID
 	require.NotEmpty(t, keyID)
@@ -86,7 +87,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 		"repeated DescribeKey must be byte-identical -- any diff here is perpetual terraform plan drift")
 
 	var desc1 kms.DescribeKeyOutput
-	require.NoError(t, json.Unmarshal(descRec1.Body.Bytes(), &desc1))
+	require.NoError(t, json.Unmarshal(descRec1.Body.Bytes(), &desc1, jsonx.V1()))
 	assert.Equal(t, "terraform-managed key", desc1.KeyMetadata.Description)
 	assert.Equal(t, "SYMMETRIC_DEFAULT", desc1.KeyMetadata.KeySpec)
 	assert.Equal(t, "SYMMETRIC_DEFAULT", desc1.KeyMetadata.CustomerMasterKeySpec,
@@ -107,7 +108,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 			"that made aws_kms_key poll to a 10-minute timeout")
 
 	var polOut kms.GetKeyPolicyOutput
-	require.NoError(t, json.Unmarshal(polRec1.Body.Bytes(), &polOut))
+	require.NoError(t, json.Unmarshal(polRec1.Body.Bytes(), &polOut, jsonx.V1()))
 	assert.JSONEq(t, policy, polOut.Policy, "GetKeyPolicy must return exactly the policy supplied to CreateKey")
 
 	// --- ListResourceTags: must return exactly the tags supplied to CreateKey. ---
@@ -119,7 +120,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 		"repeated ListResourceTags must be byte-identical")
 
 	var tagsOut tagsWireOutput
-	require.NoError(t, json.Unmarshal(tagsRec1.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(tagsRec1.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	gotTags := make(map[string]string, len(tagsOut.Tags))
 	for _, tg := range tagsOut.Tags {
@@ -136,7 +137,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 	assert.JSONEq(t, rotRec1.Body.String(), rotRec2.Body.String())
 
 	var rotOut kms.GetKeyRotationStatusOutput
-	require.NoError(t, json.Unmarshal(rotRec1.Body.Bytes(), &rotOut))
+	require.NoError(t, json.Unmarshal(rotRec1.Body.Bytes(), &rotOut, jsonx.V1()))
 	assert.False(t, rotOut.KeyRotationEnabled, "key rotation must default to disabled")
 
 	// --- CreateAlias -> ListAliases must show it, resolving TargetKeyId correctly. ---
@@ -149,7 +150,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, listAliasesRec.Code)
 
 	var aliasesOut kms.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(listAliasesRec.Body.Bytes(), &aliasesOut))
+	require.NoError(t, json.Unmarshal(listAliasesRec.Body.Bytes(), &aliasesOut, jsonx.V1()))
 	require.Len(t, aliasesOut.Aliases, 1)
 	assert.Equal(t, "alias/tf-lifecycle-test", aliasesOut.Aliases[0].AliasName)
 	assert.Equal(t, keyID, aliasesOut.Aliases[0].TargetKeyID)
@@ -162,7 +163,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, scheduleRec.Code, scheduleRec.Body.String())
 
 	var scheduleOut kms.ScheduleKeyDeletionOutput
-	require.NoError(t, json.Unmarshal(scheduleRec.Body.Bytes(), &scheduleOut))
+	require.NoError(t, json.Unmarshal(scheduleRec.Body.Bytes(), &scheduleOut, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingDeletion, scheduleOut.KeyState)
 	assert.Positive(t, scheduleOut.DeletionDate)
 	assert.Equal(t, 7, scheduleOut.PendingWindowInDays)
@@ -171,7 +172,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, finalDescRec.Code)
 
 	var finalDesc kms.DescribeKeyOutput
-	require.NoError(t, json.Unmarshal(finalDescRec.Body.Bytes(), &finalDesc))
+	require.NoError(t, json.Unmarshal(finalDescRec.Body.Bytes(), &finalDesc, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingDeletion, finalDesc.KeyMetadata.KeyState)
 	assert.Positive(t, finalDesc.KeyMetadata.DeletionDate)
 	assert.Equal(t, 7, finalDesc.KeyMetadata.PendingDeletionWindowInDays)
@@ -181,7 +182,7 @@ func TestTerraformLifecycle_KMSKey(t *testing.T) {
 // strconvQuote JSON-quotes s (equivalent to strconv.Quote for the ASCII/simple policy
 // strings this test uses, without pulling in strconv just for one call site).
 func strconvQuote(s string) string {
-	b, err := json.Marshal(s)
+	b, err := json.Marshal(s, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}

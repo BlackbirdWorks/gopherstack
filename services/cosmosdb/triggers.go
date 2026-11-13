@@ -1,9 +1,11 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // docOp is a document write with the triggers requested for it.
@@ -226,7 +228,7 @@ func triggerNames(header string) []string {
 
 // patchWithBody applies a patch whose request body (the operations, after any pre-trigger edit) is body.
 func (tx *containerTx) patchWithBody(op docOp, body map[string]any) (DocumentInfo, error) {
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		return DocumentInfo{}, invalidPatchf("the patch body is not valid JSON")
 	}

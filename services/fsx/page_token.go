@@ -3,8 +3,11 @@ package fsx
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -13,18 +16,18 @@ const (
 )
 
 // tokenFromBody returns the body's decoded fields and its non-empty NextToken, if any.
-func tokenFromBody(body []byte) (map[string]json.RawMessage, string, bool) {
+func tokenFromBody(body []byte) (map[string]jsontext.Value, string, bool) {
 	if !bytes.Contains(body, []byte(`"`+nextTokenField+`"`)) {
 		return nil, "", false
 	}
 
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(body, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
 		return nil, "", false
 	}
 
 	var tok string
-	if err := json.Unmarshal(m[nextTokenField], &tok); err != nil || tok == "" {
+	if err := json.Unmarshal(m[nextTokenField], &tok, jsonx.V1()); err != nil || tok == "" {
 		return nil, "", false
 	}
 
@@ -44,9 +47,9 @@ func decodeNextToken(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: NextToken is not valid", ErrValidation)
 	}
 
-	m[nextTokenField], _ = json.Marshal(string(key))
+	m[nextTokenField], _ = json.Marshal(string(key), jsonx.V1())
 
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -61,9 +64,9 @@ func encodeNextToken(body []byte) []byte {
 		return body
 	}
 
-	m[nextTokenField], _ = json.Marshal(base64.RawURLEncoding.EncodeToString([]byte(key)))
+	m[nextTokenField], _ = json.Marshal(base64.RawURLEncoding.EncodeToString([]byte(key)), jsonx.V1())
 
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return body
 	}

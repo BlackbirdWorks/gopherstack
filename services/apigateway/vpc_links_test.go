@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -29,7 +30,7 @@ func TestAPIGateway_VpcLink_RESTLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	id, _ := created["id"].(string)
 	require.NotEmpty(t, id)
 	assert.Equal(t, "my-link", created["name"])
@@ -41,7 +42,7 @@ func TestAPIGateway_VpcLink_RESTLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var list map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list, jsonx.V1()))
 	items, _ := list["item"].([]any)
 	assert.Len(t, items, 1)
 
@@ -50,7 +51,7 @@ func TestAPIGateway_VpcLink_RESTLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, patchRec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(patchRec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(patchRec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "renamed-link", updated["name"])
 
 	deleteRec := restCall(t, h, http.MethodDelete, "/vpclinks/"+id, "", "")
@@ -117,7 +118,7 @@ func TestVpcLinks(t *testing.T) {
 
 			if tt.wantCreateCode == http.StatusCreated {
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				linkID = createResp["id"].(string)
 
 				// Get
@@ -133,7 +134,7 @@ func TestVpcLinks(t *testing.T) {
 				listRec := postWithHandler(t, handler, e, "GetVpcLinks", `{}`)
 				assert.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.GreaterOrEqual(t, len(listResp["item"].([]any)), 1)
 
 				// Update
@@ -142,7 +143,7 @@ func TestVpcLinks(t *testing.T) {
 						fmt.Sprintf(`{"vpcLinkId":%q,"name":%q}`, linkID, tt.updateName))
 					assert.Equal(t, http.StatusOK, updateRec.Code)
 					var updateResp map[string]any
-					require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+					require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 					assert.Equal(t, tt.updateName, updateResp["name"])
 				}
 

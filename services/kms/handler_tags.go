@@ -2,12 +2,13 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -147,7 +148,7 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 // listResourceTags handles the ListResourceTags operation.
 func (h *Handler) listResourceTags(ctx context.Context, b []byte) (any, error) {
 	var input listResourceTagsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -202,7 +203,7 @@ func paginateTagList(tagList []kmsTagEntry, marker string, limit *int32) *listRe
 // tagResource handles the TagResource operation, validating key existence and tag count.
 func (h *Handler) tagResource(ctx context.Context, b []byte) (any, error) {
 	var input tagResourceInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -291,7 +292,7 @@ func (h *Handler) validateTagCount(keyID string, newTags map[string]string) erro
 // untagResource handles the UntagResource operation.
 func (h *Handler) untagResource(ctx context.Context, b []byte) (any, error) {
 	var input untagResourceInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -100,7 +101,7 @@ func TestHandlerListInputDevices(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			devices := resp["inputDevices"].([]any)
 			assert.Len(t, devices, tt.wantCount)
 		})
@@ -146,7 +147,7 @@ func TestHandlerDescribeInputDevice(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["name"])
 			}
 		})
@@ -192,7 +193,7 @@ func TestHandlerUpdateInputDevice(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["name"])
 			}
 		})
@@ -337,7 +338,7 @@ func TestHandlerTransferInputDevice_WireCasing(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	transfers := resp["inputDeviceTransfers"].([]any)
 	require.Len(t, transfers, 1)
 
@@ -432,7 +433,7 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				transfers := resp["inputDeviceTransfers"].([]any)
 				assert.Len(t, transfers, tt.wantCount)
 			}
@@ -494,7 +495,7 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 				// keys and would pass this test even with the phantom field
 				// still present.
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "maintenanceWindowActive")
 			}
 		})

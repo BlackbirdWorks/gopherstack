@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ServicecatalogPortfolio_Toggle(t *testing.T) {
@@ -19,7 +21,7 @@ func TestHandler_ServicecatalogPortfolio_Toggle(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, want, out["Status"])
 	}
 
@@ -47,7 +49,7 @@ func TestHandler_ListResourceCatalogs_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["ResourceCatalogs"])
 }
 

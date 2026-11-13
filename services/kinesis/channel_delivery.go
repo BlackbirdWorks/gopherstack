@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -159,7 +161,7 @@ func validateChannelRecord(formatType string, data []byte) string {
 			return "record is not valid UTF-8 for RecordFormatType STRING"
 		}
 	case recordFormatTypeJSON:
-		if !json.Valid(data) {
+		if !jsontext.Value(data).IsValid(jsonx.V1()) {
 			return "record is not valid JSON for RecordFormatType JSON"
 		}
 	}
@@ -399,7 +401,7 @@ func (b *InMemoryBackend) writeChannelDeadLetterQueue(
 			ShardID        string `json:"shardID"`
 			SequenceNumber string `json:"sequenceNumber"`
 			ErrorMessage   string `json:"errorMessage"`
-		}{f.streamARN, f.shardID, f.sequenceNumber, f.errorMessage})
+		}{f.streamARN, f.shardID, f.sequenceNumber, f.errorMessage}, jsonx.V1())
 		if err != nil {
 			continue
 		}

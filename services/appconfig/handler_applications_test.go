@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
@@ -51,7 +52,7 @@ func TestHandler_Application_CRUD(t *testing.T) {
 
 			if tt.wantName != "" {
 				var app appconfig.Application
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 				assert.Equal(t, tt.wantName, app.Name)
 			}
 		})
@@ -76,7 +77,7 @@ func TestHandler_DeleteApplication(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// Delete it.
 	rec = doRequest(t, h, http.MethodDelete, "/applications/"+app.ID, nil)
@@ -96,7 +97,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(
 		t,
@@ -108,7 +109,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "updated", updated.Name)
 	assert.Equal(t, "new desc", updated.Description)
 }
@@ -128,7 +129,7 @@ func TestHandler_UpdateApplication_OmittedDescriptionPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// Update only Name; Description is omitted from the request body.
 	rec = doRequest(t, h, http.MethodPatch, "/applications/"+app.ID,
@@ -136,7 +137,7 @@ func TestHandler_UpdateApplication_OmittedDescriptionPreserved(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "renamed", updated.Name)
 	assert.Equal(t, "keep-me", updated.Description,
 		"omitted Description must not clobber the existing value")
@@ -182,7 +183,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			NextToken string `json:"NextToken"`
 			Items     []any  `json:"Items"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Items, 4)
 		assert.Empty(t, resp.NextToken)
 	})
@@ -200,7 +201,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			NextToken string `json:"NextToken"`
 			Items     []any  `json:"Items"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Items, 2)
 		assert.NotEmpty(t, resp.NextToken)
 	})
@@ -219,7 +220,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			NextToken string `json:"NextToken"`
 			Items     []any  `json:"Items"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first, jsonx.V1()))
 		require.NotEmpty(t, first.NextToken)
 
 		rec2 := doRequest(
@@ -234,7 +235,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			NextToken string `json:"NextToken"`
 			Items     []any  `json:"Items"`
 		}
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Items, 2)
 		assert.Empty(t, resp.NextToken)
 	})
@@ -260,7 +261,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 			NextToken string `json:"NextToken"`
 			Items     []any  `json:"Items"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Empty(t, resp.Items)
 		assert.Empty(t, resp.NextToken)
 	})
@@ -297,14 +298,14 @@ func TestHandler_CreateApplication_TagsAppliedInline(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"Name": "tagged-app-" + tt.name,
 				"Tags": tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/applications", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var app appconfig.Application
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
 			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
@@ -313,7 +314,7 @@ func TestHandler_CreateApplication_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)

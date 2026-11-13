@@ -2,7 +2,8 @@ package pinpoint_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -38,7 +40,7 @@ func doPinpointRequest(t *testing.T, h *pinpoint.Handler, method, path string, b
 	if body != nil {
 		var err error
 
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -96,7 +98,7 @@ func createTestApp(t *testing.T, h *pinpoint.Handler, name string) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	id, _ := resp["Id"].(string)
 	require.NotEmpty(t, id)
@@ -109,7 +111,7 @@ func pinpointJSON(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(body, &m))
+	require.NoError(t, json.Unmarshal(body, &m, jsonx.V1()))
 
 	return m
 }
@@ -563,7 +565,7 @@ func TestHandler_ErrorPaths(t *testing.T) {
 				bodyBytes = []byte(s)
 			} else if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			}
 

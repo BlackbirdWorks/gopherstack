@@ -2,12 +2,14 @@ package redshiftdata //nolint:testpackage // needs the unexported region ctx key
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const persistenceTestAccountID = "000000000000"
@@ -155,10 +157,10 @@ func runVersionMismatchCase(t *testing.T, mutate func(raw map[string]any)) {
 	require.NotNil(t, snap)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 	mutate(raw)
 
-	data, err := json.Marshal(raw)
+	data, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	require.NoError(t, target.Restore(t.Context(), data))

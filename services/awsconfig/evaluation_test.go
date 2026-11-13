@@ -1,7 +1,7 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -399,7 +400,7 @@ func TestHandler_DescribeConfigRulesPagination(t *testing.T) {
 		NextToken   string                 `json:"NextToken"`
 		ConfigRules []awsconfig.ConfigRule `json:"ConfigRules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.ConfigRules, 100)
 	require.NotEmpty(t, page1.NextToken)
 
@@ -410,7 +411,7 @@ func TestHandler_DescribeConfigRulesPagination(t *testing.T) {
 		NextToken   string                 `json:"NextToken"`
 		ConfigRules []awsconfig.ConfigRule `json:"ConfigRules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.ConfigRules, 50)
 	assert.Empty(t, page2.NextToken)
 
@@ -446,7 +447,7 @@ func TestHandler_GetComplianceDetailsByConfigRule_RealResults(t *testing.T) {
 	var out struct {
 		EvaluationResults []awsconfig.DetailedEvaluationResult `json:"EvaluationResults"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.EvaluationResults, 2)
 
 	got := complianceByResource(out.EvaluationResults)
@@ -475,7 +476,7 @@ func TestHandler_StartResourceEvaluationAndSummary(t *testing.T) {
 	var started struct {
 		ResourceEvaluationID string `json:"ResourceEvaluationId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 	require.NotEmpty(t, started.ResourceEvaluationID)
 	assert.NotEqual(t, "eval-stub", started.ResourceEvaluationID)
 
@@ -514,7 +515,7 @@ func TestHandler_GetResourceConfigHistoryPagination(t *testing.T) {
 		NextToken          string                         `json:"nextToken"`
 		ConfigurationItems []awsconfig.ResourceConfigItem `json:"configurationItems"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConfigurationItems, 1)
 	assert.Equal(t, `{"v":2}`, out.ConfigurationItems[0].Configuration)
 	require.NotEmpty(t, out.NextToken)
@@ -531,7 +532,7 @@ func TestHandler_GetResourceConfigHistoryPagination(t *testing.T) {
 		NextToken          string                         `json:"nextToken"`
 		ConfigurationItems []awsconfig.ResourceConfigItem `json:"configurationItems"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2, jsonx.V1()))
 	require.Len(t, out2.ConfigurationItems, 1)
 	assert.Equal(t, `{"v":1}`, out2.ConfigurationItems[0].Configuration)
 	assert.Empty(t, out2.NextToken)

@@ -2,11 +2,12 @@ package awsconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -50,7 +51,7 @@ type extractConfigRecorderNameInput struct {
 
 func extractConfigRecorderName(body []byte) string {
 	var req extractConfigRecorderNameInput
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -59,7 +60,7 @@ func extractConfigRecorderName(body []byte) string {
 
 func extractTopLevelRecorderName(body []byte) string {
 	var req configurationRecorderNameInput
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -72,7 +73,7 @@ type extractFirstRecorderNameInput struct {
 
 func extractFirstRecorderName(body []byte) string {
 	var req extractFirstRecorderNameInput
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 	if len(req.ConfigurationRecorderNames) > 0 {

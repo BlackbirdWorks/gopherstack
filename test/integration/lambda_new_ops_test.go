@@ -3,7 +3,7 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -58,7 +59,7 @@ func createLambdaFunction(ctx context.Context, t *testing.T, serverURL, fnName s
 		"PackageType":  "Image",
 		"Code":         map[string]string{"ImageUri": "test:latest"},
 		"Role":         "arn:aws:iam::000000000000:role/test",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	resp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -133,7 +134,7 @@ func TestLambda_AddPermission(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			body, err := json.Marshal(tt.body)
+			body, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			targetFn := fnName
@@ -153,7 +154,7 @@ func TestLambda_AddPermission(t *testing.T) {
 				require.NoError(t, readErr)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rawBody, &out))
+				require.NoError(t, json.Unmarshal(rawBody, &out, jsonx.V1()))
 				assert.NotEmpty(t, out["Statement"])
 			}
 		})
@@ -174,7 +175,7 @@ func TestLambda_AddPermission_DuplicateStatementId(t *testing.T) {
 		"StatementId": "AllowS3",
 		"Action":      "lambda:InvokeFunction",
 		"Principal":   "s3.amazonaws.com",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("%s/2015-03-31/functions/%s/policy", server.URL, fnName)
@@ -210,7 +211,7 @@ func TestLambda_GetAccountSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	var out lambdapkg.AccountSettingsOutput
-	require.NoError(t, json.Unmarshal(respBody, &out))
+	require.NoError(t, json.Unmarshal(respBody, &out, jsonx.V1()))
 
 	require.NotNil(t, out.AccountLimit)
 	assert.Positive(t, out.AccountLimit.ConcurrentExecutions)
@@ -238,7 +239,7 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 			},
 		},
 		"Description": "test config",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -251,7 +252,7 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRespBody, &createOut))
+	require.NoError(t, json.Unmarshal(createRespBody, &createOut, jsonx.V1()))
 
 	cscData, ok := createOut["CodeSigningConfig"].(map[string]any)
 	require.True(t, ok, "expected CodeSigningConfig in response")
@@ -279,13 +280,13 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listBody, &listOut))
+	require.NoError(t, json.Unmarshal(listBody, &listOut, jsonx.V1()))
 	configs, ok := listOut["CodeSigningConfigs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, configs, 1)
 
 	// Put function code signing config
-	putBody, err := json.Marshal(map[string]any{"CodeSigningConfigArn": cscARN})
+	putBody, err := json.Marshal(map[string]any{"CodeSigningConfigArn": cscARN}, jsonx.V1())
 	require.NoError(t, err)
 
 	putResp, err := doLambdaRequest(ctx, http.MethodPut,
@@ -307,7 +308,7 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	var getFnCSCOut map[string]any
-	require.NoError(t, json.Unmarshal(getFnCSCBody, &getFnCSCOut))
+	require.NoError(t, json.Unmarshal(getFnCSCBody, &getFnCSCOut, jsonx.V1()))
 	assert.Equal(t, cscARN, getFnCSCOut["CodeSigningConfigArn"])
 
 	// List functions by code signing config
@@ -364,7 +365,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 			"SubnetIds":        []string{"subnet-1"},
 			"SecurityGroupIds": []string{"sg-1"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -377,7 +378,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRespBody, &createOut))
+	require.NoError(t, json.Unmarshal(createRespBody, &createOut, jsonx.V1()))
 
 	cpData, ok := createOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok, "expected CapacityProvider in response")
@@ -410,7 +411,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listBody, &listOut))
+	require.NoError(t, json.Unmarshal(listBody, &listOut, jsonx.V1()))
 	providers, ok := listOut["CapacityProviders"].([]any)
 	require.True(t, ok)
 	assert.Len(t, providers, 1)
@@ -418,7 +419,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	// Update capacity provider
 	updateBody, err := json.Marshal(map[string]any{
 		"CapacityProviderScalingConfig": map[string]any{"MaxVCpuCount": 200},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	updateResp, err := doLambdaRequest(ctx, http.MethodPut,
@@ -432,7 +433,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRespBody, &updateOut))
+	require.NoError(t, json.Unmarshal(updateRespBody, &updateOut, jsonx.V1()))
 	cpUpdated, ok := updateOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok)
 	scalingConfig, ok := cpUpdated["CapacityProviderScalingConfig"].(map[string]any)
@@ -453,7 +454,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	var delOut map[string]any
-	require.NoError(t, json.Unmarshal(delRespBody, &delOut))
+	require.NoError(t, json.Unmarshal(delRespBody, &delOut, jsonx.V1()))
 	cpDeleted, ok := delOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok, "expected CapacityProvider in response")
 	assert.Contains(t, cpDeleted["CapacityProviderArn"], "test-provider")
@@ -497,7 +498,7 @@ func TestLambda_FunctionUrlConfig_2021(t *testing.T) {
 	createLambdaFunction(ctx, t, server.URL, fnName)
 
 	// Create function URL config via 2021 path
-	createBody, err := json.Marshal(map[string]any{"AuthType": "NONE"})
+	createBody, err := json.Marshal(map[string]any{"AuthType": "NONE"}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -518,7 +519,7 @@ func TestLambda_FunctionUrlConfig_2021(t *testing.T) {
 	require.NoError(t, err)
 
 	var cfg lambdapkg.FunctionURLConfig
-	require.NoError(t, json.Unmarshal(getBody, &cfg))
+	require.NoError(t, json.Unmarshal(getBody, &cfg, jsonx.V1()))
 	assert.Equal(t, "NONE", cfg.AuthType)
 
 	// List function URL configs via 2021 path
@@ -532,13 +533,13 @@ func TestLambda_FunctionUrlConfig_2021(t *testing.T) {
 	require.NoError(t, err)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listBody, &listOut))
+	require.NoError(t, json.Unmarshal(listBody, &listOut, jsonx.V1()))
 	urlConfigs, ok := listOut["FunctionUrlConfigs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, urlConfigs, 1)
 
 	// Update function URL config via 2021 path
-	updateBody, err := json.Marshal(map[string]any{"AuthType": "AWS_IAM"})
+	updateBody, err := json.Marshal(map[string]any{"AuthType": "AWS_IAM"}, jsonx.V1())
 	require.NoError(t, err)
 
 	updateResp, err := doLambdaRequest(ctx, http.MethodPut,

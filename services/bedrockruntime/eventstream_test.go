@@ -2,12 +2,14 @@ package bedrockruntime_test
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseEventStreamFrames splits a raw binary event stream body into decoded
@@ -41,7 +43,7 @@ func parseEventStreamFrames(data []byte) []map[string]any {
 
 		if len(payload) > 0 {
 			var m map[string]any
-			if err := json.Unmarshal(payload, &m); err == nil {
+			if err := json.Unmarshal(payload, &m, jsonx.V1()); err == nil {
 				frames = append(frames, m)
 			}
 		}

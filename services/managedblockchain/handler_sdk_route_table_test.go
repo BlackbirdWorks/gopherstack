@@ -1,7 +1,7 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -116,7 +117,7 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 			var resp struct {
 				Message string `json:"message"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEqual(t, "resource not found", resp.Message,
 				"method=%s path=%s op=%s: dispatched to the unmatched-route default", tc.method, tc.path, tc.op)
 		})

@@ -2,7 +2,8 @@ package mq_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mq"
 )
 
@@ -79,7 +81,7 @@ func TestUpdateConfiguration(t *testing.T) {
 	updateBody, err := json.Marshal(map[string]any{
 		"description": "updated description",
 		"data":        "<broker>...</broker>",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -331,11 +333,11 @@ func TestListConfigurations_PaginationOpaqueToken(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, path, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var out map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			var out map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			var cfgs []any
-			require.NoError(t, json.Unmarshal(out["configurations"], &cfgs))
+			require.NoError(t, json.Unmarshal(out["configurations"], &cfgs, jsonx.V1()))
 			assert.Len(t, cfgs, tt.wantCount)
 
 			rawToken, hasToken := out["nextToken"]
@@ -343,13 +345,13 @@ func TestListConfigurations_PaginationOpaqueToken(t *testing.T) {
 				require.True(t, hasToken)
 
 				var tok string
-				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				require.NoError(t, json.Unmarshal(rawToken, &tok, jsonx.V1()))
 
 				offset := decodeOpaqueToken(t, tok)
 				assert.Equal(t, tt.wantCount, offset)
 			} else if hasToken {
 				var tok string
-				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				require.NoError(t, json.Unmarshal(rawToken, &tok, jsonx.V1()))
 				assert.Empty(t, tok)
 			}
 		})

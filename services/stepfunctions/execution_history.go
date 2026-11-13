@@ -1,11 +1,12 @@
 package stepfunctions
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -307,7 +308,7 @@ func historyValueToJSON(v any) string {
 		return ""
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return ""
 	}

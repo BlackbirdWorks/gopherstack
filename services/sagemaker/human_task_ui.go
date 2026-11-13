@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrHumanTaskUINotFound is returned when a human task UI does not exist.
@@ -63,7 +64,7 @@ func (h *HumanTaskUI) MarshalJSON() ([]byte, error) {
 		alias:        (*alias)(h),
 		CreationTime: epochSeconds(h.CreationTime),
 		UITemplate:   uiTemplateInfo{ContentSha256: h.UITemplateContentSha256},
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [HumanTaskUI.MarshalJSON], read by
@@ -77,7 +78,7 @@ func (h *HumanTaskUI) UnmarshalJSON(data []byte) error {
 		CreationTime float64        `json:"CreationTime"`
 	}{alias: (*alias)(h)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

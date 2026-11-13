@@ -3,7 +3,7 @@ package integration_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -102,7 +104,7 @@ func TestIntegration_ECRPublic_RepositoryImageLifecycle(t *testing.T) {
 		"mediaType":     ecrPublicManifestMediaType,
 		"config":        map[string]any{"mediaType": ecrPublicConfigMediaType, "digest": configDigest},
 		"layers":        []map[string]any{{"digest": layerDigest}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	put, err := client.PutImage(ctx, &ecrpublicsdk.PutImageInput{
@@ -117,7 +119,7 @@ func TestIntegration_ECRPublic_RepositoryImageLifecycle(t *testing.T) {
 		"schemaVersion": 2,
 		"mediaType":     ecrPublicIndexMediaType,
 		"manifests":     []map[string]any{{"digest": childDigest}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	_, err = client.PutImage(ctx, &ecrpublicsdk.PutImageInput{

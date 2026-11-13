@@ -3,7 +3,7 @@ package azurearm
 import (
 	"context"
 	_ "embed" // role and policy catalogs
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -187,14 +188,14 @@ func NewAuthorizationProvider(tenantID string, msi *ManagedIdentityProvider) *Au
 	p.resetMaps()
 
 	var roles []*builtinRole
-	if err := json.Unmarshal(authRolesJSON, &roles); err == nil {
+	if err := json.Unmarshal(authRolesJSON, &roles, jsonx.V1()); err == nil {
 		for _, r := range roles {
 			p.builtinRoles[strings.ToLower(r.Name)] = r
 		}
 	}
 
 	var cat builtinPolicyCatalog
-	if err := json.Unmarshal(authPoliciesJSON, &cat); err == nil {
+	if err := json.Unmarshal(authPoliciesJSON, &cat, jsonx.V1()); err == nil {
 		for i := range cat.Definitions {
 			p.builtinPols[strings.ToLower(cat.Definitions[i].Name)] = &cat.Definitions[i]
 		}

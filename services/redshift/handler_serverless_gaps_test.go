@@ -1,7 +1,8 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
@@ -36,7 +38,7 @@ func TestServerless_UpdateNamespace_DBNameNotMutated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	ns, _ := resp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
 	assert.Equal(t, "original", ns["dbName"], "UpdateNamespace's dbName must be silently ignored, not applied")
@@ -64,7 +66,7 @@ func TestServerless_Namespace_AdminUserPassword_NeverEchoed(t *testing.T) {
 	assert.NotContains(t, body, "s3cr3t-Passw0rd")
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	ns, _ := createResp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
 	_, hasPassword := ns["adminUserPassword"]
@@ -155,7 +157,7 @@ func TestServerless_ListSnapshots_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var nsResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&nsResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &nsResp, jsonx.V1()))
 	ns, _ := nsResp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
 	nsArn, _ := ns["namespaceArn"].(string)
@@ -165,7 +167,7 @@ func TestServerless_ListSnapshots_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var allResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&allResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &allResp, jsonx.V1()))
 	allSnaps, _ := allResp["snapshots"].([]any)
 	require.Len(t, allSnaps, 3, "sanity: three snapshots exist before filtering")
 
@@ -173,7 +175,7 @@ func TestServerless_ListSnapshots_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var filteredResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&filteredResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &filteredResp, jsonx.V1()))
 	filtered, _ := filteredResp["snapshots"].([]any)
 	assert.Len(t, filtered, 2, "namespaceArn filter must narrow to only lsf-ns-a's snapshots")
 
@@ -186,7 +188,7 @@ func TestServerless_ListSnapshots_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var otherAcctResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&otherAcctResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &otherAcctResp, jsonx.V1()))
 	otherAcctSnaps, _ := otherAcctResp["snapshots"].([]any)
 	assert.Empty(t, otherAcctSnaps, "no snapshot in a single-account backend can be owned by another account")
 
@@ -194,7 +196,7 @@ func TestServerless_ListSnapshots_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var ownAcctResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&ownAcctResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ownAcctResp, jsonx.V1()))
 	ownAcctSnaps, _ := ownAcctResp["snapshots"].([]any)
 	assert.Len(t, ownAcctSnaps, 3)
 }
@@ -220,7 +222,7 @@ func TestServerless_GetSnapshot_OwnerAccount(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -239,7 +241,7 @@ func TestServerless_ListWorkgroups_OwnerAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var ownResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&ownResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ownResp, jsonx.V1()))
 	own, _ := ownResp["workgroups"].([]any)
 	require.Len(t, own, 2, "sanity: two workgroups exist and match this backend's own account")
 
@@ -247,7 +249,7 @@ func TestServerless_ListWorkgroups_OwnerAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var otherResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&otherResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &otherResp, jsonx.V1()))
 	other, _ := otherResp["workgroups"].([]any)
 	assert.Empty(t, other, "ownerAccount filter must narrow to zero for an account this backend never owns")
 }
@@ -275,7 +277,7 @@ func TestServerless_ListUsageLimits_UsageType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var allResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&allResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &allResp, jsonx.V1()))
 	all, _ := allResp["usageLimits"].([]any)
 	require.Len(t, all, 2, "sanity: two usage limits exist before filtering")
 
@@ -283,7 +285,7 @@ func TestServerless_ListUsageLimits_UsageType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var filteredResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&filteredResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &filteredResp, jsonx.V1()))
 	filtered, _ := filteredResp["usageLimits"].([]any)
 	require.Len(t, filtered, 1, "usageType filter must narrow to the single matching limit")
 	got, _ := filtered[0].(map[string]any)

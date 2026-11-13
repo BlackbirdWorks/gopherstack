@@ -1,12 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // describeConnectionsRequest is the shared request body shape for
@@ -154,7 +155,7 @@ func (h *Handler) readDescribeConnectionsRequest(
 
 	var req describeConnectionsRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to parse body")
 
 			return describeConnectionsRequest{}, false

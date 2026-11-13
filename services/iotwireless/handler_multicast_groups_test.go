@@ -1,13 +1,16 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_AssociateWirelessDeviceWithMulticastGroup(t *testing.T) {
@@ -62,7 +65,7 @@ func TestHandler_MulticastGroup_LoRaWANRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, _ := createResp["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -70,7 +73,7 @@ func TestHandler_MulticastGroup_LoRaWANRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok := getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "US915", loRaWAN["RfRegion"])
@@ -92,7 +95,7 @@ func TestHandler_MulticastGroup_LoRaWANRoundTrip(t *testing.T) {
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+id, "")
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok = getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	assert.InDelta(t, float64(1), loRaWAN["NumberOfDevicesInGroup"], 0.001)
@@ -104,7 +107,7 @@ func TestHandler_MulticastGroup_LoRaWANRoundTrip(t *testing.T) {
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+id, "")
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok = getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "EU868", loRaWAN["RfRegion"])
@@ -132,7 +135,7 @@ func TestHandler_CancelMulticastGroupSession(t *testing.T) {
 			if tt.create {
 				rec := doIoTWRequest(t, h, http.MethodPost, "/multicast-groups", `{"Name":"mg"}`)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id, _ = resp["Id"].(string)
 			}
 
@@ -153,7 +156,7 @@ func TestHandler_MulticastGroupCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, ok := createResp["Id"].(string)
 	require.True(t, ok)
 	assert.NotEmpty(t, id)
@@ -166,7 +169,7 @@ func TestHandler_MulticastGroupCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "mg1", getResp["Name"])
 	assert.Equal(t, id, getResp["Id"])
 
@@ -175,7 +178,7 @@ func TestHandler_MulticastGroupCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	groups, ok := listResp["MulticastGroupList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, groups, 1)
@@ -186,7 +189,7 @@ func TestHandler_MulticastGroupCRUD(t *testing.T) {
 
 	// Verify update
 	rec = doIoTWRequest(t, h, http.MethodGet, "/multicast-groups/"+id, "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "mg1-updated", getResp["Name"])
 
 	// Delete
@@ -208,7 +211,7 @@ func TestHandler_MulticastGroupSession(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Getting the session before one has been started must 404, matching real
@@ -225,7 +228,7 @@ func TestHandler_MulticastGroupSession(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var sessionResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sessionResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sessionResp, jsonx.V1()))
 	_, hasLoRaWAN := sessionResp["LoRaWAN"]
 	assert.True(t, hasLoRaWAN)
 }
@@ -240,7 +243,7 @@ func TestHandler_DisassociateWirelessDeviceFromMulticastGroup(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var mgResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mgResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mgResp, jsonx.V1()))
 	mgID := mgResp["Id"].(string)
 
 	// Create wireless device
@@ -254,7 +257,7 @@ func TestHandler_DisassociateWirelessDeviceFromMulticastGroup(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var devResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp, jsonx.V1()))
 	devID := devResp["Id"].(string)
 
 	// Associate device with multicast group; AssociateWirelessDeviceWithMulticastGroup
@@ -284,7 +287,7 @@ func TestHandler_SendDataToMulticastGroup_UniqueMessageID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	mgID := createResp["Id"].(string)
 
 	seen := make(map[string]bool)
@@ -296,7 +299,7 @@ func TestHandler_SendDataToMulticastGroup_UniqueMessageID(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		msgID, _ := resp["MessageId"].(string)
 		assert.NotEmpty(t, msgID)
@@ -334,7 +337,7 @@ func TestHandler_SendDataToMulticastGroup_RequiresBody(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			mgID, _ := createResp["Id"].(string)
 			require.NotEmpty(t, mgID)
 
@@ -375,7 +378,7 @@ func TestHandler_MulticastGroup_BulkOps(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			mgID := createResp["Id"].(string)
 
 			path := "/multicast-groups/" + mgID + "/bulk"
@@ -397,7 +400,7 @@ func TestHandler_MulticastGroups_FullLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	mgID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, mgID)
 

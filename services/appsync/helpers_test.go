@@ -7,7 +7,7 @@ package appsync_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -36,7 +37,7 @@ func doRequest(t *testing.T, handler *appsync.Handler, method, path string, body
 	var buf *bytes.Buffer
 
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, _ := json.Marshal(body, jsonx.V1())
 		buf = bytes.NewBuffer(b)
 	} else {
 		buf = bytes.NewBuffer(nil)
@@ -65,7 +66,7 @@ func doRequestWithHeaders(
 	var buf *bytes.Buffer
 
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, _ := json.Marshal(body, jsonx.V1())
 		buf = bytes.NewBuffer(b)
 	} else {
 		buf = bytes.NewBuffer(nil)
@@ -94,7 +95,7 @@ func doV2Request(t *testing.T, handler *appsync.Handler, method, path string, bo
 
 	var buf *bytes.Buffer
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, _ := json.Marshal(body, jsonx.V1())
 		buf = bytes.NewBuffer(b)
 	} else {
 		buf = bytes.NewBuffer(nil)

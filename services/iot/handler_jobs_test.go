@@ -2,7 +2,7 @@ package iot_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
@@ -233,7 +234,7 @@ func TestJobExecution_RoutingAndStateGuards(t *testing.T) {
 				assert.Equal(t, http.StatusConflict, rec.Code)
 
 				var body map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "InvalidStateTransitionException", body["__type"])
 			},
 		},
@@ -278,7 +279,7 @@ func TestJobExecution_RoutingAndStateGuards(t *testing.T) {
 				assert.Equal(t, http.StatusConflict, rec.Code)
 
 				var body map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "VersionConflictException", body["__type"])
 			},
 		},
@@ -888,7 +889,7 @@ func TestHandler_ListJobsNamespaceFilter(t *testing.T) {
 					JobID string `json:"jobId"`
 				} `json:"jobs"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			got := make([]string, 0, len(out.Jobs))
 			for _, j := range out.Jobs {
 				got = append(got, j.JobID)

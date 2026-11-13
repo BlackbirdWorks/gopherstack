@@ -2,7 +2,7 @@ package dlm_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dlm"
 )
 
@@ -31,7 +32,7 @@ func createPolicyWithDetails(t *testing.T, h *dlm.Handler, description string, d
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policyID, ok := resp["PolicyId"].(string)
 	require.True(t, ok, "PolicyId missing from response")
@@ -43,7 +44,7 @@ func getPoliciesResp(t *testing.T, rec *httptest.ResponseRecorder) []map[string]
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, ok := resp["Policies"].([]any)
 	require.True(t, ok)
@@ -241,7 +242,7 @@ func TestHandler_GetLifecyclePolicies_DeterministicOrder(t *testing.T) {
 			assert.JSONEq(t, firstRec.Body.String(), secondRec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &resp, jsonx.V1()))
 			policies, ok := resp["Policies"].([]any)
 			require.True(t, ok)
 			require.Len(t, policies, tc.count)
@@ -304,7 +305,7 @@ func TestHandler_UpdateLifecyclePolicy_PolicyDetails(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			policyID := createResp["PolicyId"].(string)
 
 			// Update with new PolicyDetails.
@@ -318,7 +319,7 @@ func TestHandler_UpdateLifecyclePolicy_PolicyDetails(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			policy := getResp["Policy"].(map[string]any)
 			details := policy["PolicyDetails"].(map[string]any)
 			assert.Equal(t, tc.wantType, details["PolicyType"])
@@ -374,7 +375,7 @@ func TestHandler_UpdateLifecyclePolicy_ExplicitEmptyVsOmitted(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			policyID := createResp["PolicyId"].(string)
 
 			patchRec := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/policies/%s", policyID), tc.patchBody)
@@ -384,7 +385,7 @@ func TestHandler_UpdateLifecyclePolicy_ExplicitEmptyVsOmitted(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			policy := getResp["Policy"].(map[string]any)
 			assert.Equal(t, tc.wantDesc, policy["Description"])
 			assert.Equal(t, tc.wantRoleArn, policy["ExecutionRoleArn"])
@@ -483,14 +484,14 @@ func TestHandler_CreateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			policyID := createResp["PolicyId"].(string)
 
 			getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			policy := getResp["Policy"].(map[string]any)
 			details := policy["PolicyDetails"].(map[string]any)
 
@@ -526,7 +527,7 @@ func TestHandler_UpdateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	policyID := createResp["PolicyId"].(string)
 
 	patchRec := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/policies/%s", policyID), map[string]any{
@@ -539,7 +540,7 @@ func TestHandler_UpdateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	policy := getResp["Policy"].(map[string]any)
 	details := policy["PolicyDetails"].(map[string]any)
 
@@ -601,14 +602,14 @@ func TestHandler_GetLifecyclePolicy_DefaultPolicyEcho(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			policyID := createResp["PolicyId"].(string)
 
 			getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			policy := getResp["Policy"].(map[string]any)
 
 			assert.Equal(t, tc.want, policy["DefaultPolicy"])
@@ -682,7 +683,7 @@ func TestHandler_CreateLifecyclePolicy_LimitExceeded(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", out["__type"])
 }
 
@@ -727,7 +728,7 @@ func TestHandler_CreateLifecyclePolicy_MissingRequiredFields(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", resp["__type"])
 		})
 	}
@@ -864,7 +865,7 @@ func TestHandler_GetLifecyclePolicies_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			policies := resp["Policies"].([]any)
 
 			if tc.wantMaxLen > 0 || tc.wantMinLen > 0 {

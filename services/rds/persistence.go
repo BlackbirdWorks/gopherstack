@@ -2,11 +2,13 @@ package rds
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -30,7 +32,7 @@ import (
 const rdsSnapshotVersion = 3
 
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage             `json:"tables"`
+	Tables                    map[string]jsontext.Value              `json:"tables"`
 	Tags                      map[string][]Tag                       `json:"tags"`
 	ClusterRoles              map[string][]DBClusterRole             `json:"clusterRoles"`
 	InstanceRoles             map[string]map[string]string           `json:"instanceRoles"`
@@ -86,7 +88,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DefaultCACertificateID:    b.defaultCACertificateID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "rds: failed to marshal snapshot", "error", err)
 
@@ -235,11 +237,11 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		return h.Backend.Snapshot(ctx)
 	}
 
-	snaps := make(map[string]json.RawMessage)
+	snaps := make(map[string]jsontext.Value)
 	for region, b := range h.backends {
 		snaps[region] = b.Snapshot(ctx)
 	}
-	data, _ := json.Marshal(snaps)
+	data, _ := json.Marshal(snaps, jsonx.V1())
 
 	return data
 }
@@ -253,8 +255,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		return h.Backend.Restore(ctx, data)
 	}
 
-	var snaps map[string]json.RawMessage
-	if err := json.Unmarshal(data, &snaps); err != nil {
+	var snaps map[string]jsontext.Value
+	if err := json.Unmarshal(data, &snaps, jsonx.V1()); err != nil {
 		// Fallback for backwards compatibility with single-region snapshots.
 		return h.Backend.Restore(ctx, data)
 	}

@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash"
@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Sentinel errors for intrinsic function evaluation.
@@ -260,7 +262,7 @@ func intrinsicFormat(args []any) (any, error) {
 			case nil:
 				result.WriteString("null")
 			default:
-				b, err := json.Marshal(v)
+				b, err := json.Marshal(v, jsonx.V1())
 				if err != nil {
 					return nil, fmt.Errorf("States.Format: cannot serialize argument: %w", err)
 				}
@@ -289,7 +291,7 @@ func intrinsicStringToJSON(args []any) (any, error) {
 	}
 
 	var result any
-	if err := json.Unmarshal([]byte(s), &result); err != nil {
+	if err := json.Unmarshal([]byte(s), &result, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("States.StringToJson: invalid JSON: %w", err)
 	}
 
@@ -302,7 +304,7 @@ func intrinsicJSONToString(args []any) (any, error) {
 		return nil, ErrStatesJSONToStringRequiresArg
 	}
 
-	b, err := json.Marshal(args[0])
+	b, err := json.Marshal(args[0], jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("States.JsonToString: cannot serialize: %w", err)
 	}

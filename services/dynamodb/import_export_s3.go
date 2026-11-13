@@ -6,7 +6,8 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -342,7 +344,7 @@ func parseDynamoDBJSONLines(data []byte) ([]map[string]any, error) {
 		var rec struct {
 			Item map[string]any `json:"Item"`
 		}
-		if err := json.Unmarshal(line, &rec); err != nil {
+		if err := json.Unmarshal(line, &rec, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("parse DynamoDB JSON line: %w", err)
 		}
 
@@ -422,11 +424,11 @@ func (db *InMemoryDB) exportTableToS3(
 
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	enc := json.NewEncoder(gz)
+	enc := jsontext.NewEncoder(gz, jsonx.V1())
 
 	var count int64
 	for i := range items {
-		if err := enc.Encode(struct {
+		if err := json.MarshalEncode(enc, struct {
 			Item map[string]any `json:"Item"`
 		}{Item: items[i]}); err != nil {
 			_ = gz.Close()
@@ -454,7 +456,7 @@ func (db *InMemoryDB) exportTableToS3(
 		"tableArn":      tableARN,
 		"itemCount":     count,
 		"dataFileS3Key": dataKey,
-	})
+	}, jsonx.V1())
 	if _, err := s3.PutObject(ctx, &s3sdk.PutObjectInput{
 		Bucket: &bucket,
 		Key:    &manifestKey,

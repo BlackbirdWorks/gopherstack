@@ -2,11 +2,12 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -18,7 +19,7 @@ type listTagsForResourceInput struct {
 func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
 	var in listTagsForResourceInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -41,7 +42,7 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{
 		"Tags":       pg.Data,
 		keyNextToken: pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 // tagWire mirrors types.Tag (xray@v1.39.4): a {Key, Value} object, one per
@@ -61,7 +62,7 @@ type tagResourceInput struct {
 func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
 	var in tagResourceInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -78,7 +79,7 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type untagResourceInput struct {
@@ -89,7 +90,7 @@ type untagResourceInput struct {
 func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, error) {
 	var in untagResourceInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -102,7 +103,7 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 const (

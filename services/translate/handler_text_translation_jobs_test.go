@@ -1,7 +1,7 @@
 package translate_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/translate"
 )
 
@@ -199,7 +200,7 @@ func TestStopTextTranslationJob_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"])
 }
 
@@ -213,7 +214,7 @@ func TestDescribeTextTranslationJob_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"])
 }
 
@@ -306,7 +307,7 @@ func TestStartTextTranslationJob_UnknownTerminologyRejected(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var respBody map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", respBody["__type"])
 		})
 	}
@@ -354,7 +355,7 @@ func TestStartTextTranslationJob_RequiredFieldsValidated(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var respBody map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", respBody["__type"])
 		})
 	}
@@ -409,7 +410,7 @@ func TestStartTextTranslationJob_UnsupportedLanguagePairRejected(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var respBody map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody, jsonx.V1()))
 				assert.Equal(t, "UnsupportedLanguagePairException", respBody["__type"])
 			}
 		})
@@ -544,7 +545,7 @@ func TestListTextTranslationJobs_InvalidFilterRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidFilterException", body["__type"])
 }
 

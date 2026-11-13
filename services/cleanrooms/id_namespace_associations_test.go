@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func createIDNamespaceAssociation(t *testing.T, e *echo.Echo, mID string) string {
@@ -21,7 +23,7 @@ func createIDNamespaceAssociation(t *testing.T, e *echo.Echo, mID string) string
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	return createResp["idNamespaceAssociation"]["id"].(string)
 }

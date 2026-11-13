@@ -1,7 +1,8 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -325,7 +327,7 @@ func TestTagOps_NonExistentResource_ViaHandler(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]string
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, "TargetNotFoundException", errResp["__type"],
 				"%s on unknown resource must return TargetNotFoundException", tt.name)
 		})
@@ -357,7 +359,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&descResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &descResp, jsonx.V1()))
 			org := descResp["Organization"].(map[string]any)
 			orgID := org["Id"].(string)
 
@@ -373,7 +375,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&tagsResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &tagsResp, jsonx.V1()))
 			tags, ok := tagsResp["Tags"].([]any)
 			require.True(t, ok)
 			assert.NotEmpty(t, tags)
@@ -635,7 +637,7 @@ func TestTagResource_ReservedPrefix_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidInputException", errResp["__type"])
 }
 

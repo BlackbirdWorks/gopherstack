@@ -1,9 +1,10 @@
 package ocinosql
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type step struct {
@@ -493,7 +494,7 @@ func (p *parser) parseOperand() (expr, *APIError) {
 			return nil, p.fail("a number")
 		}
 
-		return &litExpr{v: json.Number("-" + n.text)}, nil
+		return &litExpr{v: jsonx.Number("-" + n.text)}, nil
 	case t.kind == tkIdent && !isLiteralKw(t.up):
 		steps, err := p.parsePath()
 		if err != nil {
@@ -518,7 +519,7 @@ func isLiteralKw(up string) bool { return up == kwTrue || up == kwFalse || up ==
 func literalOf(t tok) (expr, bool) {
 	switch {
 	case t.kind == tkNumber:
-		return &litExpr{v: json.Number(t.text)}, true
+		return &litExpr{v: jsonx.Number(t.text)}, true
 	case t.kind == tkString:
 		return &litExpr{v: t.text}, true
 	case t.kind == tkVar:

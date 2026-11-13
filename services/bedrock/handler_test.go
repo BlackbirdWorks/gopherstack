@@ -2,7 +2,7 @@ package bedrock_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
@@ -571,7 +572,7 @@ func TestHandler_RealSDKWireShapeRouteMatcher(t *testing.T) { //nolint:parallelt
 			require.NoError(t, h.Handler()(c2))
 
 			var out map[string]string
-			_ = json.Unmarshal(rec2.Body.Bytes(), &out)
+			_ = json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1())
 			assert.NotEqual(
 				t, "UnknownOperationException", out["__type"],
 				"path/method must be dispatched to a real handler, not fall through as unrouted",
@@ -714,7 +715,7 @@ func TestParity_ValidationException_Returns400(t *testing.T) {
 				"ValidationException must return 400, not 500")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			errType, _ := resp["__type"].(string)
 			assert.Contains(t, errType, "ValidationException",
@@ -772,7 +773,7 @@ func TestParity_ValidationException_ErrorShape(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			_, hasType := resp["__type"]
 			assert.True(t, hasType, "error response must have '__type' field")

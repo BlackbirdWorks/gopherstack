@@ -2,12 +2,15 @@ package iot
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // sqlUndefined is the SQL Undefined value: omitted from JSON output.
@@ -77,51 +80,54 @@ var errBadJSON = errors.New("invalid json")
 
 // decodeJSONValue parses a complete JSON document.
 func decodeJSONValue(data []byte, v2016 bool) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(data), jsonx.V1())
 
 	v, err := decodeToken(dec, v2016)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err = dec.Token(); !errors.Is(err, io.EOF) {
+	if _, err = dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return nil, errBadJSON
 	}
 
 	return v, nil
 }
 
-func decodeToken(dec *json.Decoder, v2016 bool) (any, error) {
-	tok, err := dec.Token()
+func decodeToken(dec *jsontext.Decoder, v2016 bool) (any, error) {
+	tok, err := dec.ReadToken()
 	if err != nil {
 		return nil, errBadJSON
 	}
 
-	switch t := tok.(type) {
-	case json.Delim:
-		if t == '{' {
-			return decodeObject(dec, v2016)
-		}
-
+	switch tok.Kind() {
+	case '{':
+		return decodeObject(dec, v2016)
+	case '[':
 		return decodeArray(dec, v2016)
-	case json.Number:
-		return sqlNumber(t.String(), v2016), nil
+	case '0':
+		return sqlNumber(tok.String(), v2016), nil
+	case '"':
+		return tok.String(), nil
+	case 't', 'f':
+		return tok.Bool(), nil
 	default:
-		return t, nil
+		var null any
+
+		return null, nil
 	}
 }
 
-func decodeObject(dec *json.Decoder, v2016 bool) (any, error) {
+func decodeObject(dec *jsontext.Decoder, v2016 bool) (any, error) {
 	obj := newSQLObject()
 
-	for dec.More() {
-		kt, err := dec.Token()
-
-		key, ok := kt.(string)
-		if err != nil || !ok {
+	for dec.PeekKind() != '}' {
+		kt, err := dec.ReadToken()
+		if err != nil || kt.Kind() != '"' {
 			return nil, errBadJSON
 		}
+
+		key := kt.String()
 
 		v, verr := decodeToken(dec, v2016)
 		if verr != nil {
@@ -131,17 +137,17 @@ func decodeObject(dec *json.Decoder, v2016 bool) (any, error) {
 		obj.set(key, v)
 	}
 
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return nil, errBadJSON
 	}
 
 	return obj, nil
 }
 
-func decodeArray(dec *json.Decoder, v2016 bool) (any, error) {
+func decodeArray(dec *jsontext.Decoder, v2016 bool) (any, error) {
 	arr := []any{}
 
-	for dec.More() {
+	for dec.PeekKind() != ']' {
 		v, err := decodeToken(dec, v2016)
 		if err != nil {
 			return nil, err
@@ -150,7 +156,7 @@ func decodeArray(dec *json.Decoder, v2016 bool) (any, error) {
 		arr = append(arr, v)
 	}
 
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return nil, errBadJSON
 	}
 
@@ -163,7 +169,7 @@ func writeJSONValue(buf *bytes.Buffer, v any) {
 	case nil:
 		buf.WriteString(jsonNull)
 	case bool, string:
-		b, _ := json.Marshal(t)
+		b, _ := json.Marshal(t, jsonx.V1())
 		buf.Write(b)
 	case int64:
 		buf.WriteString(strconv.FormatInt(t, 10))
@@ -174,7 +180,7 @@ func writeJSONValue(buf *bytes.Buffer, v any) {
 	case *sqlObject:
 		writeJSONObject(buf, t)
 	case sqlRaw:
-		b, _ := json.Marshal(string(t))
+		b, _ := json.Marshal(string(t), jsonx.V1())
 		buf.Write(b)
 	default:
 		buf.WriteString(jsonNull)
@@ -212,7 +218,7 @@ func writeJSONObject(buf *bytes.Buffer, o *sqlObject) {
 
 		first = false
 
-		kb, _ := json.Marshal(k)
+		kb, _ := json.Marshal(k, jsonx.V1())
 		buf.Write(kb)
 		buf.WriteByte(':')
 		writeJSONValue(buf, v)

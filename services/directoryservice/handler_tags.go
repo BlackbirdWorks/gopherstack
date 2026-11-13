@@ -1,12 +1,13 @@
 package directoryservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleAddTagsToResource(c *echo.Context) error {
@@ -23,7 +24,7 @@ func (h *Handler) handleAddTagsToResource(c *echo.Context) error {
 		} `json:"Tags"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -51,7 +52,7 @@ func (h *Handler) handleRemoveTagsFromResource(c *echo.Context) error {
 		TagKeys    []string `json:"TagKeys"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -79,7 +80,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 		Limit      int32  `json:"Limit"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 

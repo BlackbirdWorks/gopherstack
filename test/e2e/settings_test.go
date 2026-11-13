@@ -93,6 +93,7 @@ func TestE2E_SettingsPage(t *testing.T) {
 	// Navigate to the settings page.
 	_, err = page.Goto(server.URL + "/dashboard/settings")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	require.NoError(t, page.Locator("h1:has-text('Settings')").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -163,6 +164,7 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 	// Navigate to the main dashboard (redirects to /dynamodb).
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// The settings icon link should be present in the navbar.
 	settingsLink := page.Locator("#nav-settings").First()
@@ -225,6 +227,7 @@ func TestE2E_SettingsPage_ServerSettingsUnavailable(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/settings")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	notice := page.Locator("text=no configuration manager wired up")
 	require.NoError(t, notice.First().WaitFor(playwright.LocatorWaitForOptions{
@@ -270,6 +273,7 @@ func TestE2E_SettingsPage_ServerSettingsUnreachable(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/settings")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	notice := page.Locator("text=Could not reach")
 	require.NoError(t, notice.First().WaitFor(playwright.LocatorWaitForOptions{
@@ -309,6 +313,7 @@ func TestE2E_SettingsPage_SaveLocalPrefs_PersistsAfterRefresh(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/settings")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	serviceTab := page.Locator("button:has-text('Service Settings')")
 	require.NoError(t, serviceTab.WaitFor(playwright.LocatorWaitForOptions{

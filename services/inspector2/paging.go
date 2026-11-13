@@ -1,12 +1,13 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const defaultPageSize = 100
@@ -30,7 +31,7 @@ func readPageRequest(c *echo.Context) (pageRequest, error) {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return req, fmt.Errorf("%w: invalid JSON", ErrValidation)
 		}
 	}

@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -54,7 +55,7 @@ func TestHandler_CreateIntegration(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var integration apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 				assert.Equal(t, tt.integrationType, integration.IntegrationType)
 				assert.NotEmpty(t, integration.IntegrationID)
 			}
@@ -123,7 +124,7 @@ func TestHandler_GetIntegrations(t *testing.T) {
 				}
 
 				var resp listResp
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.Items, len(tt.integrations))
 			}
 		})
@@ -165,7 +166,7 @@ func TestHandler_GetIntegration(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var integration apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 				integrationID = integration.IntegrationID
 			}
 
@@ -210,7 +211,7 @@ func TestHandler_DeleteIntegration(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var integration apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 				integrationID = integration.IntegrationID
 			}
 
@@ -261,7 +262,7 @@ func TestHandler_UpdateIntegration(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var integration apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 				integrationID = integration.IntegrationID
 			}
 
@@ -350,7 +351,7 @@ func TestHandler_CreateIntegration_InvalidType(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var api apigatewayv2.API
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v2/apis/%s/integrations", api.APIID), tt.body)
 			assert.Equal(t, tt.wantStatus, rr.Code)
@@ -405,7 +406,7 @@ func TestGetIntegrations_Pagination(t *testing.T) {
 					NextToken string           `json:"nextToken"`
 					Items     []map[string]any `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Items), tc.maxResults)
 
 				for _, s := range resp.Items {

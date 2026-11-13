@@ -1,12 +1,15 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createContactInput struct {
@@ -19,7 +22,7 @@ type createContactInput struct {
 func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (any, error) {
 	var in createContactInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -106,7 +109,7 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 
 	var in updateContactInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -136,7 +139,7 @@ type listContactsInput struct {
 func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
 	var in listContactsInput
 
-	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1())
 
 	var filter ContactFilter
 	if in.Filter != nil {

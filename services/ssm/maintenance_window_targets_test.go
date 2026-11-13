@@ -2,13 +2,14 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -32,7 +33,7 @@ func TestStubOps_RegisterTargetWithMaintenanceWindow(t *testing.T) {
 		"Targets": []map[string]any{
 			{"Key": "InstanceIds", "Values": []string{"i-1234567890abcdef0"}},
 		},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterTargetWithMaintenanceWindow", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -55,7 +56,7 @@ func TestStubOps_RegisterTaskWithMaintenanceWindow(t *testing.T) {
 		"WindowId": mw.WindowID,
 		"TaskType": "RUN_COMMAND",
 		"TaskArn":  "AWS-RunShellScript",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterTaskWithMaintenanceWindow", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -104,19 +105,19 @@ func TestMaintenanceWindowTask_ServiceRoleArn(t *testing.T) {
 				"ServiceRoleArn": tt.serviceRoleArn,
 				"MaxConcurrency": tt.maxConcurrency,
 				"MaxErrors":      tt.maxErrors,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "RegisterTaskWithMaintenanceWindow", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var regResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 			taskID := regResp["WindowTaskId"].(string)
 
 			// GetMaintenanceWindowTask should return ServiceRoleArn.
 			body, _ = json.Marshal(map[string]any{
 				"WindowId":     mw.WindowID,
 				"WindowTaskId": taskID,
-			})
+			}, jsonx.V1())
 			rec = doRequest(t, h, "GetMaintenanceWindowTask", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -147,12 +148,12 @@ func TestMaintenanceWindowTask_UpdateServiceRoleArn(t *testing.T) {
 		"WindowId": mw.WindowID,
 		"TaskType": "RUN_COMMAND",
 		"TaskArn":  "AWS-RunShellScript",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterTaskWithMaintenanceWindow", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var regResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 	taskID := regResp["WindowTaskId"].(string)
 
 	// Update with ServiceRoleArn.
@@ -160,7 +161,7 @@ func TestMaintenanceWindowTask_UpdateServiceRoleArn(t *testing.T) {
 		"WindowId":       mw.WindowID,
 		"WindowTaskId":   taskID,
 		"ServiceRoleArn": "arn:aws:iam::123456789012:role/UpdatedRole",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "UpdateMaintenanceWindowTask", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "UpdatedRole")
@@ -230,13 +231,13 @@ func TestDeregisterTargetFromMaintenanceWindow_TableDriven(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"WindowId":       mw.WindowID,
 				"WindowTargetId": windowTargetID,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "DeregisterTargetFromMaintenanceWindow", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				if tt.wantWindowID {
 					assert.Equal(t, mw.WindowID, resp["WindowId"])
 				}
@@ -310,13 +311,13 @@ func TestDeregisterTaskFromMaintenanceWindow_TableDriven(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"WindowId":     mw.WindowID,
 				"WindowTaskId": windowTaskID,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "DeregisterTaskFromMaintenanceWindow", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				if tt.wantWindowID {
 					assert.Equal(t, mw.WindowID, resp["WindowId"])
 				}

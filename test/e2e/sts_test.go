@@ -41,6 +41,7 @@ func TestSTSDashboard(t *testing.T) {
 	// Navigate to the STS dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the page heading to appear.
 	err = page.Locator("h1").First().WaitFor(
@@ -80,6 +81,7 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
@@ -145,6 +147,7 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
@@ -217,6 +220,7 @@ func TestSTSDashboard_ValidatorClear(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
@@ -279,6 +283,7 @@ func TestSTSDashboard_MetricsPanel(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
@@ -320,6 +325,7 @@ func TestSTSDashboard_DecodeAuthMessageClear(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sts")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},

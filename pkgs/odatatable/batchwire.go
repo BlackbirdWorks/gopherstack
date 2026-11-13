@@ -2,7 +2,7 @@ package odatatable
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -456,5 +458,5 @@ func FailureBody(index int, f BatchFailure, requestID, timestamp string) ([]byte
 	env.Error.Message.Lang = "en-US"
 	env.Error.Message.Value = fmt.Sprintf("%d:%s\nRequestId:%s\nTime:%s", index, f.Message, requestID, timestamp)
 
-	return json.Marshal(env)
+	return json.Marshal(env, jsonx.V1())
 }

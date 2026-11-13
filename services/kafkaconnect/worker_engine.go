@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +22,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -620,7 +621,7 @@ func (e *workerEngine) call(ctx context.Context, method, url string, body any) (
 	var rdr io.Reader
 
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		if err != nil {
 			return nil, 0, fmt.Errorf("encode request: %w", err)
 		}
@@ -670,7 +671,7 @@ func (e *workerEngine) readStatus(ctx context.Context, base, name string) (strin
 	}
 
 	var st connectStatus
-	if err = json.Unmarshal(data, &st); err != nil {
+	if err = json.Unmarshal(data, &st, jsonx.V1()); err != nil {
 		return "", "", fmt.Errorf("decode status: %w", err)
 	}
 

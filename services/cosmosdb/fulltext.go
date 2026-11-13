@@ -1,12 +1,15 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -32,20 +35,20 @@ type fullTextPolicy struct {
 	FullTextPaths   []fullTextPath `json:"fullTextPaths"`
 }
 
-func parseFullTextPolicy(raw json.RawMessage) (fullTextPolicy, error) {
+func parseFullTextPolicy(raw jsontext.Value) (fullTextPolicy, error) {
 	var pol fullTextPolicy
 	if isJSONNull(raw) {
 		return pol, nil
 	}
 
-	if err := json.Unmarshal(raw, &pol); err != nil {
+	if err := json.Unmarshal(raw, &pol, jsonx.V1()); err != nil {
 		return pol, fmt.Errorf("%w: fullTextPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
 	return pol, nil
 }
 
-func validateFullTextPolicy(raw json.RawMessage) error {
+func validateFullTextPolicy(raw jsontext.Value) error {
 	pol, err := parseFullTextPolicy(raw)
 	if err != nil {
 		return err

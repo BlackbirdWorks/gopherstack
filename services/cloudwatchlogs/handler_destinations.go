@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putDestinationInput struct {
@@ -18,7 +20,7 @@ func (h *Handler) handlePutDestination(
 	body []byte,
 ) (any, error) {
 	var in putDestinationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -69,7 +71,7 @@ func (h *Handler) handlePutDestinationPolicy(
 	body []byte,
 ) (any, error) {
 	var in putDestinationPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -93,7 +95,7 @@ func (h *Handler) handleDescribeDestinations(
 	body []byte,
 ) (any, error) {
 	var in describeDestinationsInput
-	_ = json.Unmarshal(body, &in)
+	_ = json.Unmarshal(body, &in, jsonx.V1())
 
 	if b := cwlBackend(h); b != nil {
 		dests, next := b.DescribeDestinations(in.DestinationNamePrefix, in.Limit, in.NextToken)
@@ -122,7 +124,7 @@ func (h *Handler) handleDeleteDestination(
 	body []byte,
 ) (any, error) {
 	var in deleteDestinationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

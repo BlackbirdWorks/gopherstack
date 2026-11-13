@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -74,7 +75,7 @@ func TestECS_CreateExpressGatewayService(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			svc, ok := resp["service"].(map[string]any)
 			require.True(t, ok)
@@ -127,7 +128,7 @@ func TestECS_DeleteExpressGatewayService(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var r map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r, jsonx.V1()))
 
 				return r["service"].(map[string]any)["serviceArn"].(string)
 			},
@@ -170,7 +171,7 @@ func TestECS_DeleteExpressGatewayService(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			svc, ok := resp["service"].(map[string]any)
 			require.True(t, ok)
@@ -198,7 +199,7 @@ func TestECS_DescribeExpressGatewayService(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var r map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r, jsonx.V1()))
 
 				return r["service"].(map[string]any)["serviceArn"].(string)
 			},
@@ -234,7 +235,7 @@ func TestECS_DescribeExpressGatewayService(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			svc, ok := resp["service"].(map[string]any)
 			require.True(t, ok)
@@ -258,7 +259,7 @@ func TestECS_ExpressGatewayService_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	arn := createResp["service"].(map[string]any)["serviceArn"].(string)
 
@@ -309,7 +310,7 @@ func TestECS_UpdateExpressGatewayService(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				svc := createResp["service"].(map[string]any)
 				serviceArn = svc["serviceArn"].(string)
 			} else {
@@ -328,7 +329,7 @@ func TestECS_UpdateExpressGatewayService(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// UpdateExpressGatewayServiceOutput.Service is the narrower
 			// UpdatedExpressGatewayService shape (types.UpdatedExpressGatewayService):
@@ -349,7 +350,7 @@ func TestECS_UpdateExpressGatewayService(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			descSvc := descResp["service"].(map[string]any)
 			assert.Equal(t, "arn:aws:iam::000000000000:role/new-infra", descSvc["infrastructureRoleArn"])
 		})
@@ -419,7 +420,7 @@ func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
 
 	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
@@ -435,7 +436,7 @@ func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	listTags := listOut["tags"].([]any)
 	require.Len(t, listTags, 1)
 	assert.Equal(t, "team", listTags[0].(map[string]any)["key"])
@@ -448,7 +449,7 @@ func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	descTags := descOut["service"].(map[string]any)["tags"].([]any)
 	require.Len(t, descTags, 1)
 	assert.Equal(t, "team", descTags[0].(map[string]any)["key"])
@@ -460,7 +461,7 @@ func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, noTagsResp.Code)
 
 	var noTagsOut map[string]any
-	require.NoError(t, json.Unmarshal(noTagsResp.Body.Bytes(), &noTagsOut))
+	require.NoError(t, json.Unmarshal(noTagsResp.Body.Bytes(), &noTagsOut, jsonx.V1()))
 	assert.Nil(t, noTagsOut["service"].(map[string]any)["tags"])
 }
 

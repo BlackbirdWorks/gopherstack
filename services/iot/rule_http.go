@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +18,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -60,7 +61,7 @@ type httpWire struct {
 }
 
 // runHTTP posts the projected payload to a URL covered by an ENABLED destination (iot https-rule-action).
-func (h *ruleHook) runHTTP(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runHTTP(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w httpWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -141,7 +142,7 @@ func (b *InMemoryBackend) requireHTTPDestination(rawURL string) error {
 }
 
 func contentTypeFor(payload []byte) string {
-	if json.Valid(payload) {
+	if jsontext.Value(payload).IsValid(jsonx.V1()) {
 		return "application/json"
 	}
 

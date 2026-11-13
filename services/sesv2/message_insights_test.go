@@ -2,7 +2,7 @@ package sesv2_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -123,7 +124,7 @@ func TestGetMessageInsights(t *testing.T) {
 	require.Equal(t, http.StatusOK, sendRec.Code)
 
 	var sendResp map[string]any
-	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp, jsonx.V1()))
 	messageID, _ := sendResp["MessageId"].(string)
 	require.NotEmpty(t, messageID)
 
@@ -131,7 +132,7 @@ func TestGetMessageInsights(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, messageID, out["MessageId"])
 	assert.Equal(t, "sender@example.com", out["FromEmailAddress"])
 

@@ -1,9 +1,11 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxContributionKeys is Contributor Insights' documented limit on
@@ -26,7 +28,7 @@ func validateInsightRuleDefinition(definition string) error {
 	}
 
 	var raw any
-	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &raw, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: RuleDefinition is not valid JSON: %s", ErrValidation, err.Error())
 	}
 

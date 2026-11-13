@@ -1,7 +1,7 @@
 package gcpredis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest/resttest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -69,7 +70,7 @@ func TestRESTFlow(t *testing.T) {
 			Auth  bool   `json:"authEnabled"`
 		}
 
-		return json.Unmarshal(body, &inst) == nil && inst.State == "READY" && inst.Host != "" &&
+		return json.Unmarshal(body, &inst, jsonx.V1()) == nil && inst.State == "READY" && inst.Host != "" &&
 			assert.True(t, inst.Auth)
 	}, 10*time.Second, 5*time.Millisecond)
 }

@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // pinpointEncodeARN URL-encodes an ARN for use in URL paths.
@@ -66,7 +69,7 @@ func TestUntagResource_EmptyTagKeys(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &appResp, jsonx.V1()))
 
 			arn, _ := appResp["Arn"].(string)
 			require.NotEmpty(t, arn, "app ARN must be present")
@@ -121,7 +124,7 @@ func TestUntagResource_RemovesSpecificTags(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &appResp, jsonx.V1()))
 
 			arn, _ := appResp["Arn"].(string)
 			encodedARN := pinpointEncodeARN(arn)
@@ -142,7 +145,7 @@ func TestUntagResource_RemovesSpecificTags(t *testing.T) {
 			require.Equal(t, http.StatusOK, listTagRec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(listTagRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(listTagRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			remaining, _ := tagsResp["tags"].(map[string]any)
 
@@ -205,7 +208,7 @@ func TestTagCampaignViaARN(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recC.Code)
 
 	var cResp map[string]any
-	require.NoError(t, json.NewDecoder(recC.Body).Decode(&cResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(recC.Body), &cResp, jsonx.V1()))
 	campaignARN, _ := cResp["Arn"].(string)
 	require.NotEmpty(t, campaignARN)
 
@@ -219,7 +222,7 @@ func TestTagCampaignViaARN(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsBody map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&tagsBody))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &tagsBody, jsonx.V1()))
 	tagsMap, _ := tagsBody["tags"].(map[string]any)
 	assert.Equal(t, "42", tagsMap["cost-center"])
 }
@@ -235,7 +238,7 @@ func TestTagJourneyViaARN(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recJ.Code)
 
 	var jResp map[string]any
-	require.NoError(t, json.NewDecoder(recJ.Body).Decode(&jResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(recJ.Body), &jResp, jsonx.V1()))
 	assert.NotContains(t, jResp, "Arn")
 
 	journeyARN := "arn:aws:mobiletargeting:" + testRegion + ":" + testAccountID +
@@ -260,7 +263,7 @@ func TestTagSegmentViaARN(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recS.Code)
 
 	var sResp map[string]any
-	require.NoError(t, json.NewDecoder(recS.Body).Decode(&sResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(recS.Body), &sResp, jsonx.V1()))
 	segmentARN, _ := sResp["Arn"].(string)
 	require.NotEmpty(t, segmentARN)
 
@@ -284,7 +287,7 @@ func TestTagEmailTemplateViaARN(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var tResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&tResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &tResp, jsonx.V1()))
 	templateARN, _ := tResp["Arn"].(string)
 	require.NotEmpty(t, templateARN)
 
@@ -298,7 +301,7 @@ func TestTagEmailTemplateViaARN(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listBody map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listBody))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listBody, jsonx.V1()))
 	tagsMap, _ := listBody["tags"].(map[string]any)
 	assert.Equal(t, "email", tagsMap["type"])
 
@@ -334,7 +337,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var appResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&appResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &appResp, jsonx.V1()))
 
 			appARN, _ := appResp["Arn"].(string)
 			require.NotEmpty(t, appARN)
@@ -353,7 +356,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			assert.Equal(t, http.StatusOK, listRec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&tagsResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &tagsResp, jsonx.V1()))
 
 			tagsMap, _ := tagsResp["tags"].(map[string]any)
 			assert.Equal(t, "integration", tagsMap["owner"])

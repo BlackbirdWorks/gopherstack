@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -26,7 +27,7 @@ func TestPaginationCoverage(t *testing.T) {
 		rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{"maxResults": 2})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		cps := body["capacityProviders"].([]any)
 		assert.Len(t, cps, 2)
 		assert.NotEmpty(t, body["nextToken"])
@@ -40,7 +41,7 @@ func TestPaginationCoverage(t *testing.T) {
 		}
 		first := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{"maxResults": 2})
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		next := b1["nextToken"].(string)
 
 		second := doECSRequest(
@@ -51,7 +52,7 @@ func TestPaginationCoverage(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, second.Code)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		cps := b2["capacityProviders"].([]any)
 		assert.Len(t, cps, 1)
 		assert.Empty(t, b2["nextToken"])
@@ -75,7 +76,7 @@ func TestPaginationCoverage(t *testing.T) {
 		rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["capacityProviders"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -101,7 +102,7 @@ func TestPaginationCoverage_ListTaskDefFamilies(t *testing.T) {
 		rec := doECSRequest(t, h, "ListTaskDefinitionFamilies", map[string]any{"maxResults": 2})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["families"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -122,7 +123,7 @@ func TestPaginationCoverage_ListTaskDefFamilies(t *testing.T) {
 		}
 		first := doECSRequest(t, h, "ListTaskDefinitionFamilies", map[string]any{"maxResults": 2})
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		next := b1["nextToken"].(string)
 		second := doECSRequest(
 			t,
@@ -131,7 +132,7 @@ func TestPaginationCoverage_ListTaskDefFamilies(t *testing.T) {
 			map[string]any{"maxResults": 2, "nextToken": next},
 		)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		assert.Len(t, b2["families"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
@@ -159,7 +160,7 @@ func TestPaginationCoverage_ListTaskDefFamilies(t *testing.T) {
 				map[string]any{"familyPrefix": "web", "maxResults": 1},
 			)
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Len(t, body["families"].([]any), 1)
 			assert.NotEmpty(t, body["nextToken"])
 		},
@@ -200,7 +201,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			map[string]any{"namespace": "frontend", "maxResults": 1},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["serviceArns"].([]any), 1)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -238,7 +239,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			map[string]any{"namespace": "frontend", "maxResults": 2},
 		)
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		second := doECSRequest(
 			t,
 			h,
@@ -250,7 +251,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			},
 		)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		assert.Len(t, b2["serviceArns"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
@@ -290,7 +291,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			map[string]any{"namespace": "frontend"},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["serviceArns"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -326,7 +327,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 			map[string]any{"cluster": "default", "service": "svc", "maxResults": 2},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["serviceDeployments"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -358,7 +359,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 			map[string]any{"cluster": "default", "service": "svc", "maxResults": 2},
 		)
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		second := doECSRequest(
 			t,
 			h,
@@ -371,7 +372,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 			},
 		)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		assert.Len(t, b2["serviceDeployments"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
@@ -403,7 +404,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 			map[string]any{"cluster": "default", "service": "svc"},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["serviceDeployments"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -425,7 +426,7 @@ func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
 		}
 		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{"maxResults": 2})
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["settings"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -443,7 +444,7 @@ func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
 		}
 		first := doECSRequest(t, h, "ListAccountSettings", map[string]any{"maxResults": 2})
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		second := doECSRequest(
 			t,
 			h,
@@ -451,7 +452,7 @@ func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
 			map[string]any{"maxResults": 2, "nextToken": b1["nextToken"].(string)},
 		)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		assert.Len(t, b2["settings"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
@@ -478,7 +479,7 @@ func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
 			map[string]any{"name": "containerInsights", "maxResults": 2},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["settings"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -501,7 +502,7 @@ func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
 		}
 		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{})
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["settings"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -532,7 +533,7 @@ func TestPaginationCoverage_ListAttributes(t *testing.T) {
 		}
 		rec := doECSRequest(t, h, "ListAttributes", map[string]any{"maxResults": 2})
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["attributes"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -559,7 +560,7 @@ func TestPaginationCoverage_ListAttributes(t *testing.T) {
 		}
 		first := doECSRequest(t, h, "ListAttributes", map[string]any{"maxResults": 2})
 		var b1 map[string]any
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1, jsonx.V1()))
 		second := doECSRequest(
 			t,
 			h,
@@ -567,7 +568,7 @@ func TestPaginationCoverage_ListAttributes(t *testing.T) {
 			map[string]any{"maxResults": 2, "nextToken": b1["nextToken"].(string)},
 		)
 		var b2 map[string]any
-		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
+		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2, jsonx.V1()))
 		assert.Len(t, b2["attributes"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
@@ -599,7 +600,7 @@ func TestPaginationCoverage_ListAttributes(t *testing.T) {
 			map[string]any{"targetType": "container-instance", "maxResults": 1},
 		)
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["attributes"].([]any), 1)
 		assert.NotEmpty(t, body["nextToken"])
 	})
@@ -628,7 +629,7 @@ func TestPaginationCoverage_ListAttributes(t *testing.T) {
 		}
 		rec := doECSRequest(t, h, "ListAttributes", map[string]any{})
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body["attributes"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})

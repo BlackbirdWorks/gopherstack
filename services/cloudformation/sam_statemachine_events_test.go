@@ -1,7 +1,7 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const samSMDefinition = `      Definition:
@@ -47,7 +49,7 @@ func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]an
 
 	require.NoError(
 		t,
-		json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc),
+		json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc, jsonx.V1()),
 	)
 
 	return doc.Resources

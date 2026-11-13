@@ -1,13 +1,14 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -160,7 +161,7 @@ func TestGetMedicalVocabulary_NotFound(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "BadRequestException", body["__type"])
 		})
 	}
@@ -201,7 +202,7 @@ func TestMedicalVocabulary_LastModifiedTimeAndFailureReason(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createRaw map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw, jsonx.V1()))
 	assert.Contains(t, createRaw, "LastModifiedTime")
 
 	getRec := doTranscribeRequest(t, h, "GetMedicalVocabulary", map[string]any{
@@ -210,7 +211,7 @@ func TestMedicalVocabulary_LastModifiedTimeAndFailureReason(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getRaw map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw, jsonx.V1()))
 	_, hasFailureReason := getRaw["FailureReason"]
 	assert.False(t, hasFailureReason, "FailureReason must be omitted (empty) on success")
 
@@ -221,6 +222,6 @@ func TestMedicalVocabulary_LastModifiedTimeAndFailureReason(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateRaw map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw, jsonx.V1()))
 	assert.Contains(t, updateRaw, "LastModifiedTime")
 }

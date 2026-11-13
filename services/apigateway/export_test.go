@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -28,7 +29,7 @@ func TestAPIGateway_GetExport_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()))
 	assert.Equal(t, "3.0.1", doc["openapi"])
 }
 
@@ -74,7 +75,7 @@ func TestAPIGateway_GetExport_HeadersNotBody_RealClient(t *testing.T) {
 	require.NotEmpty(t, out.Body, "Body must round-trip as raw bytes, not a base64 JSON field")
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(out.Body, &doc))
+	require.NoError(t, json.Unmarshal(out.Body, &doc, jsonx.V1()))
 	assert.Equal(t, "3.0.1", doc["openapi"])
 }
 

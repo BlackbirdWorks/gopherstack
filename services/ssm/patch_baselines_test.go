@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -295,7 +296,7 @@ func TestStubOps_DeletePatchBaseline(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID})
+	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID}, jsonx.V1())
 	rec := doRequest(t, h, "DeletePatchBaseline", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -344,7 +345,7 @@ func TestStubOps_GetPatchBaseline(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID})
+	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID}, jsonx.V1())
 	rec := doRequest(t, h, "GetPatchBaseline", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -361,7 +362,7 @@ func TestStubOps_UpdatePatchBaseline(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID, "Name": "updated-baseline"})
+	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID, "Name": "updated-baseline"}, jsonx.V1())
 	rec := doRequest(t, h, "UpdatePatchBaseline", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -378,7 +379,7 @@ func TestStubOps_RegisterPatchBaselineForPatchGroup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID, "PatchGroup": "test-group"})
+	body, _ := json.Marshal(map[string]any{"BaselineId": pb.BaselineID, "PatchGroup": "test-group"}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterPatchBaselineForPatchGroup", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -498,7 +499,7 @@ func TestCreatePatchBaseline_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreatePatchBaselineOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.BaselineID)
 			assert.True(t, strings.HasPrefix(resp.BaselineID, "pb-"))
 			assert.Equal(t, 1, backend.PatchBaselineCount())
@@ -540,7 +541,7 @@ func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created ssm.CreatePatchBaselineOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	out, err := b.GetPatchBaseline(context.Background(), &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
 	require.NoError(t, err)
@@ -577,7 +578,7 @@ func TestCreatePatchBaseline_DefaultsGlobalFiltersAndApprovalRulesNonNil(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created ssm.CreatePatchBaselineOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	out, err := b.GetPatchBaseline(context.Background(), &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
 	require.NoError(t, err)
@@ -591,7 +592,7 @@ func TestCreatePatchBaseline_DefaultsGlobalFiltersAndApprovalRulesNonNil(t *test
 	require.Equal(t, http.StatusOK, rawRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.Contains(t, raw, "GlobalFilters", "GlobalFilters key must be present, not omitted")
 	assert.Contains(t, raw, "ApprovalRules", "ApprovalRules key must be present, not omitted")
 }

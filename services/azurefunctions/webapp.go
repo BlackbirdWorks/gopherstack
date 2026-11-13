@@ -2,7 +2,7 @@ package azurefunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"os"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -193,7 +194,7 @@ func hasStartScript(dir string) bool {
 		Scripts map[string]string `json:"scripts"`
 	}
 
-	return json.Unmarshal(raw, &pkg) == nil && pkg.Scripts["start"] != ""
+	return json.Unmarshal(raw, &pkg, jsonx.V1()) == nil && pkg.Scripts["start"] != ""
 }
 
 func dotnetEntry(dir string) string {

@@ -2,7 +2,8 @@ package codebuild
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,12 +12,14 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func doTestRequest(t *testing.T, h *Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -81,7 +84,7 @@ func TestHandler_ListProjects_SortByCreatedTime(t *testing.T) {
 	var out struct {
 		Projects []string `json:"projects"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, []string{"created-z", "created-a", "created-m"}, out.Projects,
 		"CREATED_TIME order must ignore name ordering")
 }

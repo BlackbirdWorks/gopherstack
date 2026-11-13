@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"go/format"
 	"log"
@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire/ir"
 )
 
@@ -208,7 +209,7 @@ func queryVersion(dir string) string {
 }
 
 func writeModel(key string, model *ir.Model) {
-	raw, err := json.Marshal(model)
+	raw, err := json.Marshal(model, jsonx.V1())
 	if err != nil {
 		log.Fatal(err)
 	}

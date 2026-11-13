@@ -3,7 +3,7 @@ package kinesis_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
@@ -191,7 +192,7 @@ func TestKinesisCBOR_GetRecords(t *testing.T) {
 			"ShardId":           "shardId-000000000000",
 			"ShardIteratorType": "TRIM_HORIZON",
 		}
-		iterBytes, _ := json.Marshal(iterBody)
+		iterBytes, _ := json.Marshal(iterBody, jsonx.V1())
 		iterReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(iterBytes))
 		iterReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
 		iterReq.Header.Set("X-Amz-Target", kinesisPrefix+"GetShardIterator")
@@ -203,7 +204,7 @@ func TestKinesisCBOR_GetRecords(t *testing.T) {
 		require.Equal(t, http.StatusOK, iterRec.Code)
 
 		var iterResp map[string]any
-		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp, jsonx.V1()))
 		shardIter, ok := iterResp["ShardIterator"].(string)
 		require.True(t, ok, "must have ShardIterator")
 
@@ -253,7 +254,7 @@ func TestKinesisCBOR_DataRoundTrip(t *testing.T) {
 			"Data":         b64Data,
 			"PartitionKey": "pk1",
 		}
-		b, _ := json.Marshal(jsonPut)
+		b, _ := json.Marshal(jsonPut, jsonx.V1())
 		putReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(b))
 		putReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
 		putReq.Header.Set("X-Amz-Target", kinesisPrefix+"PutRecord")
@@ -276,7 +277,7 @@ func TestKinesisCBOR_DataRoundTrip(t *testing.T) {
 		iterC := e.NewContext(iterReq, iterRec)
 		require.NoError(t, h.Handler()(iterC))
 		var iterResp map[string]any
-		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp, jsonx.V1()))
 		shardIter := iterResp["ShardIterator"].(string)
 
 		// Read via CBOR.
@@ -376,7 +377,7 @@ func TestKinesisCBOR_JSONAndCBORCoexist(t *testing.T) {
 			"Data":         b64,
 			"PartitionKey": "pk2",
 		}
-		rawJSON, _ := json.Marshal(putJSON)
+		rawJSON, _ := json.Marshal(putJSON, jsonx.V1())
 		req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(rawJSON))
 		req2.Header.Set("Content-Type", "application/x-amz-json-1.1")
 		req2.Header.Set("X-Amz-Target", kinesisPrefix+"PutRecord")
@@ -398,7 +399,7 @@ func TestKinesisCBOR_JSONAndCBORCoexist(t *testing.T) {
 		iterC := e.NewContext(iterReq, iterRec)
 		require.NoError(t, h.Handler()(iterC))
 		var iterResp map[string]any
-		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp, jsonx.V1()))
 		shardIter := iterResp["ShardIterator"].(string)
 
 		getReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(mustMarshalBytes(t, map[string]any{
@@ -413,7 +414,7 @@ func TestKinesisCBOR_JSONAndCBORCoexist(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var getResp map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 		recs := getResp["Records"].([]any)
 		assert.GreaterOrEqual(t, len(recs), 2, "both records must be visible via JSON")
 	})
@@ -421,7 +422,7 @@ func TestKinesisCBOR_JSONAndCBORCoexist(t *testing.T) {
 
 func mustMarshalBytes(t *testing.T, v any) []byte {
 	t.Helper()
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return b

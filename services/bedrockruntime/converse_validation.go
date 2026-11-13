@@ -1,11 +1,14 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxRequestMetadataEntries = 16
@@ -47,13 +50,13 @@ func validateRequestMetadata(md map[string]string) string {
 
 // validateGuardrailConfig applies the patterns in API_runtime_GuardrailConfiguration.html and
 // API_runtime_GuardrailStreamConfiguration.html.
-func validateGuardrailConfig(raw json.RawMessage) string {
+func validateGuardrailConfig(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 
 	var gc guardrailConfigBody
-	if json.Unmarshal(raw, &gc) != nil {
+	if json.Unmarshal(raw, &gc, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -135,13 +138,13 @@ type inferenceConfigBody struct {
 }
 
 // validateInferenceConfig applies the InferenceConfiguration bounds.
-func validateInferenceConfig(raw json.RawMessage) string {
+func validateInferenceConfig(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 
 	var ic inferenceConfigBody
-	if json.Unmarshal(raw, &ic) != nil {
+	if json.Unmarshal(raw, &ic, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -162,11 +165,11 @@ func validateInferenceConfig(raw json.RawMessage) string {
 }
 
 type toolConfigBody struct {
-	ToolChoice map[string]json.RawMessage `json:"toolChoice"`
+	ToolChoice map[string]jsontext.Value `json:"toolChoice"`
 	Tools      []struct {
 		ToolSpec *struct {
-			Name        string          `json:"name"`
-			InputSchema json.RawMessage `json:"inputSchema"`
+			Name        string         `json:"name"`
+			InputSchema jsontext.Value `json:"inputSchema"`
 		} `json:"toolSpec"`
 	} `json:"tools"`
 }
@@ -177,13 +180,13 @@ type specificToolChoice struct {
 
 // validateToolConfig applies the ToolConfiguration shape: at least one tool, valid tool names,
 // a single-member toolChoice union, and a specific choice that names a declared tool.
-func validateToolConfig(raw json.RawMessage) string {
+func validateToolConfig(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 
 	var tc toolConfigBody
-	if json.Unmarshal(raw, &tc) != nil {
+	if json.Unmarshal(raw, &tc, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -212,7 +215,7 @@ func validateToolConfig(raw json.RawMessage) string {
 	return validateToolChoice(tc.ToolChoice, names)
 }
 
-func validateToolChoice(choice map[string]json.RawMessage, declared map[string]bool) string {
+func validateToolChoice(choice map[string]jsontext.Value, declared map[string]bool) string {
 	if len(choice) == 0 {
 		return ""
 	}
@@ -223,7 +226,7 @@ func validateToolChoice(choice map[string]json.RawMessage, declared map[string]b
 
 	if raw, ok := choice["tool"]; ok {
 		var st specificToolChoice
-		if json.Unmarshal(raw, &st) == nil && !declared[st.Name] {
+		if json.Unmarshal(raw, &st, jsonx.V1()) == nil && !declared[st.Name] {
 			return "toolConfig.toolChoice.tool.name " + st.Name + " does not match a declared tool"
 		}
 

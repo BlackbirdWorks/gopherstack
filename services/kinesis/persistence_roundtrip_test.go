@@ -2,13 +2,16 @@ package kinesis //nolint:testpackage // reuses ctxRegion (isolation_test.go) for
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip exercises every kind
@@ -185,12 +188,12 @@ func TestInMemoryBackend_Restore_IncompatibleVersion_ResetsEmpty(t *testing.T) {
 
 	// Corrupt just the version field to simulate a snapshot from an
 	// incompatible (older/newer) build.
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &raw))
-	bumped, err := json.Marshal(kinesisSnapshotVersion + 1)
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
+	bumped, err := json.Marshal(kinesisSnapshotVersion+1, jsonx.V1())
 	require.NoError(t, err)
 	raw["version"] = bumped
-	mutated, err := json.Marshal(raw)
+	mutated, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	fresh := NewInMemoryBackendWithConfig("000000000000", "us-east-1")

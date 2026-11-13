@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -34,7 +35,7 @@ func TestOrgAdmin(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				accounts, _ := listResp["adminAccounts"].([]any)
 				assert.Len(t, accounts, 1)
 
@@ -45,7 +46,7 @@ func TestOrgAdmin(t *testing.T) {
 				// Verify removed
 				rec = doRequest(t, h, http.MethodGet, "/admin", nil)
 				var afterList map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterList))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterList, jsonx.V1()))
 				accountsAfter, _ := afterList["adminAccounts"].([]any)
 				assert.Empty(t, accountsAfter)
 			},
@@ -60,7 +61,7 @@ func TestOrgAdmin(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				autoEnable, _ := descResp["autoEnable"].(bool)
 				assert.False(t, autoEnable)
 
@@ -73,7 +74,7 @@ func TestOrgAdmin(t *testing.T) {
 				// Verify change
 				rec = doRequest(t, h, http.MethodGet, "/admin/configuration", nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				assert.True(t, updated["autoEnable"].(bool))
 			},
 		},
@@ -100,7 +101,7 @@ func TestDescribeOrganizationConfigurationWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "autoEnable")
 	assert.Contains(t, resp, "maxAccountLimitReached")

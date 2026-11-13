@@ -1,7 +1,8 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -28,7 +30,7 @@ func TestListSourceAssociations_WireShape(t *testing.T) {
 			SourceID string `json:"sourceId"`
 		} `json:"sourceAssociations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.SourceAssociations)
 	assert.NotContains(
 		t, rec.Body.String(), `"associations"`,
@@ -106,7 +108,7 @@ func TestResourceRegionScope_InListResources(t *testing.T) {
 					ResourceRegionScope string `json:"resourceRegionScope"`
 				} `json:"resources"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Resources, 1)
 			assert.Equal(t, tt.resourceARN, resp.Resources[0].Arn)
 			assert.Equal(t, tt.wantType, resp.Resources[0].Type)
@@ -148,7 +150,7 @@ func TestListResources_ResourceShareArnsFilter(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resources"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(
 		t, resp.Resources, 1,
 		"resourceShareArns must scope results to the requested share, not return every share",
@@ -215,7 +217,7 @@ func TestResourceTypeDerivation(t *testing.T) {
 					Type string `json:"type"`
 				} `json:"resources"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Resources, 1)
 			assert.Equal(t, tt.wantType, resp.Resources[0].Type)
 		})
@@ -291,9 +293,9 @@ func TestListPendingInvitationResources(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp struct {
-				Resources []json.RawMessage `json:"resources"`
+				Resources []jsontext.Value `json:"resources"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Resources, tt.wantResources)
 		})
 	}
@@ -312,7 +314,7 @@ func TestListResourceTypes(t *testing.T) {
 			ServiceName  string `json:"serviceName"`
 		} `json:"resourceTypes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotEmpty(t, resp.ResourceTypes)
 
@@ -340,7 +342,7 @@ func TestListResourceTypes_ExpandedSet(t *testing.T) {
 			ResourceRegionScope string `json:"resourceRegionScope"`
 		} `json:"resourceTypes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Greater(t, len(resp.ResourceTypes), 4, "should list more than the original 4 types")
 
@@ -490,7 +492,7 @@ func TestListResources_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -499,7 +501,7 @@ func TestListResources_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.Resources)
@@ -580,7 +582,7 @@ func TestListPendingInvitationResources_Pagination(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 				return
@@ -589,7 +591,7 @@ func TestListPendingInvitationResources_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp respBody
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotNil(t, resp.Resources)
 		})
@@ -645,7 +647,7 @@ func TestGetResourcePolicies_Pagination(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 				return
@@ -667,7 +669,7 @@ func TestGetResourcePolicies_EmptyArns(t *testing.T) {
 	var resp struct {
 		Policies []string `json:"policies"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.Policies)
 }
 
@@ -722,7 +724,7 @@ func TestListResources_ResourceOwnerFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			resources := resp["resources"].([]any)
 			assert.Len(t, resources, tc.wantCount)
 		})
@@ -788,7 +790,7 @@ func TestListResources_ResourceTypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			resources := resp["resources"].([]any)
 			assert.Len(t, resources, tc.wantCount)
 		})
@@ -852,7 +854,7 @@ func TestGetResourcePolicies_OnlySharedResourcesGetPolicies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			var policies []any
 			if p, ok := resp["policies"]; ok {

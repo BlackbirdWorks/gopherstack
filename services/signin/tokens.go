@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/url"
 	"strings"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -107,7 +108,7 @@ func (b *InMemoryBackend) sign(payload string) string {
 func (b *InMemoryBackend) makeJWT(claims map[string]any) string {
 	enc := base64.RawURLEncoding
 	head := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	raw, _ := json.Marshal(claims)
+	raw, _ := json.Marshal(claims, jsonx.V1())
 	body := enc.EncodeToString(raw)
 
 	return head + "." + body + "." + b.sign(head+"."+body)
@@ -133,7 +134,7 @@ func (b *InMemoryBackend) parseJWT(tok string) (string, bool) {
 		JTI string `json:"jti"`
 	}
 
-	if json.Unmarshal(raw, &claims) != nil || claims.JTI == "" {
+	if json.Unmarshal(raw, &claims, jsonx.V1()) != nil || claims.JTI == "" {
 		return "", false
 	}
 

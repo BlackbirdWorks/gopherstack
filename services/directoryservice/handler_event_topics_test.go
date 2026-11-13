@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDescribeEventTopics_Filtering(t *testing.T) {
@@ -95,7 +97,7 @@ func TestEventTopics(t *testing.T) {
 			rec2 := doRequest(t, h, "DescribeEventTopics", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			topics, _ := r2["EventTopics"].([]any)
 			require.Len(t, topics, 1)
 			topic := topics[0].(map[string]any)
@@ -112,7 +114,7 @@ func TestEventTopics(t *testing.T) {
 			rec4 := doRequest(t, h, "DescribeEventTopics", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4, jsonx.V1()))
 			topics2, _ := r4["EventTopics"].([]any)
 			assert.Empty(t, topics2)
 

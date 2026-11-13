@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strconv"
 )
 
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) AddBuildWorkflowForTest(policyARN string) *AutomatedRe
 // conversion's registry mechanics directly, independent of the production
 // Snapshot/Restore pair added in persistence.go (see persistence_test.go for
 // black-box tests of that production path).
-func (b *InMemoryBackend) SnapshotTablesForTest() (map[string]json.RawMessage, error) {
+func (b *InMemoryBackend) SnapshotTablesForTest() (map[string]jsontext.Value, error) {
 	b.mu.RLock("SnapshotTablesForTest")
 	defer b.mu.RUnlock()
 
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) SnapshotTablesForTest() (map[string]json.RawMessage, e
 
 // RestoreTablesForTest replaces every store.Table registered on b.registry
 // with the contents of data, as produced by SnapshotTablesForTest.
-func (b *InMemoryBackend) RestoreTablesForTest(data map[string]json.RawMessage) error {
+func (b *InMemoryBackend) RestoreTablesForTest(data map[string]jsontext.Value) error {
 	b.mu.Lock("RestoreTablesForTest")
 	defer b.mu.Unlock()
 

@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
 	var in createDataCellsFilterInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -32,7 +34,7 @@ func (h *Handler) handleCreateDataCellsFilter(_ context.Context, c *echo.Context
 
 func (h *Handler) handleDeleteDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
 	var in deleteDataCellsFilterInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -46,7 +48,7 @@ func (h *Handler) handleDeleteDataCellsFilter(_ context.Context, c *echo.Context
 func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
 	var in listDataCellsFilterInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -79,7 +81,7 @@ func (h *Handler) handleListDataCellsFilter(_ context.Context, c *echo.Context, 
 
 func (h *Handler) handleGetDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
 	var in getDataCellsFilterInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	f, err := h.Backend.GetDataCellsFilter(in.TableCatalogID, in.DatabaseName, in.TableName, in.Name)
@@ -92,7 +94,7 @@ func (h *Handler) handleGetDataCellsFilter(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleUpdateDataCellsFilter(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateDataCellsFilterInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	if in.TableData == nil {

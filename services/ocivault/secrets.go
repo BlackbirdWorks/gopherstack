@@ -3,13 +3,15 @@ package ocivault
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -37,16 +39,16 @@ type CreateSecretIn struct {
 	DefinedTags             map[string]map[string]any `json:"definedTags"`
 	Metadata                map[string]any            `json:"metadata"`
 	SecretContent           *SecretContent            `json:"secretContent"`
-	ReplicationConfig       json.RawMessage           `json:"replicationConfig"`
-	RotationConfig          json.RawMessage           `json:"rotationConfig"`
-	SecretGenerationContext json.RawMessage           `json:"secretGenerationContext"`
+	ReplicationConfig       jsontext.Value            `json:"replicationConfig"`
+	RotationConfig          jsontext.Value            `json:"rotationConfig"`
+	SecretGenerationContext jsontext.Value            `json:"secretGenerationContext"`
 	EnableAutoGeneration    *bool                     `json:"enableAutoGeneration"`
 	CompartmentID           string                    `json:"compartmentId"`
 	KeyID                   string                    `json:"keyId"`
 	SecretName              string                    `json:"secretName"`
 	VaultID                 string                    `json:"vaultId"`
 	Description             string                    `json:"description"`
-	SecretRules             []json.RawMessage         `json:"secretRules"`
+	SecretRules             []jsontext.Value          `json:"secretRules"`
 }
 
 // UpdateSecretIn is the UpdateSecret request body.
@@ -57,11 +59,11 @@ type UpdateSecretIn struct {
 	DefinedTags             map[string]map[string]any `json:"definedTags"`
 	Metadata                map[string]any            `json:"metadata"`
 	SecretContent           *SecretContent            `json:"secretContent"`
-	ReplicationConfig       json.RawMessage           `json:"replicationConfig"`
-	RotationConfig          json.RawMessage           `json:"rotationConfig"`
-	SecretGenerationContext json.RawMessage           `json:"secretGenerationContext"`
+	ReplicationConfig       jsontext.Value            `json:"replicationConfig"`
+	RotationConfig          jsontext.Value            `json:"rotationConfig"`
+	SecretGenerationContext jsontext.Value            `json:"secretGenerationContext"`
 	EnableAutoGeneration    *bool                     `json:"enableAutoGeneration"`
-	SecretRules             []json.RawMessage         `json:"secretRules"`
+	SecretRules             []jsontext.Value          `json:"secretRules"`
 }
 
 type expiryRule struct {
@@ -70,7 +72,7 @@ type expiryRule struct {
 	Interval  string     `json:"secretVersionExpiryInterval"`
 }
 
-func unsupported(raw json.RawMessage, auto *bool, what string) *APIError {
+func unsupported(raw jsontext.Value, auto *bool, what string) *APIError {
 	if len(bytes.TrimSpace(raw)) > 0 && string(bytes.TrimSpace(raw)) != "null" || auto != nil && *auto {
 		return errParam(what + " is not supported by this emulator")
 	}
@@ -78,10 +80,10 @@ func unsupported(raw json.RawMessage, auto *bool, what string) *APIError {
 	return nil
 }
 
-func rejectUnsupported(repl, rot, gen json.RawMessage, auto *bool) *APIError {
+func rejectUnsupported(repl, rot, gen jsontext.Value, auto *bool) *APIError {
 	for _, c := range []struct {
 		what string
-		raw  json.RawMessage
+		raw  jsontext.Value
 	}{
 		{what: "replicationConfig", raw: repl},
 		{what: "rotationConfig", raw: rot},
@@ -95,13 +97,18 @@ func rejectUnsupported(repl, rot, gen json.RawMessage, auto *bool) *APIError {
 	return unsupported(nil, auto, "enableAutoGeneration")
 }
 
-func validateRules(rules []json.RawMessage) *APIError {
+func validateRules(rules []jsontext.Value) *APIError {
 	for _, r := range rules {
 		var head struct {
 			RuleType string `json:"ruleType"`
 		}
 
-		if err := json.Unmarshal(r, &head); err != nil || (head.RuleType != ruleExpiry && head.RuleType != ruleReuse) {
+		if err := json.Unmarshal(
+			r,
+			&head,
+			jsonx.V1(),
+		); err != nil ||
+			(head.RuleType != ruleExpiry && head.RuleType != ruleReuse) {
 			return errParam("secretRules[].ruleType must be SECRET_EXPIRY_RULE or SECRET_REUSE_RULE")
 		}
 
@@ -115,9 +122,9 @@ func validateRules(rules []json.RawMessage) *APIError {
 	return nil
 }
 
-func parseExpiry(raw json.RawMessage) (expiryRule, *APIError) {
+func parseExpiry(raw jsontext.Value) (expiryRule, *APIError) {
 	var e expiryRule
-	if err := json.Unmarshal(raw, &e); err != nil {
+	if err := json.Unmarshal(raw, &e, jsonx.V1()); err != nil {
 		return e, errParam("invalid SECRET_EXPIRY_RULE")
 	}
 
@@ -130,13 +137,13 @@ func parseExpiry(raw json.RawMessage) (expiryRule, *APIError) {
 	return e, nil
 }
 
-func ruleOfType(rules []json.RawMessage, t string) json.RawMessage {
+func ruleOfType(rules []jsontext.Value, t string) jsontext.Value {
 	for _, r := range rules {
 		var head struct {
 			RuleType string `json:"ruleType"`
 		}
 
-		if json.Unmarshal(r, &head) == nil && head.RuleType == t {
+		if json.Unmarshal(r, &head, jsonx.V1()) == nil && head.RuleType == t {
 			return r
 		}
 	}
@@ -144,7 +151,7 @@ func ruleOfType(rules []json.RawMessage, t string) json.RawMessage {
 	return nil
 }
 
-func (b *InMemoryBackend) versionExpiry(rules []json.RawMessage) *time.Time {
+func (b *InMemoryBackend) versionExpiry(rules []jsontext.Value) *time.Time {
 	raw := ruleOfType(rules, ruleExpiry)
 	if raw == nil {
 		return nil

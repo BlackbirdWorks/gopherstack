@@ -2,7 +2,7 @@ package neptune_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
@@ -72,7 +73,7 @@ func cypherDo(t *testing.T, method, target, contentType, body string) (int, map[
 	require.NoError(t, err)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(raw, &out), string(raw))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()), string(raw))
 
 	return resp.StatusCode, out
 }

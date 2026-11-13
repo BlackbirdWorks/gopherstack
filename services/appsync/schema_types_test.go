@@ -1,7 +1,7 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -266,7 +267,7 @@ func TestListTypes_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var apiOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiOut, jsonx.V1()))
 	apiID := apiOut["graphqlApi"].(map[string]any)["apiId"].(string)
 
 	for i := range 4 {
@@ -307,7 +308,7 @@ func TestListTypes_Pagination(t *testing.T) {
 				NextToken string           `json:"nextToken"`
 				Types     []map[string]any `json:"types"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Types, tt.wantLen)
 			if tt.wantNextToken {
 				assert.NotEmpty(t, out.NextToken)

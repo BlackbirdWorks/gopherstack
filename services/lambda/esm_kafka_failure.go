@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"strconv"
@@ -117,7 +117,7 @@ func (p *EventSourcePoller) deliverKafkaFailure(
 
 	switch {
 	case strings.HasPrefix(dest, kafkaDestinationPrefix):
-		rec.Payload = json.RawMessage(event)
+		rec.Payload = jsontext.Value(event)
 		body, mErr := marshalFailure(rec)
 		if mErr != nil {
 			return mErr

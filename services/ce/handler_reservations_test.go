@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -25,7 +27,7 @@ func TestGetReservationCoverage_DailyGranularity(t *testing.T) {
 	var out struct {
 		CoveragesByTime []any `json:"CoveragesByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.CoveragesByTime, 3)
 }
 
@@ -43,7 +45,7 @@ func TestGetReservationUtilization_DailyGranularity(t *testing.T) {
 	var out struct {
 		UtilizationsByTime []any `json:"UtilizationsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.UtilizationsByTime, 3)
 }
 
@@ -62,7 +64,7 @@ func TestGetRightsizingRecommendation_IncludesSummary(t *testing.T) {
 		Summary                    map[string]string `json:"Summary"`
 		RightsizingRecommendations []any             `json:"RightsizingRecommendations"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.RightsizingRecommendations)
 	assert.NotNil(t, out.Summary)
 	_, hasTotalCount := out.Summary["TotalRecommendationCount"]
@@ -92,7 +94,7 @@ func TestGetReservationCoverage_Structure(t *testing.T) {
 			} `json:"Total"`
 		} `json:"CoveragesByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CoveragesByTime)
 	assert.NotNil(t, out.Total)
 
@@ -121,7 +123,7 @@ func TestGetReservationUtilization_Structure(t *testing.T) {
 			} `json:"Total"`
 		} `json:"UtilizationsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.UtilizationsByTime)
 	assert.NotNil(t, out.Total)
 
@@ -175,7 +177,7 @@ func TestGetReservationPurchaseRecommendation_FieldShape(t *testing.T) {
 					} `json:"RecommendationDetails"`
 				} `json:"Recommendations"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			require.NotEmpty(t, out.Recommendations)
 			require.NotEmpty(t, out.Recommendations[0].RecommendationDetails)
 
@@ -212,7 +214,7 @@ func TestGetRightsizingRecommendation_FieldShape(t *testing.T) {
 			} `json:"ModifyRecommendationDetail"`
 		} `json:"RightsizingRecommendations"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.RightsizingRecommendations)
 	assert.NotNil(t, out.Summary)
 
@@ -253,7 +255,7 @@ func TestHandler_GetReservationCoverage(t *testing.T) {
 			var out struct {
 				CoveragesByTime []any `json:"CoveragesByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.CoveragesByTime)
 		})
 	}
@@ -290,7 +292,7 @@ func TestHandler_GetReservationPurchaseRecommendation(t *testing.T) {
 			var out struct {
 				Recommendations []any `json:"Recommendations"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.Recommendations)
 		})
 	}
@@ -325,7 +327,7 @@ func TestHandler_GetReservationUtilization(t *testing.T) {
 			var out struct {
 				UtilizationsByTime []any `json:"UtilizationsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.UtilizationsByTime)
 		})
 	}

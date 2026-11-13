@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -30,7 +31,7 @@ func TestCoverage(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.NotNil(t, listResp["resources"])
 
 				// GetCoverageStatistics requires statisticsType (gopherstack-h910: this
@@ -45,7 +46,7 @@ func TestCoverage(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var byTypeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byTypeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byTypeResp, jsonx.V1()))
 				stats, ok := byTypeResp["coverageStatistics"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, stats, "countByResourceType")
@@ -57,7 +58,7 @@ func TestCoverage(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var byStatusResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byStatusResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byStatusResp, jsonx.V1()))
 				stats, ok = byStatusResp["coverageStatistics"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, stats, "countByCoverageStatus")

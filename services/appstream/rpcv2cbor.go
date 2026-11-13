@@ -2,7 +2,7 @@ package appstream
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +12,7 @@ import (
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -157,7 +158,7 @@ func cborBodyToJSON(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: got %T", errExpectedCBORMap, v)
 	}
 
-	return json.Marshal(cborToGo(m))
+	return json.Marshal(cborToGo(m), jsonx.V1())
 }
 
 // cborToGo converts a decoded CBOR value tree into the generic Go value
@@ -221,7 +222,7 @@ func awstimeSeconds(sec int64, nsec int) float64 {
 // a CBOR value tree suitable for the wire.
 func jsonToCBOR(body []byte) (cbor.Value, error) {
 	var v any
-	if err := json.Unmarshal(body, &v); err != nil {
+	if err := json.Unmarshal(body, &v, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

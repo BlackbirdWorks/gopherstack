@@ -1,13 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -150,7 +151,7 @@ func TestHandlerActions_ListQueues(t *testing.T) {
 				NextToken string   `json:"NextToken"`
 				QueueURLs []string `json:"QueueUrls"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.QueueURLs, tt.wantURLCount)
 		})
 	}
@@ -180,7 +181,7 @@ func TestHandlerActions_ListQueues_PaginationRoundTrip(t *testing.T) {
 			NextToken string   `json:"NextToken"`
 			QueueURLs []string `json:"QueueUrls"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		allURLs = append(allURLs, resp.QueueURLs...)
 		nextToken = resp.NextToken
 
@@ -281,7 +282,7 @@ func TestHandlerActions_QueueManagement(t *testing.T) {
 		var resp struct {
 			Attributes map[string]string `json:"Attributes"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.NotEmpty(t, resp.Attributes)
 	})
 

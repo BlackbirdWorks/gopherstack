@@ -1,7 +1,8 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -28,7 +30,7 @@ func TestMediaConvert_Preset_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	pData, ok := createResp["preset"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, presetName, pData["name"])
@@ -135,7 +137,7 @@ func TestCreatePreset_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	p := resp["preset"].(map[string]any)
 	tags := p["tags"].(map[string]any)
 	assert.Equal(t, "alpha", tags["project"])
@@ -216,7 +218,7 @@ func TestUpdatePreset_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	preset, ok := out["preset"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "updated desc", preset["description"])

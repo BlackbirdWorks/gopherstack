@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
@@ -26,7 +28,7 @@ func TestAPIGW_DomainNames(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "expected 2xx")
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -77,7 +79,7 @@ func TestAPIGateway_DomainNameAccessAssociation_RESTLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	arn, _ := created["domainNameAccessAssociationArn"].(string)
 	require.NotEmpty(t, arn, "create must return a real association ARN")
 
@@ -85,7 +87,7 @@ func TestAPIGateway_DomainNameAccessAssociation_RESTLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var list map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list, jsonx.V1()))
 	items, _ := list["item"].([]any)
 	require.Len(t, items, 1, "list must reflect the created association, not a hardcoded empty list")
 
@@ -94,7 +96,7 @@ func TestAPIGateway_DomainNameAccessAssociation_RESTLifecycle(t *testing.T) {
 
 	listAfterDeleteRec := restCall(t, h, http.MethodGet, "/domainnameaccessassociations", "", "")
 	var listAfter map[string]any
-	require.NoError(t, json.Unmarshal(listAfterDeleteRec.Body.Bytes(), &listAfter))
+	require.NoError(t, json.Unmarshal(listAfterDeleteRec.Body.Bytes(), &listAfter, jsonx.V1()))
 	itemsAfter, _ := listAfter["item"].([]any)
 	assert.Empty(t, itemsAfter)
 
@@ -234,7 +236,7 @@ func TestHandlerDomainName_SecurityPolicy_RoundTrip(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "TLS_1_2", resp["securityPolicy"])
 	assert.NotEmpty(t, resp["regionalDomainName"])
 	assert.NotEmpty(t, resp["distributionDomainName"])

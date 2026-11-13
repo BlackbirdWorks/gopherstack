@@ -2,10 +2,12 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createVpcConnectionInput struct {
@@ -37,7 +39,7 @@ func (h *Handler) handleCreateVpcConnection(
 	body []byte,
 ) error {
 	var in createVpcConnectionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -208,7 +210,7 @@ func (h *Handler) handleRejectClientVpcConnection(
 	body []byte,
 ) error {
 	var in rejectClientVpcConnectionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

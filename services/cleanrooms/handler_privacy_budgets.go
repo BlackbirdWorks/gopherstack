@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetCollaborationPrivacyBudgetTemplate(
@@ -16,7 +18,7 @@ func (h *Handler) handleGetCollaborationPrivacyBudgetTemplate(
 		CollaborationIdentifier         string `json:"collaborationIdentifier"`
 		PrivacyBudgetTemplateIdentifier string `json:"privacyBudgetTemplateIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.GetCollaborationPrivacyBudgetTemplate(
 		req.CollaborationIdentifier,
 		req.PrivacyBudgetTemplateIdentifier,
@@ -36,7 +38,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgetTemplates(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationPrivacyBudgetTemplates(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
@@ -61,7 +63,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgets(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationPrivacyBudgets(
 		req.CollaborationIdentifier,
 		qp(c, "privacyBudgetType"),
@@ -90,7 +92,7 @@ func (h *Handler) handleCreatePrivacyBudgetTemplate(
 		PrivacyBudgetType    string            `json:"privacyBudgetType"`
 		AutoRefresh          string            `json:"autoRefresh"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum("privacyBudgetType", crtypes.PrivacyBudgetType(req.PrivacyBudgetType)); err != nil {
 		return nil, err
 	}
@@ -114,7 +116,7 @@ func (h *Handler) handleGetPrivacyBudgetTemplate(_ context.Context, body []byte)
 		MembershipIdentifier            string `json:"membershipIdentifier"`
 		PrivacyBudgetTemplateIdentifier string `json:"privacyBudgetTemplateIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.GetPrivacyBudgetTemplate(
 		req.MembershipIdentifier,
 		req.PrivacyBudgetTemplateIdentifier,
@@ -134,7 +136,7 @@ func (h *Handler) handleListPrivacyBudgetTemplates(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListPrivacyBudgetTemplates(
 		req.MembershipIdentifier,
 		qp(c, "privacyBudgetType"),
@@ -162,7 +164,7 @@ func (h *Handler) handleUpdatePrivacyBudgetTemplate(
 		PrivacyBudgetTemplateIdentifier string         `json:"privacyBudgetTemplateIdentifier"`
 		AutoRefresh                     string         `json:"autoRefresh"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.UpdatePrivacyBudgetTemplate(
 		req.MembershipIdentifier,
 		req.PrivacyBudgetTemplateIdentifier,
@@ -184,7 +186,7 @@ func (h *Handler) handleDeletePrivacyBudgetTemplate(
 		MembershipIdentifier            string `json:"membershipIdentifier"`
 		PrivacyBudgetTemplateIdentifier string `json:"privacyBudgetTemplateIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeletePrivacyBudgetTemplate(
 		req.MembershipIdentifier,
@@ -200,7 +202,7 @@ func (h *Handler) handleListPrivacyBudgets(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListPrivacyBudgets(
 		req.MembershipIdentifier,
 		qp(c, "privacyBudgetType"),
@@ -223,7 +225,7 @@ func (h *Handler) handlePreviewPrivacyImpact(_ context.Context, body []byte) ([]
 		Parameters           map[string]any `json:"parameters"`
 		MembershipIdentifier string         `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	result, err := h.Backend.PreviewPrivacyImpact(req.MembershipIdentifier, req.Parameters)
 	if err != nil {
 		return nil, err

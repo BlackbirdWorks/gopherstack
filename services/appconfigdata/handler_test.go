@@ -2,7 +2,7 @@ package appconfigdata_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
@@ -20,7 +21,7 @@ import (
 func nowUTC() time.Time { return time.Now().UTC() }
 
 func mustMarshalJSON(v any) []byte {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}
@@ -81,7 +82,7 @@ func startSession(t *testing.T, h *appconfigdata.Handler, app, env, profile stri
 	require.Equal(t, http.StatusCreated, rec.Code, "startSession failed: %s", rec.Body.String())
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	token := resp["InitialConfigurationToken"]
 	require.NotEmpty(t, token)
 
@@ -93,7 +94,7 @@ func decodeErrorBody(t *testing.T, body string) (string, string) {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &m), "error body must be valid JSON")
+	require.NoError(t, json.Unmarshal([]byte(body), &m, jsonx.V1()), "error body must be valid JSON")
 
 	errType, _ := m["__type"].(string)
 	errMsg, _ := m["message"].(string)

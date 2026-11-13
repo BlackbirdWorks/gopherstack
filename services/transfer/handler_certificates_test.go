@@ -1,13 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -79,7 +80,7 @@ func TestHandler_DescribeCertificateBodyReturnedWhenPresent(t *testing.T) {
 	var importOut struct {
 		CertificateID string `json:"CertificateId"`
 	}
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut, jsonx.V1()))
 
 	descRec := doTransferRequest(t, h, "DescribeCertificate", map[string]any{
 		"CertificateId": importOut.CertificateID,
@@ -91,7 +92,7 @@ func TestHandler_DescribeCertificateBodyReturnedWhenPresent(t *testing.T) {
 			Certificate string `json:"Certificate"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.Equal(t, testCertPEM, descOut.Certificate.Certificate,
 		"DescribeCertificate must return the certificate body when present")
@@ -108,7 +109,7 @@ func TestHandler_DescribeCertificateIncludesArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	certID := createResp["CertificateId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeCertificate", map[string]any{
@@ -117,7 +118,7 @@ func TestHandler_DescribeCertificateIncludesArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cert := resp["Certificate"].(map[string]any)
 
 	arn, hasArn := cert["Arn"].(string)
@@ -139,7 +140,7 @@ func TestHandler_ListCertificatesIncludesArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	certs := resp["Certificates"].([]any)
 	require.NotEmpty(t, certs)
 
@@ -189,7 +190,7 @@ func TestHandler_CertificateARNContainsAccountAndRegion(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	certID := createResp["CertificateId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeCertificate", map[string]any{
@@ -198,7 +199,7 @@ func TestHandler_CertificateARNContainsAccountAndRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cert := resp["Certificate"].(map[string]any)
 
 	// newTestHandler uses testAccountID = "123456789012" and testRegion = "us-east-1"
@@ -284,7 +285,7 @@ func TestHandler_DescribeCertificate(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	certID := createResp["CertificateId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeCertificate", map[string]any{
@@ -314,7 +315,7 @@ func TestHandler_UpdateCertificate(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	certID := createResp["CertificateId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateCertificate", map[string]any{
@@ -357,7 +358,7 @@ func TestHandler_ImportCertificateMalformedPEM(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", resp["__type"])
 }
 
@@ -373,7 +374,7 @@ func TestHandler_ImportCertificateValidPEMExtractsDates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	certID := createResp["CertificateId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeCertificate", map[string]any{
@@ -382,7 +383,7 @@ func TestHandler_ImportCertificateValidPEMExtractsDates(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	cert := descResp["Certificate"].(map[string]any)
 
 	assert.NotEmpty(t, cert["NotBeforeDate"], "NotBeforeDate must be set from PEM")

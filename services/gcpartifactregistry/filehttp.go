@@ -3,7 +3,8 @@ package gcpartifactregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime"
@@ -18,6 +19,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -49,7 +51,7 @@ func writeRESTError(w http.ResponseWriter, err error) {
 
 	body, _ := json.Marshal(map[string]any{"error": map[string]any{
 		"code": gcprest.HTTPStatus(st.Code()), "message": st.Message(), "status": codeName(st.Code()),
-	}})
+	}}, jsonx.V1())
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(gcprest.HTTPStatus(st.Code()))
@@ -95,7 +97,7 @@ func readMultipart(r *http.Request) (uploadReq, []byte, error) {
 	}
 
 	var req uploadReq
-	if err = json.NewDecoder(meta).Decode(&req); err != nil {
+	if err = json.UnmarshalDecode(jsontext.NewDecoder(meta), &req, jsonx.V1()); err != nil {
 		return uploadReq{}, nil, errInvalid("The upload metadata is not valid JSON: %v", err)
 	}
 

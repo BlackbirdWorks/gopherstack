@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -37,7 +38,7 @@ func regionCall(t *testing.T, h *apigatewayv2.Handler, region, method, path, bod
 	require.Less(t, rec.Code, http.StatusMultipleChoices, rec.Body.String())
 
 	out := map[string]any{}
-	if rec.Body.Len() > 0 && json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+	if rec.Body.Len() > 0 && json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()) != nil {
 		out["raw"] = rec.Body.String()
 	}
 

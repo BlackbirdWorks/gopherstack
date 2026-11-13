@@ -1,11 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -52,7 +53,7 @@ func (h *Handler) dispatchServiceAccess(c *echo.Context, op string, body []byte)
 
 func (h *Handler) handleEnableAWSServiceAccess(c *echo.Context, body []byte) error {
 	var req enableAWSServiceAccessRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -65,7 +66,7 @@ func (h *Handler) handleEnableAWSServiceAccess(c *echo.Context, body []byte) err
 
 func (h *Handler) handleDisableAWSServiceAccess(c *echo.Context, body []byte) error {
 	var req disableAWSServiceAccessRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -79,7 +80,7 @@ func (h *Handler) handleDisableAWSServiceAccess(c *echo.Context, body []byte) er
 func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, body []byte) error {
 	var req listAWSServiceAccessRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}

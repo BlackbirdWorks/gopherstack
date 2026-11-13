@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -384,7 +385,7 @@ func buildConfigSnapshotBody(snapshotID string, items []*ResourceConfigItem) ([]
 		envelope.ConfigurationItems = append(envelope.ConfigurationItems, *item)
 	}
 
-	encoded, err := json.Marshal(envelope)
+	encoded, err := json.Marshal(envelope, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +462,7 @@ func buildSnapshotSNSMessage(snapshotID, bucket, key string, t time.Time) string
 		RecordVersion:            configSnapshotNotificationRecordVersion,
 	}
 
-	encoded, err := json.Marshal(msg)
+	encoded, err := json.Marshal(msg, jsonx.V1())
 	if err != nil {
 		return ""
 	}

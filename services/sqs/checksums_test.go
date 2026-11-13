@@ -1,12 +1,13 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -190,7 +191,7 @@ func TestComputeMD5OfMessageAttributes_FullSetUsesPrecomputed(t *testing.T) {
 			require.Equal(t, 200, recvRec.Code)
 
 			var recvResp recvResponse
-			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 			require.Len(t, recvResp.Messages, 1)
 
 			// The MD5 must be non-empty when attributes are returned.
@@ -261,7 +262,7 @@ func TestReceiveMessage_MD5Consistency(t *testing.T) {
 			require.Equal(t, 200, recvRec.Code)
 
 			var recvResp recvMD5Only
-			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 			require.Len(t, recvResp.Messages, 1)
 
 			assert.Equal(t, tt.wantMD5, recvResp.Messages[0].MD5OfMessageAttributes,

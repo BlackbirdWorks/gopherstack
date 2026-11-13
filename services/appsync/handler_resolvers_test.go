@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -57,7 +59,7 @@ func TestHandler_CreateAndGetResolver(t *testing.T) {
 
 			if tt.wantFieldName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				r, ok := resp["resolver"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantFieldName, r["fieldName"])
@@ -88,7 +90,7 @@ func TestHandler_ListResolvers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	res, ok := resp["resolvers"].([]any)
 	require.True(t, ok)
 	assert.Len(t, res, 1)
@@ -123,7 +125,7 @@ func TestHandler_UpdateResolver(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	resolver := resp["resolver"].(map[string]any)
 	assert.Equal(t, "$util.toJson($context.args)", resolver["requestMappingTemplate"])
 }
@@ -149,7 +151,7 @@ func TestHandler_ListResolversByFunction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	resolvers := resp["resolvers"].([]any)
 	assert.Len(t, resolvers, 1)
 	assert.Equal(t, "getItem", resolvers[0].(map[string]any)["fieldName"])

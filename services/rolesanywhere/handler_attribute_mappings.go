@@ -2,10 +2,12 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Attribute mapping handlers ----
@@ -18,7 +20,7 @@ func (h *Handler) handlePutAttributeMapping(ctx context.Context, path string, bo
 		MappingRules     []MappingRule `json:"mappingRules"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

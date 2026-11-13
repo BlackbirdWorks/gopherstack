@@ -1,11 +1,13 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListPolicyTemplates_ItemHasNoStatement proves ListPolicyTemplates'
@@ -35,7 +37,7 @@ func TestListPolicyTemplates_ItemHasNoStatement(t *testing.T) {
 	var body struct {
 		PolicyTemplates []map[string]any `json:"policyTemplates"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	require.Len(t, body.PolicyTemplates, 1)
 
 	item := body.PolicyTemplates[0]

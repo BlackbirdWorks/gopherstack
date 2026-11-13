@@ -1,12 +1,14 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagsForDomain(t *testing.T) {
@@ -21,7 +23,7 @@ func TestHandler_TagsForDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	domainMap, _ := createResp["domain"].(map[string]any)
 	domainARN := domainMap["arn"].(string)
 
@@ -30,7 +32,7 @@ func TestHandler_TagsForDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList, _ := listResp["tags"].([]any)
 	assert.Len(t, tagList, 1)
 
@@ -45,7 +47,7 @@ func TestHandler_TagsForDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	tagList2, _ := listResp2["tags"].([]any)
 	assert.Len(t, tagList2, 2)
 
@@ -60,7 +62,7 @@ func TestHandler_TagsForDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec3.Code)
 
 	var listResp3 map[string]any
-	require.NoError(t, json.Unmarshal(listRec3.Body.Bytes(), &listResp3))
+	require.NoError(t, json.Unmarshal(listRec3.Body.Bytes(), &listResp3, jsonx.V1()))
 	tagList3, _ := listResp3["tags"].([]any)
 	assert.Len(t, tagList3, 1)
 }
@@ -79,7 +81,7 @@ func TestHandler_SortedTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	domainMap, _ := createResp["domain"].(map[string]any)
 	domainARN, _ := domainMap["arn"].(string)
 
@@ -87,7 +89,7 @@ func TestHandler_SortedTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList, _ := listResp["tags"].([]any)
 	require.Len(t, tagList, 3)
 

@@ -2,7 +2,7 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -319,10 +319,10 @@ func newDirtyDTORegistry() (
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

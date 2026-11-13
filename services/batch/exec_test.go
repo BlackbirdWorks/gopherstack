@@ -2,7 +2,7 @@ package batch_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
@@ -300,7 +301,7 @@ func TestExecJobStateAndExitCode(t *testing.T) {
 			assert.Equal(t, done.Container.LogStreamName, done.Attempts[0].Container.LogStreamName)
 			assert.NotNil(t, done.Attempts[0].StoppedAt)
 
-			raw, err := json.Marshal(done.Attempts[0].Container)
+			raw, err := json.Marshal(done.Attempts[0].Container, jsonx.V1())
 			require.NoError(t, err)
 			assert.Contains(t, string(raw), `"exitCode"`)
 

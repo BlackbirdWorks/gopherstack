@@ -1,13 +1,14 @@
 package regionpeers_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
 
@@ -57,7 +58,7 @@ func TestSet_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	snap := func(p *fake) []byte { return []byte(`"` + p.state + `"`) }
-	restore := func(p *fake, d []byte) error { return json.Unmarshal(d, &p.state) }
+	restore := func(p *fake, d []byte) error { return json.Unmarshal(d, &p.state, jsonx.V1()) }
 	closeFn := func(*fake) {}
 
 	tests := []struct {

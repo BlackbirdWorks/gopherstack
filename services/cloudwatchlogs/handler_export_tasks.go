@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type cancelExportTaskInput struct {
@@ -146,7 +148,7 @@ func (h *Handler) handleCancelExportTask(
 	b []byte,
 ) (any, error) {
 	var input cancelExportTaskInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.CancelExportTask(input.TaskID); err != nil {
@@ -161,7 +163,7 @@ func (h *Handler) handleCancelImportTask(
 	b []byte,
 ) (any, error) {
 	var input cancelImportTaskInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +185,7 @@ func (h *Handler) handleCreateExportTask(
 	b []byte,
 ) (any, error) {
 	var input createExportTaskInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +206,7 @@ func (h *Handler) handleCreateImportTask(
 	b []byte,
 ) (any, error) {
 	var input createImportTaskInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -227,7 +229,7 @@ func (h *Handler) handleDescribeExportTasks(
 	b []byte,
 ) (any, error) {
 	var input describeExportTasksInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	tasks, next, err := h.Backend.DescribeExportTasks(input.TaskID, input.StatusCode, input.Limit, input.NextToken)
@@ -248,7 +250,7 @@ func (h *Handler) handleDescribeImportTasks(
 	b []byte,
 ) (any, error) {
 	var input describeImportTasksInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	tasks, next, err := h.Backend.DescribeImportTasks(input.ImportID, input.Limit, input.NextToken)
@@ -279,7 +281,7 @@ func (h *Handler) handleDescribeImportTaskBatches(
 		ImportID string `json:"importId"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}

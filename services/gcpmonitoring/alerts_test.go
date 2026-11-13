@@ -1,7 +1,7 @@
 package gcpmonitoring_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +11,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const alertTopic = "projects/" + testProject + "/topics/alerts"
@@ -90,7 +92,7 @@ func decode(t *testing.T, msg published) payload {
 	t.Helper()
 
 	var p payload
-	require.NoError(t, json.Unmarshal([]byte(msg.data), &p))
+	require.NoError(t, json.Unmarshal([]byte(msg.data), &p, jsonx.V1()))
 
 	return p
 }

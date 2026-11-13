@@ -2,7 +2,7 @@ package mwaa
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -328,7 +329,7 @@ func decodeJSONBody(c *echo.Context, target any) bool {
 		return false
 	}
 
-	if jsonErr := json.Unmarshal(body, target); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, target, jsonx.V1()); jsonErr != nil {
 		_ = writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 
 		return false

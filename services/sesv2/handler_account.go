@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // account handlers
@@ -45,7 +48,7 @@ func (h *Handler) handlePutAccountDedicatedIPWarmupAttributes(c *echo.Context) (
 		AutoWarmupEnabled bool `json:"AutoWarmupEnabled"`
 	}
 
-	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1())
 
 	if err := h.Backend.PutAccountDedicatedIPWarmupAttributes(in.AutoWarmupEnabled); err != nil {
 		return nil, err
@@ -67,7 +70,7 @@ type putAccountDetailsInput struct {
 func (h *Handler) handlePutAccountDetails(c *echo.Context) (any, error) {
 	var in putAccountDetailsInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -90,7 +93,7 @@ type putAccountSendingInput struct {
 func (h *Handler) handlePutAccountSendingAttributes(c *echo.Context) (any, error) {
 	var in putAccountSendingInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -107,7 +110,7 @@ func (h *Handler) handlePutAccountPricingAttributes(c *echo.Context) (any, error
 		Plan string `json:"Plan"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -123,7 +126,7 @@ func (h *Handler) handlePutAccountSuppressionAttributes(c *echo.Context) (any, e
 		SuppressedReasons []string `json:"SuppressedReasons"`
 	}
 
-	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1())
 
 	if err := h.Backend.PutAccountSuppressionAttributes(in.SuppressedReasons); err != nil {
 		return nil, err

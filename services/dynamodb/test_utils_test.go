@@ -3,7 +3,7 @@ package dynamodb_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	sdkddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -23,7 +24,7 @@ import (
 func mustUnmarshal[T any](t *testing.T, jsonStr string) T {
 	t.Helper()
 	var val T
-	err := json.Unmarshal([]byte(jsonStr), &val)
+	err := json.Unmarshal([]byte(jsonStr), &val, jsonx.V1())
 	require.NoError(t, err)
 
 	return val
@@ -190,7 +191,7 @@ func invokeOp(
 ) (int, map[string]any) {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
@@ -201,7 +202,7 @@ func invokeOp(
 
 	var resp map[string]any
 	if w.Body.Len() > 0 {
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp, jsonx.V1()))
 	}
 
 	return w.Code, resp

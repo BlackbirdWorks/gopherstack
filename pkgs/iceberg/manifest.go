@@ -2,13 +2,15 @@ package iceberg
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 
 	"github.com/iskorotkov/avro/v2"
 	"github.com/iskorotkov/avro/v2/ocf"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Manifest entry statuses and content types from the table spec.
@@ -399,7 +401,7 @@ func manifestSchema(meta *TableMetadata, spec PartitionSpec) (string, error) {
 		},
 	}
 
-	b, err := json.Marshal(schema)
+	b, err := json.Marshal(schema, jsonx.V1())
 
 	return string(b), err
 }
@@ -415,8 +417,8 @@ func EncodeManifest(meta *TableMetadata, spec PartitionSpec, content int, entrie
 		return nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 
-	cur, _ := json.Marshal(meta.CurrentSchema())
-	specJSON, _ := json.Marshal(spec.Fields)
+	cur, _ := json.Marshal(meta.CurrentSchema(), jsonx.V1())
+	specJSON, _ := json.Marshal(spec.Fields, jsonx.V1())
 	contentName := "data"
 
 	if content != ContentData {

@@ -3,7 +3,8 @@ package wafv2
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -279,9 +281,6 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	return fn(ctx, body)
 }
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	var errType string
 	var statusCode int
 
@@ -310,7 +309,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrConfigurationWarning):
 		errType = "WAFConfigurationWarningException"
 		statusCode = http.StatusBadRequest
-	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, errInvalidRequest), jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		errType = "WAFInvalidParameterException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(err, errUnknownAction):
@@ -324,7 +323,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    errType,
 		keyMessageField: publicMessage(err),
-	})
+	}, jsonx.V1())
 
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 
@@ -332,10 +331,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 // parseVisibilityConfig parses a stored VisibilityConfig JSON string or returns a default.
-func parseVisibilityConfig(stored json.RawMessage, metricName string) map[string]any {
+func parseVisibilityConfig(stored jsontext.Value, metricName string) map[string]any {
 	if len(stored) > 0 {
 		var m map[string]any
-		if err := json.Unmarshal(stored, &m); err == nil {
+		if err := json.Unmarshal(stored, &m, jsonx.V1()); err == nil {
 			return m
 		}
 	}
@@ -514,7 +513,7 @@ func handleListResourceFamily[T any](
 	buildSummary func(T) map[string]string,
 ) ([]byte, error) {
 	var req listFamilyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -531,5 +530,5 @@ func handleListResourceFamily[T any](
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

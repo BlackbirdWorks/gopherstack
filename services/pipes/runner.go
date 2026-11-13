@@ -2,7 +2,7 @@ package pipes
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
@@ -367,7 +368,7 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		return
 	}
 
-	payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
+	payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)}, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to marshal SQS records", "pipe", p.Name, "error", err)
 

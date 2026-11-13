@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -283,7 +284,7 @@ func TestHandler_SubnetGroup_SupportedNetworkTypesAndAvailabilityZone(t *testing
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sg, _ := resp["SubnetGroup"].(map[string]any)
 	require.NotNil(t, sg)
 

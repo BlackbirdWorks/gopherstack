@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"sync"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -198,7 +199,7 @@ func TestBuiltinActions_WaitForBackendState(t *testing.T) {
 				details, lErr := h.Backend.ListActionExecutions(ctx, "p", exec.PipelineExecutionID)
 				require.NoError(t, lErr)
 
-				raw, mErr := json.Marshal(details)
+				raw, mErr := json.Marshal(details, jsonx.V1())
 				require.NoError(t, mErr)
 				assert.Contains(t, string(raw), tt.wantMsg)
 			}

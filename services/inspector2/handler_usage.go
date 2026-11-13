@@ -1,12 +1,13 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -32,7 +33,7 @@ func (h *Handler) handleListUsageTotals(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -60,7 +61,7 @@ func (h *Handler) handleBatchGetFreeTrialInfo(c *echo.Context) error {
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

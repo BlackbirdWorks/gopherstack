@@ -2,7 +2,8 @@ package iot_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -48,15 +50,15 @@ func TestReadBodyMalformedWritesExactlyOneDocument(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-			dec := json.NewDecoder(rec.Body)
+			dec := jsontext.NewDecoder(rec.Body)
 
 			var first map[string]any
-			require.NoError(t, dec.Decode(&first))
+			require.NoError(t, json.UnmarshalDecode(dec, &first, jsonx.V1()))
 			require.Contains(t, first, "__type")
 			require.Contains(t, first, "message")
 
 			var second map[string]any
-			err := dec.Decode(&second)
+			err := json.UnmarshalDecode(dec, &second, jsonx.V1())
 			require.ErrorIs(
 				t,
 				err,
@@ -95,7 +97,7 @@ func TestReadBodyMalformed_RealSDKClient_DecodesInvalidRequestException(t *testi
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	errorType, message, err := restjson.GetErrorInfo(json.NewDecoder(rec.Body))
+	errorType, message, err := restjson.GetErrorInfo(jsonx.SDKDecoder(rec.Body))
 	require.NoError(t, err)
 	assert.Equal(t, "InvalidRequestException", errorType,
 		"a real client must decode a modeled error code, not fall through to UnknownError")

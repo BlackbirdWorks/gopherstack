@@ -2,7 +2,7 @@ package asl_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -2112,7 +2113,7 @@ func TestExecutor_UnknownStateType(t *testing.T) {
 
 			// Parse will succeed but execute will fail on unknown type.
 			var sm asl.StateMachine
-			require.NoError(t, json.Unmarshal([]byte(tt.def), &sm))
+			require.NoError(t, json.Unmarshal([]byte(tt.def), &sm, jsonx.V1()))
 			exec := asl.NewExecutor(&sm, nil, nil)
 			_, err := exec.Execute(t.Context(), "test", tt.input)
 			require.Error(t, err)

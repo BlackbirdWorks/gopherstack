@@ -1,7 +1,7 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -29,7 +30,7 @@ func TestRedriveAllowPolicy(t *testing.T) {
 	rap, _ := json.Marshal(map[string]any{
 		"redrivePermission": "byQueue",
 		"sourceQueueArns":   []string{dlqARN},
-	})
+	}, jsonx.V1())
 
 	_, err = b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "src",
@@ -54,7 +55,7 @@ func TestRedrivePolicy_MovesToDLQAfterMaxReceiveCount(t *testing.T) {
 	redriveJSON, _ := json.Marshal(map[string]any{
 		"deadLetterTargetArn": dlqARN,
 		"maxReceiveCount":     2,
-	})
+	}, jsonx.V1())
 
 	srcURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "src-with-dlq",
@@ -104,7 +105,7 @@ func TestRedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 	redriveJSON, _ := json.Marshal(map[string]any{
 		"deadLetterTargetArn": dlqARN,
 		"maxReceiveCount":     3,
-	})
+	}, jsonx.V1())
 
 	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
 		QueueURL: srcURL,
@@ -117,7 +118,7 @@ func TestRedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 	// Verify round-trip via GetQueueAttributes
 	attrs := b2getAttrs(t, b, srcURL, "RedrivePolicy")
 	var pol map[string]any
-	require.NoError(t, json.Unmarshal([]byte(attrs["RedrivePolicy"]), &pol))
+	require.NoError(t, json.Unmarshal([]byte(attrs["RedrivePolicy"]), &pol, jsonx.V1()))
 	assert.Equal(t, dlqARN, pol["deadLetterTargetArn"])
 }
 
@@ -130,7 +131,7 @@ func TestListDeadLetterSourceQueues_SingleSource(t *testing.T) {
 	dlqARN := dlqAttrs["QueueArn"]
 
 	makeRedriveAttr := func(arn string, count int) string {
-		v, _ := json.Marshal(map[string]any{"deadLetterTargetArn": arn, "maxReceiveCount": count})
+		v, _ := json.Marshal(map[string]any{"deadLetterTargetArn": arn, "maxReceiveCount": count}, jsonx.V1())
 
 		return string(v)
 	}
@@ -178,7 +179,7 @@ func TestRedriveAllowPolicy_AllowAll(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	policy, _ := json.Marshal(map[string]any{"redrivePermission": "allowAll"})
+	policy, _ := json.Marshal(map[string]any{"redrivePermission": "allowAll"}, jsonx.V1())
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "rap-allow-all",
@@ -194,7 +195,7 @@ func TestRedriveAllowPolicy_DenyAll(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"})
+	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"}, jsonx.V1())
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "rap-deny-all",
@@ -213,7 +214,7 @@ func TestRedriveAllowPolicy_ByQueue(t *testing.T) {
 	policy, _ := json.Marshal(map[string]any{
 		"redrivePermission": "byQueue",
 		"sourceQueueArns":   []string{"arn:aws:sqs:us-east-1:123456789012:src-queue"},
-	})
+	}, jsonx.V1())
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "rap-by-queue",
@@ -232,7 +233,7 @@ func TestRedriveAllowPolicy_AllowAllWithArns_Rejected(t *testing.T) {
 	policy, _ := json.Marshal(map[string]any{
 		"redrivePermission": "allowAll",
 		"sourceQueueArns":   []string{"arn:aws:sqs:us-east-1:123456789012:q"},
-	})
+	}, jsonx.V1())
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "rap-invalid",
@@ -255,7 +256,7 @@ func TestRedriveAllowPolicy_ByQueueTooManyArns_Rejected(t *testing.T) {
 	policy, _ := json.Marshal(map[string]any{
 		"redrivePermission": "byQueue",
 		"sourceQueueArns":   arns,
-	})
+	}, jsonx.V1())
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "rap-toomany",
@@ -271,7 +272,7 @@ func TestRedriveAllowPolicy_RoundTrip(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"})
+	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"}, jsonx.V1())
 	qURL := b2createQueue(t, b, "rap-roundtrip")
 
 	require.NoError(t, b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -700,7 +701,7 @@ func TestSQS_DLQRedrive_DefaultDestination(t *testing.T) {
 	redrivePolicy, _ := json.Marshal(map[string]any{
 		"deadLetterTargetArn": dlqARN,
 		"maxReceiveCount":     3,
-	})
+	}, jsonx.V1())
 
 	_, err = b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: srcName,
@@ -824,7 +825,7 @@ func makeRedrivePolicy(dlqARN string, maxReceiveCount int) string {
 	b, _ := json.Marshal(map[string]any{
 		"deadLetterTargetArn": dlqARN,
 		"maxReceiveCount":     maxReceiveCount,
-	})
+	}, jsonx.V1())
 
 	return string(b)
 }

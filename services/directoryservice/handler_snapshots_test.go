@@ -1,7 +1,7 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -21,7 +22,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var resp map[string]any
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 		return resp["DirectoryId"].(string)
 	}
@@ -37,7 +38,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		snapID, ok := resp["SnapshotId"].(string)
 		require.True(t, ok)
 		assert.NotEmpty(t, snapID)
@@ -56,7 +57,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		dirID := createDir(h)
 		snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
 		var snapResp map[string]any
-		require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+		require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp, jsonx.V1()))
 		snapID := snapResp["SnapshotId"].(string)
 
 		rec := doRequest(t, h, "DeleteSnapshot", map[string]any{"SnapshotId": snapID})
@@ -66,7 +67,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		descRec := doRequest(t, h, "DescribeSnapshots", map[string]any{"SnapshotIds": []string{snapID}})
 		assert.Equal(t, http.StatusOK, descRec.Code)
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		snaps := descResp["Snapshots"].([]any)
 		assert.Empty(t, snaps)
 	})
@@ -87,7 +88,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 				"Name": "other.example.com", "Password": "Admin1234!", "Size": "Small",
 			})
 			var resp map[string]any
-			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 			return resp["DirectoryId"].(string)
 		}()
@@ -99,7 +100,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		snaps := resp["Snapshots"].([]any)
 		assert.Len(t, snaps, 1)
 	})
@@ -114,7 +115,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		limits := resp["SnapshotLimits"].(map[string]any)
 		assert.EqualValues(t, 1, limits["ManualSnapshotsCurrentCount"])
 	})
@@ -125,7 +126,7 @@ func TestDirectoryService_Snapshots(t *testing.T) {
 		dirID := createDir(h)
 		snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
 		var snapResp map[string]any
-		require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+		require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp, jsonx.V1()))
 		snapID := snapResp["SnapshotId"].(string)
 
 		rec := doRequest(t, h, "RestoreFromSnapshot", map[string]any{"SnapshotId": snapID})
@@ -155,11 +156,11 @@ func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
 					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 				})
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				dirID := createResp["DirectoryId"].(string)
 				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
 				var snapResp map[string]any
-				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp, jsonx.V1()))
 
 				return snapResp["SnapshotId"].(string)
 			},
@@ -179,11 +180,11 @@ func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
 					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 				})
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				dirID := createResp["DirectoryId"].(string)
 				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
 				var snapResp map[string]any
-				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp, jsonx.V1()))
 				snapID := snapResp["SnapshotId"].(string)
 				doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
 

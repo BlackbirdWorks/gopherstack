@@ -1,11 +1,13 @@
 package opsworks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestFormatOpsWorksTimeNonUTCZone builds every timestamp input in a non-UTC
@@ -81,10 +83,10 @@ func TestStoredInstanceUnmarshalJSON_LegacyLayerID(t *testing.T) {
 	t.Parallel()
 
 	var legacy storedInstance
-	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-1","layerId":"l-1"}`), &legacy))
+	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-1","layerId":"l-1"}`), &legacy, jsonx.V1()))
 	require.Equal(t, []string{"l-1"}, legacy.LayerIDs)
 
 	var current storedInstance
-	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-2","layerIds":["l-2","l-3"]}`), &current))
+	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-2","layerIds":["l-2","l-3"]}`), &current, jsonx.V1()))
 	require.Equal(t, []string{"l-2", "l-3"}, current.LayerIDs)
 }

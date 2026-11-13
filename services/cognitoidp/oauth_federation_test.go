@@ -3,7 +3,7 @@ package cognitoidp_test
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -77,7 +78,7 @@ func TestFederatedOIDCCodeFlow(t *testing.T) {
 			assert.Equal(t, "true", user.Attributes["email_verified"])
 
 			var stored []map[string]string
-			require.NoError(t, json.Unmarshal([]byte(user.Attributes["identities"]), &stored))
+			require.NoError(t, json.Unmarshal([]byte(user.Attributes["identities"]), &stored, jsonx.V1()))
 			assert.Equal(t, fedSubject, stored[0]["userId"])
 		})
 	}

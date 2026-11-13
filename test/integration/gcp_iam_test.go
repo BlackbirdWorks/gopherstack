@@ -1,7 +1,7 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	iam "cloud.google.com/go/iam/admin/apiv1"
@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func newIAMAdminClient(t *testing.T) *iam.IamClient {
@@ -57,7 +59,7 @@ func TestIntegration_GCP_IAM_ServiceAccountAndKey(t *testing.T) {
 		ClientEmail string `json:"client_email"`
 	}
 
-	require.NoError(t, json.Unmarshal(key.GetPrivateKeyData(), &kf))
+	require.NoError(t, json.Unmarshal(key.GetPrivateKeyData(), &kf, jsonx.V1()))
 	assert.Equal(t, "service_account", kf.Type)
 	assert.Equal(t, sa.GetEmail(), kf.ClientEmail)
 

@@ -2,7 +2,7 @@ package sns_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -149,7 +150,7 @@ func TestSNS_LambdaDelivery_InvokesFunction(t *testing.T) {
 
 	// Verify payload is valid AWS SNS → Lambda envelope.
 	var envelope map[string]any
-	err = json.Unmarshal(inv.Payload, &envelope)
+	err = json.Unmarshal(inv.Payload, &envelope, jsonx.V1())
 	require.NoError(t, err)
 
 	records, ok := envelope["Records"].([]any)
@@ -255,7 +256,7 @@ func TestSNS_FirehoseDelivery_PutsRecord(t *testing.T) {
 	// subscription created above never sets it), so the delivered record is the
 	// full SNS Notification JSON envelope, not the bare message body.
 	var envelope map[string]any
-	require.NoError(t, json.Unmarshal(records[0], &envelope))
+	require.NoError(t, json.Unmarshal(records[0], &envelope, jsonx.V1()))
 	assert.Equal(t, "Notification", envelope["Type"])
 	assert.Equal(t, "firehose-message", envelope["Message"])
 	assert.Equal(t, topicARN, envelope["TopicArn"])
@@ -501,7 +502,7 @@ func TestFirehoseDeliveryFailureSendsToDLQ(t *testing.T) {
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
 				"deadLetterTargetArn": dlqARN,
-			})
+			}, jsonx.V1())
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 			require.NoError(t, err)
 
@@ -534,7 +535,7 @@ func TestFirehoseDeliveryFailureNoSQSSenderNoError(t *testing.T) {
 
 	redrivePolicy, _ := json.Marshal(map[string]string{
 		"deadLetterTargetArn": "arn:aws:sqs:us-east-1:123456789012:dlq",
-	})
+	}, jsonx.V1())
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 	require.NoError(t, err)
 
@@ -623,7 +624,7 @@ func TestLambdaDeliveryFailureSendsToDLQ(t *testing.T) {
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
 				"deadLetterTargetArn": dlqARN,
-			})
+			}, jsonx.V1())
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 			require.NoError(t, err)
 
@@ -656,7 +657,7 @@ func TestLambdaDeliveryFailureNoSenderNoError(t *testing.T) {
 
 	redrivePolicy, _ := json.Marshal(map[string]string{
 		"deadLetterTargetArn": "arn:aws:sqs:us-east-1:123456789012:dlq",
-	})
+	}, jsonx.V1())
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 	require.NoError(t, err)
 

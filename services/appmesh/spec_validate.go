@@ -1,9 +1,11 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Structural validation for the shallow spec shapes (MeshSpec, VirtualRouterSpec,
@@ -36,7 +38,7 @@ func isValidPortProtocol(p string) bool {
 }
 
 // validateMeshSpec structurally validates a MeshSpec body (types.MeshSpec).
-func validateMeshSpec(spec json.RawMessage) error {
+func validateMeshSpec(spec jsontext.Value) error {
 	if len(spec) == 0 {
 		return nil
 	}
@@ -48,7 +50,7 @@ func validateMeshSpec(spec json.RawMessage) error {
 			IPPreference string `json:"ipPreference"`
 		} `json:"serviceDiscovery"`
 	}
-	if err := json.Unmarshal(spec, &body); err != nil {
+	if err := json.Unmarshal(spec, &body, jsonx.V1()); err != nil {
 		return awserr.Newf("spec: %s", awserr.ErrInvalidParameter, err)
 	}
 	if body.EgressFilter != nil && !isValidEgressFilterType(body.EgressFilter.Type) {
@@ -89,7 +91,7 @@ func validatePortMapping(pm *portMappingBody) error {
 
 // validateVirtualRouterSpec structurally validates a VirtualRouterSpec body
 // (types.VirtualRouterSpec).
-func validateVirtualRouterSpec(spec json.RawMessage) error {
+func validateVirtualRouterSpec(spec jsontext.Value) error {
 	if len(spec) == 0 {
 		return nil
 	}
@@ -98,7 +100,7 @@ func validateVirtualRouterSpec(spec json.RawMessage) error {
 			PortMapping *portMappingBody `json:"portMapping"`
 		} `json:"listeners"`
 	}
-	if err := json.Unmarshal(spec, &body); err != nil {
+	if err := json.Unmarshal(spec, &body, jsonx.V1()); err != nil {
 		return awserr.Newf("spec: %s", awserr.ErrInvalidParameter, err)
 	}
 	for _, l := range body.Listeners {
@@ -122,14 +124,14 @@ type virtualServiceProviderBody struct {
 // validateVirtualServiceSpec structurally validates a VirtualServiceSpec body
 // (types.VirtualServiceSpec). provider is a smithy union: exactly one of
 // virtualNode/virtualRouter may be set.
-func validateVirtualServiceSpec(spec json.RawMessage) error {
+func validateVirtualServiceSpec(spec jsontext.Value) error {
 	if len(spec) == 0 {
 		return nil
 	}
 	var body struct {
 		Provider *virtualServiceProviderBody `json:"provider"`
 	}
-	if err := json.Unmarshal(spec, &body); err != nil {
+	if err := json.Unmarshal(spec, &body, jsonx.V1()); err != nil {
 		return awserr.Newf("spec: %s", awserr.ErrInvalidParameter, err)
 	}
 	if body.Provider == nil {

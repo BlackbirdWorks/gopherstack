@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"strconv"
 	"strings"
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -484,7 +485,7 @@ func TestIoTRuleConnectionFunctions(t *testing.T) {
 	require.True(t, tok.WaitTimeout(authzDeadline))
 
 	var msg map[string]string
-	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, url, 1)[0]), &msg))
+	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, url, 1)[0]), &msg, jsonx.V1()))
 
 	assert.Equal(t, "device-7", msg["cid"])
 	assert.NotNil(t, net.ParseIP(msg["ip"]))

@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -283,7 +284,7 @@ func (b *InMemoryBackend) deliverToFilters(
 
 // encodeSubscriptionPayload gzips the JSON payload and base64-encodes it.
 func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}

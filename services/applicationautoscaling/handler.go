@@ -2,7 +2,7 @@ package applicationautoscaling
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -177,13 +178,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // marshalError serialises a JSONErrorResponse into bytes.
 // Marshaling a struct with only string fields cannot fail; error is intentionally ignored.
 func marshalError(errType, message string) []byte {
-	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message}, jsonx.V1())
 
 	return payload
 }
@@ -206,7 +207,7 @@ func marshalResourceError(errType, message, resourceName string) []byte {
 		Type         string `json:"__type"`
 		Message      string `json:"message"`
 		ResourceName string `json:"ResourceName,omitempty"`
-	}{Type: errType, Message: message, ResourceName: resourceName})
+	}{Type: errType, Message: message, ResourceName: resourceName}, jsonx.V1())
 
 	return payload
 }
@@ -234,9 +235,6 @@ func clientMessage(err error) string {
 }
 
 func (h *Handler) writeAPIError(_ context.Context, c *echo.Context, _ string, err error, msg string) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	resourceName := ""
 	if rn, ok := errors.AsType[resourceNamer](err); ok {
 		resourceName = rn.ResourceName()
@@ -270,7 +268,7 @@ func (h *Handler) writeAPIError(_ context.Context, c *echo.Context, _ string, er
 	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", msg))
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", msg))
 	// Server faults (HTTP 500).
 	case errors.Is(err, ErrConcurrentUpdate):

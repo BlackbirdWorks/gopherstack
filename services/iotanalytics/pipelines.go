@@ -3,13 +3,15 @@ package iotanalytics
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // clonePipelineActivities deep-copies a slice of PipelineActivity.
@@ -371,7 +373,7 @@ func (b *InMemoryBackend) invokeLambdaBatch(ctx context.Context, lambdaName stri
 		return nil
 	}
 
-	reqBody, err := json.Marshal(msgs)
+	reqBody, err := json.Marshal(msgs, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("%w: marshal lambda batch for %q: %w", ErrPipelineActivityFailed, lambdaName, err)
 	}
@@ -382,7 +384,7 @@ func (b *InMemoryBackend) invokeLambdaBatch(ctx context.Context, lambdaName stri
 	}
 
 	var results []map[string]any
-	if jsonErr := json.Unmarshal(respBody, &results); jsonErr != nil || len(results) != len(msgs) {
+	if jsonErr := json.Unmarshal(respBody, &results, jsonx.V1()); jsonErr != nil || len(results) != len(msgs) {
 		return fmt.Errorf(
 			"%w: lambda activity %q did not return a JSON object array of the same length",
 			ErrPipelineActivityFailed, lambdaName,
@@ -464,7 +466,7 @@ func enrichPayloads(attribute string, data map[string]any, payloads [][]byte) []
 // decodeMessage attempts to unmarshal a message payload as a JSON object.
 func decodeMessage(payload []byte) (map[string]any, bool) {
 	var m map[string]any
-	if err := json.Unmarshal(payload, &m); err != nil {
+	if err := json.Unmarshal(payload, &m, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -475,7 +477,7 @@ func decodeMessage(payload []byte) (map[string]any, bool) {
 // marshaling somehow fails (m came from a successful Unmarshal, so this is unreachable in
 // practice, but encodeMessage must never panic or drop data on error).
 func encodeMessage(m map[string]any, fallback []byte) []byte {
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return fallback
 	}

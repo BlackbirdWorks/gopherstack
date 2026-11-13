@@ -1,13 +1,16 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_StartBuild(t *testing.T) {
@@ -64,7 +67,7 @@ func TestHandler_StartBuild(t *testing.T) {
 						BuildStatus string `json:"buildStatus"`
 					} `json:"build"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.Build.ID)
 				assert.Equal(t, "IN_PROGRESS", out.Build.BuildStatus)
 			}
@@ -94,7 +97,7 @@ func TestHandler_StartBuild_TimestampsAreNumbers(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 
 	build, ok := startOut["build"].(map[string]any)
 	require.True(t, ok, "response should contain 'build' object")
@@ -109,7 +112,7 @@ func TestHandler_StartBuild_TimestampsAreNumbers(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopOut map[string]any
-	require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&stopOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &stopOut, jsonx.V1()))
 
 	stoppedBuild, ok := stopOut["build"].(map[string]any)
 	require.True(t, ok, "stop response should contain 'build' object")
@@ -170,7 +173,7 @@ func TestHandler_BatchGetBuilds(t *testing.T) {
 						ID string `json:"id"`
 					} `json:"build"`
 				}
-				require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 				buildID = startOut.Build.ID
 			} else {
 				buildID = "nonexistent:build123"
@@ -185,7 +188,7 @@ func TestHandler_BatchGetBuilds(t *testing.T) {
 				Builds         []any    `json:"builds"`
 				BuildsNotFound []string `json:"buildsNotFound"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Builds, tt.wantBuildCount)
 			assert.Equal(t, tt.wantNotFound, out.BuildsNotFound)
 		})
@@ -242,7 +245,7 @@ func TestHandler_StopBuild(t *testing.T) {
 						ID string `json:"id"`
 					} `json:"build"`
 				}
-				require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 				buildID = startOut.Build.ID
 			} else {
 				buildID = "nonexistent:build999"
@@ -257,7 +260,7 @@ func TestHandler_StopBuild(t *testing.T) {
 						BuildStatus string `json:"buildStatus"`
 					} `json:"build"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, "STOPPED", out.Build.BuildStatus)
 			}
 		})
@@ -297,7 +300,7 @@ func TestHandler_StopBuild_SetsStoppedNotSucceeded(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"build"`
 			}
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 
 			stopRec := doRequest(t, h, "StopBuild", map[string]any{"id": startOut.Build.ID})
 			require.Equal(t, http.StatusOK, stopRec.Code)
@@ -310,7 +313,7 @@ func TestHandler_StopBuild_SetsStoppedNotSucceeded(t *testing.T) {
 					EndTime       float64 `json:"endTime"`
 				} `json:"build"`
 			}
-			require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantBuildStatus, out.Build.BuildStatus)
 			assert.Equal(t, tt.wantCurrentPhase, out.Build.CurrentPhase)
 			assert.Equal(t, tt.wantBuildComplete, out.Build.BuildComplete)
@@ -376,7 +379,7 @@ func TestHandler_ListBuildsForProject(t *testing.T) {
 				var out struct {
 					IDs []string `json:"ids"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Len(t, out.IDs, tt.buildCount)
 			}
 		})
@@ -470,7 +473,7 @@ func TestHandler_BatchDeleteBuilds(t *testing.T) {
 					"projectName": "my-project",
 				})
 				var startResp map[string]any
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 				build := startResp["build"].(map[string]any)
 				buildID = build["id"].(string)
 				tt.buildIDs = []string{buildID}
@@ -482,7 +485,7 @@ func TestHandler_BatchDeleteBuilds(t *testing.T) {
 			assert.Equal(t, tt.wantHTTP, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			deleted := resp["buildsDeleted"].([]any)
 			assert.Len(t, deleted, tt.wantDeleted)
 		})
@@ -505,7 +508,7 @@ func TestHandler_BatchDeleteBuilds_NotDeletedList(t *testing.T) {
 		BuildsDeleted    []string         `json:"buildsDeleted"`
 		BuildsNotDeleted []map[string]any `json:"buildsNotDeleted"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.BuildsDeleted, "no builds deleted when IDs do not exist")
 	assert.Len(t, out.BuildsNotDeleted, 2, "both missing IDs must appear in buildsNotDeleted")
 
@@ -539,7 +542,7 @@ func TestHandler_ListBuilds(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ids := resp["ids"].([]any)
 	assert.Len(t, ids, 2)
 }
@@ -573,7 +576,7 @@ func TestHandler_SortedBuilds(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 
 	ids, _ := out["ids"].([]any)
 	require.Len(t, ids, 3)
@@ -627,7 +630,7 @@ func TestHandler_RetryBuild(t *testing.T) {
 			if id == "" {
 				startRec := doRequest(t, h, "StartBuild", map[string]any{"projectName": "proj"})
 				var startResp map[string]any
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 				build := startResp["build"].(map[string]any)
 				id = build["id"].(string)
 			}

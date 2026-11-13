@@ -1,7 +1,7 @@
 package ses_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ses"
 )
 
@@ -199,8 +200,8 @@ func TestEventDestination_SendAndDeliveryEvents_SDK(t *testing.T) {
 	require.Len(t, pub.messages, 2)
 
 	var send, delivery map[string]any
-	require.NoError(t, json.Unmarshal([]byte(pub.messages[0]), &send))
-	require.NoError(t, json.Unmarshal([]byte(pub.messages[1]), &delivery))
+	require.NoError(t, json.Unmarshal([]byte(pub.messages[0]), &send, jsonx.V1()))
+	require.NoError(t, json.Unmarshal([]byte(pub.messages[1]), &delivery, jsonx.V1()))
 	assert.Equal(t, "Send", send["eventType"])
 	assert.Contains(t, send, "send")
 	assert.Equal(t, "Delivery", delivery["eventType"])

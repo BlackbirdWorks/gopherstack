@@ -1,7 +1,7 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -10,18 +10,18 @@ import (
 
 type createDeploymentIn struct {
 	Tags
-	GatewayID     string          `json:"gatewayId"`
-	CompartmentID string          `json:"compartmentId"`
-	PathPrefix    string          `json:"pathPrefix"`
-	DisplayName   string          `json:"displayName"`
-	Locks         json.RawMessage `json:"locks"`
-	Specification json.RawMessage `json:"specification"`
+	GatewayID     string         `json:"gatewayId"`
+	CompartmentID string         `json:"compartmentId"`
+	PathPrefix    string         `json:"pathPrefix"`
+	DisplayName   string         `json:"displayName"`
+	Locks         jsontext.Value `json:"locks"`
+	Specification jsontext.Value `json:"specification"`
 }
 
 type updateDeploymentIn struct {
 	Tags
-	DisplayName   *string         `json:"displayName"`
-	Specification json.RawMessage `json:"specification"`
+	DisplayName   *string        `json:"displayName"`
+	Specification jsontext.Value `json:"specification"`
 }
 
 // DeploymentWire is the wire form of a deployment.
@@ -37,8 +37,8 @@ type DeploymentWire struct {
 	Endpoint       string                    `json:"endpoint"`
 	DisplayName    string                    `json:"displayName"`
 	LifecycleState string                    `json:"lifecycleState"`
-	Locks          json.RawMessage           `json:"locks,omitempty"`
-	Specification  json.RawMessage           `json:"specification,omitempty"`
+	Locks          jsontext.Value            `json:"locks,omitempty"`
+	Specification  jsontext.Value            `json:"specification,omitempty"`
 }
 
 func (b *InMemoryBackend) deploymentView(d *Deployment, full bool) DeploymentWire {

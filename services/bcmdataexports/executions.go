@@ -2,13 +2,14 @@ package bcmdataexports
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -239,7 +240,7 @@ func writeResult(
 
 	man.DataFileKeys = []string{dataKey}
 
-	mb, err := json.Marshal(&man)
+	mb, err := json.Marshal(&man, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode manifest: %w", err)
 	}

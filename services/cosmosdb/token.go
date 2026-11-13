@@ -4,13 +4,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -93,7 +95,7 @@ func signTokenPayload(masterKey string, payload []byte) []byte {
 
 // issueResourceToken builds "type=resource&ver=1&sig=<mac>;<payload>", the value of a permission's _token.
 func issueResourceToken(masterKey string, claims tokenClaims) (string, error) {
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("cosmosdb: marshal token claims: %w", err)
 	}
@@ -126,7 +128,7 @@ func parseResourceToken(masterKey, sig string) (tokenClaims, bool) {
 	}
 
 	var claims tokenClaims
-	if json.Unmarshal(payload, &claims) != nil {
+	if json.Unmarshal(payload, &claims, jsonx.V1()) != nil {
 		return tokenClaims{}, false
 	}
 

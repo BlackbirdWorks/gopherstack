@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putIndexPolicyInput struct {
@@ -20,7 +22,7 @@ func (h *Handler) handlePutIndexPolicy(
 	body []byte,
 ) (any, error) {
 	var in putIndexPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -51,7 +53,7 @@ func (h *Handler) handleDescribeIndexPolicies(
 	body []byte,
 ) (any, error) {
 	var in describeIndexPoliciesInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -77,7 +79,7 @@ func (h *Handler) handleDeleteIndexPolicy(
 	body []byte,
 ) (any, error) {
 	var in deleteIndexPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

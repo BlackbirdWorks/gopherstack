@@ -1,12 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestFSx_S3AccessPoint(t *testing.T) {
@@ -59,7 +61,7 @@ func TestFSx_S3AccessPoint(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				ap := out["S3AccessPointAttachment"].(map[string]any)
 				assert.Equal(t, tc.apName, ap["Name"])
 				assert.Equal(t, "AVAILABLE", ap["Lifecycle"])
@@ -93,7 +95,7 @@ func TestFSx_S3AccessPointLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["S3AccessPointAttachments"].([]any), 1)
 
 		// detach: real DetachAndDeleteS3AccessPointInput has no FileSystemId member.
@@ -106,7 +108,7 @@ func TestFSx_S3AccessPointLifecycle(t *testing.T) {
 		rec3 := doFSxRequest(t, h, "DescribeS3AccessPointAttachments", map[string]any{})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var dr2 map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &dr2))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &dr2, jsonx.V1()))
 		assert.Empty(t, dr2["S3AccessPointAttachments"].([]any))
 	})
 }

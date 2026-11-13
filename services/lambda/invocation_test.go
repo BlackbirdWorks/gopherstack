@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -598,14 +599,14 @@ func TestHandleInvokeAsync_Returns202Immediately(t *testing.T) {
 
 			if tt.wantStatus == http.StatusAccepted {
 				var body map[string]int
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, http.StatusAccepted, body["Status"],
 					"InvokeAsync body must contain {\"Status\":202}")
 			}
 
 			if tt.wantErrType != "" {
 				var errBody map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 				assert.Contains(t, errBody["__type"], tt.wantErrType)
 			}
 		})

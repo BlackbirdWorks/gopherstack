@@ -3,19 +3,20 @@ package budgets
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func deepCopy[T any](v *T) *T {
-	data, _ := json.Marshal(v)
+	data, _ := json.Marshal(v, jsonx.V1())
 
 	var out T
 
-	_ = json.Unmarshal(data, &out)
+	_ = json.Unmarshal(data, &out, jsonx.V1())
 
 	return &out
 }

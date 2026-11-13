@@ -2,7 +2,11 @@ package networkfirewall
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutResourcePolicyInput is the PutResourcePolicy request.
@@ -29,10 +33,10 @@ type DeleteResourcePolicyInput = DescribeResourcePolicyInput
 
 func validatePolicyDocument(doc string) error {
 	var parsed struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &parsed); err != nil || len(parsed.Statement) == 0 {
+	if err := json.Unmarshal([]byte(doc), &parsed, jsonx.V1()); err != nil || len(parsed.Statement) == 0 {
 		return invalidResourcePolicy("The policy must be a JSON document with a Statement")
 	}
 

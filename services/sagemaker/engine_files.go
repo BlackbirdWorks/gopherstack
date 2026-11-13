@@ -5,7 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -254,8 +257,8 @@ func stageManifest(ctx context.Context, store ObjectStore, bucket, key, dir stri
 		return fmt.Errorf("read manifest s3://%s/%s: %w", bucket, key, err)
 	}
 
-	var entries []json.RawMessage
-	if err = json.Unmarshal(raw, &entries); err != nil {
+	var entries []jsontext.Value
+	if err = json.Unmarshal(raw, &entries, jsonx.V1()); err != nil {
 		return fmt.Errorf("parse manifest s3://%s/%s: %w", bucket, key, err)
 	}
 
@@ -263,14 +266,14 @@ func stageManifest(ctx context.Context, store ObjectStore, bucket, key, dir stri
 
 	for i, ent := range entries {
 		var obj map[string]string
-		if json.Unmarshal(ent, &obj) == nil {
+		if json.Unmarshal(ent, &obj, jsonx.V1()) == nil {
 			prefix = obj[manifestPrefixK]
 
 			continue
 		}
 
 		var name string
-		if err = json.Unmarshal(ent, &name); err != nil || prefix == "" {
+		if err = json.Unmarshal(ent, &name, jsonx.V1()); err != nil || prefix == "" {
 			return fmt.Errorf("manifest s3://%s/%s: entry %d: %w", bucket, key, i, errManifestEntry)
 		}
 
@@ -397,7 +400,7 @@ func getS3URI(ctx context.Context, store ObjectStore, uri string) ([]byte, error
 
 // writeJSONFile marshals v to dir/name.
 func writeJSONFile(dir, name string, v any) error {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", name, err)
 	}

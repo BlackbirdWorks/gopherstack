@@ -2,10 +2,12 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // runConfigurationInput mirrors real AWS's RunConfiguration (StartApplication)
@@ -219,7 +221,7 @@ type updateApplicationOutput struct {
 
 func (h *Handler) handleUpdateApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in updateApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

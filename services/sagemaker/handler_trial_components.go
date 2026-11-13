@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -31,7 +32,7 @@ type createTrialComponentInput struct {
 func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req createTrialComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -58,7 +59,7 @@ func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) (
 	logger.Load(ctx).
 		InfoContext(ctx, "sagemaker: created trial component", "name", tc.TrialComponentName)
 
-	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn})
+	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn}, jsonx.V1())
 }
 
 // describeTrialComponentInput mirrors DescribeTrialComponentInput
@@ -78,7 +79,7 @@ type describeTrialComponentInput struct {
 func (h *Handler) handleDescribeTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTrialComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -129,7 +130,7 @@ func (h *Handler) handleDescribeTrialComponent(ctx context.Context, body []byte)
 		resp["LastModifiedBy"] = tc.LastModifiedBy
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteTrialComponentInput mirrors DeleteTrialComponentInput
@@ -142,7 +143,7 @@ type deleteTrialComponentInput struct {
 func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteTrialComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -158,7 +159,7 @@ func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) (
 	logger.Load(ctx).
 		InfoContext(ctx, "sagemaker: deleted trial component", "name", req.TrialComponentName)
 
-	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn})
+	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ type disassociateTrialComponentInput struct {
 func (h *Handler) handleDisassociateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req disassociateTrialComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -198,7 +199,7 @@ func (h *Handler) handleDisassociateTrialComponent(ctx context.Context, body []b
 	return json.Marshal(map[string]string{
 		keyTrialArn:          trialArn,
 		keyTrialComponentArn: trialComponentArn,
-	})
+	}, jsonx.V1())
 }
 
 // listTrialComponentsInput mirrors ListTrialComponentsInput
@@ -220,7 +221,7 @@ type listTrialComponentsInput struct {
 func (h *Handler) handleListTrialComponents(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTrialComponentsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -283,7 +284,7 @@ type updateTrialComponentInput struct {
 func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateTrialComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -316,5 +317,5 @@ func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) (
 		tc.TrialComponentName,
 	)
 
-	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn})
+	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn}, jsonx.V1())
 }

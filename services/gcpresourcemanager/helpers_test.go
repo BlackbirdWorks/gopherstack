@@ -2,7 +2,7 @@ package gcpresourcemanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 )
@@ -200,7 +201,8 @@ func codeOf(err error) codes.Code {
 
 		var c codes.Code
 
-		if json.Unmarshal([]byte(ge.Body), &body) == nil && c.UnmarshalJSON([]byte(`"`+body.Error.Status+`"`)) == nil {
+		if json.Unmarshal([]byte(ge.Body), &body, jsonx.V1()) == nil &&
+			c.UnmarshalJSON([]byte(`"`+body.Error.Status+`"`)) == nil {
 			return c
 		}
 	}

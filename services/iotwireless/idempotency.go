@@ -3,13 +3,15 @@ package iotwireless
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/url"
 	"sync"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxIdempotencyEntries = 1024
@@ -98,7 +100,7 @@ func (w *captureWriter) WriteHeader(status int) {
 // other body member.
 func requestTokenAndParams(body []byte) (string, [sha256.Size]byte, bool) {
 	var members map[string]any
-	if err := json.Unmarshal(body, &members); err != nil {
+	if err := json.Unmarshal(body, &members, jsonx.V1()); err != nil {
 		return "", [sha256.Size]byte{}, false
 	}
 
@@ -108,7 +110,7 @@ func requestTokenAndParams(body []byte) (string, [sha256.Size]byte, bool) {
 	}
 
 	delete(members, "ClientRequestToken")
-	canonical, err := json.Marshal(members)
+	canonical, err := json.Marshal(members, jsonx.V1())
 	if err != nil {
 		return "", [sha256.Size]byte{}, false
 	}

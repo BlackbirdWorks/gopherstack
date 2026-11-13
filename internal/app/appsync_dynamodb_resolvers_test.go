@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +14,8 @@ import (
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const asDDBSchema = `
@@ -256,7 +258,7 @@ type asGQLResponse struct {
 func (f *asDDBFixture) do(t *testing.T, query string) asGQLResponse {
 	t.Helper()
 
-	body, err := json.Marshal(map[string]any{"query": query})
+	body, err := json.Marshal(map[string]any{"query": query}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/apis/"+f.apiID+"/graphql", strings.NewReader(string(body)))
@@ -268,7 +270,7 @@ func (f *asDDBFixture) do(t *testing.T, query string) asGQLResponse {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out asGQLResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()), rec.Body.String())
 
 	return out
 }

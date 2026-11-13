@@ -2,11 +2,13 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -32,10 +34,10 @@ const s3SnapshotVersion = 1
 // unexported, so encoding/json already skips them. Restore re-initialises those
 // skipped fields via reinitBucketMutexes/reinitUploadMutexes below.
 type backendSnapshot struct {
-	Tables        map[string]json.RawMessage `json:"tables"`
-	Tags          map[string][]types.Tag     `json:"tags"`
-	DefaultRegion string                     `json:"defaultRegion"`
-	Version       int                        `json:"version"`
+	Tables        map[string]jsontext.Value `json:"tables"`
+	Tags          map[string][]types.Tag    `json:"tags"`
+	DefaultRegion string                    `json:"defaultRegion"`
+	Version       int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -175,7 +177,7 @@ func (bucket *StoredBucket) MarshalJSON() ([]byte, error) {
 	bucket.mu.RLock("Snapshot")
 	defer bucket.mu.RUnlock()
 
-	return json.Marshal((*storedBucketAlias)(bucket))
+	return json.Marshal((*storedBucketAlias)(bucket), jsonx.V1())
 }
 
 // storedObjectAlias avoids infinite recursion from StoredObject.MarshalJSON.
@@ -187,7 +189,7 @@ func (obj *StoredObject) MarshalJSON() ([]byte, error) {
 	obj.mu.RLock("Snapshot")
 	defer obj.mu.RUnlock()
 
-	return json.Marshal((*storedObjectAlias)(obj))
+	return json.Marshal((*storedObjectAlias)(obj), jsonx.V1())
 }
 
 // storedMultipartUploadAlias avoids infinite recursion from
@@ -200,7 +202,7 @@ func (u *StoredMultipartUpload) MarshalJSON() ([]byte, error) {
 	u.mu.RLock("Snapshot")
 	defer u.mu.RUnlock()
 
-	return json.Marshal((*storedMultipartUploadAlias)(u))
+	return json.Marshal((*storedMultipartUploadAlias)(u), jsonx.V1())
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

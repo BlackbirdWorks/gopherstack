@@ -10,7 +10,8 @@ package apigateway
 import (
 	"bytes"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -43,15 +45,15 @@ type PutRestAPIInput struct {
 
 // openAPIDoc is the subset of an OpenAPI/Swagger document we interpret.
 type openAPIDoc struct {
-	Info                openAPIInfo                           `json:"info"`
-	Paths               map[string]map[string]json.RawMessage `json:"paths"`
-	Definitions         map[string]json.RawMessage            `json:"definitions"`
-	Components          *openAPIComponents                    `json:"components"`
-	SecurityDefinitions map[string]openAPISecurityScheme      `json:"securityDefinitions"`
-	Swagger             string                                `json:"swagger"`
-	OpenAPI             string                                `json:"openapi"`
-	APIKeySourceExt     string                                `json:"x-amazon-apigateway-api-key-source"`
-	BinaryMediaTypes    []string                              `json:"x-amazon-apigateway-binary-media-types"`
+	Info                openAPIInfo                          `json:"info"`
+	Paths               map[string]map[string]jsontext.Value `json:"paths"`
+	Definitions         map[string]jsontext.Value            `json:"definitions"`
+	Components          *openAPIComponents                   `json:"components"`
+	SecurityDefinitions map[string]openAPISecurityScheme     `json:"securityDefinitions"`
+	Swagger             string                               `json:"swagger"`
+	OpenAPI             string                               `json:"openapi"`
+	APIKeySourceExt     string                               `json:"x-amazon-apigateway-api-key-source"`
+	BinaryMediaTypes    []string                             `json:"x-amazon-apigateway-binary-media-types"`
 }
 
 type openAPIInfo struct {
@@ -61,7 +63,7 @@ type openAPIInfo struct {
 }
 
 type openAPIComponents struct {
-	Schemas         map[string]json.RawMessage       `json:"schemas"`
+	Schemas         map[string]jsontext.Value        `json:"schemas"`
 	SecuritySchemes map[string]openAPISecurityScheme `json:"securitySchemes"`
 }
 
@@ -76,20 +78,20 @@ type openAPIOperation struct {
 }
 
 type openAPIParameter struct {
-	Name     string          `json:"name"`
-	In       string          `json:"in"`
-	Schema   json.RawMessage `json:"schema"`
-	Required bool            `json:"required"`
+	Name     string         `json:"name"`
+	In       string         `json:"in"`
+	Schema   jsontext.Value `json:"schema"`
+	Required bool           `json:"required"`
 }
 
 type openAPIResponse struct {
 	Content     map[string]openAPIMediaTyp `json:"content"`
 	Description string                     `json:"description"`
-	Schema      json.RawMessage            `json:"schema"`
+	Schema      jsontext.Value             `json:"schema"`
 }
 
 type openAPIMediaTyp struct {
-	Schema json.RawMessage `json:"schema"`
+	Schema jsontext.Value `json:"schema"`
 }
 
 type openAPIRequestBody struct {
@@ -141,13 +143,13 @@ func parseOpenAPI(body []byte) (*openAPIDoc, error) {
 		)
 	}
 
-	normalized, err := json.Marshal(raw)
+	normalized, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid OpenAPI document: %w", ErrInvalidParameter, err)
 	}
 
 	var doc openAPIDoc
-	if jsonErr := json.Unmarshal(normalized, &doc); jsonErr != nil {
+	if jsonErr := json.Unmarshal(normalized, &doc, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: invalid OpenAPI document: %w", ErrInvalidParameter, jsonErr)
 	}
 	if doc.Swagger == "" && doc.OpenAPI == "" {
@@ -244,7 +246,7 @@ func openAPIOperationWarnings(raw map[string]any, knownOperationExtensions map[s
 }
 
 // schemaDefinitions returns the named schemas regardless of spec version.
-func (d *openAPIDoc) schemaDefinitions() map[string]json.RawMessage {
+func (d *openAPIDoc) schemaDefinitions() map[string]jsontext.Value {
 	if len(d.Definitions) > 0 {
 		return d.Definitions
 	}
@@ -446,7 +448,7 @@ func importPaths(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 				continue
 			}
 			var op openAPIOperation
-			if err := json.Unmarshal(raw, &op); err != nil {
+			if err := json.Unmarshal(raw, &op, jsonx.V1()); err != nil {
 				continue
 			}
 			importMethod(res, httpMethod, &op, auths)
@@ -665,14 +667,14 @@ func applyImportedSecurity(method *Method, op *openAPIOperation) {
 
 // schemaRefName extracts the model name from a JSON schema reference such as
 // {"$ref":"#/definitions/Foo"} or {"$ref":"#/components/schemas/Foo"}.
-func schemaRefName(raw json.RawMessage) string {
+func schemaRefName(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 	var s struct {
 		Ref string `json:"$ref"`
 	}
-	if err := json.Unmarshal(raw, &s); err != nil || s.Ref == "" {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil || s.Ref == "" {
 		return ""
 	}
 	idx := strings.LastIndex(s.Ref, "/")
@@ -811,7 +813,7 @@ func (b *InMemoryBackend) ImportAPIKeys(body []byte, format string, failOnWarnin
 // "x-amazon-apigateway-documentation" documentationParts array.
 type importDocumentationPartEntry struct {
 	Location   DocumentationLocation `json:"location"`
-	Properties json.RawMessage       `json:"properties"`
+	Properties jsontext.Value        `json:"properties"`
 }
 
 // importDocumentationPartsPayload is the expected JSON shape for
@@ -831,7 +833,7 @@ func (b *InMemoryBackend) ImportDocumentationParts(
 	restAPIID string, body []byte, mode string, failOnWarnings bool,
 ) ([]string, []string, error) {
 	var payload importDocumentationPartsPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(body, &payload, jsonx.V1()); err != nil {
 		return nil, nil, fmt.Errorf("%w: failed to parse documentation parts payload: %w", ErrInvalidParameter, err)
 	}
 

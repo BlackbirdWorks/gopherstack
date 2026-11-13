@@ -3,13 +3,15 @@ package codeartifact
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func packageVersionToMap(pv *PackageVersion) map[string]any {
@@ -182,7 +184,7 @@ func (h *Handler) handleDeletePackageVersions(
 
 	var in deletePackageVersionsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -238,7 +240,7 @@ func (h *Handler) handleCopyPackageVersions(
 
 	var in copyPackageVersionsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -291,7 +293,7 @@ func (h *Handler) handleDisposePackageVersions(
 
 	var in disposeVersionsBody
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	successful, failed, err := h.Backend.DisposePackageVersions(
@@ -742,7 +744,7 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 
 	var in updateVersionsStatusBody
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	if in.TargetStatus == "" {

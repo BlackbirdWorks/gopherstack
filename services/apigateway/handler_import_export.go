@@ -15,13 +15,14 @@ package apigateway
 //     payload, optionally with "restApiId"/"mode" as extra sibling fields.
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -59,7 +60,7 @@ type restAPISpecEnvelope struct {
 // for the two payload shapes this handles.
 func decodeRestAPISpecPayload(b []byte) ([]byte, restAPISpecEnvelope) {
 	var env restAPISpecEnvelope
-	if err := json.Unmarshal(b, &env); err == nil && env.Body != "" {
+	if err := json.Unmarshal(b, &env, jsonx.V1()); err == nil && env.Body != "" {
 		if raw, decErr := base64.StdEncoding.DecodeString(env.Body); decErr == nil {
 			return raw, env
 		}
@@ -75,7 +76,7 @@ func decodeRestAPISpecPayload(b []byte) ([]byte, restAPISpecEnvelope) {
 		Format    string `json:"format,omitempty"`
 	}
 
-	_ = json.Unmarshal(b, &fallback)
+	_ = json.Unmarshal(b, &fallback, jsonx.V1())
 
 	return b, restAPISpecEnvelope{
 		RestAPIID: fallback.RestAPIID,
@@ -206,7 +207,7 @@ func (h *Handler) dispatchRestAPISpec(
 		env.Parameters[k] = v[0]
 	}
 
-	envelope, err := json.Marshal(env)
+	envelope, err := json.Marshal(env, jsonx.V1())
 	if err != nil {
 		return writeJSONProtocolDispatchError(c, http.StatusInternalServerError,
 			"InternalFailure", "internal server error")

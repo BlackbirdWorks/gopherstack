@@ -2,8 +2,7 @@ package networkfirewall
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
@@ -12,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -85,7 +85,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if json.Unmarshal(body, &data) != nil {
+	if json.Unmarshal(body, &data, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -127,12 +127,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	_, isSyntax := errors.AsType[*json.SyntaxError](err)
-	_, isType := errors.AsType[*json.UnmarshalTypeError](err)
+	isSyntax := jsonx.IsSyntaxError(err)
+	isType := jsonx.IsTypeError(err)
 
 	if isSyntax || isType {
 		err = invalid("The request body is not valid: %v", err)

@@ -2,11 +2,13 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -285,7 +287,7 @@ func pipelineDefinitionSteps(definition string) []definedPipelineStep {
 		Steps []definedPipelineStep `json:"Steps"`
 	}
 
-	if json.Unmarshal([]byte(definition), &doc) != nil {
+	if json.Unmarshal([]byte(definition), &doc, jsonx.V1()) != nil {
 		return nil
 	}
 

@@ -2,7 +2,7 @@ package bedrockruntime_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Converse tests ---
@@ -52,7 +54,7 @@ func TestHandler_Converse(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "output")
 			assert.Contains(t, out, "stopReason")
 
@@ -87,7 +89,7 @@ func TestConverse_ReflectsInputTokens(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	usage, ok := out["usage"].(map[string]any)
 	require.True(t, ok)
@@ -118,7 +120,7 @@ func TestConverse_WithSystem(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out, "output")
 	assert.Contains(t, out, "stopReason")
 	assert.Contains(t, out, "usage")
@@ -158,7 +160,7 @@ func TestConverse_ResponseFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, tt.wantKey)
 			assert.Contains(t, out, "usage")
 			assert.Contains(t, out, "stopReason")
@@ -201,7 +203,7 @@ func TestConverse_WithSystemMessages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "output")
 		})
 	}
@@ -222,7 +224,7 @@ func TestConverse_StopReasonEndTurn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "end_turn", out["stopReason"])
 }
 
@@ -252,7 +254,7 @@ func TestConverse_WithToolConfig_ReturnsEndTurn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "end_turn", out["stopReason"])
 	assert.Contains(t, out, "output")
 	assert.Contains(t, out, "usage")
@@ -284,7 +286,7 @@ func TestConverse_MultiTurnMessages_AccumulatesTokens(t *testing.T) {
 
 	extractInputTokens := func(body []byte) float64 {
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(body, &out))
+		require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 		usage := out["usage"].(map[string]any)
 
 		return usage["inputTokens"].(float64)

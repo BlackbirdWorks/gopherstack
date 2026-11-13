@@ -2,8 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putTraceSegmentsInput struct {
@@ -13,7 +15,7 @@ type putTraceSegmentsInput struct {
 func (h *Handler) handlePutTraceSegments(_ context.Context, body []byte) ([]byte, error) {
 	var in putTraceSegmentsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -45,5 +47,5 @@ func (h *Handler) handlePutTraceSegments(_ context.Context, body []byte) ([]byte
 
 	return json.Marshal(map[string]any{
 		"UnprocessedTraceSegments": out,
-	})
+	}, jsonx.V1())
 }

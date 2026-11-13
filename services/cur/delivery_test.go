@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"slices"
 	"testing"
@@ -16,6 +16,8 @@ import (
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (f *fixture) object(t *testing.T, key string) []byte {
@@ -109,7 +111,7 @@ func TestDelivery_CSVGzip(t *testing.T) {
 	}
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(f.object(t, manifestKey), &m))
+	require.NoError(t, json.Unmarshal(f.object(t, manifestKey), &m, jsonx.V1()))
 	assert.Equal(t, "daily", m["reportName"])
 	assert.Equal(t, "20260301T000000.000Z", m["billingPeriod"].(map[string]any)["start"])
 	assert.Equal(t, []any{dataKey}, m["reportKeys"])

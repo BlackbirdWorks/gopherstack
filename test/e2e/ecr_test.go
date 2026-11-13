@@ -41,6 +41,7 @@ func TestECRDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -77,6 +78,7 @@ func TestECRDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -113,6 +115,7 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecr")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

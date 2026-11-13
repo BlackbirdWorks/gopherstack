@@ -2,7 +2,7 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"unicode"
 
@@ -29,12 +29,12 @@ type CreateUserInput struct {
 	HierarchyGroupID            string `json:"HierarchyGroupId"`
 	DirectoryUserID             string `json:"DirectoryUserId"`
 	Username                    string
-	AfterContactWorkConfigs     json.RawMessage
-	VoiceEnhancementConfigs     json.RawMessage
-	PhoneNumberConfigs          json.RawMessage
-	PersistentConnectionConfigs json.RawMessage
+	AfterContactWorkConfigs     jsontext.Value
+	VoiceEnhancementConfigs     jsontext.Value
+	PhoneNumberConfigs          jsontext.Value
+	PersistentConnectionConfigs jsontext.Value
 	SecurityProfileIDs          []string `json:"SecurityProfileIds"`
-	AutoAcceptConfigs           json.RawMessage
+	AutoAcceptConfigs           jsontext.Value
 }
 
 // UpdateUserInput carries the user update requests; each op reads only its own members.

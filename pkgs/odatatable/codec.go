@@ -2,12 +2,15 @@ package odatatable
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // OData metadata level names, negotiated by each caller from its own
@@ -66,9 +69,9 @@ func ParseTop(raw string) (int, error) {
 // supplied value never overwrites it -- the server always wins). Any
 // "odata.*"/"@odata.type" metadata key is skipped.
 func DecodeEntityBody(body []byte) (string, string, bool, bool, map[string]EntityProperty, error) {
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 
-	if err := json.Unmarshal(body, &raw); err != nil {
+	if err := json.Unmarshal(body, &raw, jsonx.V1()); err != nil {
 		return "", "", false, false, nil, fmt.Errorf("%w: %w", ErrInvalidEntityProperty, err)
 	}
 
@@ -92,14 +95,14 @@ func DecodeEntityBody(body []byte) (string, string, bool, bool, map[string]Entit
 
 // decodeSystemKeyProperty extracts the string-valued system property name
 // (PartitionKey or RowKey) from raw, if present.
-func decodeSystemKeyProperty(raw map[string]json.RawMessage, name string) (string, bool, error) {
+func decodeSystemKeyProperty(raw map[string]jsontext.Value, name string) (string, bool, error) {
 	rawVal, ok := raw[name]
 	if !ok {
 		return "", false, nil
 	}
 
 	var s string
-	if err := json.Unmarshal(rawVal, &s); err != nil {
+	if err := json.Unmarshal(rawVal, &s, jsonx.V1()); err != nil {
 		return "", false, fmt.Errorf("%w: %s must be a string", ErrInvalidEntityProperty, name)
 	}
 
@@ -125,7 +128,7 @@ func isSystemOrMetadataKey(key string) bool {
 
 // decodeCustomProperties decodes every user-defined (non-system,
 // non-metadata) property in raw into its typed EntityProperty.
-func decodeCustomProperties(raw map[string]json.RawMessage) (map[string]EntityProperty, error) {
+func decodeCustomProperties(raw map[string]jsontext.Value) (map[string]EntityProperty, error) {
 	props := make(map[string]EntityProperty, len(raw))
 
 	for key, rawVal := range raw {
@@ -136,7 +139,7 @@ func decodeCustomProperties(raw map[string]json.RawMessage) (map[string]EntityPr
 		edmType := ""
 
 		if annRaw, ok := raw[key+"@odata.type"]; ok {
-			if err := json.Unmarshal(annRaw, &edmType); err != nil {
+			if err := json.Unmarshal(annRaw, &edmType, jsonx.V1()); err != nil {
 				return nil, fmt.Errorf("%w: malformed %s@odata.type", ErrInvalidEntityProperty, key)
 			}
 		}
@@ -154,7 +157,7 @@ func decodeCustomProperties(raw map[string]json.RawMessage) (map[string]EntityPr
 
 // decodeProperty decodes raw into a typed EntityProperty per its (possibly
 // empty) "@odata.type" annotation value edmType.
-func decodeProperty(edmType string, raw json.RawMessage) (EntityProperty, error) {
+func decodeProperty(edmType string, raw jsontext.Value) (EntityProperty, error) {
 	switch EdmType(edmType) {
 	case EdmString, EdmInt32, EdmDouble, EdmBoolean:
 		return decodeScalarProperty(EdmType(edmType), raw)
@@ -169,32 +172,32 @@ func decodeProperty(edmType string, raw json.RawMessage) (EntityProperty, error)
 
 // decodeScalarProperty decodes the four EDM types whose wire representation
 // is a bare, natively-typed JSON value (string/number/number/bool).
-func decodeScalarProperty(edmType EdmType, raw json.RawMessage) (EntityProperty, error) {
+func decodeScalarProperty(edmType EdmType, raw jsontext.Value) (EntityProperty, error) {
 	switch edmType {
 	case EdmString:
 		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
+		if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 			return EntityProperty{}, fmt.Errorf("%w: not a string", ErrInvalidEntityProperty)
 		}
 
 		return EntityProperty{Type: EdmString, Value: s}, nil
 	case EdmInt32:
 		var n int32
-		if err := json.Unmarshal(raw, &n); err != nil {
+		if err := json.Unmarshal(raw, &n, jsonx.V1()); err != nil {
 			return EntityProperty{}, fmt.Errorf("%w: not an Int32", ErrInvalidEntityProperty)
 		}
 
 		return EntityProperty{Type: EdmInt32, Value: n}, nil
 	case EdmDouble:
 		var f float64
-		if err := json.Unmarshal(raw, &f); err != nil {
+		if err := json.Unmarshal(raw, &f, jsonx.V1()); err != nil {
 			return EntityProperty{}, fmt.Errorf("%w: not a Double", ErrInvalidEntityProperty)
 		}
 
 		return EntityProperty{Type: EdmDouble, Value: f}, nil
 	case EdmBoolean:
 		var b bool
-		if err := json.Unmarshal(raw, &b); err != nil {
+		if err := json.Unmarshal(raw, &b, jsonx.V1()); err != nil {
 			return EntityProperty{}, fmt.Errorf("%w: not a Boolean", ErrInvalidEntityProperty)
 		}
 
@@ -208,9 +211,9 @@ func decodeScalarProperty(edmType EdmType, raw json.RawMessage) (EntityProperty,
 // representation is always a JSON string carrying an encoded value (decimal
 // digits, an RFC3339 timestamp, a UUID, or base64), requiring the
 // "@odata.type" annotation to disambiguate from Edm.String.
-func decodeStringEncodedProperty(edmType EdmType, raw json.RawMessage) (EntityProperty, error) {
+func decodeStringEncodedProperty(edmType EdmType, raw jsontext.Value) (EntityProperty, error) {
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return EntityProperty{}, fmt.Errorf("%w: %s must be a string", ErrInvalidEntityProperty, edmType)
 	}
 
@@ -247,24 +250,24 @@ func decodeStringEncodedProperty(edmType EdmType, raw json.RawMessage) (EntityPr
 // mirroring aztables' own client-side inference exactly: try Int32 first
 // (so a decimal-point-free number becomes Edm.Int32), then fall back to the
 // JSON value's natural Go type.
-func decodeUnannotatedProperty(raw json.RawMessage) (EntityProperty, error) {
+func decodeUnannotatedProperty(raw jsontext.Value) (EntityProperty, error) {
 	var i32 int32
-	if err := json.Unmarshal(raw, &i32); err == nil {
+	if err := json.Unmarshal(raw, &i32, jsonx.V1()); err == nil {
 		return EntityProperty{Type: EdmInt32, Value: i32}, nil
 	}
 
 	var f float64
-	if err := json.Unmarshal(raw, &f); err == nil {
+	if err := json.Unmarshal(raw, &f, jsonx.V1()); err == nil {
 		return EntityProperty{Type: EdmDouble, Value: f}, nil
 	}
 
 	var b bool
-	if err := json.Unmarshal(raw, &b); err == nil {
+	if err := json.Unmarshal(raw, &b, jsonx.V1()); err == nil {
 		return EntityProperty{Type: EdmBoolean, Value: b}, nil
 	}
 
 	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err == nil {
 		return EntityProperty{Type: EdmString, Value: s}, nil
 	}
 

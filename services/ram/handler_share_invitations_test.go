@@ -1,7 +1,7 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -97,7 +98,7 @@ func TestGetResourceShareInvitations_Status(t *testing.T) {
 					Status string `json:"status"`
 				} `json:"resourceShareInvitations"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.ResourceShareInvitations, 1)
 			assert.Equal(t, tt.wantStatus, resp.ResourceShareInvitations[0].Status)
 		})
@@ -371,7 +372,7 @@ func TestGetResourceShareInvitations_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -380,7 +381,7 @@ func TestGetResourceShareInvitations_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.ResourceShareInvitations)
@@ -417,7 +418,7 @@ func TestAcceptInvitation_HTTP(t *testing.T) {
 			Status string `json:"status"`
 		} `json:"resourceShareInvitation"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ACCEPTED", resp.ResourceShareInvitation.Status)
 
 	// Double-accept should return AlreadyAccepted.

@@ -2,7 +2,8 @@ package dax_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
@@ -26,7 +28,7 @@ func daxRequest(t *testing.T, h *dax.Handler, target string, body any) *httptest
 	var buf bytes.Buffer
 
 	if body != nil {
-		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		require.NoError(t, json.MarshalEncode(jsontext.NewEncoder(&buf, jsonx.V1()), body))
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/", &buf)
@@ -163,7 +165,7 @@ func TestHandlerErrorMapping(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, errResp["__type"])
 		})
 	}
@@ -183,7 +185,7 @@ func TestHandlerCreateSubnetGroupNameNotFormatValidated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sg := resp["SubnetGroup"].(map[string]any)
 	assert.Equal(t, "1sg--bad", sg["SubnetGroupName"])
 }
@@ -201,7 +203,7 @@ func TestHandlerReset(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	clusters := resp["Clusters"].([]any)
 	assert.Empty(t, clusters)
 }

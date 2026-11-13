@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // trainingPlanStatusScheduled mirrors AWS's TrainingPlanStatus "Scheduled"
@@ -126,7 +127,7 @@ func (rc *ReservedCapacity) MarshalJSON() ([]byte, error) {
 		StartTime:          epochSeconds(rc.StartTime),
 		EndTime:            epochSeconds(rc.EndTime),
 		UltraServerSummary: rc.ultraServerSummary(),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ReservedCapacity.MarshalJSON], read by
@@ -140,7 +141,7 @@ func (rc *ReservedCapacity) UnmarshalJSON(data []byte) error {
 		EndTime   float64 `json:"EndTime"`
 	}{alias: (*alias)(rc)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -478,7 +479,7 @@ func (o TrainingPlanExtensionOffering) MarshalJSON() ([]byte, error) {
 		alias:     alias(o),
 		StartDate: epochSeconds(o.StartDate),
 		EndDate:   epochSeconds(o.EndDate),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [TrainingPlanExtensionOffering.MarshalJSON].
@@ -491,7 +492,7 @@ func (o *TrainingPlanExtensionOffering) UnmarshalJSON(data []byte) error {
 		EndDate   float64 `json:"EndDate"`
 	}{alias: (*alias)(o)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

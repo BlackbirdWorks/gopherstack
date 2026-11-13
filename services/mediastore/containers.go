@@ -2,7 +2,7 @@ package mediastore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"regexp"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -199,7 +200,7 @@ func (b *InMemoryBackend) ListContainers(
 
 // PutContainerPolicy stores a container access policy.
 func (b *InMemoryBackend) PutContainerPolicy(ctx context.Context, name, policy string) error {
-	if !json.Valid([]byte(policy)) {
+	if !jsontext.Value([]byte(policy)).IsValid(jsonx.V1()) {
 		return ErrInvalidPolicy
 	}
 

@@ -3,7 +3,7 @@ package servicediscovery
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -90,7 +91,7 @@ func marshalPagedResponse(key string, items []map[string]any, nextToken string) 
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // Handler is the HTTP handler for the AWS Cloud Map service discovery API.
@@ -197,7 +198,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -434,10 +435,7 @@ var sentinelErrorCodes = sync.OnceValue(func() []struct {
 // just like errInvalidRequest but isn't itself a sentinel in
 // sentinelErrorCodes.
 func isMalformedRequest(err error) bool {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
-	return errors.Is(err, errInvalidRequest) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
+	return errors.Is(err, errInvalidRequest) || jsonx.IsSyntaxError(err) || jsonx.IsTypeError(err)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -468,7 +466,7 @@ func (h *Handler) errorResponse(c *echo.Context, errType string, err error) erro
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    errType,
 		keyMessageField: msg,
-	})
+	}, jsonx.V1())
 
 	return c.JSONBlob(http.StatusBadRequest, payload)
 }

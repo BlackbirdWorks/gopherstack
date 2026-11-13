@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchDetectorOps(op, path, query string, body []byte) (any, int, bool, error) {
@@ -49,7 +51,7 @@ func (h *Handler) handleCreateDetector(body []byte) (any, int, error) {
 		Features                   []DetectorFeature `json:"features"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -105,7 +107,7 @@ func (h *Handler) handleUpdateDetector(detectorID string, body []byte) (int, err
 		Features                   []DetectorFeature `json:"features"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

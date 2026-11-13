@@ -44,6 +44,7 @@ func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
 	// Navigate to the Lambda dashboard.
 	_, err = page.Goto(server.URL + "/dashboard/lambda")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// The page should render a heading containing "Lambda".
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -99,6 +100,7 @@ func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
 	// Navigate to the Lambda dashboard.
 	_, err = page.Goto(server.URL + "/dashboard/lambda")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// The function name should appear in the list.
 	err = page.Locator("text=e2e-test-fn").WaitFor(playwright.LocatorWaitForOptions{
@@ -158,6 +160,7 @@ func TestE2E_LambdaDashboard_FunctionDetail_ZipFunction(t *testing.T) {
 	// Navigate directly to the function detail page.
 	_, err = page.Goto(server.URL + "/dashboard/lambda/function?name=zip-detail-fn")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("text=zip-detail-fn").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -190,6 +193,7 @@ func TestE2E_LambdaDashboard_NavLink(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// The Lambda nav link should be visible in the sidebar.
 	lambdaLink := page.Locator("#nav-lambda").First()

@@ -13,13 +13,14 @@ package waf_test
 //     itself consume any other token.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -73,7 +74,7 @@ func TestWAF_GetChangeTokenStatus_Fresh(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PROVISIONED", resp["ChangeTokenStatus"])
 }
 
@@ -97,7 +98,7 @@ func TestWAF_GetChangeTokenStatus_AfterMutation_INSYNC(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "INSYNC", resp["ChangeTokenStatus"])
 }
 
@@ -202,7 +203,7 @@ func TestChangeTokenStatus_Lifecycle(t *testing.T) {
 			rec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{"ChangeToken": token})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var before map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before, jsonx.V1()))
 			assert.Equal(t, tt.wantBefore, before["ChangeTokenStatus"], "status before mutation")
 
 			if tt.mutate != nil {
@@ -213,7 +214,7 @@ func TestChangeTokenStatus_Lifecycle(t *testing.T) {
 			rec = wafDo(t, h, "GetChangeTokenStatus", map[string]any{"ChangeToken": token})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var after map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after, jsonx.V1()))
 			assert.Equal(t, tt.wantAfter, after["ChangeTokenStatus"], "status after mutation")
 		})
 	}
@@ -229,7 +230,7 @@ func TestChangeTokenStatus_UnknownReturnsINSYNC(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "INSYNC", resp["ChangeTokenStatus"], "unknown token should return INSYNC per AWS behavior")
 }
 
@@ -299,7 +300,7 @@ func TestChangeToken_AlreadyConsumedTokenRejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, statusRec.Code)
 
 	var statusResp map[string]any
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp, jsonx.V1()))
 	require.Equal(t, "INSYNC", statusResp["ChangeTokenStatus"], "token must be consumed before reuse attempt")
 
 	// Reusing the same, now-INSYNC token for a second mutation must fail.
@@ -315,7 +316,7 @@ func TestChangeToken_AlreadyConsumedTokenRejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Rules"], 1, "the rejected second CreateRule must not have mutated state")
 }
 

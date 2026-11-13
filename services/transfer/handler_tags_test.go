@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -31,7 +32,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisible(t *testing.T) {
 	var createOut struct {
 		ServerID string `json:"ServerId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	serverARN := "arn:aws:transfer:us-east-1:123456789012:server/" + createOut.ServerID
 	listRec := doTransferRequest(t, h, "ListTagsForResource", map[string]any{
@@ -45,7 +46,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisible(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 
 	tagMap := make(map[string]string, len(listOut.Tags))
 
@@ -88,7 +89,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 				var out struct {
 					AgreementID string `json:"AgreementId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return "arn:aws:transfer:us-east-1:123456789012:server/" + serverID + "/agreement/" + out.AgreementID
 			},
@@ -107,7 +108,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 				var out struct {
 					ProfileID string `json:"ProfileId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return "arn:aws:transfer:us-east-1:123456789012:profile/" + out.ProfileID
 			},
@@ -150,7 +151,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 				var out struct {
 					WebAppID string `json:"WebAppId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return "arn:aws:transfer:us-east-1:123456789012:webapp/" + out.WebAppID
 			},
@@ -169,7 +170,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 				var out struct {
 					CertificateID string `json:"CertificateId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return "arn:aws:transfer:us-east-1:123456789012:certificate/" + out.CertificateID
 			},
@@ -191,7 +192,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 				var out struct {
 					HostKeyID string `json:"HostKeyId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return "arn:aws:transfer:us-east-1:123456789012:host-key/" + serverID + "/" + out.HostKeyID
 			},
@@ -214,7 +215,7 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 
 			tagMap := make(map[string]string, len(listOut.Tags))
 			for _, tag := range listOut.Tags {
@@ -254,7 +255,7 @@ func TestHandler_TagResourceListTagsRoundTripServerARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	tags := listResp["Tags"].([]any)
 	tagMap := make(map[string]string)
@@ -293,7 +294,7 @@ func TestHandler_UntagResourceRoundTrip(t *testing.T) {
 
 	listRec := doTransferRequest(t, h, "ListTagsForResource", map[string]any{"Arn": arnStr})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	tags := listResp["Tags"].([]any)
 	tagMap := make(map[string]string)
@@ -342,7 +343,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Tags"])
 }
 

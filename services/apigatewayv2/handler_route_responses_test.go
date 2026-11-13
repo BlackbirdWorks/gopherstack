@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -69,7 +70,7 @@ func TestHandler_CreateRouteResponse(t *testing.T) {
 				require.Equal(t, http.StatusCreated, routeRR.Code)
 
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &route, jsonx.V1()))
 				routeID = route.RouteID
 			}
 
@@ -91,7 +92,7 @@ func TestHandler_CreateRouteResponse(t *testing.T) {
 
 			if tt.wantRespKey != "" {
 				var rresp apigatewayv2.RouteResponse
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rresp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rresp, jsonx.V1()))
 				assert.Equal(t, tt.wantRespKey, rresp.RouteResponseKey)
 				assert.NotEmpty(t, rresp.RouteResponseID)
 			}
@@ -125,7 +126,7 @@ func TestHandler_DuplicateRouteResponseKey(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var route apigatewayv2.Route
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
 
@@ -187,7 +188,7 @@ func TestHandler_GetRouteResponses(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 				routeID = route.RouteID
 			}
 
@@ -199,7 +200,7 @@ func TestHandler_GetRouteResponses(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.RouteResponse `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.responseCnt)
 			}
 		})
@@ -238,7 +239,7 @@ func TestHandler_GetRouteResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var route apigatewayv2.Route
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
 			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
@@ -247,7 +248,7 @@ func TestHandler_GetRouteResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var rr2 apigatewayv2.RouteResponse
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2, jsonx.V1()))
 
 			responseID := rr2.RouteResponseID
 			if tt.useWrongID {
@@ -293,7 +294,7 @@ func TestHandler_DeleteRouteResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var route apigatewayv2.Route
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, route.RouteID)
 			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
@@ -302,7 +303,7 @@ func TestHandler_DeleteRouteResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var rr2 apigatewayv2.RouteResponse
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2, jsonx.V1()))
 
 			responseID := rr2.RouteResponseID
 			if tt.useWrongID {
@@ -334,14 +335,14 @@ func TestHandler_UpdateRouteResponse(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var r apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &r))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &r, jsonx.V1()))
 
 				rr = doRequest(t, h, http.MethodPost,
 					fmt.Sprintf("/v2/apis/%s/routes/%s/routeresponses", apiID, r.RouteID),
 					map[string]any{"routeResponseKey": "$default"})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var rr2 apigatewayv2.RouteResponse
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rr2, jsonx.V1()))
 
 				return apiID, r.RouteID, rr2.RouteResponseID
 			},

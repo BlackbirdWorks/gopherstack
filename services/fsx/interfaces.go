@@ -2,7 +2,7 @@ package fsx
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strconv"
 	"time"
 )
@@ -230,10 +230,10 @@ type LustreConfiguration struct {
 	DriveCacheType                string                       `json:"DriveCacheType,omitempty"`
 	MountName                     string                       `json:"MountName,omitempty"`
 	WeeklyMaintenanceStartTime    string                       `json:"WeeklyMaintenanceStartTime,omitempty"`
-	RootSquashConfiguration       json.RawMessage              `json:"RootSquashConfiguration,omitempty"`
-	DataReadCacheConfiguration    json.RawMessage              `json:"DataReadCacheConfiguration,omitempty"`
-	MetadataConfiguration         json.RawMessage              `json:"MetadataConfiguration,omitempty"`
-	LogConfiguration              json.RawMessage              `json:"LogConfiguration,omitempty"`
+	RootSquashConfiguration       jsontext.Value               `json:"RootSquashConfiguration,omitempty"`
+	DataReadCacheConfiguration    jsontext.Value               `json:"DataReadCacheConfiguration,omitempty"`
+	MetadataConfiguration         jsontext.Value               `json:"MetadataConfiguration,omitempty"`
+	LogConfiguration              jsontext.Value               `json:"LogConfiguration,omitempty"`
 	AutomaticBackupRetentionDays  int32                        `json:"AutomaticBackupRetentionDays,omitempty"`
 	ThroughputCapacity            int32                        `json:"ThroughputCapacity,omitempty"`
 	PerUnitStorageThroughput      int32                        `json:"PerUnitStorageThroughput,omitempty"`

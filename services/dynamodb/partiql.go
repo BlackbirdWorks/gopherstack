@@ -3,7 +3,7 @@ package dynamodb
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -304,7 +305,7 @@ func (r *partiQLRunner) executeStatement(
 // handleExecuteStatement routes to specific DML/DQL handlers based on the statement type.
 func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byte) (any, error) {
 	var req executeStatementRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -336,7 +337,7 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 	body []byte,
 ) (any, error) {
 	var req batchExecuteStatementRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -882,7 +883,7 @@ func encodePartiQLNextToken(lastKey map[string]types.AttributeValue) string {
 
 	wire := models.FromSDKItem(lastKey)
 
-	b, err := json.Marshal(wire)
+	b, err := json.Marshal(wire, jsonx.V1())
 	if err != nil {
 		return ""
 	}
@@ -903,7 +904,7 @@ func decodePartiQLNextToken(token string) map[string]types.AttributeValue {
 	}
 
 	var wire map[string]any
-	if unmarshalErr := json.Unmarshal(b, &wire); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(b, &wire, jsonx.V1()); unmarshalErr != nil {
 		return nil
 	}
 

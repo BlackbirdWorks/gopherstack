@@ -2,7 +2,7 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -34,10 +34,10 @@ const amplifySnapshotVersion = 1
 // store.Table.Restore from the webhooks table's AppID field. So Tables is
 // the entirety of the persisted state besides AccountID/Region.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountId"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountId"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON. It implements

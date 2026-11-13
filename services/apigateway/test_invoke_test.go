@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -188,7 +189,7 @@ func TestTestInvokeMethod_StageVariablesAndPathParameters(t *testing.T) {
 	assert.Equal(t, "real-fn", inv.fn, "stage variable substituted into the integration URI")
 
 	var event map[string]any
-	require.NoError(t, json.Unmarshal(inv.payload, &event))
+	require.NoError(t, json.Unmarshal(inv.payload, &event, jsonx.V1()))
 	assert.Equal(t, map[string]any{"id": "42"}, event["pathParameters"])
 	assert.Equal(t, map[string]any{"fn": "real-fn"}, event["stageVariables"])
 }

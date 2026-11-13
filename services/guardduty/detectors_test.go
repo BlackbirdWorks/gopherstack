@@ -1,7 +1,7 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -40,7 +41,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				require.NotEmpty(t, resp["detectorId"])
 			},
 		},
@@ -54,7 +55,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "ENABLED", resp["status"])
 				assert.NotEmpty(t, resp["serviceRole"])
 				assert.Equal(t, "SIX_HOURS", resp["findingPublishingFrequency"])
@@ -73,7 +74,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "FIFTEEN_MINUTES", resp["findingPublishingFrequency"])
 			},
 		},
@@ -90,7 +91,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "DISABLED", resp["status"])
 			},
 		},
@@ -117,7 +118,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ids, ok := resp["detectorIds"].([]any)
 				require.True(t, ok)
 				require.Len(t, ids, 1)
@@ -155,12 +156,12 @@ func TestDetector_Lifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id := resp["detectorId"].(string)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
 				var det map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &det))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &det, jsonx.V1()))
 				tags, ok := det["tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "test", tags["env"])
@@ -218,7 +219,7 @@ func TestDetector_Timestamps_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, field := range []string{"createdAt", "updatedAt"} {
 		raw, ok := resp[field]
@@ -241,7 +242,7 @@ func TestDetector_UpdatedAt_Advances(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec1.Code)
 
 		var before map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before, jsonx.V1()))
 		createdAt := before["createdAt"].(string)
 		updatedAt1 := before["updatedAt"].(string)
 
@@ -256,7 +257,7 @@ func TestDetector_UpdatedAt_Advances(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 
 		var after map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after, jsonx.V1()))
 		createdAt2 := after["createdAt"].(string)
 		updatedAt2 := after["updatedAt"].(string)
 
@@ -279,7 +280,7 @@ func TestDetector_Tags_EmptyMap_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["tags"]
 	require.True(t, exists, "GetDetector response must include 'tags' key")
@@ -299,7 +300,7 @@ func TestListDetectors_Empty_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["detectorIds"]
 	require.True(t, exists, "ListDetectors must include 'detectorIds' key")

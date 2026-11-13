@@ -2,10 +2,12 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -94,7 +96,7 @@ func newTransactionDTORegistry() (*store.Registry, *store.Table[transactionSnaps
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage    `json:"tables"`
+	Tables                 map[string]jsontext.Value     `json:"tables"`
 	ResourceLFTags         map[string][]LFTagPair        `json:"resourceLFTags"`
 	Queries                map[string]string             `json:"queries,omitempty"`
 	TableStorageOptimizers map[string][]StorageOptimizer `json:"tableStorageOptimizers,omitempty"`
@@ -186,7 +188,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 
 	// Marshal failure is returned to the caller (the Persistable wrapper logs
 	// it via the context-aware logger); do not log through slog.Default() here.
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("lakeformation: marshal snapshot: %w", err)
 	}
@@ -278,7 +280,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreTransactionsLocked restores the "dirty" transactions table from
 // tables via the ephemeral DTO registry, converting each DTO back to its
 // live type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreTransactionsLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreTransactionsLocked(tables map[string]jsontext.Value) error {
 	dtoReg, txDTOs := newTransactionDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -91,7 +92,7 @@ func TestReplicationDestination_NoFabricatedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "CreateReplicationConfiguration failed: %s", rec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	dests, ok := raw["Destinations"].([]any)
 	require.True(t, ok)

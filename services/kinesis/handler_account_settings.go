@@ -2,10 +2,11 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // describeLimitsOutput mirrors kinesis@v1.46.4 DescribeLimitsOutput
@@ -106,7 +107,7 @@ func (h *Handler) handleUpdateAccountSettings(
 	body []byte,
 ) (any, error) {
 	var req jsonUpdateAccountSettingsReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -137,7 +138,7 @@ func (h *Handler) handleUpdateMaxRecordSize(
 	body []byte,
 ) (any, error) {
 	var req jsonUpdateMaxRecordSizeReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

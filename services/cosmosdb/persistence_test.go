@@ -1,12 +1,12 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -77,7 +77,7 @@ func TestBackend_SnapshotRestore_Int64PrecisionRoundTrip(t *testing.T) {
 		info, getErr := b2.GetDocument("mydb", "mycoll", pk, tt.name)
 		require.NoError(t, getErr, tt.name)
 
-		gotNum, ok := info.Body["big"].(json.Number)
+		gotNum, ok := info.Body["big"].(jsonx.Number)
 		require.True(t, ok, tt.name)
 		assert.Equal(t, tt.raw, gotNum.String(), tt.name)
 	}

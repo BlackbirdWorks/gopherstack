@@ -3,7 +3,8 @@ package ocinosql
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"math/big"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -46,18 +48,17 @@ const (
 )
 
 func decodeJSON(raw []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fmt.Errorf("decode json: %w", err)
 	}
 
 	return v, nil
 }
 
-func decodeRow(raw json.RawMessage) map[string]any {
+func decodeRow(raw jsontext.Value) map[string]any {
 	v, err := decodeJSON(raw)
 	if err != nil {
 		return map[string]any{}
@@ -69,7 +70,7 @@ func decodeRow(raw json.RawMessage) map[string]any {
 }
 
 func coerceInt(v any, lo, hi int64, kind string) (any, string) {
-	n, ok := v.(json.Number)
+	n, ok := v.(jsonx.Number)
 	if !ok {
 		return nil, "is not a valid " + kind
 	}
@@ -93,7 +94,7 @@ func coerceInt(v any, lo, hi int64, kind string) (any, string) {
 		return nil, "is out of range for " + kind
 	}
 
-	return json.Number(strconv.FormatInt(i, 10)), ""
+	return jsonx.Number(strconv.FormatInt(i, 10)), ""
 }
 
 func parseTimestamp(v any) (time.Time, bool) {
@@ -106,7 +107,7 @@ func parseTimestamp(v any) (time.Time, bool) {
 				return t.UTC(), true
 			}
 		}
-	case json.Number:
+	case jsonx.Number:
 		if ms, err := strconv.ParseInt(x.String(), 10, 64); err == nil {
 			return time.UnixMilli(ms).UTC(), true
 		}
@@ -149,7 +150,7 @@ func coerce(t *dtype, v any) (any, string) {
 func coerceScalar(t *dtype, v any) (any, string) {
 	switch t.kind {
 	case kNumber:
-		n, ok := v.(json.Number)
+		n, ok := v.(jsonx.Number)
 		if _, rok := new(big.Rat).SetString(n.String()); !ok || !rok {
 			return nil, "is not a valid NUMBER"
 		}
@@ -263,7 +264,7 @@ func coerceRecord(t *dtype, v any) (any, string) {
 	return out, ""
 }
 
-func cmpNum(a, b json.Number) (int, bool) {
+func cmpNum(a, b jsonx.Number) (int, bool) {
 	ra, ok1 := new(big.Rat).SetString(a.String())
 	rb, ok2 := new(big.Rat).SetString(b.String())
 
@@ -277,8 +278,8 @@ func cmpNum(a, b json.Number) (int, bool) {
 // compareVals orders two scalar values of the same family; ok is false when they are not comparable.
 func compareVals(a, b any) (int, bool) {
 	switch x := a.(type) {
-	case json.Number:
-		if y, ok := b.(json.Number); ok {
+	case jsonx.Number:
+		if y, ok := b.(jsonx.Number); ok {
 			return cmpNum(x, y)
 		}
 	case string:
@@ -302,7 +303,7 @@ func compareVals(a, b any) (int, bool) {
 }
 
 func keyPart(v any) string {
-	if n, ok := v.(json.Number); ok {
+	if n, ok := v.(jsonx.Number); ok {
 		if r, rok := new(big.Rat).SetString(n.String()); rok {
 			return r.RatString()
 		}
@@ -326,7 +327,7 @@ func rowKey(pk []string, row map[string]any) (string, *APIError) {
 		parts[i] = keyPart(v)
 	}
 
-	b, _ := json.Marshal(parts) //nolint:errchkjson // []string cannot fail
+	b, _ := json.Marshal(parts, jsonx.V1()) //nolint:errchkjson // []string cannot fail
 
 	return string(b), nil
 }
@@ -340,7 +341,7 @@ func validUUID(s string) bool {
 }
 
 func coerceFloat(kind string, v any) (any, string) {
-	n, ok := v.(json.Number)
+	n, ok := v.(jsonx.Number)
 	if !ok {
 		return nil, "is not a valid " + kind
 	}
@@ -350,5 +351,5 @@ func coerceFloat(kind string, v any) (any, string) {
 		return nil, "is not a valid " + kind
 	}
 
-	return json.Number(strconv.FormatFloat(f, 'g', -1, 64)), ""
+	return jsonx.Number(strconv.FormatFloat(f, 'g', -1, 64)), ""
 }

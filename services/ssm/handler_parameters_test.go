@@ -2,7 +2,8 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -620,9 +622,9 @@ func TestHandlerParameterListingOperations(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out struct {
-				Parameters []json.RawMessage `json:"Parameters"`
+				Parameters []jsontext.Value `json:"Parameters"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Parameters, tt.wantCount)
 		})
 	}
@@ -659,7 +661,7 @@ func TestTagOperations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var listOut ssm.ListTagsForResourceOutput
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.TagList, 2)
 	assert.Equal(t, "env", listOut.TagList[0].Key)
 	assert.Equal(t, "prod", listOut.TagList[0].Value)

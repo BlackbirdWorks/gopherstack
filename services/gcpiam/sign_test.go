@@ -2,7 +2,7 @@ package gcpiam_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func systemPublicKey(t *testing.T, e *env, sa *adminpb.ServiceAccount, keyID string) []byte {
@@ -61,14 +63,14 @@ func TestSignJwt(t *testing.T) {
 	require.NoError(t, err)
 
 	var header map[string]string
-	require.NoError(t, json.Unmarshal(hdr, &header))
+	require.NoError(t, json.Unmarshal(hdr, &header, jsonx.V1()))
 	assert.Equal(t, map[string]string{"alg": "RS256", "typ": "JWT", "kid": keyID}, header)
 
 	body, err := enc.DecodeString(parts[1])
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(body, &claims))
+	require.NoError(t, json.Unmarshal(body, &claims, jsonx.V1()))
 	assert.Equal(t, "someone", claims["sub"])
 	assert.InDelta(t, float64(now+3600), claims["exp"], 0, "exp defaults to one hour")
 
@@ -137,7 +139,7 @@ func (e *env) signJwt(t *testing.T, name, payload string) (string, string, error
 }
 
 func itoa(n int64) string {
-	b, _ := json.Marshal(n)
+	b, _ := json.Marshal(n, jsonx.V1())
 
 	return string(b)
 }

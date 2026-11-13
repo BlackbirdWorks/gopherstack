@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -33,7 +34,7 @@ func TestUpdateBackupPlanUpdateDate(t *testing.T) {
 			}`)
 			require.Equal(t, http.StatusOK, createResp.Code)
 			var createData map[string]any
-			require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createData))
+			require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createData, jsonx.V1()))
 			planID := createData["BackupPlanId"].(string)
 
 			updateResp := doRequest(t, h, http.MethodPost, "/backup/plans/"+planID, `{
@@ -45,7 +46,7 @@ func TestUpdateBackupPlanUpdateDate(t *testing.T) {
 			require.Equal(t, http.StatusOK, updateResp.Code)
 
 			var updateData map[string]any
-			require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateData))
+			require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateData, jsonx.V1()))
 
 			assert.NotContains(t, updateData, "UpdateDate",
 				"UpdateBackupPlanOutput has no UpdateDate member")
@@ -105,7 +106,7 @@ func TestCreateBackupPlanAdvancedBackupSettings(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			if tc.wantInResponse {
 				settings, ok := data["AdvancedBackupSettings"].([]any)
@@ -255,14 +256,14 @@ func TestRuleLifecycle(t *testing.T) {
 					"BackupPlanName": "test-plan",
 					"Rules":          tt.rules,
 				},
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			resp := doRequest(t, h, http.MethodPut, "/backup/plans", string(body))
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createResp, jsonx.V1()))
 			planID := createResp["BackupPlanId"].(string)
 
 			// Retrieve and verify.
@@ -271,7 +272,7 @@ func TestRuleLifecycle(t *testing.T) {
 			_ = b
 
 			var getPlan map[string]any
-			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getPlan))
+			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getPlan, jsonx.V1()))
 			backupPlan := getPlan["BackupPlan"].(map[string]any)
 			rules := backupPlan["Rules"].([]any)
 			tt.wantInRules(t, rules)
@@ -335,21 +336,21 @@ func TestAdvancedBackupSettings(t *testing.T) {
 				planBody["BackupPlan"].(map[string]any)["AdvancedBackupSettings"] = tt.advancedSettings
 			}
 
-			body, err := json.Marshal(planBody)
+			body, err := json.Marshal(planBody, jsonx.V1())
 			require.NoError(t, err)
 
 			resp := doRequest(t, h, http.MethodPut, "/backup/plans", string(body))
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createResp, jsonx.V1()))
 			planID := createResp["BackupPlanId"].(string)
 
 			getResp := doRequest(t, h, http.MethodGet, "/backup/plans/"+planID, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var getPlan map[string]any
-			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getPlan))
+			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getPlan, jsonx.V1()))
 			backupPlan := getPlan["BackupPlan"].(map[string]any)
 
 			if tt.advancedSettings != nil {

@@ -2,7 +2,7 @@ package cognitoidentity_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,16 +11,18 @@ import (
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentity/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func loginJWT(t *testing.T, claims map[string]any) string {
 	t.Helper()
 
 	enc := base64.RawURLEncoding
-	hdr, err := json.Marshal(map[string]string{"alg": "RS256"})
+	hdr, err := json.Marshal(map[string]string{"alg": "RS256"}, jsonx.V1())
 	require.NoError(t, err)
 
-	body, err := json.Marshal(claims)
+	body, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	return enc.EncodeToString(hdr) + "." + enc.EncodeToString(body) + ".sig"

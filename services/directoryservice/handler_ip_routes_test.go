@@ -1,13 +1,15 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListIpRoutes_Pagination(t *testing.T) {
@@ -70,7 +72,7 @@ func TestIpRoutes(t *testing.T) {
 			rec2 := doRequest(t, h, "ListIpRoutes", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			routes, _ := r2["IpRoutesInfo"].([]any)
 			assert.Len(t, routes, 1)
 
@@ -85,7 +87,7 @@ func TestIpRoutes(t *testing.T) {
 			rec4 := doRequest(t, h, "ListIpRoutes", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4, jsonx.V1()))
 			routes2, _ := r4["IpRoutesInfo"].([]any)
 			assert.Empty(t, routes2)
 

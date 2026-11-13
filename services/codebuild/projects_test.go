@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateProject(t *testing.T) {
@@ -87,7 +90,7 @@ func TestHandler_CreateProject_TimestampsAreNumbers(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	project, ok := out["project"].(map[string]any)
 	require.True(t, ok, "response should contain 'project' object")
@@ -151,7 +154,7 @@ func TestHandler_BatchGetProjects(t *testing.T) {
 				Projects         []any    `json:"projects"`
 				ProjectsNotFound []string `json:"projectsNotFound"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Projects, tt.wantProjectCount)
 			assert.Equal(t, tt.wantNotFound, out.ProjectsNotFound)
 		})
@@ -236,7 +239,7 @@ func TestHandler_Project_SourceVersion(t *testing.T) {
 			SourceVersion string `json:"sourceVersion"`
 		} `json:"project"`
 	}
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	assert.Equal(t, "refs/heads/main", createOut.Project.SourceVersion)
 
 	updateRec := doRequest(t, h, "UpdateProject", map[string]any{
@@ -250,7 +253,7 @@ func TestHandler_Project_SourceVersion(t *testing.T) {
 			SourceVersion string `json:"sourceVersion"`
 		} `json:"project"`
 	}
-	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &updateOut, jsonx.V1()))
 	assert.Equal(t, "pr/42", updateOut.Project.SourceVersion, "UpdateProject must overwrite sourceVersion")
 }
 
@@ -347,7 +350,7 @@ func TestHandler_ListProjects(t *testing.T) {
 			var out struct {
 				Projects []string `json:"projects"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			for _, pn := range tt.projectNames {
 				assert.Contains(t, out.Projects, pn)
@@ -382,7 +385,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	projects, _ := out["projects"].([]any)
 	require.Len(t, projects, 3)
@@ -411,7 +414,7 @@ func TestHandler_UpdateProjectVisibility_PublicAlias(t *testing.T) {
 	var createOut struct {
 		Project map[string]any `json:"project"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	projectArn, _ := createOut.Project["arn"].(string)
 	require.NotEmpty(t, projectArn)
 
@@ -426,7 +429,7 @@ func TestHandler_UpdateProjectVisibility_PublicAlias(t *testing.T) {
 		ProjectVisibility  string `json:"projectVisibility"`
 		PublicProjectAlias string `json:"publicProjectAlias"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "PUBLIC_READ", out.ProjectVisibility)
 	assert.NotEmpty(t, out.PublicProjectAlias,
 		"UpdateProjectVisibility with PUBLIC_READ must return publicProjectAlias")
@@ -453,7 +456,7 @@ func TestCodeBuild_Project(t *testing.T) {
 			ProjectArn        string `json:"projectArn"`
 			ProjectVisibility string `json:"projectVisibility"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Equal(t, arn, out.ProjectArn)
 		assert.Equal(t, "PUBLIC_READ", out.ProjectVisibility)
 	})
@@ -509,6 +512,6 @@ func TestCodeBuild_ListSharedProjects(t *testing.T) {
 	var out struct {
 		Projects []string `json:"projects"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Empty(t, out.Projects)
 }

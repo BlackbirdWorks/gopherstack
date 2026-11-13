@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -77,7 +78,7 @@ func TestSSMHandler_UnknownOperation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["__type"], "UnknownOperationException")
 }
 func TestSSMHandler_InternalError(t *testing.T) {
@@ -198,7 +199,7 @@ func TestSSMHandler_ValidationError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ParameterPatternMismatchException", resp["__type"])
 }
 
@@ -216,7 +217,7 @@ func TestSSMHandler_ErrInvalidKeyID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["__type"], "UnknownOperationException")
 }
 
@@ -328,14 +329,14 @@ func TestDeepCopy_Association(t *testing.T) {
 			doRequest(t, h, "CreateDocument",
 				`{"Name":"`+tt.docName+`","Content":"{\"schemaVersion\":\"2.2\"}"}`)
 
-			paramsJSON, _ := json.Marshal(tt.params)
+			paramsJSON, _ := json.Marshal(tt.params, jsonx.V1())
 			createBody := `{"Name":"` + tt.docName + `","Parameters":` + string(paramsJSON) + `}`
 
 			rec := doRequest(t, h, "CreateAssociation", createBody)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp ssm.CreateAssociationOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			originalCmds := createResp.AssociationDescription.Parameters[tt.mutateKey]
 
 			// Verify original value was stored correctly
@@ -600,7 +601,7 @@ func TestAdvancedTier_AcceptsLargeValue(t *testing.T) {
 		"Value": string(largeVal),
 		"Type":  "String",
 		"Tier":  "Advanced",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "PutParameter", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code, "Advanced tier should accept 5KiB value")
 }
@@ -620,7 +621,7 @@ func TestStandardTier_RejectsLargeValue(t *testing.T) {
 		"Value": string(largeVal),
 		"Type":  "String",
 		"Tier":  "Standard",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "PutParameter", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "Standard tier should reject 5KiB value")
 }

@@ -2,7 +2,7 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // schemasRESTLimit parses the "limit" query param (schemas@v1.37.4
@@ -828,7 +829,7 @@ func (h *Handler) schemasRESTOps() map[string]schemasRESTOpFunc {
 }
 
 func (h *Handler) writeSchemasREST(c *echo.Context, body any) error {
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		return h.writeSchemasRESTError(c, err)
 	}
@@ -865,7 +866,7 @@ func (h *Handler) writeSchemasRESTError(c *echo.Context, err error) error {
 	c.Response().Header().Set("Content-Type", schemasRESTContentType)
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
-	payload, marshalErr := json.Marshal(map[string]string{"message": err.Error()})
+	payload, marshalErr := json.Marshal(map[string]string{"message": err.Error()}, jsonx.V1())
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -883,7 +884,7 @@ func schemasRESTDecodeBody(r *http.Request, out any) error {
 		return nil
 	}
 
-	if uerr := json.Unmarshal(body, out); uerr != nil {
+	if uerr := json.Unmarshal(body, out, jsonx.V1()); uerr != nil {
 		return fmt.Errorf("%w: invalid JSON", ErrInvalidParameter)
 	}
 

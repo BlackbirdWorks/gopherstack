@@ -3,7 +3,8 @@ package apigateway
 import (
 	"container/list"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -162,7 +164,7 @@ func authorizerTTL(auth *Authorizer) time.Duration {
 func writeAuthorizerError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: message})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{jsonMessageKey: message})
 }
 
 // runAuthorizer enforces the method's authorizer and returns true if the request
@@ -219,7 +221,7 @@ func (h *Handler) runAuthorizer(
 	event := h.buildAuthorizerEvent(ctx, r, auth, apiID, stageName)
 	event.MethodArn = methodArn
 
-	payload, _ := json.Marshal(event)
+	payload, _ := json.Marshal(event, jsonx.V1())
 
 	funcName := ExtractLambdaFunctionName(auth.AuthorizerURI)
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, funcName, "RequestResponse", payload)
@@ -232,7 +234,7 @@ func (h *Handler) runAuthorizer(
 	}
 
 	var authResp AuthorizerResponse
-	if parseErr := json.Unmarshal(respBytes, &authResp); parseErr != nil {
+	if parseErr := json.Unmarshal(respBytes, &authResp, jsonx.V1()); parseErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to parse authorizer response", "error", parseErr)
 		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 

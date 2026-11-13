@@ -1,11 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -122,7 +123,7 @@ func (h *Handler) dispatchOU(c *echo.Context, op string, body []byte) (bool, err
 
 func (h *Handler) handleCreateOrganizationalUnit(c *echo.Context, body []byte) error {
 	var req createOrganizationalUnitRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -140,7 +141,7 @@ func (h *Handler) handleCreateOrganizationalUnit(c *echo.Context, body []byte) e
 
 func (h *Handler) handleDescribeOrganizationalUnit(c *echo.Context, body []byte) error {
 	var req describeOrganizationalUnitRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -154,7 +155,7 @@ func (h *Handler) handleDescribeOrganizationalUnit(c *echo.Context, body []byte)
 
 func (h *Handler) handleDeleteOrganizationalUnit(c *echo.Context, body []byte) error {
 	var req deleteOrganizationalUnitRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -167,7 +168,7 @@ func (h *Handler) handleDeleteOrganizationalUnit(c *echo.Context, body []byte) e
 
 func (h *Handler) handleUpdateOrganizationalUnit(c *echo.Context, body []byte) error {
 	var req updateOrganizationalUnitRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -181,7 +182,7 @@ func (h *Handler) handleUpdateOrganizationalUnit(c *echo.Context, body []byte) e
 
 func (h *Handler) handleListOrganizationalUnitsForParent(c *echo.Context, body []byte) error {
 	var req listOrganizationalUnitsForParentRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -202,7 +203,7 @@ func (h *Handler) handleListOrganizationalUnitsForParent(c *echo.Context, body [
 
 func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) error {
 	var req listAccountsForParentRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -223,7 +224,7 @@ func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) erro
 
 func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
 	var req listParentsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -243,7 +244,7 @@ func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListChildren(c *echo.Context, body []byte) error {
 	var req listChildrenRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

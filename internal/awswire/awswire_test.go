@@ -2,7 +2,7 @@ package awswire_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -25,6 +25,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func testConfig(base string) aws.Config {
@@ -56,7 +57,7 @@ func TestClientSignsAndDecodes(t *testing.T) {
 		auth, token = r.Header.Get("Authorization"), r.Header.Get("X-Amz-Security-Token")
 		target = r.Header.Get("X-Amz-Target")
 		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &body)
+		_ = json.Unmarshal(raw, &body, jsonx.V1())
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 		_, _ = w.Write([]byte(`{"KeyMetadata":{"KeyId":"k-1","Arn":"arn:aws:kms:us-west-2:1:key/k-1","Enabled":true}}`))
 	}))
@@ -166,7 +167,7 @@ func TestPaginator(t *testing.T) {
 		raw, _ := io.ReadAll(r.Body)
 
 		var in map[string]any
-		_ = json.Unmarshal(raw, &in)
+		_ = json.Unmarshal(raw, &in, jsonx.V1())
 
 		marker, _ := in["Marker"].(string)
 		seen = append(seen, marker)

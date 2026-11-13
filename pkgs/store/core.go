@@ -2,11 +2,14 @@ package store
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"reflect"
 	"slices"
 	"unsafe"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // tableCore is the non-generic engine behind every Table[V]. Values are held
@@ -171,7 +174,7 @@ func (t *tableCore) insertFresh(v unsafe.Pointer) {
 // slice is built with reflect so no per-V code (and no *Table[V] interface
 // conversion, which would keep every Table method alive in the binary) is
 // needed.
-func (t *tableCore) snapshotJSON() (json.RawMessage, error) {
+func (t *tableCore) snapshotJSON() (jsontext.Value, error) {
 	items := t.snapshot()
 	sliceType := reflect.SliceOf(reflect.PointerTo(t.elem))
 	s := reflect.Zero(sliceType) // nil marshals as null, as the typed original did
@@ -184,7 +187,7 @@ func (t *tableCore) snapshotJSON() (json.RawMessage, error) {
 		s.Index(i).Set(reflect.NewAt(t.elem, p))
 	}
 
-	data, err := json.Marshal(s.Interface())
+	data, err := json.Marshal(s.Interface(), jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("store: marshal table snapshot: %w", err)
 	}
@@ -193,10 +196,10 @@ func (t *tableCore) snapshotJSON() (json.RawMessage, error) {
 }
 
 // restoreJSON loads data produced by snapshotJSON.
-func (t *tableCore) restoreJSON(data json.RawMessage) error {
+func (t *tableCore) restoreJSON(data jsontext.Value) error {
 	sp := reflect.New(reflect.SliceOf(reflect.PointerTo(t.elem)))
 
-	if err := json.Unmarshal(data, sp.Interface()); err != nil {
+	if err := json.Unmarshal(data, sp.Interface(), jsonx.V1()); err != nil {
 		return fmt.Errorf("store: unmarshal table snapshot: %w", err)
 	}
 
@@ -215,8 +218,8 @@ func (t *tableCore) restoreJSON(data json.RawMessage) error {
 // tableSnapshotter is the type-erased contract a [Registry] holds per table.
 type tableSnapshotter interface {
 	reset()
-	snapshotJSON() (json.RawMessage, error)
-	restoreJSON(data json.RawMessage) error
+	snapshotJSON() (jsontext.Value, error)
+	restoreJSON(data jsontext.Value) error
 }
 
 // indexCore is the non-generic engine behind every Index[V].

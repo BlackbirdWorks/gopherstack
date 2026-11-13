@@ -2,13 +2,14 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -78,7 +79,7 @@ func TestHandler_AcknowledgeJob(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus, out["status"])
 			}
 		})
@@ -133,7 +134,7 @@ func TestHandler_GetJobDetails(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				details, ok := out["jobDetails"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "jd-1", details["id"])
@@ -176,7 +177,7 @@ func TestGetJobDetails_DataPopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			details, ok := out["jobDetails"].(map[string]any)
 			require.True(t, ok, "jobDetails must be present")
@@ -284,7 +285,7 @@ func TestHandler_PollForJobs_Filter(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			jobs, _ := out["jobs"].([]any)
 
 			gotIDs := make([]string, len(jobs))
@@ -379,7 +380,7 @@ func TestHandler_PollForJobs_MaxBatchSize(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			jobs, _ := out["jobs"].([]any)
 			assert.Len(t, jobs, tt.wantCount)

@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -362,7 +363,7 @@ func TestAccuracy_ARPVersion_ViaHTTP(t *testing.T) {
 					"/automated-reasoning-policies/"+url.PathEscape(policy.PolicyArn)+"/versions",
 					map[string]any{"notes": fmt.Sprintf("version %d", i+1)})
 				require.Equal(t, http.StatusCreated, rec.Code)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lastVersion))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lastVersion, jsonx.V1()))
 			}
 
 			assert.Equal(t, tt.wantLastVersion, lastVersion["version"])
@@ -384,14 +385,14 @@ func TestAccuracy_ARP_DescriptionPreservedOnCreate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/automated-reasoning-policies/"+policyARN, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, desc, getOut["description"])
 	assert.Equal(t, "finance-arp", getOut["name"])
 }
@@ -406,7 +407,7 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	// Update description (real AWS: UpdateAutomatedReasoningPolicy uses PATCH)
@@ -424,7 +425,7 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "updated description", getOut["description"])
 }
 
@@ -456,7 +457,7 @@ func TestAccuracy_ARP_VersionNumberingIsolatedPerPolicy(t *testing.T) {
 
 	// Verify second version for policy0 has version "2"
 	var verOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verOut, jsonx.V1()))
 
 	// policy1's first version is "1" (isolated counter)
 	assert.Equal(t, "1", verOut["version"], "policy1 version counter starts from 1 independent of policy0")
@@ -475,7 +476,7 @@ func TestAccuracy_ARP_BuildWorkflowStatusTransitions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	// Add a build workflow via test helper
@@ -488,7 +489,7 @@ func TestAccuracy_ARP_BuildWorkflowStatusTransitions(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "BUILDING", getOut["status"])
 }
 
@@ -504,7 +505,7 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	// Create test case (needs URL-encoded ARN in path)
@@ -516,7 +517,7 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tcOut map[string]any
-	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut))
+	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut, jsonx.V1()))
 	tcID := tcOut["testCaseId"].(string)
 	assert.NotEmpty(t, tcID)
 
@@ -526,7 +527,7 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getTestRec.Code)
 
 	var getTestOut map[string]any
-	require.NoError(t, json.Unmarshal(getTestRec.Body.Bytes(), &getTestOut))
+	require.NoError(t, json.Unmarshal(getTestRec.Body.Bytes(), &getTestOut, jsonx.V1()))
 	assert.Equal(t, policyARN, getTestOut["policyArn"])
 	testCase, ok := getTestOut["testCase"].(map[string]any)
 	require.True(t, ok, "response must wrap the test case under the required testCase key")
@@ -545,7 +546,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	wf := h.Backend.AddBuildWorkflowForTest(policyARN)
@@ -560,7 +561,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, preRec.Code)
 
 	var preOut map[string]any
-	require.NoError(t, json.Unmarshal(preRec.Body.Bytes(), &preOut))
+	require.NoError(t, json.Unmarshal(preRec.Body.Bytes(), &preOut, jsonx.V1()))
 	hash, ok := preOut["annotationSetHash"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, hash)
@@ -578,7 +579,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	assert.Equal(t, policyARN, updateOut["policyArn"])
 	assert.Equal(t, wf.BuildWorkflowID, updateOut["buildWorkflowId"])
 	assert.NotEmpty(t, updateOut["annotationSetHash"])
@@ -589,7 +590,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getAnnRec.Code)
 
 	var annOut map[string]any
-	require.NoError(t, json.Unmarshal(getAnnRec.Body.Bytes(), &annOut))
+	require.NoError(t, json.Unmarshal(getAnnRec.Body.Bytes(), &annOut, jsonx.V1()))
 	anns, ok := annOut["annotations"].([]any)
 	require.True(t, ok)
 	require.Len(t, anns, 1)
@@ -1021,7 +1022,7 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	policyARN := out["policyArn"].(string)
 
 	tcRec := doRequest(t, h, http.MethodPost,
@@ -1029,7 +1030,7 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tcOut map[string]any
-	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut))
+	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut, jsonx.V1()))
 	tcID := tcOut["testCaseId"].(string)
 
 	wf := h.Backend.AddBuildWorkflowForTest(policyARN)
@@ -1131,7 +1132,7 @@ func TestAccuracy_ARP_BuildWorkflowScopedSubResources(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			policyARN := created["policyArn"].(string)
 
 			wf := h.Backend.AddBuildWorkflowForTest(policyARN)
@@ -1141,7 +1142,7 @@ func TestAccuracy_ARP_BuildWorkflowScopedSubResources(t *testing.T) {
 			require.Equal(t, http.StatusCreated, tcRec.Code)
 
 			var tc map[string]any
-			require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc))
+			require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc, jsonx.V1()))
 			tcID := tc["testCaseId"].(string)
 
 			path := "/automated-reasoning-policies/" + url.PathEscape(policyARN) +
@@ -1165,14 +1166,14 @@ func TestAccuracy_ARP_BuildWorkflowSubResourcesRejectWrongPolicy(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &p1, jsonx.V1()))
 	policy1ARN := p1["policyArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "wrong-policy-2"})
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &p2, jsonx.V1()))
 	policy2ARN := p2["policyArn"].(string)
 
 	wf := h.Backend.AddBuildWorkflowForTest(policy1ARN)
@@ -1214,7 +1215,7 @@ func TestAccuracy_ARP_ExportVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	policyARN := created["policyArn"].(string)
 
 	verRec := doRequest(t, h, http.MethodPost,
@@ -1223,7 +1224,7 @@ func TestAccuracy_ARP_ExportVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated, verRec.Code)
 
 	var ver map[string]any
-	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver))
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver, jsonx.V1()))
 	versionedARN := ver["policyArn"].(string)
 
 	exportRec := doRequest(t, h, http.MethodGet,
@@ -1231,7 +1232,7 @@ func TestAccuracy_ARP_ExportVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, exportRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(exportRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(exportRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "hash-export", out["definitionHash"])
 }
 
@@ -1249,7 +1250,7 @@ func TestAccuracy_ARP_OldInventedSubResourcePathsGone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	policyARN := created["policyArn"].(string)
 
 	tcRec := doRequest(t, h, http.MethodPost,
@@ -1257,7 +1258,7 @@ func TestAccuracy_ARP_OldInventedSubResourcePathsGone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tc map[string]any
-	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc))
+	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc, jsonx.V1()))
 	tcID := tc["testCaseId"].(string)
 
 	verRec := doRequest(t, h, http.MethodPost,
@@ -1266,7 +1267,7 @@ func TestAccuracy_ARP_OldInventedSubResourcePathsGone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, verRec.Code)
 
 	var ver map[string]any
-	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver))
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver, jsonx.V1()))
 	version := ver["version"].(string)
 
 	base := "/automated-reasoning-policies/" + url.PathEscape(policyARN)

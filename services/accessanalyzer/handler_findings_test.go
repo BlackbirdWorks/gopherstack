@@ -1,7 +1,7 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -59,7 +60,7 @@ func TestGetFinding(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			finding, ok := resp["finding"].(map[string]any)
 			require.True(t, ok)
@@ -105,7 +106,7 @@ func TestListFindings(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		findings, ok := resp["findings"].([]any)
 		require.True(t, ok)
@@ -223,7 +224,7 @@ func TestFindingV2Lifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, findingID, resp["id"])
 				// findingType and the ExternalAccessDetails union member of
 				// findingDetails are required GetFindingV2Output members.
@@ -253,7 +254,7 @@ func TestFindingV2Lifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				findings := resp["findings"].([]any)
 				assert.Len(t, findings, 2)
 				first, ok := findings[0].(map[string]any)
@@ -331,7 +332,7 @@ func TestGetFindingsStatistics(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantActive > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				stats := resp["findingsStatistics"].([]any)
 				require.Len(t, stats, 1)
 
@@ -368,7 +369,7 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["recommendationType"])
 			},
 		},
@@ -436,7 +437,7 @@ func TestGetFindingRecommendation_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "UnusedPermissionRecommendation", resp["recommendationType"])
 	assert.Equal(t, "arn:aws:s3:::bucket", resp["resourceArn"])

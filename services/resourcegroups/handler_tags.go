@@ -2,7 +2,7 @@ package resourcegroups
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -38,7 +39,7 @@ func (h *Handler) handleTagRequest(ctx context.Context, c *echo.Context, log *sl
 
 	var in tagResourceInput
 
-	if err = json.Unmarshal(body, &in); err != nil {
+	if err = json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.handleError(ctx, c, "Tag", errInvalidRequest)
 	}
 
@@ -96,7 +97,7 @@ func (h *Handler) extractUntagKeys(ctx context.Context, c *echo.Context, log *sl
 	}
 
 	var in untagResourceInput
-	if err = json.Unmarshal(body, &in); err != nil {
+	if err = json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, errInvalidRequest
 	}
 
@@ -138,7 +139,7 @@ func (h *Handler) handleResourceTags(ctx context.Context, c *echo.Context) error
 
 		var in untagResourceInput
 
-		if err = json.Unmarshal(body, &in); err != nil {
+		if err = json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.handleError(ctx, c, "Untag", errInvalidRequest)
 		}
 

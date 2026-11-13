@@ -1,12 +1,13 @@
 package bedrockagentcorecontrol
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"slices"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -469,7 +470,7 @@ func (b *InMemoryBackend) putResourcePolicy(sc scope, in args) (*reply, error) {
 	var parsed struct {
 		Statement any `json:"Statement"`
 	}
-	if err := json.Unmarshal([]byte(doc), &parsed); err != nil || parsed.Statement == nil {
+	if err := json.Unmarshal([]byte(doc), &parsed, jsonx.V1()); err != nil || parsed.Statement == nil {
 		return nil, invalid("policy must be a JSON policy document with a Statement")
 	}
 

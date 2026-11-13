@@ -2,11 +2,13 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type unmaskContextKey struct{}
@@ -133,7 +135,7 @@ func luhnValid(s string) bool {
 // parseMaskPolicy compiles the masking (Deidentify) statements of doc; unsupported managed identifiers are skipped.
 func parseMaskPolicy(doc string, since int64) (maskPolicy, error) {
 	var parsed protectionPolicyDoc
-	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(doc), &parsed, jsonx.V1()); err != nil {
 		return maskPolicy{}, fmt.Errorf("%w: policyDocument must be valid JSON: %w", ErrValidation, err)
 	}
 

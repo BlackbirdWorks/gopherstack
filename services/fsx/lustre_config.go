@@ -1,10 +1,13 @@
 package fsx
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -25,41 +28,41 @@ var weeklyMaintenancePattern = regexp.MustCompile(`^[1-7]:([01]\d|2[0-3]):?([0-5
 
 // createLustreConfiguration mirrors CreateFileSystemLustreConfiguration.
 type createLustreConfiguration struct {
-	DriveCacheType                string          `json:"DriveCacheType,omitempty"`
-	ImportPath                    string          `json:"ImportPath,omitempty"`
-	WeeklyMaintenanceStartTime    string          `json:"WeeklyMaintenanceStartTime,omitempty"`
-	ExportPath                    string          `json:"ExportPath,omitempty"`
-	DeploymentType                string          `json:"DeploymentType,omitempty"`
-	AutoImportPolicy              string          `json:"AutoImportPolicy,omitempty"`
-	DailyAutomaticBackupStartTime string          `json:"DailyAutomaticBackupStartTime,omitempty"`
-	DataCompressionType           string          `json:"DataCompressionType,omitempty"`
-	DataReadCacheConfiguration    json.RawMessage `json:"DataReadCacheConfiguration,omitempty"`
-	RootSquashConfiguration       json.RawMessage `json:"RootSquashConfiguration,omitempty"`
-	LogConfiguration              json.RawMessage `json:"LogConfiguration,omitempty"`
-	MetadataConfiguration         json.RawMessage `json:"MetadataConfiguration,omitempty"`
-	AutomaticBackupRetentionDays  int32           `json:"AutomaticBackupRetentionDays,omitempty"`
-	ImportedFileChunkSize         int32           `json:"ImportedFileChunkSize,omitempty"`
-	PerUnitStorageThroughput      int32           `json:"PerUnitStorageThroughput,omitempty"`
-	ThroughputCapacity            int32           `json:"ThroughputCapacity,omitempty"`
-	CopyTagsToBackups             bool            `json:"CopyTagsToBackups,omitempty"`
-	EfaEnabled                    bool            `json:"EfaEnabled,omitempty"`
+	DriveCacheType                string         `json:"DriveCacheType,omitempty"`
+	ImportPath                    string         `json:"ImportPath,omitempty"`
+	WeeklyMaintenanceStartTime    string         `json:"WeeklyMaintenanceStartTime,omitempty"`
+	ExportPath                    string         `json:"ExportPath,omitempty"`
+	DeploymentType                string         `json:"DeploymentType,omitempty"`
+	AutoImportPolicy              string         `json:"AutoImportPolicy,omitempty"`
+	DailyAutomaticBackupStartTime string         `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DataCompressionType           string         `json:"DataCompressionType,omitempty"`
+	DataReadCacheConfiguration    jsontext.Value `json:"DataReadCacheConfiguration,omitempty"`
+	RootSquashConfiguration       jsontext.Value `json:"RootSquashConfiguration,omitempty"`
+	LogConfiguration              jsontext.Value `json:"LogConfiguration,omitempty"`
+	MetadataConfiguration         jsontext.Value `json:"MetadataConfiguration,omitempty"`
+	AutomaticBackupRetentionDays  int32          `json:"AutomaticBackupRetentionDays,omitempty"`
+	ImportedFileChunkSize         int32          `json:"ImportedFileChunkSize,omitempty"`
+	PerUnitStorageThroughput      int32          `json:"PerUnitStorageThroughput,omitempty"`
+	ThroughputCapacity            int32          `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool           `json:"CopyTagsToBackups,omitempty"`
+	EfaEnabled                    bool           `json:"EfaEnabled,omitempty"`
 }
 
 // storedLustreExtras keeps the Lustre members that have no counterpart on the shared
 // storedFileSystem fields.
 type storedLustreExtras struct {
-	AutoImportPolicy           string          `json:"autoImportPolicy,omitempty"`
-	DataCompressionType        string          `json:"dataCompression,omitempty"`
-	DriveCacheType             string          `json:"driveCache,omitempty"`
-	ExportPath                 string          `json:"exportPath,omitempty"`
-	ImportPath                 string          `json:"importPath,omitempty"`
-	RootSquashConfiguration    json.RawMessage `json:"rootSquash,omitempty"`
-	DataReadCacheConfiguration json.RawMessage `json:"dataReadCache,omitempty"`
-	MetadataConfiguration      json.RawMessage `json:"metadata,omitempty"`
-	LogConfiguration           json.RawMessage `json:"log,omitempty"`
-	ImportedFileChunkSize      int32           `json:"importedChunk,omitempty"`
-	PerUnitStorageThroughput   int32           `json:"perUnitThroughput,omitempty"`
-	EfaEnabled                 bool            `json:"efa,omitempty"`
+	AutoImportPolicy           string         `json:"autoImportPolicy,omitempty"`
+	DataCompressionType        string         `json:"dataCompression,omitempty"`
+	DriveCacheType             string         `json:"driveCache,omitempty"`
+	ExportPath                 string         `json:"exportPath,omitempty"`
+	ImportPath                 string         `json:"importPath,omitempty"`
+	RootSquashConfiguration    jsontext.Value `json:"rootSquash,omitempty"`
+	DataReadCacheConfiguration jsontext.Value `json:"dataReadCache,omitempty"`
+	MetadataConfiguration      jsontext.Value `json:"metadata,omitempty"`
+	LogConfiguration           jsontext.Value `json:"log,omitempty"`
+	ImportedFileChunkSize      int32          `json:"importedChunk,omitempty"`
+	PerUnitStorageThroughput   int32          `json:"perUnitThroughput,omitempty"`
+	EfaEnabled                 bool           `json:"efa,omitempty"`
 }
 
 func validLustreThroughputs(deployment, storageType string) []int32 {
@@ -230,12 +233,12 @@ func applyLustreConfig(fs *storedFileSystem, cfg *createLustreConfiguration) err
 }
 
 // metadataMode extracts MetadataConfiguration.Mode for defaultLustreVersion.
-func metadataMode(raw json.RawMessage) string {
+func metadataMode(raw jsontext.Value) string {
 	var m struct {
 		Mode string `json:"Mode"`
 	}
 
-	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+	if len(raw) == 0 || json.Unmarshal(raw, &m, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -244,17 +247,17 @@ func metadataMode(raw json.RawMessage) string {
 
 // updateLustreConfiguration mirrors UpdateFileSystemLustreConfiguration.
 type updateLustreConfiguration struct {
-	AutoImportPolicy              string          `json:"AutoImportPolicy,omitempty"`
-	DailyAutomaticBackupStartTime string          `json:"DailyAutomaticBackupStartTime,omitempty"`
-	DataCompressionType           string          `json:"DataCompressionType,omitempty"`
-	WeeklyMaintenanceStartTime    string          `json:"WeeklyMaintenanceStartTime,omitempty"`
-	RootSquashConfiguration       json.RawMessage `json:"RootSquashConfiguration,omitempty"`
-	DataReadCacheConfiguration    json.RawMessage `json:"DataReadCacheConfiguration,omitempty"`
-	MetadataConfiguration         json.RawMessage `json:"MetadataConfiguration,omitempty"`
-	LogConfiguration              json.RawMessage `json:"LogConfiguration,omitempty"`
-	AutomaticBackupRetentionDays  int32           `json:"AutomaticBackupRetentionDays,omitempty"`
-	PerUnitStorageThroughput      int32           `json:"PerUnitStorageThroughput,omitempty"`
-	ThroughputCapacity            int32           `json:"ThroughputCapacity,omitempty"`
+	AutoImportPolicy              string         `json:"AutoImportPolicy,omitempty"`
+	DailyAutomaticBackupStartTime string         `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DataCompressionType           string         `json:"DataCompressionType,omitempty"`
+	WeeklyMaintenanceStartTime    string         `json:"WeeklyMaintenanceStartTime,omitempty"`
+	RootSquashConfiguration       jsontext.Value `json:"RootSquashConfiguration,omitempty"`
+	DataReadCacheConfiguration    jsontext.Value `json:"DataReadCacheConfiguration,omitempty"`
+	MetadataConfiguration         jsontext.Value `json:"MetadataConfiguration,omitempty"`
+	LogConfiguration              jsontext.Value `json:"LogConfiguration,omitempty"`
+	AutomaticBackupRetentionDays  int32          `json:"AutomaticBackupRetentionDays,omitempty"`
+	PerUnitStorageThroughput      int32          `json:"PerUnitStorageThroughput,omitempty"`
+	ThroughputCapacity            int32          `json:"ThroughputCapacity,omitempty"`
 }
 
 func applyLustreUpdate(fs *storedFileSystem, cfg *updateLustreConfiguration) error {
@@ -321,7 +324,7 @@ func setIf(dst *string, v string) {
 	}
 }
 
-func setRaw(dst *json.RawMessage, v json.RawMessage) {
+func setRaw(dst *jsontext.Value, v jsontext.Value) {
 	if len(v) > 0 {
 		*dst = v
 	}

@@ -2,7 +2,7 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -37,7 +38,7 @@ func backupARN(region, accountID, tableName string, ts time.Time) string {
 
 func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.CreateBackupInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -65,7 +66,7 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 
 func (h *DynamoDBHandler) describeBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.DescribeBackupInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -89,7 +90,7 @@ func (h *DynamoDBHandler) describeBackup(ctx context.Context, body []byte) (any,
 
 func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.DeleteBackupInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -107,7 +108,7 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 
 func (h *DynamoDBHandler) listBackups(ctx context.Context, body []byte) (any, error) {
 	var req models.ListBackupsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -420,7 +421,7 @@ func toSDKLSIOverride(lsis []models.LocalSecondaryIndex) []sdktypes.LocalSeconda
 
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableFromBackupInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -500,7 +501,7 @@ func toSDKRestoreDateTime(secs *float64) *time.Time {
 
 func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableToPointInTimeInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,7 +1,8 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -149,7 +151,7 @@ func TestHandler_DescribeThing_IncludesThingTypeName(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	assert.Equal(t, "SensorType", out["thingTypeName"])
 }
 

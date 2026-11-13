@@ -1,10 +1,12 @@
 package cloudwatchlogs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // compileJSONFilterPattern compiles an AWS CloudWatch Logs JSON selector pattern
@@ -26,7 +28,7 @@ func compileJSONFilterPattern(pattern string) func(string) bool {
 
 	return func(message string) bool {
 		var root any
-		if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &root); err != nil {
+		if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &root, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -42,7 +44,7 @@ func compileJSONFilterPattern(pattern string) func(string) bool {
 func compileJSONFilterPatternExtract(_ string) func(message, fieldRef string) (string, bool) {
 	return func(message, fieldRef string) (string, bool) {
 		var root any
-		if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &root); err != nil {
+		if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &root, jsonx.V1()); err != nil {
 			return "", false
 		}
 

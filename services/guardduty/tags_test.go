@@ -1,7 +1,7 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -34,7 +35,7 @@ func TestTags(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tags, ok := resp["tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "prod", tags["env"])
@@ -56,7 +57,7 @@ func TestTags(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/tags/"+arn, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tags := resp["tags"].(map[string]any)
 				assert.NotContains(t, tags, "k1")
 				assert.Equal(t, "v2", tags["k2"])
@@ -72,7 +73,7 @@ func TestTags(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tags, ok := resp["tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Empty(t, tags)
@@ -101,7 +102,7 @@ func TestTagResource_Merges_Creation_Tags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["detectorId"].(string)
 
 	arn := fmt.Sprintf("arn:aws:guardduty:us-east-1:123456789012:detector/%s", id)
@@ -115,7 +116,7 @@ func TestTagResource_Merges_Creation_Tags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["tags"].(map[string]any)
 
 	assert.Equal(t, "test", tags["env"], "creation-time tag must be preserved")
@@ -134,7 +135,7 @@ func TestUntagResource_Removes_Only_Specified_Key(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["detectorId"].(string)
 
 	arn := fmt.Sprintf("arn:aws:guardduty:us-east-1:123456789012:detector/%s", id)
@@ -146,7 +147,7 @@ func TestUntagResource_Removes_Only_Specified_Key(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["tags"].(map[string]any)
 
 	assert.Equal(t, "v1", tags["k1"], "k1 must be preserved")

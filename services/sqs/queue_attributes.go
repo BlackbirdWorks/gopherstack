@@ -1,9 +1,11 @@
 package sqs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
@@ -205,7 +207,7 @@ func validateRedriveAllowPolicy(raw string) error {
 		SourceQueueArns   []string `json:"sourceQueueArns"`
 	}
 
-	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+	if err := json.Unmarshal([]byte(raw), &policy, jsonx.V1()); err != nil {
 		return ErrInvalidAttribute
 	}
 

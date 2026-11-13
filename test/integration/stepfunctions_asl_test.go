@@ -1,7 +1,7 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 	"time"
@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // passThroughDefinition is a minimal ASL state machine that passes input through.
@@ -335,7 +337,7 @@ func TestIntegration_StepFunctions_FullExecution(t *testing.T) {
 	assert.Equal(t, "SUCCEEDED", string(descOut.Status))
 
 	var output map[string]any
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(descOut.Output)), &output))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(descOut.Output)), &output, jsonx.V1()))
 	require.Contains(t, output, "original", "output should contain the original input field")
 	assert.Equal(t, "data", output["original"])
 	meta, ok := output["meta"].(map[string]any)

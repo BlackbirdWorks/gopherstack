@@ -1,7 +1,8 @@
 package gcpresourcemanager
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -102,7 +104,7 @@ func writeV1Error(w http.ResponseWriter, err error) {
 	st, _ := status.FromError(err)
 	httpCode := gcprest.HTTPStatus(st.Code())
 
-	details := make([]json.RawMessage, 0, len(st.Proto().GetDetails()))
+	details := make([]jsontext.Value, 0, len(st.Proto().GetDetails()))
 
 	for _, d := range st.Proto().GetDetails() {
 		if raw, mErr := protojson.Marshal(d); mErr == nil {
@@ -140,7 +142,7 @@ func codeName(c codes.Code) string {
 }
 
 func writeV1JSON(w http.ResponseWriter, code int, v any) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
@@ -153,7 +155,7 @@ func writeV1JSON(w http.ResponseWriter, code int, v any) {
 func writeV1Raw(w http.ResponseWriter, code int, raw []byte) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(code)
-	_, _ = w.Write(raw)
+	_, _ = w.Write(raw) // #nosec G705
 }
 
 func writeV1Proto(w http.ResponseWriter, m proto.Message) {
@@ -177,7 +179,7 @@ func readBody(r *http.Request, into any) error {
 		return nil
 	}
 
-	if err = json.Unmarshal(raw, into); err != nil {
+	if err = json.Unmarshal(raw, into, jsonx.V1()); err != nil {
 		return errInvalid("Invalid JSON payload: %v", err)
 	}
 

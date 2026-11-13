@@ -1,12 +1,14 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -102,7 +104,7 @@ func ociMySQLBody(c *echo.Context, method string, parts []string) ([]byte, bool)
 			out["displayName"] = in.DisplayName
 		}
 
-		b, err := json.Marshal(out)
+		b, err := json.Marshal(out, jsonx.V1())
 
 		return b, err == nil
 	}

@@ -2,7 +2,7 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -294,7 +295,7 @@ func TestCreateFunction(t *testing.T) {
 			}
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 			assert.Equal(t, tt.wantFunctionName, fn.FunctionName)
 			if tt.wantFunctionArn != "" {
 				assert.Equal(t, tt.wantFunctionArn, fn.FunctionArn)
@@ -375,7 +376,7 @@ func TestGetFunction(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out lambda.GetFunctionOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.Configuration)
 				assert.Equal(t, tt.funcName, out.Configuration.FunctionName)
 				require.NotNil(t, out.Code)
@@ -421,7 +422,7 @@ func TestListFunctions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out lambda.ListFunctionsOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Functions, tt.wantCount)
 		})
 	}
@@ -544,7 +545,7 @@ func TestUpdateFunctionCode(t *testing.T) {
 
 			if tt.wantImageURI != "" {
 				var fn lambda.FunctionConfiguration
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 				assert.Equal(t, tt.wantImageURI, fn.ImageURI)
 				assert.NotEmpty(t, fn.RevisionID)
 				if tt.wantLastUpdateStatus != "" {
@@ -645,7 +646,7 @@ func TestUpdateFunctionConfiguration(t *testing.T) {
 			}
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 			if tt.wantDescription != "" {
 				assert.Equal(t, tt.wantDescription, fn.Description)
 			}

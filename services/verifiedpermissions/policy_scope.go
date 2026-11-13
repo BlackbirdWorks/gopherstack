@@ -1,10 +1,12 @@
 package verifiedpermissions
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 
 	cedar "github.com/cedar-policy/cedar-go"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // cedarScopeEntity mirrors the "entity" object nested inside a Cedar JSON
@@ -80,7 +82,7 @@ func instantiateTemplate(templateStatement string, p *Policy) string {
 
 // cedarEntityLiteral renders entityType::"entityId" as a Cedar entity UID literal.
 func cedarEntityLiteral(entityType, entityID string) string {
-	b, _ := json.Marshal(entityID) // Cedar string-literal escaping matches JSON's for plain ASCII IDs.
+	b, _ := json.Marshal(entityID, jsonx.V1()) // Cedar string-literal escaping matches JSON's for plain ASCII IDs.
 
 	return entityType + "::" + string(b)
 }
@@ -105,7 +107,7 @@ func parseCedarScope(statement string) *PolicyScopeResult {
 	}
 
 	var pj cedarPolicyJSON
-	if unmarshalErr := json.Unmarshal(raw, &pj); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(raw, &pj, jsonx.V1()); unmarshalErr != nil {
 		return nil
 	}
 

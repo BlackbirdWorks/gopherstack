@@ -1,7 +1,7 @@
 package stepfunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -267,13 +268,13 @@ func Test_TagResource_TooManyTags_WireType(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
 		"tags":        tagList,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(t.Context(), t, h, e, "TagResource", string(body))
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TooManyTags", resp["__type"])
 }
 
@@ -313,7 +314,7 @@ func Test_CreateStateMachineAlias_ErrorCodes(t *testing.T) {
 				)
 
 				var pubResp map[string]any
-				require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp))
+				require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp, jsonx.V1()))
 				versionARN, _ := pubResp["stateMachineVersionArn"].(string)
 				require.NotEmpty(t, versionARN)
 
@@ -338,7 +339,7 @@ func Test_CreateStateMachineAlias_ErrorCodes(t *testing.T) {
 			rec := sfnPost(t.Context(), t, h, e, "CreateStateMachineAlias", tc.body(h, e))
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantType, resp["__type"])
 		})
 	}

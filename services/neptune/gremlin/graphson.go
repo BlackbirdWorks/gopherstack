@@ -2,9 +2,12 @@ package gremlin
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -190,10 +193,9 @@ func (w graphsonWriter) emptyMap() any {
 func marshalNoEscape(v any) ([]byte, error) {
 	var buf bytes.Buffer
 
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
+	enc := jsontext.NewEncoder(&buf, jsonx.V1(), jsontext.EscapeForHTML(false))
 
-	if err := enc.Encode(v); err != nil {
+	if err := json.MarshalEncode(enc, v); err != nil {
 		return nil, err //nolint:wrapcheck // plain encode error
 	}
 
@@ -203,7 +205,7 @@ func marshalNoEscape(v any) ([]byte, error) {
 // decodeGraphSON turns a decoded JSON request value (numbers as json.Number) into engine values.
 func decodeGraphSON(v any) (any, error) {
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		return numberFromJSON(t), nil
 	case []any:
 		return decodeGraphSONList(t)
@@ -219,7 +221,7 @@ func decodeGraphSON(v any) (any, error) {
 	return v, nil
 }
 
-func numberFromJSON(n json.Number) any {
+func numberFromJSON(n jsonx.Number) any {
 	if i, err := n.Int64(); err == nil {
 		return i
 	}
@@ -295,7 +297,7 @@ func decodeTyped(typ string, val any) (any, error) {
 
 func decodeNumber(val any) (any, error) {
 	switch t := val.(type) {
-	case json.Number:
+	case jsonx.Number:
 		return numberFromJSON(t), nil
 	case string:
 		f, err := strconv.ParseFloat(t, 64)

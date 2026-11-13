@@ -1,11 +1,13 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListServices_SummaryShape locks that ListServices emits the
@@ -27,7 +29,7 @@ func TestHandler_ListServices_SummaryShape(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["Services"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)

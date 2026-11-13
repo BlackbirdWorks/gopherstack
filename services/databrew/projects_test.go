@@ -2,13 +2,14 @@ package databrew_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
 
@@ -242,7 +243,7 @@ func TestHandlerUpdateProject(t *testing.T) {
 	desc := databrewReq(t, h, http.MethodGet, "/databrew/v1/projects/upd-proj", nil)
 	require.Equal(t, http.StatusOK, desc.Code)
 	var proj map[string]any
-	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &proj))
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &proj, jsonx.V1()))
 	assert.Equal(t, "orig-ds", proj["DatasetName"], "DatasetName must be immutable via UpdateProject")
 	assert.Equal(t, "arn:aws:iam::123456789012:role/new", proj["RoleArn"])
 }
@@ -276,7 +277,7 @@ func TestHandlerStartProjectSession(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "sess-proj", resp["Name"])
 }
 
@@ -297,7 +298,7 @@ func TestHandlerSendProjectSessionAction(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "action-proj", resp["Name"])
 }
 
@@ -314,7 +315,7 @@ func TestHandlerStartProjectSession_ClientSessionID(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/sess-id-proj/startProjectSession", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["ClientSessionId"])
 }
 

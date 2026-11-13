@@ -7,7 +7,8 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/base64"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -747,7 +749,7 @@ func (e *Executor) Execute(
 ) (*ExecutionResult, error) {
 	var input any
 	if inputJSON != "" {
-		if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
+		if err := json.Unmarshal([]byte(inputJSON), &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("invalid input JSON: %w", err)
 		}
 	}
@@ -981,7 +983,7 @@ func (e *Executor) executeState(
 func (e *Executor) executePass(state *State, input any) (string, any, error) {
 	if len(state.Result) > 0 {
 		var result any
-		if err := json.Unmarshal(state.Result, &result); err != nil {
+		if err := json.Unmarshal(state.Result, &result, jsonx.V1()); err != nil {
 			return "", nil, fmt.Errorf("invalid Pass Result: %w", err)
 		}
 
@@ -1381,7 +1383,7 @@ func (e *Executor) invokeTaskAttempt(
 func parseCallbackOutput(output string) any {
 	var result any
 	if output != "" {
-		if err := json.Unmarshal([]byte(output), &result); err == nil {
+		if err := json.Unmarshal([]byte(output), &result, jsonx.V1()); err == nil {
 			return result
 		}
 	}
@@ -1679,7 +1681,7 @@ func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input a
 	}
 
 	var result any
-	if unmarshalErr := json.Unmarshal([]byte(output), &result); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal([]byte(output), &result, jsonx.V1()); unmarshalErr != nil {
 		// Non-JSON output is valid; return the raw string. Intentionally ignoring unmarshalErr.
 		return output, nil //nolint:nilerr // non-JSON activity output is valid; return as string
 	}
@@ -1697,7 +1699,7 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 		return nil, err
 	}
 
-	payload, err := json.Marshal(input)
+	payload, err := json.Marshal(input, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal task input: %w", err)
 	}
@@ -1723,7 +1725,7 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 
 	var result any
 	// Non-JSON Lambda responses are valid; fall back to raw string.
-	if json.Unmarshal(respBytes, &result) != nil {
+	if json.Unmarshal(respBytes, &result, jsonx.V1()) != nil {
 		result = string(respBytes)
 	}
 
@@ -2538,7 +2540,7 @@ func batchItems(items []any, maxItemsPerBatch, maxInputBytesPerBatch int) []any 
 	return batches
 }
 
-func (e *Executor) batchInput(b *ItemBatcher) json.RawMessage {
+func (e *Executor) batchInput(b *ItemBatcher) jsontext.Value {
 	if e.jxMapCfg != nil {
 		return e.jxMapCfg.batchInput
 	}
@@ -2552,10 +2554,10 @@ func (e *Executor) batchInput(b *ItemBatcher) json.RawMessage {
 // input-output-itembatcher.html, "Batch input"). Previously each batch was
 // passed through as a bare array, which is not the shape AWS sends to child
 // executions.
-func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any, error) {
+func wrapItemBatcherBatches(rawBatches []any, batchInput jsontext.Value) ([]any, error) {
 	var decodedBatchInput any
 	if len(batchInput) > 0 {
-		if err := json.Unmarshal(batchInput, &decodedBatchInput); err != nil {
+		if err := json.Unmarshal(batchInput, &decodedBatchInput, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("ItemBatcher.BatchInput error: %w", err)
 		}
 	}
@@ -2576,7 +2578,7 @@ func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any
 
 func applyMapItemSelector(
 	slot *atomic.Pointer[parsedTemplate],
-	itemSelector json.RawMessage,
+	itemSelector jsontext.Value,
 	items []any,
 	vars varFunc,
 ) ([]any, error) {
@@ -2984,7 +2986,7 @@ func (e *Executor) resolveS3InventoryManifest(
 	cfg *ReaderConfig,
 ) ([]any, error) {
 	var manifest s3InventoryManifest
-	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+	if err := json.Unmarshal(manifestData, &manifest, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: manifest.json: %w", ErrItemReaderInvalidData, err)
 	}
 
@@ -3078,7 +3080,7 @@ func decodeJSONItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	}
 
 	var doc any
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
 	}
 
@@ -3155,7 +3157,7 @@ func stepJSONPointer(cur any, tok string) (any, error) {
 
 func decodeJSONAuto(data []byte) ([]any, error) {
 	var arr []any
-	if jsonErr := json.Unmarshal(data, &arr); jsonErr == nil {
+	if jsonErr := json.Unmarshal(data, &arr, jsonx.V1()); jsonErr == nil {
 		return arr, nil
 	}
 
@@ -3174,7 +3176,7 @@ func decodeJSONLines(data []byte) ([]any, error) {
 		}
 
 		var item any
-		if jsonErr := json.Unmarshal([]byte(line), &item); jsonErr != nil {
+		if jsonErr := json.Unmarshal([]byte(line), &item, jsonx.V1()); jsonErr != nil {
 			return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, jsonErr)
 		}
 
@@ -4469,7 +4471,7 @@ func marshalInput(v any) string {
 		return "{}"
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return "{}"
 	}
@@ -4485,13 +4487,13 @@ type parsedTemplate struct {
 }
 
 // loadTemplate returns the slot's parsed template, decoding raw on first use.
-func loadTemplate(slot *atomic.Pointer[parsedTemplate], raw json.RawMessage) *parsedTemplate {
+func loadTemplate(slot *atomic.Pointer[parsedTemplate], raw jsontext.Value) *parsedTemplate {
 	if pt := slot.Load(); pt != nil {
 		return pt
 	}
 
 	pt := &parsedTemplate{usesContext: bytes.Contains(raw, []byte("$$"))}
-	if err := json.Unmarshal(raw, &pt.tmpl); err != nil {
+	if err := json.Unmarshal(raw, &pt.tmpl, jsonx.V1()); err != nil {
 		pt.err = fmt.Errorf("invalid template: %w", err)
 	}
 

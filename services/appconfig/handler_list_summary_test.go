@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -154,7 +155,7 @@ func listSingleItem(t *testing.T, h *appconfig.Handler, path string) map[string]
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, ok := resp["Items"].([]any)
 	require.True(t, ok, "response missing Items list, got keys: %v", mapKeys(resp))
@@ -175,7 +176,7 @@ func setupConfigurationProfileListLeak(t *testing.T, h *appconfig.Handler) map[s
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	profBody := []byte(`{
 		"Name": "cp-list-leak-profile",
@@ -200,7 +201,7 @@ func setupDeploymentListLeak(t *testing.T, h *appconfig.Handler) map[string]any 
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"dep-list-leak-env"}`))
@@ -209,7 +210,7 @@ func setupDeploymentListLeak(t *testing.T, h *appconfig.Handler) map[string]any 
 	var env struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"dep-list-leak-profile","LocationUri":"hosted"}`))
@@ -218,7 +219,7 @@ func setupDeploymentListLeak(t *testing.T, h *appconfig.Handler) map[string]any 
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	hcvRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
@@ -234,7 +235,7 @@ func setupDeploymentListLeak(t *testing.T, h *appconfig.Handler) map[string]any 
 	var strat struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat, jsonx.V1()))
 
 	depBody := []byte(`{
 		"ConfigurationProfileId": "` + prof.ID + `",
@@ -249,7 +250,7 @@ func setupDeploymentListLeak(t *testing.T, h *appconfig.Handler) map[string]any 
 	var dep struct {
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &dep))
+	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &dep, jsonx.V1()))
 	require.Equal(t, "COMPLETE", dep.State, "a zero-duration strategy must complete synchronously")
 
 	return listSingleItem(t, h, "/applications/"+app.ID+"/environments/"+env.ID+"/deployments")
@@ -315,7 +316,7 @@ func setupExtensionAssociationListLeak(t *testing.T, h *appconfig.Handler) map[s
 	var ext struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(extRec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(extRec.Body.Bytes(), &ext, jsonx.V1()))
 
 	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"ext-assoc-list-leak-app"}`))
 	require.Equal(t, http.StatusCreated, appRec.Code)
@@ -323,7 +324,7 @@ func setupExtensionAssociationListLeak(t *testing.T, h *appconfig.Handler) map[s
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
 	assocBody := []byte(`{
@@ -346,7 +347,7 @@ func setupHostedConfigurationVersionListLeak(t *testing.T, h *appconfig.Handler)
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"hcv-list-leak-profile","LocationUri":"hosted"}`))
@@ -355,7 +356,7 @@ func setupHostedConfigurationVersionListLeak(t *testing.T, h *appconfig.Handler)
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	hcvRec := doRequestWithHeader(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
@@ -386,7 +387,7 @@ func setupEnvironmentListLeak(t *testing.T, h *appconfig.Handler) map[string]any
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"env-list-leak-env"}`))
@@ -422,7 +423,7 @@ func TestHandler_GetOps_NoCreatedAtUpdatedAt(t *testing.T) {
 	require.Equal(t, http.StatusCreated, appRec.Code)
 
 	var createdApp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &createdApp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &createdApp, jsonx.V1()))
 	assert.NotContains(t, createdApp, "CreatedAt")
 	assert.NotContains(t, createdApp, "UpdatedAt")
 
@@ -433,7 +434,7 @@ func TestHandler_GetOps_NoCreatedAtUpdatedAt(t *testing.T) {
 	require.Equal(t, http.StatusOK, getAppRec.Code)
 
 	var gotApp map[string]any
-	require.NoError(t, json.Unmarshal(getAppRec.Body.Bytes(), &gotApp))
+	require.NoError(t, json.Unmarshal(getAppRec.Body.Bytes(), &gotApp, jsonx.V1()))
 	assert.NotContains(t, gotApp, "CreatedAt")
 	assert.NotContains(t, gotApp, "UpdatedAt")
 
@@ -443,7 +444,7 @@ func TestHandler_GetOps_NoCreatedAtUpdatedAt(t *testing.T) {
 	require.Equal(t, http.StatusCreated, stratRec.Code)
 
 	var createdStrat map[string]any
-	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &createdStrat))
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &createdStrat, jsonx.V1()))
 	assert.NotContains(t, createdStrat, "CreatedAt")
 	assert.NotContains(t, createdStrat, "UpdatedAt")
 }

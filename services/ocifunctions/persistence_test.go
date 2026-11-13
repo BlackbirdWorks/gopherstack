@@ -1,7 +1,7 @@
 package ocifunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	oci "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
@@ -84,10 +85,10 @@ func TestRestoreRejects(t *testing.T) {
 			app := src.mkApp(t, "app", nil)
 
 			body := map[string]any{}
-			require.NoError(t, json.Unmarshal(src.handler.Snapshot(t.Context()), &body))
+			require.NoError(t, json.Unmarshal(src.handler.Snapshot(t.Context()), &body, jsonx.V1()))
 			tt.mutate(body)
 
-			out, err := json.Marshal(body)
+			out, err := json.Marshal(body, jsonx.V1())
 			require.NoError(t, err)
 
 			dst := newEnv(t, envOpts{})

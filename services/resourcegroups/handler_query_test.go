@@ -1,7 +1,7 @@
 package resourcegroups_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -88,7 +89,7 @@ func TestSearchResources_QueryErrorsShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotContains(t, out, "QueryErrors", "QueryErrors must be omitted when empty")
 }
 
@@ -137,7 +138,7 @@ func TestSearchResources_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	ids1 := out1["ResourceIdentifiers"].([]any)
 	assert.Len(t, ids1, 3)
 	tok1, _ := out1["NextToken"].(string)
@@ -148,7 +149,7 @@ func TestSearchResources_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	ids2 := out2["ResourceIdentifiers"].([]any)
 	assert.Len(t, ids2, 2)
 	assert.Empty(t, out2["NextToken"])

@@ -2,13 +2,14 @@ package bedrock_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -72,7 +73,7 @@ func doRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -91,7 +92,7 @@ func doRequest(
 
 func mustUnmarshal(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1()))
 }
 
 func typesAsStrings(raw []any) []string {

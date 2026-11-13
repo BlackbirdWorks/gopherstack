@@ -2,7 +2,8 @@ package iot_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -27,7 +29,7 @@ func doIoTRequest(t *testing.T, h *iot.Handler, method, path string, body any) *
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -66,7 +68,7 @@ func iotRequest(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		if err != nil {
 			t.Fatalf("marshal request body: %v", err)
 		}
@@ -93,7 +95,7 @@ func iotOK(t *testing.T, h *iot.Handler, method, path string, body any) map[stri
 		return map[string]any{}
 	}
 	var out map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
@@ -134,7 +136,7 @@ func doRefRequest(
 
 	if body != nil {
 		var err error
-		raw, err = json.Marshal(body)
+		raw, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -166,7 +168,7 @@ func doRequest(t *testing.T, h *iot.Handler, method, path string, body any) *htt
 	if body != nil {
 		var err error
 
-		reqBody, err = json.Marshal(body)
+		reqBody, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -204,7 +206,7 @@ func r3JSON(t *testing.T, h *iot.Handler, method, path string, body any, out any
 	t.Helper()
 	code, raw := r3Req(t, h, method, path, body)
 	if out != nil {
-		require.NoError(t, json.Unmarshal(raw, out))
+		require.NoError(t, json.Unmarshal(raw, out, jsonx.V1()))
 	}
 
 	return code
@@ -541,7 +543,7 @@ func TestHandler_ListThings_ResponseFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	things, ok := out["things"]
 	require.True(t, ok, "response must have 'things' key")
@@ -587,7 +589,7 @@ func TestHandler_ListThingPrincipals_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	principals, ok := out["principals"].([]any)
 	require.True(t, ok)
 	require.Len(t, principals, 1)
@@ -641,7 +643,7 @@ func TestDescribeThing_DefaultClientId(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			clientID, _ := resp["defaultClientId"].(string)
 			assert.Equal(t, tt.thingName, clientID, "defaultClientId must equal thingName")
 		})
@@ -680,7 +682,7 @@ func TestListThings_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.LessOrEqual(t, len(resp.Things), 2, "page exceeds maxResults")
 
 		for _, th := range resp.Things {
@@ -733,7 +735,7 @@ func TestListThingGroupsForThing_WireShapeAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		groups, ok := out["thingGroups"].([]any)
 		require.True(t, ok)
 		require.Len(t, groups, total)
@@ -751,7 +753,7 @@ func TestListThingGroupsForThing_WireShapeAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		groups, _ := out["thingGroups"].([]any)
 		assert.LessOrEqual(t, len(groups), 2)
 		assert.NotEmpty(t, out["nextToken"])
@@ -780,7 +782,7 @@ func TestListThingPrincipals_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	principals, _ := out["principals"].([]any)
 	assert.LessOrEqual(t, len(principals), 2)
 	assert.NotEmpty(t, out["nextToken"])
@@ -815,7 +817,7 @@ func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	objs, _ := out["thingPrincipalObjects"].([]any)
 	require.Len(t, objs, 1, "EXCLUSIVE_THING filter must return only the EXCLUSIVE_THING attachment")
 	entry, _ := objs[0].(map[string]any)
@@ -827,7 +829,7 @@ func TestListThingPrincipalsV2_ThingPrincipalTypeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	objs2, _ := out2["thingPrincipalObjects"].([]any)
 	require.Len(t, objs2, 1)
 	entry2, _ := objs2[0].(map[string]any)

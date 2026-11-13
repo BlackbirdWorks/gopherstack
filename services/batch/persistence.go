@@ -2,7 +2,7 @@ package batch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -55,7 +55,7 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables          map[string]json.RawMessage  `json:"tables"`
+	Tables          map[string]jsontext.Value   `json:"tables"`
 	JobDefRevisions map[string]map[string]int32 `json:"jobDefRevisions"`
 	AccountID       string                      `json:"accountID"`
 	Region          string                      `json:"region"`
@@ -271,7 +271,7 @@ func unwrapRegionalDTOs[V any](dtos *store.Table[regionalDTO[V]], setRegion func
 // table (byRegion, byARN, byQueue, byName -- see store_setup.go), so unlike
 // the pre-refactor Restore this needs no separate index-rebuild step.
 // Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 
 	if err := dtos.registry.RestoreAll(tables); err != nil {

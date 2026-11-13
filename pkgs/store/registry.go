@@ -1,7 +1,7 @@
 package store
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sync"
@@ -78,9 +78,9 @@ func (r *Registry) ResetAll() {
 // deterministic (see [Table.Snapshot]); marshaling a Go map with string keys
 // additionally sorts those keys, so the overall result — and any JSON built
 // from it — is byte-for-byte stable across calls for the same backend state.
-func (r *Registry) SnapshotAll() (map[string]json.RawMessage, error) {
+func (r *Registry) SnapshotAll() (map[string]jsontext.Value, error) {
 	tables := r.all()
-	out := make(map[string]json.RawMessage, len(tables))
+	out := make(map[string]jsontext.Value, len(tables))
 
 	for name, t := range tables {
 		data, err := t.snapshotJSON()
@@ -99,7 +99,7 @@ func (r *Registry) SnapshotAll() (map[string]json.RawMessage, error) {
 // from data is reset to empty rather than left untouched, so RestoreAll always
 // produces the same backend state a fresh [NewRegistry] plus SnapshotAll's
 // input would — never a stale mix of old and new state.
-func (r *Registry) RestoreAll(data map[string]json.RawMessage) error {
+func (r *Registry) RestoreAll(data map[string]jsontext.Value) error {
 	for name, t := range r.all() {
 		raw, ok := data[name]
 		if !ok {

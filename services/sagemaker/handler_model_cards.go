@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,7 +26,7 @@ type createModelCardInput struct {
 func (h *Handler) handleCreateModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req createModelCardInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -43,7 +45,7 @@ func (h *Handler) handleCreateModelCard(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn})
+	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn}, jsonx.V1())
 }
 
 // describeModelCardInput mirrors DescribeModelCardInput
@@ -58,7 +60,7 @@ type describeModelCardInput struct {
 func (h *Handler) handleDescribeModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeModelCardInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -71,7 +73,7 @@ func (h *Handler) handleDescribeModelCard(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // updateModelCardInput mirrors UpdateModelCardInput (api_op_UpdateModelCard.go:31-59):
@@ -86,7 +88,7 @@ type updateModelCardInput struct {
 func (h *Handler) handleUpdateModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateModelCardInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -99,7 +101,7 @@ func (h *Handler) handleUpdateModelCard(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn})
+	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn}, jsonx.V1())
 }
 
 // deleteModelCardInput mirrors DeleteModelCardInput (api_op_DeleteModelCard.go:27-33):
@@ -111,7 +113,7 @@ type deleteModelCardInput struct {
 func (h *Handler) handleDeleteModelCard(ctx context.Context, body []byte) error {
 	var req deleteModelCardInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -142,7 +144,7 @@ type listModelCardsInput struct {
 func (h *Handler) handleListModelCards(ctx context.Context, body []byte) ([]byte, error) {
 	var req listModelCardsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -199,7 +201,7 @@ type listModelCardVersionsInput struct {
 func (h *Handler) handleListModelCardVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listModelCardVersionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -224,7 +226,7 @@ func (h *Handler) handleListModelCardVersions(ctx context.Context, body []byte) 
 		})
 	}
 
-	return json.Marshal(map[string]any{"ModelCardVersionSummaryList": summaries})
+	return json.Marshal(map[string]any{"ModelCardVersionSummaryList": summaries}, jsonx.V1())
 }
 
 func modelCardVersionMatchesFilter(card *ModelCard, req listModelCardVersionsInput) bool {
@@ -262,7 +264,7 @@ type listModelCardExportJobsInput struct {
 func (h *Handler) handleListModelCardExportJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listModelCardExportJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

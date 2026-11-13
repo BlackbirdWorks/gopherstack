@@ -3,7 +3,7 @@ package ec2_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
@@ -381,7 +382,7 @@ func TestIMDSIdentityDocument(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()))
 	assert.Equal(t, f.instanceID, doc["instanceId"])
 	assert.Equal(t, "us-east-1", doc["region"])
 	assert.Equal(t, "000000000000", doc["accountId"])
@@ -403,7 +404,7 @@ func TestIMDSIAMCredentials(t *testing.T) {
 	require.Equal(t, http.StatusOK, info.Code)
 
 	var infoDoc map[string]string
-	require.NoError(t, json.Unmarshal(info.Body.Bytes(), &infoDoc))
+	require.NoError(t, json.Unmarshal(info.Body.Bytes(), &infoDoc, jsonx.V1()))
 	assert.Equal(t, "Success", infoDoc["Code"])
 	assert.Equal(t, imdsProfile, infoDoc["InstanceProfileArn"])
 	assert.Equal(t, "AIPAEXAMPLE", infoDoc["InstanceProfileId"])
@@ -415,7 +416,7 @@ func TestIMDSIAMCredentials(t *testing.T) {
 	require.Equal(t, http.StatusOK, cred.Code)
 
 	var credDoc map[string]string
-	require.NoError(t, json.Unmarshal(cred.Body.Bytes(), &credDoc))
+	require.NoError(t, json.Unmarshal(cred.Body.Bytes(), &credDoc, jsonx.V1()))
 	assert.Equal(t, "Success", credDoc["Code"])
 	assert.Equal(t, "AWS-HMAC", credDoc["Type"])
 	assert.Equal(t, "ASIA1", credDoc["AccessKeyId"])

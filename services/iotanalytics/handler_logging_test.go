@@ -1,12 +1,14 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_LoggingOptions(t *testing.T) {
@@ -64,7 +66,7 @@ func TestHandler_LoggingOptions(t *testing.T) {
 
 				if tt.wantDescribe == http.StatusOK {
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 					opts, ok := resp["loggingOptions"].(map[string]any)
 					require.True(t, ok)
 					assert.Equal(t, "ERROR", opts["level"])

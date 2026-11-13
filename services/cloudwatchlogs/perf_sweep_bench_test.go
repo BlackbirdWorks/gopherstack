@@ -6,7 +6,7 @@ package cloudwatchlogs_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -29,7 +30,7 @@ func invokeLogsB(
 ) (int, map[string]any) {
 	tb.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(tb, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
@@ -41,7 +42,7 @@ func invokeLogsB(
 
 	var resp map[string]any
 	if rec.Body.Len() > 0 {
-		require.NoError(tb, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(tb, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	}
 
 	return rec.Code, resp

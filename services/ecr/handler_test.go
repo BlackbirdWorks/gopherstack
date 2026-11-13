@@ -12,7 +12,7 @@ package ecr_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
@@ -82,7 +83,7 @@ func doECRRequest(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -124,7 +125,7 @@ func newHandlerWithBackend() (*ecr.Handler, *ecr.InMemoryBackend) {
 func doAccuracy(t *testing.T, h *ecr.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -141,7 +142,7 @@ func parseAccuracy(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -469,7 +470,7 @@ func TestECR_LazyEndpointInit(t *testing.T) {
 	h := ecr.NewHandler(backend, nil)
 
 	// First request — Host header provides the server address.
-	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "lazy-repo"})
+	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "lazy-repo"}, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()

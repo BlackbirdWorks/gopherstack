@@ -2,7 +2,7 @@ package scheduler_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -30,7 +31,7 @@ func TestSchedulerHandler_TagResource(t *testing.T) {
 		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["ScheduleArn"]
 
 	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -56,7 +57,7 @@ func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
 		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["ScheduleArn"]
 
 	doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -68,7 +69,7 @@ func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "Tags")
 	tags := wireTagsToMap(t, resp["Tags"])
 	assert.Equal(t, "prod", tags["env"])
@@ -88,7 +89,7 @@ func TestTagResource_AndListTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	schedARN := createResp["ScheduleArn"]
 
 	tagRec := doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -101,7 +102,7 @@ func TestTagResource_AndListTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsResp["Tags"])
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -178,7 +179,7 @@ func TestSchedulerHandler_UntagResource(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				resourceARN = createResp["ScheduleArn"]
 
 				if len(tt.setupTags) > 0 {
@@ -201,7 +202,7 @@ func TestSchedulerHandler_UntagResource(t *testing.T) {
 				listRec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": resourceARN})
 				require.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				remaining := wireTagsToMap(t, listResp["Tags"])
 				for _, key := range tt.wantRemoved {
 					assert.NotContains(t, remaining, key)
@@ -233,7 +234,7 @@ func TestUntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsResp["Tags"])
 	assert.NotContains(t, tags, "k1")
 	assert.Contains(t, tags, "k2")
@@ -252,7 +253,7 @@ func TestSchedulerHandler_UntagResource_ScheduleGroup(t *testing.T) {
 	getRec := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "tagged-group"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	groupARN, _ := getResp["Arn"].(string)
 	require.NotEmpty(t, groupARN)
 
@@ -265,7 +266,7 @@ func TestSchedulerHandler_UntagResource_ScheduleGroup(t *testing.T) {
 	listRec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": groupARN})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	remaining := wireTagsToMap(t, listResp["Tags"])
 	assert.NotContains(t, remaining, "env")
 	assert.Contains(t, remaining, "team")
@@ -279,7 +280,7 @@ func TestSchedulerHandler_TagResource_ScheduleGroup(t *testing.T) {
 	doSchedulerRequest(t, h, "CreateScheduleGroup", map[string]any{"Name": "tag-group"})
 	getRec := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "tag-group"})
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	groupARN, _ := getResp["Arn"].(string)
 
 	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -291,7 +292,7 @@ func TestSchedulerHandler_TagResource_ScheduleGroup(t *testing.T) {
 	listRec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": groupARN})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagsMap := wireTagsToMap(t, listResp["Tags"])
 	assert.Equal(t, "team-a", tagsMap["owner"])
 }
@@ -312,7 +313,7 @@ func TestRESTTagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	schedARN := createOut["ScheduleArn"]
 	require.NotEmpty(t, schedARN)
 
@@ -327,7 +328,7 @@ func TestRESTTagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsOut["Tags"])
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -349,7 +350,7 @@ func TestRESTListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	schedARN := createOut["ScheduleArn"]
 
 	// Tag the resource first via the standard operation.
@@ -362,7 +363,7 @@ func TestRESTListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsOut["Tags"])
 	assert.Equal(t, "val1", tags["key1"])
 }
@@ -382,7 +383,7 @@ func TestRESTUntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	schedARN := createOut["ScheduleArn"]
 
 	_ = doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -397,7 +398,7 @@ func TestRESTUntagResource(t *testing.T) {
 
 	rec3 := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": schedARN})
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsOut["Tags"])
 	assert.NotContains(t, tags, "key1")
 	assert.Equal(t, "val2", tags["key2"])
@@ -422,7 +423,7 @@ func TestRESTUntagResourceMultipleTagKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	schedARN := createOut["ScheduleArn"]
 
 	_ = doSchedulerRequest(t, h, "TagResource", map[string]any{
@@ -440,7 +441,7 @@ func TestRESTUntagResourceMultipleTagKeys(t *testing.T) {
 
 	rec3 := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": schedARN})
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := wireTagsToMap(t, tagsOut["Tags"])
 	assert.NotContains(t, tags, "key1")
 	assert.NotContains(t, tags, "key2")

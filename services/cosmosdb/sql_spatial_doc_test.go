@@ -1,12 +1,14 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -33,7 +35,7 @@ func evalOne(t *testing.T, expr string) any {
 func asFloat(t *testing.T, v any) float64 {
 	t.Helper()
 
-	n, ok := v.(json.Number)
+	n, ok := v.(jsonx.Number)
 	require.True(t, ok, "%T", v)
 
 	f, err := n.Float64()
@@ -187,7 +189,7 @@ func TestSpatial_GeographySemantics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(evalOne(t, tt.expr))
+			got, err := json.Marshal(evalOne(t, tt.expr), jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(got))
 		})
@@ -243,7 +245,7 @@ func TestSpatial_GeometryContainersUsePlanarMath(t *testing.T) {
 			_, err = b.CreateContainer("d", cosmosdb.ContainerSpec{
 				ID:               "c",
 				PartitionKeyPath: "/pk",
-				GeospatialConfig: json.RawMessage(`{"type":"` + tt.geo + `"}`),
+				GeospatialConfig: jsontext.Value(`{"type":"` + tt.geo + `"}`),
 			})
 			require.NoError(t, err)
 			_, err = b.CreateDocument("d", "c", map[string]any{"id": "1", "pk": "k"}, false)
@@ -253,7 +255,7 @@ func TestSpatial_GeometryContainersUsePlanarMath(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, res.Rows, 1)
 
-			got, err := json.Marshal(res.Rows[0])
+			got, err := json.Marshal(res.Rows[0], jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(got))
 		})

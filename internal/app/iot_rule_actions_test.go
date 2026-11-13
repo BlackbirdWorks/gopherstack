@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"strings"
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -267,7 +268,7 @@ func iotCaseSNS(t *testing.T, f *iotRuleFixture, format, payload, want string) {
 		Message string `json:"Message"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, url, 1)[0]), &env))
+	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, url, 1)[0]), &env, jsonx.V1()))
 	assert.Contains(t, env.Message, want)
 }
 
@@ -648,7 +649,7 @@ func iotCaseTemplateError(t *testing.T, f *iotRuleFixture) {
 	f.publish(t, "tpl/topic", `{"present":1}`)
 
 	var env map[string]string
-	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env))
+	require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env, jsonx.V1()))
 	assert.Equal(t, "KinesisAction", env["failedAction"])
 	assert.Equal(t, "r", env["ruleName"])
 	assert.Empty(t, kinesisRecords(t, f.fx, "iot-tpl-stream"))

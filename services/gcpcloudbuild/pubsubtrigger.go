@@ -2,11 +2,12 @@ package gcpcloudbuild
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -65,5 +66,5 @@ func pubsubPayload(
 			"publishTime": published.UTC().Format(time.RFC3339Nano),
 		},
 		"subscription": subscription,
-	})
+	}, jsonx.V1())
 }

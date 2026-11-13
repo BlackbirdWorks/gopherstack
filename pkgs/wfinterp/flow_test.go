@@ -402,7 +402,7 @@ main:
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	host := &wfinterp.Host{
 		Clock: &blockingClock{},
 		Progress: func(f []wfinterp.Frame) {

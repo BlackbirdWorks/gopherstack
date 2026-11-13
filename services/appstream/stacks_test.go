@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -30,7 +31,7 @@ func TestAppStream_Stacks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				stack, ok := resp["Stack"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "my-stack", stack["Name"])
@@ -58,7 +59,7 @@ func TestAppStream_Stacks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				stacks, ok := resp["Stacks"].([]any)
 				require.True(t, ok)
 				assert.Len(t, stacks, 1)
@@ -76,7 +77,7 @@ func TestAppStream_Stacks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				stacks := resp["Stacks"].([]any)
 				assert.Len(t, stacks, 1)
 				s := stacks[0].(map[string]any)
@@ -100,7 +101,7 @@ func TestAppStream_Stacks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				stack := resp["Stack"].(map[string]any)
 				assert.Equal(t, "Updated", stack["DisplayName"])
 			},
@@ -224,7 +225,7 @@ func TestAppStream_StackErrorCodes(t *testing.T) {
 
 			if tc.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tc.wantType, resp["__type"], "wrong __type in error response")
 			}
 		})
@@ -241,7 +242,7 @@ func TestAppStream_StackARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stack := resp["Stack"].(map[string]any)
 	assert.Regexp(t, `^arn:aws:appstream:[a-z0-9-]+:\d+:stack/arn-stack$`, stack["Arn"])
 }

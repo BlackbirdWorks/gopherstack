@@ -1,7 +1,7 @@
 package azure_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,6 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const azureCosmosFixture = `
@@ -150,7 +152,7 @@ func TestTerraform_Azure_CosmosDB(t *testing.T) {
 	require.NoError(t, err)
 
 	pk := azcosmos.NewPartitionKeyString("p1")
-	item, err := json.Marshal(map[string]any{"id": "item1", "pk": "p1", "email": "a@example.com"})
+	item, err := json.Marshal(map[string]any{"id": "item1", "pk": "p1", "email": "a@example.com"}, jsonx.V1())
 	require.NoError(t, err)
 
 	ctx := t.Context()
@@ -182,7 +184,7 @@ func TestTerraform_Azure_CosmosDB(t *testing.T) {
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return b
@@ -192,7 +194,7 @@ func stripSystemFields(t *testing.T, raw []byte) string {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(raw, &m))
+	require.NoError(t, json.Unmarshal(raw, &m, jsonx.V1()))
 
 	for k := range m {
 		if strings.HasPrefix(k, "_") {

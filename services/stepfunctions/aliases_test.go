@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -29,7 +30,7 @@ func createSFNStateMachineCov(
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, _ := resp["stateMachineArn"].(string)
 	require.NotEmpty(t, arn)
 
@@ -299,14 +300,14 @@ func TestCreateStateMachineAlias_RoutingViaHandler(t *testing.T) {
 		"routingConfiguration": []map[string]any{
 			{"stateMachineVersionArn": "arn:fake:version:1", "weight": 50},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "CreateStateMachineAlias", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// CHANGED (orphan-code sweep, gopherstack-yatn): this assertion previously
 	// checked for "InvalidRoutingConfiguration", which is not a real sfn SDK
 	// error type -- CreateStateMachineAlias's own deserializeOpError switch

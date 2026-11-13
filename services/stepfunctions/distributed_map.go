@@ -2,10 +2,11 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -89,7 +90,7 @@ func marshalDistributedMapInput(item any) string {
 		return "{}"
 	}
 
-	b, err := json.Marshal(item)
+	b, err := json.Marshal(item, jsonx.V1())
 	if err != nil {
 		return "{}"
 	}

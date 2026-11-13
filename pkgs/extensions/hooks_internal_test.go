@@ -1,7 +1,8 @@
 package extensions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func hookManager(t *testing.T, failOpen *bool, hook RequestHook, handler http.HandlerFunc) *Manager {
@@ -129,7 +132,7 @@ func TestPreHookPayload(t *testing.T) {
 	var got hookRequest
 
 	m := hookManager(t, nil, RequestHook{Pre: "/pre"}, func(_ http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &got, jsonx.V1())
 	})
 
 	req := httptest.NewRequest(http.MethodPut, "/bkt/key?x=1", strings.NewReader("data"))
@@ -172,7 +175,7 @@ func TestPostHook(t *testing.T) {
 			var seen hookRequest
 
 			m := hookManager(t, nil, RequestHook{Post: "/post"}, func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewDecoder(r.Body).Decode(&seen)
+				_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &seen, jsonx.V1())
 				_, _ = io.WriteString(w, tt.reply)
 			})
 

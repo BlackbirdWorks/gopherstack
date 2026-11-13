@@ -2,9 +2,10 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -22,7 +23,7 @@ type tagResourceRequest struct {
 
 func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -51,7 +52,7 @@ type listTagsForResourceRequest struct {
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTagsForResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -78,7 +79,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 		resp["NextMarker"] = pg.Next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // untagResourceRequest is the request body for UntagResource.
@@ -89,7 +90,7 @@ type untagResourceRequest struct {
 
 func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req untagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

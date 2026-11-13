@@ -1,7 +1,7 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestWorkspacesPool_CapacityStatusAndRunningMode verifies fields that were
@@ -196,7 +198,7 @@ func TestWorkspacesPool_UpdateRunningModeRequiresStopped(t *testing.T) {
 
 			if tc.wantStatus == http.StatusBadRequest {
 				var errOut map[string]string
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut, jsonx.V1()))
 				assert.Equal(t, "InvalidResourceStateException", errOut["__type"])
 			}
 

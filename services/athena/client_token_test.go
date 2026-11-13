@@ -1,12 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ClientRequestTokenReplay(t *testing.T) {
@@ -153,7 +155,7 @@ func TestHandler_StartSessionTags(t *testing.T) {
 			require.Equal(t, http.StatusOK, tagged.Code, tagged.Body.String())
 
 			var out tagList
-			require.NoError(t, json.Unmarshal(tagged.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(tagged.Body.Bytes(), &out, jsonx.V1()))
 
 			got := map[string]string{}
 			for _, tg := range out.Tags {
@@ -182,7 +184,7 @@ func TestHandler_StartSessionCopyWorkGroupTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagged.Code, tagged.Body.String())
 
 	var out tagList
-	require.NoError(t, json.Unmarshal(tagged.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(tagged.Body.Bytes(), &out, jsonx.V1()))
 
 	got := map[string]string{}
 	for _, tg := range out.Tags {

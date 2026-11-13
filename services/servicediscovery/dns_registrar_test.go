@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -58,7 +59,7 @@ func createPublicDNSNamespace(t *testing.T, h *servicediscovery.Handler, name st
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	opID, ok := resp["OperationId"].(string)
 	require.True(t, ok)
 
@@ -66,7 +67,7 @@ func createPublicDNSNamespace(t *testing.T, h *servicediscovery.Handler, name st
 	require.Equal(t, http.StatusOK, opRec.Code, opRec.Body.String())
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 
 	targets := opResp["Operation"].(map[string]any)["Targets"].(map[string]any)
 
@@ -100,7 +101,7 @@ func TestRegisterInstance_DNS_RealResolution(t *testing.T) {
 	require.Equal(t, http.StatusOK, svcRec.Code, svcRec.Body.String())
 
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	hostname := "svc-dns-resolve.ns-dns-resolve"
@@ -146,19 +147,19 @@ func TestRegisterInstance_HTTPNamespace_NoDNSRegistration(t *testing.T) {
 	require.Equal(t, http.StatusOK, nsRec.Code, nsRec.Body.String())
 
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	opID := nsResp["OperationId"].(string)
 
 	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	nsID := opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-http", "NamespaceId": nsID})
 	require.Equal(t, http.StatusOK, svcRec.Code, svcRec.Body.String())
 
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -198,7 +199,7 @@ func TestDeregisterInstance_DNS_ResyncKeepsSibling(t *testing.T) {
 	require.Equal(t, http.StatusOK, svcRec.Code, svcRec.Body.String())
 
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	hostname := "svc-multi.ns-multi."

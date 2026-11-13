@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -16,7 +17,7 @@ func decodeBody(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out
 }

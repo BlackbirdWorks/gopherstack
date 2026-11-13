@@ -1,11 +1,13 @@
 package oam
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -15,24 +17,24 @@ const (
 )
 
 type rawPolicy struct {
-	Version   string          `json:"Version,omitempty"`
-	Statement json.RawMessage `json:"Statement"`
+	Version   string         `json:"Version,omitempty"`
+	Statement jsontext.Value `json:"Statement"`
 }
 
-func decodeStatements(raw json.RawMessage) ([]map[string]any, bool) {
+func decodeStatements(raw jsontext.Value) ([]map[string]any, bool) {
 	trimmed := strings.TrimSpace(string(raw))
 
 	switch {
 	case strings.HasPrefix(trimmed, "{"):
 		var one map[string]any
-		if json.Unmarshal(raw, &one) != nil {
+		if json.Unmarshal(raw, &one, jsonx.V1()) != nil {
 			return nil, false
 		}
 
 		return []map[string]any{one}, true
 	case strings.HasPrefix(trimmed, "["):
 		var many []map[string]any
-		if json.Unmarshal(raw, &many) != nil {
+		if json.Unmarshal(raw, &many, jsonx.V1()) != nil {
 			return nil, false
 		}
 
@@ -63,7 +65,7 @@ func stringList(v any) []string {
 
 func validateSinkPolicy(policy string) error {
 	var p rawPolicy
-	if err := json.Unmarshal([]byte(policy), &p); err != nil {
+	if err := json.Unmarshal([]byte(policy), &p, jsonx.V1()); err != nil {
 		return fail(ErrInvalidParameter, "Policy is not valid JSON")
 	}
 
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) sinkPolicyAllowsLocked(
 	}
 
 	var p rawPolicy
-	if json.Unmarshal([]byte(sink.Policy), &p) != nil {
+	if json.Unmarshal([]byte(sink.Policy), &p, jsonx.V1()) != nil {
 		return false
 	}
 
@@ -141,7 +143,7 @@ func (b *InMemoryBackend) sinkPolicyAllowsLocked(
 		return false
 	}
 
-	doc, err := json.Marshal(map[string]any{"Version": p.Version, "Statement": applicable})
+	doc, err := json.Marshal(map[string]any{"Version": p.Version, "Statement": applicable}, jsonx.V1())
 	if err != nil {
 		return false
 	}

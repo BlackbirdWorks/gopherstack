@@ -5,13 +5,16 @@ package wfinterp
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errTrailingJSON = errors.New("trailing data")
@@ -165,15 +168,14 @@ func sortedKeys(m map[string]any) []string {
 
 // ParseJSON decodes JSON into workflow values: integers become int64, other numbers float64.
 func ParseJSON(raw []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	if dec.More() {
+	if rest := bytes.TrimLeft(raw[dec.InputOffset():], " \t\r\n"); len(rest) > 0 && rest[0] != ']' && rest[0] != '}' {
 		return nil, fmt.Errorf("invalid JSON: %w", errTrailingJSON)
 	}
 
@@ -182,7 +184,7 @@ func ParseJSON(raw []byte) (any, error) {
 
 func normalizeJSON(v any) any {
 	switch x := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		if i, err := x.Int64(); err == nil && !strings.ContainsAny(string(x), ".eE") {
 			return i
 		}
@@ -209,7 +211,7 @@ func normalizeJSON(v any) any {
 
 // ToJSON encodes a workflow value as JSON; bytes become base64 strings.
 func ToJSON(v any) ([]byte, error) {
-	raw, err := json.Marshal(jsonSafe(v))
+	raw, err := json.Marshal(jsonSafe(v), jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode JSON: %w", err)
 	}

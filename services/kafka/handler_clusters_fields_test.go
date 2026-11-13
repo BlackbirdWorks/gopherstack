@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -240,7 +241,7 @@ func TestServerlessCluster_HTTP(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["clusterType"])
 			}
 		})
@@ -266,7 +267,7 @@ func TestDescribeClusterV2_ServerlessArm(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo, ok := resp["clusterInfo"].(map[string]any)
 	require.True(t, ok)
@@ -287,7 +288,7 @@ func TestDescribeClusterV2_ProvisionedArm(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo, ok := resp["clusterInfo"].(map[string]any)
 	require.True(t, ok)
@@ -392,7 +393,7 @@ func TestEncryptionInfo_InV1Response(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo := resp["clusterInfo"].(map[string]any)
 	encInfo, ok := clInfo["encryptionInfo"].(map[string]any)
@@ -428,7 +429,7 @@ func TestEncryptionInfo_InV2Response(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo := resp["clusterInfo"].(map[string]any)
 	provisioned, ok := clInfo["provisioned"].(map[string]any)

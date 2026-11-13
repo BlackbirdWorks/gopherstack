@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -36,7 +37,7 @@ func TestThreatEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				setID, _ := createResp["threatEntitySetId"].(string)
 				require.NotEmpty(t, setID)
 
@@ -45,7 +46,7 @@ func TestThreatEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Equal(t, "my-threat-set", getResp["name"])
 				assert.Equal(t, "ACTIVE", getResp["status"])
 
@@ -61,7 +62,7 @@ func TestThreatEntitySets(t *testing.T) {
 
 				// Verify update
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/threatentityset/"+setID, nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Equal(t, "updated-threat-set", getResp["name"])
 				assert.Equal(t, "INACTIVE", getResp["status"])
 
@@ -70,7 +71,7 @@ func TestThreatEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				ids, _ := listResp["threatEntitySetIds"].([]any)
 				assert.Len(t, ids, 1)
 				assert.Equal(t, setID, ids[0])
@@ -81,7 +82,7 @@ func TestThreatEntitySets(t *testing.T) {
 
 				// List after delete
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/threatentityset", nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				idsAfter, _ := listResp["threatEntitySetIds"].([]any)
 				assert.Empty(t, idsAfter)
 			},
@@ -133,7 +134,7 @@ func TestTrustedEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				setID, _ := createResp["trustedEntitySetId"].(string)
 				require.NotEmpty(t, setID)
 
@@ -142,7 +143,7 @@ func TestTrustedEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Equal(t, "my-trusted-set", getResp["name"])
 				assert.Equal(t, "ACTIVE", getResp["status"])
 
@@ -156,7 +157,7 @@ func TestTrustedEntitySets(t *testing.T) {
 
 				// Verify update
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/trustedentityset/"+setID, nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Equal(t, "updated-trusted-set", getResp["name"])
 				assert.Equal(t, "INACTIVE", getResp["status"])
 
@@ -165,7 +166,7 @@ func TestTrustedEntitySets(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				ids, _ := listResp["trustedEntitySetIds"].([]any)
 				assert.Len(t, ids, 1)
 				assert.Equal(t, setID, ids[0])
@@ -176,7 +177,7 @@ func TestTrustedEntitySets(t *testing.T) {
 
 				// List after delete
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/trustedentityset", nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				idsAfter, _ := listResp["trustedEntitySetIds"].([]any)
 				assert.Empty(t, idsAfter)
 			},

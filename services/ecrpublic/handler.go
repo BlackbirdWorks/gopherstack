@@ -2,7 +2,7 @@ package ecrpublic
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -95,7 +96,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		RepositoryName string `json:"repositoryName"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return req.RepositoryName
 }
@@ -149,7 +150,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -234,14 +235,10 @@ func classifyError(err error) (int, string) {
 		}
 	}
 
-	var syntaxErr *json.SyntaxError
-
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, errUnknownAction):
 		return http.StatusBadRequest, "UnknownOperationException"
-	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return http.StatusBadRequest, "InvalidParameterException"
 	case errors.Is(err, awserr.ErrNotFound):
 		return http.StatusBadRequest, "RepositoryNotFoundException"

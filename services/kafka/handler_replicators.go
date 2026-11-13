@@ -2,12 +2,14 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // amazonMskClusterDTO mirrors types.AmazonMskCluster.
@@ -338,7 +340,7 @@ type createReplicatorOutput struct {
 
 func (h *Handler) handleCreateReplicator(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createReplicatorInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -599,7 +601,7 @@ func (h *Handler) handleUpdateReplicationInfo(
 	body []byte,
 ) error {
 	var in updateReplicationInfoInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

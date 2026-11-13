@@ -1,7 +1,8 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
 
@@ -70,7 +72,7 @@ func TestHandler_BatchGetCommandExecutions(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 				executions, _ := out["commandExecutions"].([]any)
 				assert.Len(t, executions, tt.wantFound)
@@ -121,7 +123,7 @@ func TestHandler_StartCommandExecution_TypeStored(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"sandbox"`
 			}
-			require.NoError(t, json.NewDecoder(sbRec.Body).Decode(&sbOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(sbRec.Body), &sbOut, jsonx.V1()))
 
 			execRec := doRequest(t, h, "StartCommandExecution", map[string]any{
 				"sandboxId": sbOut.Sandbox.ID,
@@ -139,7 +141,7 @@ func TestHandler_StartCommandExecution_TypeStored(t *testing.T) {
 					EndTime   float64 `json:"endTime"`
 				} `json:"commandExecution"`
 			}
-			require.NoError(t, json.NewDecoder(execRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(execRec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out.CommandExecution.Type)
 			assert.Equal(t, tt.command, out.CommandExecution.Command)
 			assert.Equal(t, "SUCCEEDED", out.CommandExecution.Status)
@@ -167,7 +169,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"sandbox"`
 		}
-		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 		sandboxID := startOut.Sandbox.ID
 
 		doRequest(t, h, "StartCommandExecution", map[string]any{
@@ -189,7 +191,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 		var out struct {
 			CommandExecutions []map[string]any `json:"commandExecutions"`
 		}
-		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.CommandExecutions, 2)
 	})
 
@@ -222,7 +224,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"sandbox"`
 		}
-		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 		sandboxID := startOut.Sandbox.ID
 
 		ids := make([]string, 0, 3)
@@ -240,7 +242,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"commandExecution"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			ids = append(ids, out.CommandExecution.ID)
 		}
 
@@ -258,7 +260,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 			NextToken         string           `json:"nextToken"`
 			CommandExecutions []map[string]any `json:"commandExecutions"`
 		}
-		require.NoError(t, json.NewDecoder(firstPage.Body).Decode(&firstOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(firstPage.Body), &firstOut, jsonx.V1()))
 		require.Len(t, firstOut.CommandExecutions, 2)
 		assert.Equal(
 			t,
@@ -280,7 +282,7 @@ func TestCodeBuild_CommandExecutionsForSandbox(t *testing.T) {
 		var secondOut struct {
 			CommandExecutions []map[string]any `json:"commandExecutions"`
 		}
-		require.NoError(t, json.NewDecoder(secondPage.Body).Decode(&secondOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(secondPage.Body), &secondOut, jsonx.V1()))
 		require.Len(t, secondOut.CommandExecutions, 1)
 		assert.Equal(t, sortedAsc[0], secondOut.CommandExecutions[0]["id"], "the remainder must be the smallest ID")
 	})

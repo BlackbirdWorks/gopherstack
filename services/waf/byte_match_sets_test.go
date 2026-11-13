@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -23,7 +24,7 @@ func TestWAF_ByteMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	bmsMap := createResp["ByteMatchSet"].(map[string]any)
 	id := bmsMap["ByteMatchSetId"].(string)
 	require.NotEmpty(t, id)
@@ -33,7 +34,7 @@ func TestWAF_ByteMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "GetByteMatchSet", map[string]any{"ByteMatchSetId": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	bms := resp["ByteMatchSet"].(map[string]any)
 	assert.Equal(t, "my-bms", bms["Name"])
 
@@ -57,7 +58,7 @@ func TestWAF_ByteMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = wafDo(t, h, "GetByteMatchSet", map[string]any{"ByteMatchSetId": id})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	bms = resp["ByteMatchSet"].(map[string]any)
 	tuples := bms["ByteMatchTuples"].([]any)
 	require.Len(t, tuples, 1)
@@ -69,7 +70,7 @@ func TestWAF_ByteMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "ListByteMatchSets", map[string]any{"Limit": 100})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	sets := listResp["ByteMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
@@ -118,7 +119,7 @@ func wafCreateByteMatchSet(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["ByteMatchSet"].(map[string]any)
 	id := m["ByteMatchSetId"].(string)
 	require.NotEmpty(t, id)

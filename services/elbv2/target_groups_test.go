@@ -2,7 +2,7 @@ package elbv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elbv2"
 )
 
@@ -255,7 +256,7 @@ func TestDeleteTargetGroup_LifecycleMapsCleaned(t *testing.T) {
 				TargetReadyAt       map[string]map[string]time.Time `json:"targetReadyAt"`
 				TargetDrainingUntil map[string]map[string]time.Time `json:"targetDrainingUntil"`
 			}
-			require.NoError(t, json.Unmarshal(h.Snapshot(context.Background()), &snap))
+			require.NoError(t, json.Unmarshal(h.Snapshot(context.Background()), &snap, jsonx.V1()))
 
 			byField := map[string]map[string]map[string]time.Time{
 				"targetReadyAt":       snap.TargetReadyAt,

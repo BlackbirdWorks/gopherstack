@@ -1,7 +1,7 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -240,7 +241,7 @@ func TestTrusts(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			trustID, _ := r1["TrustId"].(string)
 			assert.NotEmpty(t, trustID)
 
@@ -248,7 +249,7 @@ func TestTrusts(t *testing.T) {
 			rec2 := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			trusts, _ := r2["Trusts"].([]any)
 			require.Len(t, trusts, 1)
 			trust := trusts[0].(map[string]any)
@@ -261,27 +262,27 @@ func TestTrusts(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 			assert.Equal(t, trustID, r3["TrustId"])
 
 			// Verify
 			rec4 := doRequest(t, h, "VerifyTrust", map[string]any{"TrustId": trustID})
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4, jsonx.V1()))
 			assert.Equal(t, trustID, r4["TrustId"])
 
 			// Delete
 			rec5 := doRequest(t, h, "DeleteTrust", map[string]any{"TrustId": trustID})
 			assert.Equal(t, http.StatusOK, rec5.Code)
 			var r5 map[string]any
-			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5))
+			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5, jsonx.V1()))
 			assert.Equal(t, trustID, r5["TrustId"])
 
 			require.Eventually(t, func() bool {
 				var r6 map[string]any
 				rec6 := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
-				require.NoError(t, json.Unmarshal(rec6.Body.Bytes(), &r6))
+				require.NoError(t, json.Unmarshal(rec6.Body.Bytes(), &r6, jsonx.V1()))
 				trusts2, _ := r6["Trusts"].([]any)
 
 				return rec6.Code == http.StatusOK && len(trusts2) == 0

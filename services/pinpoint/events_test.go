@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPutEvents_AppLifeCycleEvent(t *testing.T) {
@@ -150,7 +152,7 @@ func TestPutEvents_ReturnsEventResults(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["Results"].(map[string]any)
 	require.True(t, ok, "EventsResponse must have Results")
@@ -199,7 +201,7 @@ func TestPutEvents_MultipleEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results := resp["Results"].(map[string]any)
 
@@ -226,7 +228,7 @@ func TestPutEvents_EmptyBatch(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results := resp["Results"].(map[string]any)
 	assert.Empty(t, results, "empty BatchItem → empty Results")

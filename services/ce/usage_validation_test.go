@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func usageBody(start, end, granularity string, extra map[string]any) map[string]any {
@@ -59,7 +61,7 @@ func TestGetCostAndUsage_RequestValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var we wireError
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &we))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &we, jsonx.V1()))
 				assert.Contains(t, we.Type, tt.wantType)
 			}
 		})
@@ -80,7 +82,7 @@ func TestGetCostAndUsage_HourlyBuckets(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"ResultsByTime"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ResultsByTime, 3)
 	assert.Equal(t, "2026-01-01T01:00:00Z", out.ResultsByTime[1].TimePeriod["Start"])
 }
@@ -127,7 +129,7 @@ func TestRequestEnumValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var we wireError
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &we))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &we, jsonx.V1()))
 			assert.Contains(t, we.Type, "ValidationError")
 		})
 	}

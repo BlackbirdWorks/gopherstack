@@ -3,10 +3,12 @@ package s3
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // evaluateJSONQuery reads JSON from data, applies the SQL query, and streams results.
@@ -52,7 +54,7 @@ func evaluateJSONLinesQuery(
 		}
 
 		var row map[string]any
-		if err := json.Unmarshal(line, &row); err != nil {
+		if err := json.Unmarshal(line, &row, jsonx.V1()); err != nil {
 			return 0, fmt.Errorf("parsing JSON line: %w", err)
 		}
 
@@ -95,7 +97,7 @@ func evaluateJSONDocumentQuery(
 	req *selectRequest,
 ) (int64, error) {
 	var doc any
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return 0, fmt.Errorf("parsing JSON document: %w", err)
 	}
 
@@ -192,7 +194,7 @@ func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte
 	var buf bytes.Buffer
 
 	for _, row := range rows {
-		jsonBytes, err := json.Marshal(row)
+		jsonBytes, err := json.Marshal(row, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

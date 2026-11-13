@@ -2,9 +2,11 @@ package redshift
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -34,7 +36,7 @@ const redshiftSnapshotVersion = 1
 // each is keyed externally by clusterID rather than by a field on the value
 // itself), plus backend-level scalar configuration.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage     `json:"tables"`
+	Tables              map[string]jsontext.Value      `json:"tables"`
 	ActiveResizes       map[string]*ResizeProgress     `json:"activeResizes"`
 	SnapshotCopyConfigs map[string]*SnapshotCopyConfig `json:"snapshotCopyConfigs"`
 	LoggingStatuses     map[string]*LoggingStatus      `json:"loggingStatuses"`
@@ -84,7 +86,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:              b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "redshift: failed to marshal snapshot", "error", err)
 

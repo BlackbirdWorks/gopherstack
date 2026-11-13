@@ -1,12 +1,15 @@
 package elasticsearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestElasticsearchHandler_DomainDedicatedMaster verifies dedicated master
@@ -57,7 +60,7 @@ func TestElasticsearchHandler_DomainDedicatedMaster(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			cfg := status["ElasticsearchClusterConfig"].(map[string]any)
@@ -116,7 +119,7 @@ func TestElasticsearchHandler_DomainZoneAwareness(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			cfg := status["ElasticsearchClusterConfig"].(map[string]any)
@@ -178,7 +181,7 @@ func TestElasticsearchHandler_DomainWarm(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			cfg := status["ElasticsearchClusterConfig"].(map[string]any)
@@ -243,7 +246,7 @@ func TestElasticsearchHandler_DomainEBSIopsAndThroughput(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			ebs := status["EBSOptions"].(map[string]any)
@@ -291,7 +294,7 @@ func TestElasticsearchHandler_DomainEncryptionAtRest(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			enc := status["EncryptionAtRestOptions"].(map[string]any)
@@ -338,7 +341,7 @@ func TestElasticsearchHandler_DomainNodeToNodeEncryption(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			n2n := status["NodeToNodeEncryptionOptions"].(map[string]any)
@@ -393,7 +396,7 @@ func TestElasticsearchHandler_DomainEndpointOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			endpoint := status["DomainEndpointOptions"].(map[string]any)
@@ -467,7 +470,7 @@ func TestElasticsearchHandler_DomainSnapshotOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			snap := status["SnapshotOptions"].(map[string]any)
@@ -536,7 +539,7 @@ func TestElasticsearchHandler_DomainAdvancedOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			advOpts := status["AdvancedOptions"].(map[string]any)
@@ -602,7 +605,7 @@ func TestElasticsearchHandler_DomainAccessPolicies(t *testing.T) {
 			require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			assert.Equal(t, tc.wantPolicy, status["AccessPolicies"])
@@ -683,7 +686,7 @@ func TestElasticsearchHandler_UpdateDomainNewFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 
 			status := out["DomainStatus"].(map[string]any)
 			tc.checkFn(t, status)

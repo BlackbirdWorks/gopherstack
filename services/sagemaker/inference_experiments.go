@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrInferenceExperimentNotFound is returned when an inference experiment does not exist.
@@ -206,7 +207,7 @@ func (e *InferenceExperiment) MarshalJSON() ([]byte, error) {
 		CreationTime:     epochSeconds(e.CreationTime),
 		LastModifiedTime: epochSeconds(e.LastModifiedTime),
 		ModelVariants:    modelVariantConfigSummaries(e.ModelVariants),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [InferenceExperiment.MarshalJSON], read by
@@ -221,7 +222,7 @@ func (e *InferenceExperiment) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(e)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

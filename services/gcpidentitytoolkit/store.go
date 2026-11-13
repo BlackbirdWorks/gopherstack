@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"sort"
@@ -16,6 +16,7 @@ import (
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -365,13 +366,13 @@ func cloneJSON[T any](v *T) *T {
 		return nil
 	}
 
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	out := new(T)
-	if json.Unmarshal(data, out) != nil {
+	if json.Unmarshal(data, out, jsonx.V1()) != nil {
 		return v
 	}
 
@@ -401,25 +402,25 @@ func mergePatch(dst, patch map[string]any) {
 }
 
 func patched[T any](cur *T, patch map[string]any) (*T, error) {
-	data, err := json.Marshal(cur)
+	data, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return nil, errInvalidArg("Invalid JSON payload received.")
 	}
 
 	var m map[string]any
-	if err = json.Unmarshal(data, &m); err != nil {
+	if err = json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return nil, errInvalidArg("Invalid JSON payload received.")
 	}
 
 	mergePatch(m, patch)
 
-	data, err = json.Marshal(m)
+	data, err = json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, errInvalidArg("Invalid JSON payload received.")
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
+	if err = json.Unmarshal(data, out, jsonx.V1()); err != nil {
 		return nil, errInvalidArg("Invalid JSON payload received: %v", err)
 	}
 

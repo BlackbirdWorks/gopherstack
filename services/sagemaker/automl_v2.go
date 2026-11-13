@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AutoMLJobChannel is a named input source for CreateAutoMLJobV2/
@@ -63,13 +66,13 @@ var automlProblemTypeConfigNames = map[string]string{
 
 // automlProblemTypeConfigName derives AutoMLProblemTypeConfigName from the
 // single member key present in an opaque AutoMLProblemTypeConfig payload.
-func automlProblemTypeConfigName(raw json.RawMessage) string {
+func automlProblemTypeConfigName(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &members); err != nil {
+	var members map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &members, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -85,7 +88,7 @@ func automlProblemTypeConfigName(raw json.RawMessage) string {
 // AutoMLJobV2Extras bundles the CreateAutoMLJobV2-only fields set after the
 // shared CreateAutoMLJob record is created.
 type AutoMLJobV2Extras struct {
-	AutoMLProblemTypeConfig  json.RawMessage
+	AutoMLProblemTypeConfig  jsontext.Value
 	OutputDataConfig         *AutoMLOutputDataConfig
 	AutoMLJobObjective       *AutoMLJobObjective
 	AutoMLComputeConfig      *AutoMLComputeConfig
@@ -113,7 +116,7 @@ func (b *InMemoryBackend) SetAutoMLJobV2Extras(ctx context.Context, name string,
 	j.AutoMLJobInputDataConfig = append([]AutoMLJobChannel(nil), extras.AutoMLJobInputDataConfig...)
 
 	if extras.AutoMLProblemTypeConfig != nil {
-		j.AutoMLProblemTypeConfig = append(json.RawMessage(nil), extras.AutoMLProblemTypeConfig...)
+		j.AutoMLProblemTypeConfig = append(jsontext.Value(nil), extras.AutoMLProblemTypeConfig...)
 	}
 
 	if extras.OutputDataConfig != nil {

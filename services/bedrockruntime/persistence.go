@@ -2,7 +2,7 @@ package bedrockruntime
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -45,13 +45,13 @@ const bedrockruntimeSnapshotVersion = 1
 //     freshly restored backend never reissues an ARN already handed out
 //     before the snapshot.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage `json:"tables"`
-	TokenIndex         map[string]string          `json:"tokenIndex"`
-	AccountID          string                     `json:"accountID"`
-	Region             string                     `json:"region"`
-	Invocations        []*Invocation              `json:"invocations"`
-	AsyncInvokeCounter int                        `json:"asyncInvokeCounter"`
-	Version            int                        `json:"version"`
+	Tables             map[string]jsontext.Value `json:"tables"`
+	TokenIndex         map[string]string         `json:"tokenIndex"`
+	AccountID          string                    `json:"accountID"`
+	Region             string                    `json:"region"`
+	Invocations        []*Invocation             `json:"invocations"`
+	AsyncInvokeCounter int                       `json:"asyncInvokeCounter"`
+	Version            int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements

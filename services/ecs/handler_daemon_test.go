@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -29,7 +30,7 @@ func registerDaemonTaskDef(t *testing.T, h *ecs.Handler, family string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, _ := resp["daemonTaskDefinitionArn"].(string)
 	require.NotEmpty(t, arn)
@@ -45,7 +46,7 @@ func createCapacityProviderForDaemon(t *testing.T, h *ecs.Handler, name string) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cp, ok := resp["capacityProvider"].(map[string]any)
 	require.True(t, ok)
@@ -103,7 +104,7 @@ func TestECS_RegisterDaemonTaskDefinition(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arn, _ := resp["daemonTaskDefinitionArn"].(string)
 			assert.Contains(t, arn, "daemon-task-definition/agent-family:1")
@@ -155,7 +156,7 @@ func TestECS_DescribeDaemonTaskDefinition(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			td, ok := resp["daemonTaskDefinition"].(map[string]any)
 			require.True(t, ok)
@@ -176,7 +177,7 @@ func TestECS_DeleteDaemonTaskDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, arn, resp["daemonTaskDefinitionArn"])
 
 	// Deleted revisions are excluded from the default ACTIVE-only describe lookup by family.
@@ -188,7 +189,7 @@ func TestECS_DeleteDaemonTaskDefinition(t *testing.T) {
 	rec = doECSRequest(t, h, "DescribeDaemonTaskDefinition", map[string]any{"daemonTaskDefinition": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	td, ok := resp["daemonTaskDefinition"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "DELETED", td["status"])
@@ -208,7 +209,7 @@ func TestECS_ListDaemonTaskDefinitions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tds, ok := resp["daemonTaskDefinitions"].([]any)
 	require.True(t, ok)
@@ -216,7 +217,7 @@ func TestECS_ListDaemonTaskDefinitions(t *testing.T) {
 
 	rec = doECSRequest(t, h, "ListDaemonTaskDefinitions", map[string]any{"familyPrefix": "list-family-a"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tds, ok = resp["daemonTaskDefinitions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tds, 1)
@@ -372,7 +373,7 @@ func TestECS_CreateDaemon(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "ACTIVE", resp["status"])
 			assert.NotEmpty(t, resp["daemonArn"])
 			assert.NotEmpty(t, resp["deploymentArn"])
@@ -415,7 +416,7 @@ func TestECS_DescribeDaemon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	daemonArn, _ := created["daemonArn"].(string)
 	require.NotEmpty(t, daemonArn)
 
@@ -423,7 +424,7 @@ func TestECS_DescribeDaemon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	d, ok := resp["daemon"].(map[string]any)
 	require.True(t, ok)
@@ -616,7 +617,7 @@ func TestECS_UpdateDaemon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	daemonArn, _ := created["daemonArn"].(string)
 	firstDeploymentArn, _ := created["deploymentArn"].(string)
 
@@ -628,7 +629,7 @@ func TestECS_UpdateDaemon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", resp["status"])
 	assert.NotEqual(t, firstDeploymentArn, resp["deploymentArn"])
 
@@ -655,14 +656,14 @@ func TestECS_DeleteDaemon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	daemonArn, _ := created["daemonArn"].(string)
 
 	rec = doECSRequest(t, h, "DeleteDaemon", map[string]any{"daemonArn": daemonArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DELETE_IN_PROGRESS", resp["status"])
 
 	// Deleted daemons are gone from state; a subsequent Describe 404s.
@@ -693,7 +694,7 @@ func TestECS_ListDaemons(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	daemons, ok := resp["daemonSummariesList"].([]any)
 	require.True(t, ok)
@@ -701,7 +702,7 @@ func TestECS_ListDaemons(t *testing.T) {
 
 	rec = doECSRequest(t, h, "ListDaemons", map[string]any{"capacityProviderArns": []string{"arn:none"}})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	daemons, ok = resp["daemonSummariesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, daemons)
@@ -730,14 +731,14 @@ func TestECS_ListDaemons_OmittedClusterScopesToDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	daemons, ok := resp["daemonSummariesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, daemons, "omitted clusterArn must scope to default cluster, not every cluster")
 
 	rec = doECSRequest(t, h, "ListDaemons", map[string]any{"clusterArn": "other-cluster"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	daemons, ok = resp["daemonSummariesList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, daemons, 1)
@@ -760,7 +761,7 @@ func TestECS_DescribeDaemonDeployments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	deploymentArn, _ := created["deploymentArn"].(string)
 	require.NotEmpty(t, deploymentArn)
 
@@ -770,7 +771,7 @@ func TestECS_DescribeDaemonDeployments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	deps, ok := resp["daemonDeployments"].([]any)
 	require.True(t, ok)
@@ -804,14 +805,14 @@ func TestECS_ListDaemonDeployments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	daemonArn, _ := created["daemonArn"].(string)
 
 	rec = doECSRequest(t, h, "ListDaemonDeployments", map[string]any{"daemonArn": daemonArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	deps, ok := resp["daemonDeployments"].([]any)
 	require.True(t, ok)
@@ -833,14 +834,14 @@ func TestECS_DescribeDaemonRevisions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	daemonArn, _ := created["daemonArn"].(string)
 
 	rec = doECSRequest(t, h, "DescribeDaemon", map[string]any{"daemonArn": daemonArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described, jsonx.V1()))
 	d, ok := described["daemon"].(map[string]any)
 	require.True(t, ok)
 	revs, ok := d["currentRevisions"].([]any)
@@ -857,7 +858,7 @@ func TestECS_DescribeDaemonRevisions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	revisions, ok := resp["daemonRevisions"].([]any)
 	require.True(t, ok)

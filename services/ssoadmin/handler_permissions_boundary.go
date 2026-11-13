@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, body []byte) error {
@@ -19,7 +21,7 @@ func (h *Handler) handlePutPermissionsBoundaryToPermissionSet(c *echo.Context, b
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -49,7 +51,7 @@ func (h *Handler) handleGetPermissionsBoundaryForPermissionSet(c *echo.Context, 
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -79,7 +81,7 @@ func (h *Handler) handleDeletePermissionsBoundaryFromPermissionSet(c *echo.Conte
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

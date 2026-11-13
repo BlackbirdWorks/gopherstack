@@ -2,7 +2,7 @@ package gcpcontainer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -18,32 +18,32 @@ import (
 const snapshotVersion = 1
 
 type poolSnap struct {
-	PrevVersion string          `json:"prevVersion"`
-	DeleteOp    string          `json:"deleteOp"`
-	Pool        json.RawMessage `json:"pool"`
-	Size        int32           `json:"size"`
+	PrevVersion string         `json:"prevVersion"`
+	DeleteOp    string         `json:"deleteOp"`
+	Pool        jsontext.Value `json:"pool"`
+	Size        int32          `json:"size"`
 }
 
 type clusterSnap struct {
-	Rotation *rotationRec    `json:"rotation,omitempty"`
-	Cluster  json.RawMessage `json:"cluster"`
-	Project  string          `json:"project"`
-	Failure  string          `json:"failure"`
-	DeleteOp string          `json:"deleteOp"`
-	Pools    []poolSnap      `json:"pools"`
+	Rotation *rotationRec   `json:"rotation,omitempty"`
+	Cluster  jsontext.Value `json:"cluster"`
+	Project  string         `json:"project"`
+	Failure  string         `json:"failure"`
+	DeleteOp string         `json:"deleteOp"`
+	Pools    []poolSnap     `json:"pools"`
 }
 
 type opSnap struct {
-	EndAt    time.Time       `json:"endAt"`
-	Project  string          `json:"project"`
-	Location string          `json:"location"`
-	Cluster  string          `json:"cluster"`
-	Pool     string          `json:"pool"`
-	Failure  string          `json:"failure"`
-	Op       json.RawMessage `json:"op"`
-	Kind     opKind          `json:"kind"`
-	Manual   bool            `json:"manual"`
-	Finished bool            `json:"finished"`
+	EndAt    time.Time      `json:"endAt"`
+	Project  string         `json:"project"`
+	Location string         `json:"location"`
+	Cluster  string         `json:"cluster"`
+	Pool     string         `json:"pool"`
+	Failure  string         `json:"failure"`
+	Op       jsontext.Value `json:"op"`
+	Kind     opKind         `json:"kind"`
+	Manual   bool           `json:"manual"`
+	Finished bool           `json:"finished"`
 }
 
 type backendSnapshot struct {
@@ -53,7 +53,7 @@ type backendSnapshot struct {
 	Seq      uint64                 `json:"seq"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	raw, err := protojson.Marshal(m)
 	if err != nil {
 		return nil

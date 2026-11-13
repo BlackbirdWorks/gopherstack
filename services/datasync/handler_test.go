@@ -2,7 +2,7 @@ package datasync_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
 
@@ -30,7 +31,7 @@ func doRequest(t *testing.T, h *datasync.Handler, action string, body any) *http
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -56,7 +57,7 @@ func createTestAgent(t *testing.T, h *datasync.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, ok := resp["AgentArn"].(string)
 	require.True(t, ok)
@@ -77,7 +78,7 @@ func createTestLocationS3(t *testing.T, h *datasync.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, ok := resp["LocationArn"].(string)
 	require.True(t, ok)
@@ -96,7 +97,7 @@ func createTestTask(t *testing.T, h *datasync.Handler, srcArn, dstArn string) st
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, ok := resp["TaskArn"].(string)
 	require.True(t, ok)
@@ -185,7 +186,7 @@ func TestDataSync_NotFoundReturnsInvalidRequest(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for %s with unknown ARN", tt.action)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", resp["__type"])
 		})
 	}

@@ -2,7 +2,7 @@ package databrew_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
 
@@ -738,7 +739,7 @@ func TestHandlerUpdateProfileJob(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "upd-profile-j", resp["Name"])
 }
 
@@ -811,7 +812,7 @@ func TestHandlerDescribeJobRun(t *testing.T) {
 	runRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/djr-job/startJobRun", nil)
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp, jsonx.V1()))
 	runID, _ := startResp["RunId"].(string)
 	require.NotEmpty(t, runID)
 
@@ -832,7 +833,7 @@ func TestHandlerStopJobRun(t *testing.T) {
 	runRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/sjr-job/startJobRun", nil)
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &startResp, jsonx.V1()))
 	runID, _ := startResp["RunId"].(string)
 	require.NotEmpty(t, runID)
 
@@ -854,7 +855,7 @@ func TestStartJobRun_RunId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["RunID"], "RunID (uppercase D) must not appear — AWS SDK uses RunId")
 	runID, ok := resp["RunId"].(string)
 	assert.True(t, ok, "response must have RunId string field")
@@ -935,7 +936,7 @@ func TestListJobs_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			jobs := resp["Jobs"].([]any)
 			assert.Len(t, jobs, tc.wantCount, "query=%v", tc.queryParams)
 		})
@@ -955,7 +956,7 @@ func TestJobRunIdField_RoundTrip(t *testing.T) {
 		require.Equal(t, http.StatusOK, startRec.Code)
 
 		var startResp map[string]any
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 		runID, ok := startResp["RunId"].(string)
 		require.True(t, ok)
 		require.NotEmpty(t, runID)
@@ -967,13 +968,13 @@ func TestJobRunIdField_RoundTrip(t *testing.T) {
 		descRec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
 		require.Equal(t, http.StatusOK, descRec.Code)
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, runID, descResp["RunId"])
 
 		stopRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/rt-job/jobRun/"+runID, nil)
 		require.Equal(t, http.StatusOK, stopRec.Code)
 		var stopResp map[string]any
-		require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+		require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 		assert.Equal(t, runID, stopResp["RunId"])
 	})
 }
@@ -1394,7 +1395,7 @@ func TestHandlerCreateProfileJob_Extras(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/pj-extras", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job, jsonx.V1()))
 	jobSample, ok := job["JobSample"].(map[string]any)
 	require.True(t, ok, "JobSample must round-trip as an object")
 	assert.Equal(t, "CUSTOM_ROWS", jobSample["Mode"])
@@ -1428,7 +1429,7 @@ func TestHandlerCreateRecipeJob_Extras(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/rj-extras", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job, jsonx.V1()))
 	assert.Equal(t, "SSE-KMS", job["EncryptionMode"])
 	assert.Equal(t, "ENABLE", job["LogSubscription"])
 	outputs, ok := job["DataCatalogOutputs"].([]any)

@@ -11,7 +11,8 @@ package s3_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -35,9 +37,9 @@ func goldenPath(name string) string {
 func checkGolden(t *testing.T, name string, got []byte) {
 	t.Helper()
 
-	var buf bytes.Buffer
-	require.NoError(t, json.Indent(&buf, got, "", "  "))
-	pretty := buf.Bytes()
+	indented := jsontext.Value(bytes.Clone(got))
+	require.NoError(t, indented.Indent(jsonx.V1(), jsontext.WithIndent("  ")))
+	pretty := []byte(indented)
 
 	path := goldenPath(name)
 	if os.Getenv("S3_GOLDEN_UPDATE") != "" {
@@ -79,7 +81,7 @@ func snapshotResponse(rec *httptest.ResponseRecorder, headerNames []string) gold
 func marshalGolden(t *testing.T, v any) []byte {
 	t.Helper()
 
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return data

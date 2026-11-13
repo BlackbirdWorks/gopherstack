@@ -2,9 +2,11 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -12,16 +14,16 @@ import (
 // createRegexPatternSetRequest is the request body for CreateRegexPatternSet.
 // RegularExpressionList accepts both []string and []{RegexString:...} shapes.
 type createRegexPatternSetRequest struct {
-	Name                  string          `json:"Name"`
-	Scope                 string          `json:"Scope"`
-	Description           string          `json:"Description"`
-	RegularExpressionList json.RawMessage `json:"RegularExpressionList"`
-	Tags                  []tags.KV       `json:"Tags"`
+	Name                  string         `json:"Name"`
+	Scope                 string         `json:"Scope"`
+	Description           string         `json:"Description"`
+	RegularExpressionList jsontext.Value `json:"RegularExpressionList"`
+	Tags                  []tags.KV      `json:"Tags"`
 }
 
 func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req createRegexPatternSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -84,24 +86,24 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 			keyLockToken:   rps.LockToken,
 			keyDescription: rps.Description,
 		},
-	})
+	}, jsonx.V1())
 }
 
 // parseRegexEntries accepts either []RegexEntry or []string and normalises to []RegexEntry.
-func parseRegexEntries(raw json.RawMessage) ([]RegexEntry, error) {
+func parseRegexEntries(raw jsontext.Value) ([]RegexEntry, error) {
 	if len(raw) == 0 {
 		return []RegexEntry{}, nil
 	}
 
 	// Try object form first: [{"RegexString": "..."}]
 	var entries []RegexEntry
-	if err := json.Unmarshal(raw, &entries); err == nil {
+	if err := json.Unmarshal(raw, &entries, jsonx.V1()); err == nil {
 		return entries, nil
 	}
 
 	// Fall back to plain string form: ["...", "..."]
 	var strs []string
-	if err := json.Unmarshal(raw, &strs); err != nil {
+	if err := json.Unmarshal(raw, &strs, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: RegularExpressionList must be an array of objects or strings", errInvalidRequest)
 	}
 
@@ -123,7 +125,7 @@ type deleteRegexPatternSetRequest struct {
 
 func (h *Handler) handleDeleteRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteRegexPatternSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -150,7 +152,7 @@ type getRegexPatternSetRequest struct {
 
 func (h *Handler) handleGetRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRegexPatternSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -188,7 +190,7 @@ func (h *Handler) handleGetRegexPatternSet(ctx context.Context, body []byte) ([]
 			"RegularExpressionList": r.RegularExpressionList,
 		},
 		keyLockToken: r.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleListRegexPatternSets(ctx context.Context, body []byte) ([]byte, error) {
@@ -212,17 +214,17 @@ func (h *Handler) handleListRegexPatternSets(ctx context.Context, body []byte) (
 
 // updateRegexPatternSetRequest is the request body for UpdateRegexPatternSet.
 type updateRegexPatternSetRequest struct {
-	ID                    string          `json:"Id"`
-	Name                  string          `json:"Name"`
-	Scope                 string          `json:"Scope"`
-	LockToken             string          `json:"LockToken"`
-	Description           string          `json:"Description"`
-	RegularExpressionList json.RawMessage `json:"RegularExpressionList"`
+	ID                    string         `json:"Id"`
+	Name                  string         `json:"Name"`
+	Scope                 string         `json:"Scope"`
+	LockToken             string         `json:"LockToken"`
+	Description           string         `json:"Description"`
+	RegularExpressionList jsontext.Value `json:"RegularExpressionList"`
 }
 
 func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateRegexPatternSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -259,7 +261,7 @@ func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: updated regex pattern set", "id", req.ID)
 
-	return json.Marshal(map[string]string{keyNextLockToken: r.LockToken})
+	return json.Marshal(map[string]string{keyNextLockToken: r.LockToken}, jsonx.V1())
 }
 
 // regexPatternSetDispatchOps returns the RegexPatternSet-family operation dispatch

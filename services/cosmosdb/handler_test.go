@@ -2,7 +2,7 @@ package cosmosdb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -54,7 +55,7 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -107,7 +108,7 @@ func TestHandler_DatabaseLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	createBody, err := json.Marshal(map[string]string{"id": "mydb"})
+	createBody, err := json.Marshal(map[string]string{"id": "mydb"}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs", nil, createBody)
@@ -176,7 +177,7 @@ func TestHandler_CreateDatabase_InvalidInput(t *testing.T) {
 func createTestDatabase(t *testing.T, h *cosmosdb.Handler) {
 	t.Helper()
 
-	body, err := json.Marshal(map[string]string{"id": "mydb"})
+	body, err := json.Marshal(map[string]string{"id": "mydb"}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs", nil, body)
@@ -189,7 +190,7 @@ func createTestContainer(t *testing.T, h *cosmosdb.Handler) {
 	body, err := json.Marshal(map[string]any{
 		"id":           "mycoll",
 		"partitionKey": map[string]any{"paths": []string{"/pk"}, "kind": "Hash"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls", nil, body)
@@ -205,7 +206,7 @@ func TestHandler_ContainerLifecycle(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"id":           "mycoll",
 		"partitionKey": map[string]any{"paths": []string{"/pk"}, "kind": "Hash"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls", nil, body)
@@ -255,7 +256,7 @@ func TestHandler_CreateContainer_InvalidPartitionKey(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"id":           "mycoll",
 		"partitionKey": map[string]any{"paths": []string{"/a", "/b"}, "kind": "Hash"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls", nil, body)
@@ -276,7 +277,7 @@ func TestHandler_CreateContainer_EmptyPartitionKeyPath(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"id":           "mycoll",
 		"partitionKey": map[string]any{"paths": []string{""}, "kind": "Hash"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls", nil, body)
@@ -309,7 +310,7 @@ func TestHandler_DocumentLifecycle(t *testing.T) {
 	createTestDatabase(t, h)
 	createTestContainer(t, h)
 
-	docBody, err := json.Marshal(map[string]any{"id": "doc1", "pk": "partA", "value": 42})
+	docBody, err := json.Marshal(map[string]any{"id": "doc1", "pk": "partA", "value": 42}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil, docBody)
@@ -349,7 +350,7 @@ func TestHandler_DocumentLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Replace with wrong If-Match -> 412.
-	replaceBody, err := json.Marshal(map[string]any{"pk": "partA", "value": 100})
+	replaceBody, err := json.Marshal(map[string]any{"pk": "partA", "value": 100}, jsonx.V1())
 	require.NoError(t, err)
 
 	wrongEtagHeaders := map[string]string{
@@ -436,7 +437,7 @@ func TestHandler_ReadFeed(t *testing.T) {
 	createTestContainer(t, h)
 
 	for _, id := range []string{"a", "b"} {
-		body, err := json.Marshal(map[string]any{"id": id, "pk": "x"})
+		body, err := json.Marshal(map[string]any{"id": id, "pk": "x"}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil, body)
@@ -458,14 +459,14 @@ func TestHandler_Query(t *testing.T) {
 	createTestContainer(t, h)
 
 	for i, name := range []string{"alice", "bob"} {
-		body, err := json.Marshal(map[string]any{"id": name, "pk": "x", "n": i})
+		body, err := json.Marshal(map[string]any{"id": name, "pk": "x", "n": i}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs", nil, body)
 		require.Equal(t, http.StatusCreated, rec.Code)
 	}
 
-	queryBody, err := json.Marshal(map[string]any{"query": "SELECT * FROM c WHERE c.id = 'alice'"})
+	queryBody, err := json.Marshal(map[string]any{"query": "SELECT * FROM c WHERE c.id = 'alice'"}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",
@@ -476,7 +477,7 @@ func TestHandler_Query(t *testing.T) {
 	assert.InDelta(t, 1, result["_count"], 0)
 
 	// A malformed query yields 400, never a panic.
-	badBody, err := json.Marshal(map[string]any{"query": "NOT VALID SQL AT ALL ((("})
+	badBody, err := json.Marshal(map[string]any{"query": "NOT VALID SQL AT ALL ((("}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec = doRequest(t, h, http.MethodPost, "/dbs/mydb/colls/mycoll/docs",

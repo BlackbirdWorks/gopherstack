@@ -2,13 +2,15 @@ package cloudfront
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/xml"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type functionConfigXML struct {
@@ -383,7 +385,7 @@ func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
 		)
 	}
 
-	if !json.Valid(eventObject) {
+	if !jsontext.Value(eventObject).IsValid(jsonx.V1()) {
 		return xmlResp(
 			c,
 			http.StatusBadRequest,

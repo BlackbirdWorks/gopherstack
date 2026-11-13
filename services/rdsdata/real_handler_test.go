@@ -2,7 +2,7 @@ package rdsdata //nolint:testpackage // white-box tests of the unexported placeh
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerMapsModeledExceptions(t *testing.T) {
@@ -50,7 +52,7 @@ func TestHandlerMapsModeledExceptions(t *testing.T) {
 
 			body, err := json.Marshal(map[string]string{
 				"resourceArn": testClusterARN, "secretArn": testSecretARN, "sql": "SELECT 1",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/Execute", bytes.NewReader(body))
@@ -63,7 +65,7 @@ func TestHandlerMapsModeledExceptions(t *testing.T) {
 
 			var out map[string]string
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out["__type"])
 		})
 	}

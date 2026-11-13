@@ -1,11 +1,13 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchTagOps handles the generic ARN-based tag operations.
@@ -62,7 +64,7 @@ type tagResourceBody struct {
 
 func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
 	var in tagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
 	}
 

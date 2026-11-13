@@ -2,7 +2,7 @@ package memorydb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -23,7 +24,7 @@ func doCreateCluster(t *testing.T, h *memorydb.Handler, body map[string]any) (ma
 	t.Helper()
 	rec := doRequest(t, h, "CreateCluster", body)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp, rec.Code
 }
@@ -37,7 +38,7 @@ func doDescribeUsers(t *testing.T, h *memorydb.Handler, userName string) []any {
 	rec := doRequest(t, h, "DescribeUsers", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	users, _ := resp["Users"].([]any)
 
 	return users
@@ -52,7 +53,7 @@ func doDescribeACLs(t *testing.T, h *memorydb.Handler, aclName string) []any {
 	rec := doRequest(t, h, "DescribeACLs", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	acls, _ := resp["ACLs"].([]any)
 
 	return acls
@@ -67,7 +68,7 @@ func doDescribeSnapshots(t *testing.T, h *memorydb.Handler, snapshotName string)
 	rec := doRequest(t, h, "DescribeSnapshots", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	snaps, _ := resp["Snapshots"].([]any)
 
 	return snaps
@@ -82,7 +83,7 @@ func doDescribeParameterGroups(t *testing.T, h *memorydb.Handler, pgName string)
 	rec := doRequest(t, h, "DescribeParameterGroups", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pgs, _ := resp["ParameterGroups"].([]any)
 
 	return pgs
@@ -93,7 +94,7 @@ func doDescribeParameters(t *testing.T, h *memorydb.Handler, pgName string) []an
 	rec := doRequest(t, h, "DescribeParameters", map[string]any{"ParameterGroupName": pgName})
 	require.Equal(t, http.StatusOK, rec.Code, "DescribeParameters failed: %s", rec.Body)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	params, _ := resp["Parameters"].([]any)
 
 	return params
@@ -130,7 +131,7 @@ func doRequest(t *testing.T, h *memorydb.Handler, op string, body any) *httptest
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -238,7 +239,7 @@ func TestHandler_Infrastructure(t *testing.T) {
 // callers use this instead and assert on the result back in the main
 // goroutine.
 func doRequestAsync(h *memorydb.Handler, op string, body any) (*httptest.ResponseRecorder, error) {
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +281,7 @@ func collectSnapshotARNs(t *testing.T, h *memorydb.Handler) []string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	snaps, _ := resp["Snapshots"].([]any)
 
@@ -383,7 +384,7 @@ func TestExtractResourceSnapshotName(t *testing.T) {
 func doRequestNoTarget(t *testing.T, h *memorydb.Handler, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -409,7 +410,7 @@ func doRequestWithServiceHeader( //nolint:unused // existing issue.
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -554,7 +555,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			e := echo.New()
@@ -741,7 +742,7 @@ func createCluster(t *testing.T, h *memorydb.Handler, body map[string]any) map[s
 	require.Equal(t, http.StatusOK, rec.Code, "create cluster failed: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -818,7 +819,7 @@ func TestPaginationAcrossResourceTypes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// Find the list field.
 			var items []any

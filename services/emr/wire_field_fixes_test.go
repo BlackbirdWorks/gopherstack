@@ -1,7 +1,7 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
@@ -250,7 +251,7 @@ func TestWireShape_Cluster_TerminatedAt_NotOnWire(t *testing.T) {
 	var created struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	termRec := doEMRRequest(t, h, "TerminateJobFlows", map[string]any{"JobFlowIds": []string{created.JobFlowID}})
 	require.Equal(t, 200, termRec.Code)
@@ -261,7 +262,7 @@ func TestWireShape_Cluster_TerminatedAt_NotOnWire(t *testing.T) {
 	var raw struct {
 		Cluster map[string]any `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	_, hasTerminatedAt := raw.Cluster["TerminatedAt"]
 	assert.False(t, hasTerminatedAt,
 		"Cluster must not carry a TerminatedAt field on the wire -- real types.Cluster has no such member")
@@ -331,7 +332,7 @@ func TestWireShape_StudioSummary_NoFabricatedFields(t *testing.T) {
 	var raw struct {
 		Studios []map[string]any `json:"Studios"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.Studios, 1)
 
 	_, hasArn := raw.Studios[0]["StudioArn"]
@@ -431,7 +432,7 @@ func TestWireShape_DescribePersistentAppUI_RealShape(t *testing.T) {
 		JobFlowID  string `json:"JobFlowId"`
 		ClusterArn string `json:"ClusterArn"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cluster))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cluster, jsonx.V1()))
 
 	createUIRec := doEMRRequest(t, h, "CreatePersistentAppUI", map[string]any{
 		"TargetResourceArn": cluster.ClusterArn,
@@ -441,7 +442,7 @@ func TestWireShape_DescribePersistentAppUI_RealShape(t *testing.T) {
 	var createdUI struct {
 		PersistentAppUIID string `json:"PersistentAppUIId"`
 	}
-	require.NoError(t, json.Unmarshal(createUIRec.Body.Bytes(), &createdUI))
+	require.NoError(t, json.Unmarshal(createUIRec.Body.Bytes(), &createdUI, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribePersistentAppUI", map[string]any{
 		"PersistentAppUIId": createdUI.PersistentAppUIID,
@@ -451,7 +452,7 @@ func TestWireShape_DescribePersistentAppUI_RealShape(t *testing.T) {
 	var raw struct {
 		PersistentAppUI map[string]any `json:"PersistentAppUI"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasArn := raw.PersistentAppUI["TargetResourceArn"]
 	_, hasRole := raw.PersistentAppUI["RuntimeRoleEnabledCluster"]

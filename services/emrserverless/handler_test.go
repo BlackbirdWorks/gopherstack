@@ -2,7 +2,7 @@ package emrserverless_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
@@ -29,7 +30,7 @@ func doRequest(t *testing.T, h *emrserverless.Handler, method, path string, body
 
 	var reqBody *bytes.Reader
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		reqBody = bytes.NewReader(b)
 	} else {
@@ -50,7 +51,7 @@ func doRequest(t *testing.T, h *emrserverless.Handler, method, path string, body
 
 func mustUnmarshal(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1()))
 }
 
 // createApp is a test helper that creates an application and returns its ID.
@@ -623,7 +624,7 @@ func TestHandlerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	apps := out["applications"].([]any)
 	assert.Empty(t, apps)
 }

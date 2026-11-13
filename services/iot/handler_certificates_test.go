@@ -1,7 +1,7 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -121,7 +122,7 @@ func TestListCertificatesByCA(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	certs, _ := out["certificates"].([]any)
 	require.Len(t, certs, 1)
 
@@ -632,7 +633,7 @@ func TestDescribeCertificate_ReturnsPem(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	certID, _ := cr["certificateId"].(string)
 	require.NotEmpty(t, certID)
 
@@ -640,7 +641,7 @@ func TestDescribeCertificate_ReturnsPem(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &desc, jsonx.V1()))
 	certDesc, _ := desc["certificateDescription"].(map[string]any)
 	pem, _ := certDesc["certificatePem"].(string)
 	assert.NotEmpty(t, pem, "certificatePem must be present in DescribeCertificate response")
@@ -737,7 +738,7 @@ func TestTransferCertificate_ReturnsArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	certID, _ := cr["certificateId"].(string)
 	certARN, _ := cr["certificateArn"].(string)
 	require.NotEmpty(t, certID)
@@ -748,7 +749,7 @@ func TestTransferCertificate_ReturnsArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	transferredARN, _ := resp["transferredCertificateArn"].(string)
 	assert.Equal(t, certARN, transferredARN, "transferredCertificateArn must be the cert ARN, not ID")
 }
@@ -795,7 +796,7 @@ func TestListOutgoingCertificates_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	certs, _ := out["outgoingCertificates"].([]any)
 	assert.LessOrEqual(t, len(certs), 1)
 	assert.NotEmpty(t, out["nextMarker"])

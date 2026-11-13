@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -283,7 +284,7 @@ func TestDeleteSecret_ForceAndRecoveryWindowHTTPErrorType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", errResp.Type)
 	assert.Equal(t, "InvalidParameterException", rec.Header().Get("X-Amzn-Errortype"),
 		"error response must echo the error code in X-Amzn-Errortype")
@@ -501,7 +502,7 @@ func TestDeleteSecret_RecoveryWindowInDaysHTTP(t *testing.T) {
 
 			// Create the secret(s) needed for the test.
 			for _, name := range []string{"recover-test", "recover-test2"} {
-				body, _ := json.Marshal(map[string]string{"Name": name, "SecretString": "v"})
+				body, _ := json.Marshal(map[string]string{"Name": name, "SecretString": "v"}, jsonx.V1())
 				rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -511,7 +512,7 @@ func TestDeleteSecret_RecoveryWindowInDaysHTTP(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.checkForward != nil {
 				var out secretsmanager.DeleteSecretOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.checkForward(t, out.DeletionDate)
 			}
 		})

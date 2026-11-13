@@ -2,7 +2,7 @@ package gcpartifactregistry
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -19,8 +19,8 @@ import (
 const snapshotVersion = 1
 
 type repoSnap struct {
-	Repository json.RawMessage `json:"repository"`
-	IAM        json.RawMessage `json:"iam,omitempty"`
+	Repository jsontext.Value `json:"repository"`
+	IAM        jsontext.Value `json:"iam,omitempty"`
 }
 
 type backendSnapshot struct {
@@ -31,14 +31,14 @@ type backendSnapshot struct {
 	GenericVers  map[string]*resMeta          `json:"genericVersions,omitempty"`
 	GenericFiles map[string]*genFile          `json:"genericFiles,omitempty"`
 	PackageTags  map[string]map[string]string `json:"packageTags,omitempty"`
-	Rules        map[string]json.RawMessage   `json:"rules,omitempty"`
-	Settings     map[string]json.RawMessage   `json:"projectSettings,omitempty"`
-	VPCSC        map[string]json.RawMessage   `json:"vpcscConfigs,omitempty"`
-	Operations   map[string]json.RawMessage   `json:"operations"`
+	Rules        map[string]jsontext.Value    `json:"rules,omitempty"`
+	Settings     map[string]jsontext.Value    `json:"projectSettings,omitempty"`
+	VPCSC        map[string]jsontext.Value    `json:"vpcscConfigs,omitempty"`
+	Operations   map[string]jsontext.Value    `json:"operations"`
 	Version      int                          `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -47,7 +47,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
@@ -133,8 +133,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-func marshalAll[T proto.Message](in map[string]T) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(in))
+func marshalAll[T proto.Message](in map[string]T) map[string]jsontext.Value {
+	out := make(map[string]jsontext.Value, len(in))
 	for k, v := range in {
 		out[k] = marshalPB(v)
 	}
@@ -142,7 +142,7 @@ func marshalAll[T proto.Message](in map[string]T) map[string]json.RawMessage {
 	return out
 }
 
-func unmarshalAll[T proto.Message](in map[string]json.RawMessage, newMsg func() T) (map[string]T, error) {
+func unmarshalAll[T proto.Message](in map[string]jsontext.Value, newMsg func() T) (map[string]T, error) {
 	out := make(map[string]T, len(in))
 
 	for k, raw := range in {

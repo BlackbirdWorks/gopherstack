@@ -5,10 +5,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const jwtAlgRS256 = "RS256"
@@ -37,7 +39,7 @@ func verifyRS256(token string, keys []*rsa.PublicKey) error {
 		Alg string `json:"alg"`
 	}
 
-	if err = json.Unmarshal(rawHdr, &hdr); err != nil || hdr.Alg != jwtAlgRS256 {
+	if err = json.Unmarshal(rawHdr, &hdr, jsonx.V1()); err != nil || hdr.Alg != jwtAlgRS256 {
 		return fmt.Errorf("%w: unsupported JWT signing algorithm", ErrInvalidIdentityToken)
 	}
 

@@ -1,12 +1,14 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAccuracy_LoggingConfig_RoundTrip proves the real
@@ -36,7 +38,7 @@ func TestAccuracy_LoggingConfig_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 	cfg, ok := out["loggingConfig"].(map[string]any)
 	require.True(t, ok, "loggingConfig must be present after Put")
 
@@ -73,7 +75,7 @@ func TestAccuracy_LoggingConfig_CloudWatchConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 	cfg, ok := out["loggingConfig"].(map[string]any)
 	require.True(t, ok)
 
@@ -109,7 +111,7 @@ func TestAccuracy_LoggingConfig_DeleteClearsConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 	assert.Nil(t, out["loggingConfig"], "Delete must clear the config back to absent, not an empty object")
 }
 
@@ -125,6 +127,6 @@ func TestAccuracy_LoggingConfig_GetBeforePutOmitsLoggingConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Nil(t, out["loggingConfig"])
 }

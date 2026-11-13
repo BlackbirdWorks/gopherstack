@@ -3,11 +3,14 @@ package opencypher
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -63,7 +66,7 @@ func (g *Graph) Export(ctx context.Context) ([]byte, error) {
 		})
 	}
 
-	b, err := json.Marshal(d)
+	b, err := json.Marshal(d, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode graph: %w", err)
 	}
@@ -105,10 +108,9 @@ func (g *Graph) Import(ctx context.Context, data []byte) error {
 }
 
 func decodeUseNumber(data []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
 
-	return dec.Decode(v)
+	return json.UnmarshalDecode(dec, v, jsonx.V1(), jsonx.UseNumber())
 }
 
 func encodeProps(p map[string]any) map[string]any {
@@ -149,7 +151,7 @@ func decodeProps(p map[string]any) map[string]any {
 
 func decodeValue(v any) any {
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
 		}

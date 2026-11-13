@@ -2,12 +2,14 @@ package azureeventgrid
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -46,7 +48,7 @@ type pullProps struct {
 // Received is one event handed out by a receive call.
 type Received struct {
 	LockToken     string
-	Event         json.RawMessage
+	Event         jsontext.Value
 	DeliveryCount int
 }
 
@@ -84,19 +86,19 @@ func (s *pullSub) props() map[string]any {
 		},
 	}
 
-	raw, _ := json.Marshal(p)
+	raw, _ := json.Marshal(p, jsonx.V1())
 	out := map[string]any{}
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 	out[propProvisioning] = StateSucceeded
 
 	return out
 }
 
 func parsePullProps(props map[string]any) (pullProps, error) {
-	raw, _ := json.Marshal(props)
+	raw, _ := json.Marshal(props, jsonx.V1())
 
 	var p pullProps
-	if err := json.Unmarshal(raw, &p); err != nil {
+	if err := json.Unmarshal(raw, &p, jsonx.V1()); err != nil {
 		return p, invalidSpec("properties are malformed: %v", err)
 	}
 

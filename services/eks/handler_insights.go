@@ -1,12 +1,13 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -102,7 +103,7 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body [
 		// A malformed body is tolerated (ListInsights' filter/pagination
 		// fields are all optional) rather than rejected, matching the
 		// permissive parsing used by every other optional-body op here.
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	if in.Filter != nil {

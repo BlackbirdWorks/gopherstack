@@ -1,9 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const opUpdateGatewayResponse = "UpdateGatewayResponse"
@@ -32,7 +34,7 @@ func (h *Handler) gatewayResponseActions() map[string]actionFn {
 
 func (h *Handler) getGatewayResponseAction(b []byte) (int, any, error) {
 	var params getGatewayResponseInput
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GetGatewayResponse(params.RestAPIID, params.ResponseType)
@@ -45,7 +47,7 @@ func (h *Handler) getGatewayResponseAction(b []byte) (int, any, error) {
 
 func (h *Handler) getGatewayResponsesAction(b []byte) (int, any, error) {
 	var params getGatewayResponsesInput
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GetGatewayResponses(params.RestAPIID)
@@ -67,7 +69,7 @@ func (h *Handler) getGatewayResponsesAction(b []byte) (int, any, error) {
 
 func (h *Handler) putGatewayResponseAction(b []byte) (int, any, error) {
 	var input PutGatewayResponseInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.PutGatewayResponse(input)
@@ -80,7 +82,7 @@ func (h *Handler) putGatewayResponseAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateGatewayResponseAction(b []byte) (int, any, error) {
 	var input PutGatewayResponseInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -94,7 +96,7 @@ func (h *Handler) updateGatewayResponseAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteGatewayResponseAction(b []byte) (int, any, error) {
 	var params getGatewayResponseInput
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteGatewayResponse(params.RestAPIID, params.ResponseType); err != nil {

@@ -1,11 +1,13 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -49,7 +51,7 @@ type insightRuleSpec struct {
 
 func parseInsightRuleSpec(definition string) (*insightRuleSpec, error) {
 	var spec insightRuleSpec
-	if err := json.Unmarshal([]byte(definition), &spec); err != nil {
+	if err := json.Unmarshal([]byte(definition), &spec, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: RuleDefinition has an invalid field type: %s", ErrValidation, err.Error())
 	}
 

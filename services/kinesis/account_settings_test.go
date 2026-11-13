@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -104,7 +105,7 @@ func TestDescribeLimits_DynamicOpenShardCount(t *testing.T) {
 		ShardLimit     int `json:"ShardLimit"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before, jsonx.V1()))
 	assert.Equal(t, 500, before.ShardLimit)
 
 	// Create a stream with 3 shards.
@@ -117,7 +118,7 @@ func TestDescribeLimits_DynamicOpenShardCount(t *testing.T) {
 		OpenShardCount int `json:"OpenShardCount"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after, jsonx.V1()))
 	assert.Equal(t, before.OpenShardCount+3, after.OpenShardCount)
 }
 
@@ -142,7 +143,7 @@ func TestDescribeLimits(t *testing.T) {
 		OnDemandStreamCountLimit int `json:"OnDemandStreamCountLimit"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, 500, resp.ShardLimit)
 	assert.Equal(t, 0, resp.OpenShardCount)
 	assert.Equal(t, 0, resp.OnDemandStreamCount)
@@ -194,7 +195,7 @@ func TestDescribeAccountSettings(t *testing.T) {
 		} `json:"MinimumThroughputBillingCommitment"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DISABLED", resp.MinimumThroughputBillingCommitment.Status)
 	assert.Zero(t, resp.MinimumThroughputBillingCommitment.StartedAt)
 	assert.Zero(t, resp.MinimumThroughputBillingCommitment.EndedAt)
@@ -256,7 +257,7 @@ func TestHandleDescribeLimits(t *testing.T) {
 		OpenShardCount int `json:"OpenShardCount"`
 		ShardLimit     int `json:"ShardLimit"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, 0, resp.OpenShardCount)
 	assert.Equal(t, 500, resp.ShardLimit)
 }

@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/medialive/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListChannels_SummaryTagsRoundTrip proves ChannelSummary.Tags (over-wide
@@ -57,7 +59,7 @@ func TestListNetworks_RawBodyOmitsTags(t *testing.T) {
 	var listResp struct {
 		Networks []map[string]any `json:"networks"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Networks, 1)
 	assert.NotContains(t, listResp.Networks[0], "tags", "Network has no tags field on any CRUD/List shape")
 	assert.Equal(t, "net-leak", listResp.Networks[0]["name"])

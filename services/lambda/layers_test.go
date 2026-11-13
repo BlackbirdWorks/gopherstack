@@ -3,7 +3,7 @@ package lambda_test
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -591,7 +592,7 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 				"Layers":       tt.layers,
 			}
 
-			bodyBytes, _ := json.Marshal(bodyMap)
+			bodyBytes, _ := json.Marshal(bodyMap, jsonx.V1())
 			req := httptest.NewRequest(http.MethodPost, "/2015-03-31/functions", strings.NewReader(string(bodyBytes)))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()

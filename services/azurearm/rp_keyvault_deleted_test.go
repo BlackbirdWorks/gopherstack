@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -24,7 +25,7 @@ func newKVHandler() (*azurearm.Handler, *fakeKeyVaults) {
 func putVault(t *testing.T, h *azurearm.Handler, name string, props map[string]any) int {
 	t.Helper()
 
-	raw, err := json.Marshal(map[string]any{"location": "westus", "properties": props})
+	raw, err := json.Marshal(map[string]any{"location": "westus", "properties": props}, jsonx.V1())
 	require.NoError(t, err)
 
 	status, _ := doRequest(t, h, "PUT",
@@ -177,7 +178,7 @@ func TestKeyVault_CheckNameAvailability(t *testing.T) {
 			require.Less(t, putVault(t, h, "gone1", map[string]any{}), 300)
 			deleteVault(t, h, "gone1")
 
-			raw, err := json.Marshal(map[string]any{"name": tt.check, "type": "Microsoft.KeyVault/vaults"})
+			raw, err := json.Marshal(map[string]any{"name": tt.check, "type": "Microsoft.KeyVault/vaults"}, jsonx.V1())
 			require.NoError(t, err)
 
 			st, body := doRequest(t, h, "POST",

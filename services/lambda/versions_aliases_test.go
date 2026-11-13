@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -83,7 +85,7 @@ func TestPublishVersion_Basic(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var v lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&v))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &v, jsonx.V1()))
 	assert.Equal(t, "1", v.Version)
 	assert.Equal(t, "ver-fn", v.FunctionName)
 	assert.NotEmpty(t, v.FunctionArn)
@@ -101,7 +103,7 @@ func TestPublishVersion_Increments(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var v lambda.FunctionVersion
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&v))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &v, jsonx.V1()))
 		assert.Equal(t, strconv.Itoa(i), v.Version)
 	}
 }
@@ -117,7 +119,7 @@ func TestPublishVersion_WithDescription(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var v lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&v))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &v, jsonx.V1()))
 	assert.Equal(t, "my-snapshot", v.Description)
 	assert.Equal(t, "1", v.Version)
 }
@@ -143,7 +145,7 @@ func TestListVersionsByFunction_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.ListVersionsByFunctionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	// $LATEST is always present
 	require.NotEmpty(t, out.Versions)
 	assert.Equal(t, "$LATEST", out.Versions[0].Version)
@@ -163,7 +165,7 @@ func TestListVersionsByFunction_AfterPublish(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.ListVersionsByFunctionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	// $LATEST + 2 numbered versions
 	assert.GreaterOrEqual(t, len(out.Versions), 2)
 
@@ -196,7 +198,7 @@ func TestPublishVersion_Publish_CreateFunction(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, "1", fn.Version)
 }
 
@@ -211,7 +213,7 @@ func TestFunctionVersion_ARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var v lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&v))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &v, jsonx.V1()))
 	// versioned ARN should end with :1
 	assert.True(t, strings.HasSuffix(v.FunctionArn, ":1"), "expected ARN to end with :1, got %s", v.FunctionArn)
 }
@@ -235,7 +237,7 @@ func TestAlias_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var alias lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&alias))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &alias, jsonx.V1()))
 	assert.Equal(t, "live", alias.Name)
 	assert.Equal(t, "1", alias.FunctionVersion)
 	assert.Equal(t, "prod alias", alias.Description)
@@ -247,7 +249,7 @@ func TestAlias_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getAlias lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getAlias))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getAlias, jsonx.V1()))
 	assert.Equal(t, "live", getAlias.Name)
 
 	// List aliases
@@ -256,7 +258,7 @@ func TestAlias_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListAliasesOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Aliases, 1)
 
 	// Delete alias
@@ -284,7 +286,7 @@ func TestAlias_RoutingConfig_WeightedTraffic(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var alias lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&alias))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &alias, jsonx.V1()))
 	require.NotNil(t, alias.RoutingConfig)
 	assert.InDelta(t, 0.1, alias.RoutingConfig.AdditionalVersionWeights["2"], 0.001)
 }
@@ -308,7 +310,7 @@ func TestAlias_Update(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updated lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updated))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updated, jsonx.V1()))
 	assert.Equal(t, "2", updated.FunctionVersion)
 	assert.Equal(t, "now v2", updated.Description)
 }
@@ -331,7 +333,7 @@ func TestAlias_UpdateRoutingConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updated lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updated))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updated, jsonx.V1()))
 	require.NotNil(t, updated.RoutingConfig)
 	assert.InDelta(t, 0.2, updated.RoutingConfig.AdditionalVersionWeights["2"], 0.001)
 }
@@ -388,14 +390,14 @@ func TestAlias_RevisionID_Changes(t *testing.T) {
 		`{"Name":"rev","FunctionVersion":"1"}`)
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var a1 lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&a1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &a1, jsonx.V1()))
 
 	updRec := callInMemoryHandler(t, h, http.MethodPut,
 		"/2015-03-31/functions/alias-rev-fn/aliases/rev",
 		`{"FunctionVersion":"2"}`)
 	require.Equal(t, http.StatusOK, updRec.Code)
 	var a2 lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&a2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &a2, jsonx.V1()))
 
 	assert.NotEqual(t, a1.RevisionID, a2.RevisionID)
 }
@@ -418,7 +420,7 @@ func TestAlias_RevisionID_Precondition(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var a1 lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&a1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &a1, jsonx.V1()))
 
 	staleRec := callInMemoryHandler(t, h, http.MethodPut,
 		"/2015-03-31/functions/alias-precond-fn/aliases/pc",
@@ -428,7 +430,7 @@ func TestAlias_RevisionID_Precondition(t *testing.T) {
 	getRec := callInMemoryHandler(t, h, http.MethodGet,
 		"/2015-03-31/functions/alias-precond-fn/aliases/pc", "")
 	var got lambda.FunctionAlias
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &got, jsonx.V1()))
 	assert.Equal(t, "1", got.FunctionVersion, "rejected update must not change the alias")
 
 	okRec := callInMemoryHandler(t, h, http.MethodPut,
@@ -459,7 +461,7 @@ func TestPublishVersion_RevisionID_Precondition(t *testing.T) {
 	listRec := callInMemoryHandler(t, h, http.MethodGet,
 		"/2015-03-31/functions/publish-precond-fn/versions", "")
 	var list lambda.ListVersionsByFunctionOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&list))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &list, jsonx.V1()))
 	assert.Len(t, list.Versions, 1, "rejected publish must not create a numbered version ($LATEST only)")
 
 	okRec := callInMemoryHandler(t, h, http.MethodPost,
@@ -502,7 +504,7 @@ func TestVersion_AlwaysLatestInCreateFunction(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 			assert.Equal(t, tt.wantVersion, fn.Version,
 				"CreateFunction response must include Version=%q", tt.wantVersion)
 		})
@@ -541,7 +543,7 @@ func TestVersion_AlwaysLatestInGetFunctionConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 			assert.Equal(t, "$LATEST", fn.Version,
 				"GetFunctionConfiguration must always return Version=$LATEST for live code")
 		})
@@ -578,7 +580,7 @@ func TestVersion_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
 					`{"ImageUri":"x:v2","Publish":true}`)
 				require.Equal(t, http.StatusOK, rec.Code)
 				var upd lambda.FunctionConfiguration
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&upd))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &upd, jsonx.V1()))
 				assert.Equal(t, "1", upd.Version,
 					"UpdateFunctionCode Publish=true response must show numbered version")
 			},
@@ -599,7 +601,7 @@ func TestVersion_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 			assert.Equal(t, "$LATEST", fn.Version,
 				"GetFunctionConfiguration after publish must still return Version=$LATEST")
 		})
@@ -636,7 +638,7 @@ func TestAliasRouting(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var alias lambda.FunctionAlias
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias, jsonx.V1()))
 	assert.Equal(t, "prod", alias.Name)
 	assert.Equal(t, v1.Version, alias.FunctionVersion)
 
@@ -651,7 +653,7 @@ func TestAliasRouting(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut lambda.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Aliases, 1)
 
 	// UpdateAlias — point to v2 with weighted routing 10% to v1.
@@ -664,7 +666,7 @@ func TestAliasRouting(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated lambda.FunctionAlias
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, v2.Version, updated.FunctionVersion)
 	require.NotNil(t, updated.RoutingConfig)
 	assert.InDelta(t, 0.1, updated.RoutingConfig.AdditionalVersionWeights[v1.Version], 0.001)

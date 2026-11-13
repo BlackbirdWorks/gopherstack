@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_CreateAndDescribeDomain(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				domain, _ := resp["domain"].(map[string]any)
 				assert.Equal(t, tt.domainName, domain["name"])
 				assert.NotEmpty(t, domain["arn"])
@@ -60,7 +61,7 @@ func TestHandler_CreateAndDescribeDomain(t *testing.T) {
 				descRec := doRequest(t, h, http.MethodGet, "/v1/domain?domain="+tt.domainName, nil)
 				assert.Equal(t, http.StatusOK, descRec.Code)
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 				ddomain, _ := descResp["domain"].(map[string]any)
 				assert.Equal(t, tt.domainName, ddomain["name"])
 			}
@@ -119,7 +120,7 @@ func TestHandler_ListDomains(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	domains, _ := resp["domains"].([]any)
 	assert.Len(t, domains, 2)
 }
@@ -134,7 +135,7 @@ func TestHandler_GetAuthorizationToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["authorizationToken"])
 	assert.NotEmpty(t, resp["expiration"])
 }
@@ -167,7 +168,7 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(b, &resp))
+				require.NoError(t, json.Unmarshal(b, &resp, jsonx.V1()))
 				pol, _ := resp["policy"].(map[string]any)
 				assert.NotEmpty(t, pol["revision"])
 				assert.NotEmpty(t, pol["resourceArn"])
@@ -189,7 +190,7 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(b, &resp))
+				require.NoError(t, json.Unmarshal(b, &resp, jsonx.V1()))
 				pol, _ := resp["policy"].(map[string]any)
 				assert.Contains(t, pol["document"], "Allow")
 			},
@@ -279,7 +280,7 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, putRec.Code)
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	pol, _ := putResp["policy"].(map[string]any)
 	revision, _ := pol["revision"].(string)
 	require.NotEmpty(t, revision)
@@ -296,7 +297,7 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 	getRec := doRequest(t, h, http.MethodGet, "/v1/domain/permissions/policy?domain=lock-domain", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	getPol, _ := getResp["policy"].(map[string]any)
 	assert.NotContains(t, getPol["document"], "Deny")
 
@@ -318,7 +319,7 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, matchPutRec.Code)
 	var matchPutResp map[string]any
-	require.NoError(t, json.Unmarshal(matchPutRec.Body.Bytes(), &matchPutResp))
+	require.NoError(t, json.Unmarshal(matchPutRec.Body.Bytes(), &matchPutResp, jsonx.V1()))
 	newPol, _ := matchPutResp["policy"].(map[string]any)
 	newRevision, _ := newPol["revision"].(string)
 	require.NotEmpty(t, newRevision)
@@ -387,7 +388,7 @@ func TestHandler_RepositoryCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	domainMap, _ := resp["domain"].(map[string]any)
 	count, _ := domainMap["repositoryCount"].(float64)
 	assert.InEpsilon(t, float64(2), count, 0)
@@ -405,7 +406,7 @@ func TestHandler_DomainSummaryVsFullDescription(t *testing.T) {
 	listRec := doRequest(t, h, http.MethodPost, "/v1/domains", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	domains, _ := listResp["domains"].([]any)
 	require.Len(t, domains, 1)
 	d, _ := domains[0].(map[string]any)
@@ -416,7 +417,7 @@ func TestHandler_DomainSummaryVsFullDescription(t *testing.T) {
 	descRec := doRequest(t, h, http.MethodGet, "/v1/domain?domain=summary-domain", nil)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	dd, _ := descResp["domain"].(map[string]any)
 	count, _ := dd["repositoryCount"].(float64)
 	assert.InEpsilon(t, float64(2), count, 0)
@@ -438,7 +439,7 @@ func TestListDomains_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1, _ := out1["domains"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["nextToken"].(string)
@@ -448,7 +449,7 @@ func TestListDomains_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2, _ := out2["domains"].([]any)
 	assert.Len(t, page2, 2)
 }

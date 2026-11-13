@@ -2,12 +2,13 @@ package directoryservice
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //nolint:dupl // existing issue.
@@ -23,7 +24,7 @@ func (h *Handler) handleCreateConditionalForwarder(c *echo.Context) error { //no
 		DNSIpv6Addrs     []string `json:"DnsIpv6Addrs"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -60,7 +61,7 @@ func (h *Handler) handleUpdateConditionalForwarder(c *echo.Context) error { //no
 		DNSIpv6Addrs     []string `json:"DnsIpv6Addrs"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -105,7 +106,7 @@ func (h *Handler) handleDescribeConditionalForwarders(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}

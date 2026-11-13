@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListCertificates_Pagination(t *testing.T) {
@@ -73,7 +75,7 @@ func TestCertificates(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			certID, _ := r1["CertificateId"].(string)
 			assert.NotEmpty(t, certID)
 
@@ -81,7 +83,7 @@ func TestCertificates(t *testing.T) {
 			rec2 := doRequest(t, h, "ListCertificates", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			certs, _ := r2["CertificatesInfo"].([]any)
 			assert.Len(t, certs, 1)
 
@@ -92,7 +94,7 @@ func TestCertificates(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 			cert, _ := r3["Certificate"].(map[string]any)
 			assert.Equal(t, certID, cert["CertificateId"])
 			assert.Equal(t, "test", cert["CommonName"], "CommonName must be parsed from the X.509 subject")
@@ -108,7 +110,7 @@ func TestCertificates(t *testing.T) {
 			rec5 := doRequest(t, h, "ListCertificates", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec5.Code)
 			var r5 map[string]any
-			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5))
+			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5, jsonx.V1()))
 			certs2, _ := r5["CertificatesInfo"].([]any)
 			assert.Empty(t, certs2)
 
@@ -145,7 +147,7 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			rec2 := doRequest(t, h, "DescribeCAEnrollmentPolicy", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			assert.Equal(t, "Success", r2["CaEnrollmentPolicyStatus"])
 			assert.Equal(t, connectorArn, r2["PcaConnectorArn"])
 			assert.Equal(t, dirID, r2["DirectoryId"])
@@ -158,7 +160,7 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			rec4 := doRequest(t, h, "DescribeCAEnrollmentPolicy", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4, jsonx.V1()))
 			assert.Equal(t, "Disabled", r4["CaEnrollmentPolicyStatus"])
 			assert.Equal(t, connectorArn, r4["PcaConnectorArn"])
 

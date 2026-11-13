@@ -1,10 +1,11 @@
 package cosmosdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // sql_parser.go is a recursive-descent parser for Cosmos DB SQL.
@@ -267,7 +268,7 @@ func (p *sqlParser) parseCountOperand(what string) (sqlExpr, error) {
 
 		p.advance()
 
-		return &exprLit{v: json.Number(strconv.Itoa(n))}, nil
+		return &exprLit{v: jsonx.Number(strconv.Itoa(n))}, nil
 	case sqlTokParam:
 		x := &exprParam{name: p.cur.lit}
 
@@ -883,7 +884,7 @@ func (p *sqlParser) parseUnary() (sqlExpr, error) {
 
 		p.advance()
 
-		return &exprLit{v: json.Number(lit)}, nil
+		return &exprLit{v: jsonx.Number(lit)}, nil
 	}
 
 	inner, err := p.parseUnary()
@@ -937,7 +938,7 @@ func (p *sqlParser) parsePrimary() (sqlExpr, error) {
 	case sqlTokNumber:
 		p.advance()
 
-		return &exprLit{v: json.Number(tok.lit)}, nil
+		return &exprLit{v: jsonx.Number(tok.lit)}, nil
 	case sqlTokString:
 		p.advance()
 

@@ -2,7 +2,7 @@ package route53recoverycontrolconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -13,9 +13,9 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Tokens  map[string]string          `json:"tokens,omitempty"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Tokens  map[string]string         `json:"tokens,omitempty"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state. It implements persistence.Persistable.

@@ -1,10 +1,12 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildSignalingOps() map[string]handlerFunc {
@@ -19,7 +21,7 @@ func (h *Handler) buildSignalingOps() map[string]handlerFunc {
 
 func (h *Handler) handleCreateSignalingChannel(c *echo.Context, body []byte) error {
 	var req createSignalingChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -48,7 +50,7 @@ func (h *Handler) handleCreateSignalingChannel(c *echo.Context, body []byte) err
 
 func (h *Handler) handleDescribeSignalingChannel(c *echo.Context, body []byte) error {
 	var req describeSignalingChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -60,9 +62,10 @@ func (h *Handler) handleDescribeSignalingChannel(c *echo.Context, body []byte) e
 	return h.writeJSON(c, describeSignalingChannelResponse{ChannelInfo: channelInfoFromChannel(ch)})
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleListSignalingChannels(c *echo.Context, body []byte) error {
 	var req listSignalingChannelsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -89,7 +92,7 @@ func (h *Handler) handleListSignalingChannels(c *echo.Context, body []byte) erro
 
 func (h *Handler) handleUpdateSignalingChannel(c *echo.Context, body []byte) error {
 	var req updateSignalingChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -117,7 +120,7 @@ func (h *Handler) handleUpdateSignalingChannel(c *echo.Context, body []byte) err
 
 func (h *Handler) handleDeleteSignalingChannel(c *echo.Context, body []byte) error {
 	var req deleteSignalingChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

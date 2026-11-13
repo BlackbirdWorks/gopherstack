@@ -1,7 +1,7 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
 
@@ -126,7 +127,7 @@ func TestDataSync_SecretConfig_CmkRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -134,7 +135,7 @@ func TestDataSync_SecretConfig_CmkRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "describe: %s", rec.Body.String())
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 			cmk, ok := descResp["CmkSecretConfig"].(map[string]any)
 			require.True(t, ok, "CmkSecretConfig missing from describe response: %v", descResp)
@@ -166,7 +167,7 @@ func TestDataSync_SecretConfig_CustomRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -174,7 +175,7 @@ func TestDataSync_SecretConfig_CustomRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "describe: %s", rec.Body.String())
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 			custom, ok := descResp["CustomSecretConfig"].(map[string]any)
 			require.True(t, ok, "CustomSecretConfig missing from describe response: %v", descResp)
@@ -239,7 +240,7 @@ func TestDataSync_Smb_KerberosAndDNS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn, ok := createResp["LocationArn"].(string)
 	require.True(t, ok)
 
@@ -247,7 +248,7 @@ func TestDataSync_Smb_KerberosAndDNS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	assert.Equal(t, "KERBEROS", descResp["AuthenticationType"])
 	assert.Equal(t, "HOST/kerberosuser@MYDOMAIN.ORG", descResp["KerberosPrincipal"])
@@ -269,7 +270,7 @@ func TestDataSync_Smb_KerberosAndDNS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	rec = doRequest(t, h, "DescribeLocationSmb", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "HOST/other@MYDOMAIN.ORG", descResp["KerberosPrincipal"])
 
 	dns, ok = descResp["DnsIpAddresses"].([]any)
@@ -322,12 +323,12 @@ func TestDataSync_Smb_AuthenticationTypeEnum(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn := createResp["LocationArn"].(string)
 
 			rec = doRequest(t, h, "DescribeLocationSmb", map[string]any{"LocationArn": locArn})
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.expectEchoedAs, descResp["AuthenticationType"])
 		})
 	}

@@ -2,7 +2,7 @@ package dynamodbstreams_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -101,7 +102,7 @@ func TestDynamoDBStreamsRegionIsolation(t *testing.T) {
 			StreamArn string `json:"StreamArn"`
 		} `json:"Streams"`
 	}
-	require.NoError(t, json.Unmarshal(eastResp.Body.Bytes(), &eastOut))
+	require.NoError(t, json.Unmarshal(eastResp.Body.Bytes(), &eastOut, jsonx.V1()))
 	require.Len(t, eastOut.Streams, 1)
 	assert.Contains(t, eastOut.Streams[0].StreamArn, "us-east-1")
 
@@ -114,7 +115,7 @@ func TestDynamoDBStreamsRegionIsolation(t *testing.T) {
 			StreamArn string `json:"StreamArn"`
 		} `json:"Streams"`
 	}
-	require.NoError(t, json.Unmarshal(westResp.Body.Bytes(), &westOut))
+	require.NoError(t, json.Unmarshal(westResp.Body.Bytes(), &westOut, jsonx.V1()))
 	require.Len(t, westOut.Streams, 1)
 	assert.Contains(t, westOut.Streams[0].StreamArn, "us-west-2")
 
@@ -158,7 +159,7 @@ func TestDynamoDBStreamsDefaultRegionFallback(t *testing.T) {
 			StreamArn string `json:"StreamArn"`
 		} `json:"Streams"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Streams, 1)
 	assert.Contains(t, out.Streams[0].StreamArn, "eu-central-1")
 }

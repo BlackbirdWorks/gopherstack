@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListInstances(t *testing.T) {
@@ -27,7 +29,7 @@ func TestListInstances(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListInstances", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -38,7 +40,7 @@ func TestListInstances(t *testing.T) {
 			Ec2InstanceID string `json:"Ec2InstanceId"`
 		} `json:"Instances"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Instances, 3)
 }
 
@@ -53,7 +55,7 @@ func TestListInstances_InstanceFleets(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	addFleet := func(fleetType string, onDemand, spot int) string {
 		rec := doEMRRequest(t, h, "AddInstanceFleet", map[string]any{
@@ -70,7 +72,7 @@ func TestListInstances_InstanceFleets(t *testing.T) {
 		var out struct {
 			InstanceFleetID string `json:"InstanceFleetId"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		return out.InstanceFleetID
 	}
@@ -116,7 +118,7 @@ func TestListInstances_InstanceFleets(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out instancesResp
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Instances, tt.wantLen)
 
 			for _, inst := range out.Instances {

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -93,7 +94,7 @@ func TestHandler_ListTrainingJobsForHyperParameterTuningJob(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				summaries, ok := resp["TrainingJobSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, tt.wantSummaries)
@@ -125,7 +126,7 @@ func TestHandler_DescribeHyperParameterTuningJob_WireShape(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Real AWS nests Strategy/ResourceLimits inside HyperParameterTuningJobConfig
 	// rather than emitting a flat top-level Strategy field — a client reading
@@ -179,7 +180,7 @@ func TestHandler_ListHyperParameterTuningJobs_WireShape(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["HyperParameterTuningJobSummaries"].([]any)
 	require.True(t, ok)
@@ -217,7 +218,7 @@ func TestHandler_HyperParameterTuningJobLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["HyperParameterTuningJobArn"])
 
 	// Describe.
@@ -231,7 +232,7 @@ func TestHandler_HyperParameterTuningJobLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["HyperParameterTuningJobSummaries"].([]any), 1)
 
 	// Stop.
@@ -279,7 +280,7 @@ func TestHandler_StopHyperParameterTuningJob_ReachesStopped(t *testing.T) {
 			"HyperParameterTuningJobName": "hpt-stop-reaches",
 		})
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "Stopping", descResp["HyperParameterTuningJobStatus"])
 
 		time.Sleep(time.Second)
@@ -288,7 +289,7 @@ func TestHandler_StopHyperParameterTuningJob_ReachesStopped(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
 			"HyperParameterTuningJobName": "hpt-stop-reaches",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "Stopped", descResp["HyperParameterTuningJobStatus"])
 	})
 }
@@ -319,7 +320,7 @@ func TestHandler_CreateHyperParameterTuningJob_ReachesCompleted(t *testing.T) {
 			"HyperParameterTuningJobName": "hpt-create-reaches-completed",
 		})
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "InProgress", descResp["HyperParameterTuningJobStatus"])
 
 		time.Sleep(time.Second)
@@ -328,7 +329,7 @@ func TestHandler_CreateHyperParameterTuningJob_ReachesCompleted(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
 			"HyperParameterTuningJobName": "hpt-create-reaches-completed",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "Completed", descResp["HyperParameterTuningJobStatus"])
 	})
 }

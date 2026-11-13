@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -278,7 +279,7 @@ func startQueryBody(query string) string {
 			"Catalog":  testCatalog,
 			"Database": testDatabase,
 		},
-	})
+	}, jsonx.V1())
 
 	return string(body)
 }
@@ -306,7 +307,7 @@ func TestExecuteStatement_InsertThenSelect(t *testing.T) {
 	insExec := doRequest(t, h, "GetQueryExecution", `{"QueryExecutionId":"`+insID+`"}`)
 
 	var insResp map[string]any
-	require.NoError(t, json.Unmarshal(insExec.Body.Bytes(), &insResp))
+	require.NoError(t, json.Unmarshal(insExec.Body.Bytes(), &insResp, jsonx.V1()))
 	status := insResp["QueryExecution"].(map[string]any)["Status"].(map[string]any)
 	assert.Equal(t, "SUCCEEDED", status["State"])
 
@@ -316,7 +317,7 @@ func TestExecuteStatement_InsertThenSelect(t *testing.T) {
 	require.Equal(t, http.StatusOK, results.Code)
 
 	var resResp map[string]any
-	require.NoError(t, json.Unmarshal(results.Body.Bytes(), &resResp))
+	require.NoError(t, json.Unmarshal(results.Body.Bytes(), &resResp, jsonx.V1()))
 
 	rs := resResp["ResultSet"].(map[string]any)
 	rows := rs["Rows"].([]any)

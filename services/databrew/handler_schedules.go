@@ -2,9 +2,11 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseScheduleOp(method, name string) string {
@@ -64,7 +66,7 @@ func (h *Handler) handleCreateSchedule(ctx context.Context, body []byte) ([]byte
 		CronExpression string            `json:"CronExpression"`
 		JobNames       []string          `json:"JobNames"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	sc, err := h.Backend.CreateSchedule(ctx, req.Name, req.JobNames, req.CronExpression, req.Tags)
@@ -72,14 +74,14 @@ func (h *Handler) handleCreateSchedule(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: sc.Name})
+	return json.Marshal(map[string]string{keyName: sc.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	sc, err := h.Backend.DescribeSchedule(ctx, req.Name)
@@ -90,7 +92,7 @@ func (h *Handler) handleDescribeSchedule(ctx context.Context, body []byte) ([]by
 	cp := *sc
 	cp.AccountID = ""
 
-	return json.Marshal(cp)
+	return json.Marshal(cp, jsonx.V1())
 }
 
 func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte, error) {
@@ -99,7 +101,7 @@ func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte,
 		NextToken  string `json:"NextToken"`
 		JobName    string `json:"JobName"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -116,26 +118,26 @@ func (h *Handler) handleUpdateSchedule(ctx context.Context, body []byte) ([]byte
 		CronExpression string   `json:"CronExpression"`
 		JobNames       []string `json:"JobNames"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateSchedule(ctx, req.Name, req.JobNames, req.CronExpression); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteSchedule(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }

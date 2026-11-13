@@ -4,7 +4,8 @@ package mq_test
 // continuation across pages, maxResults limits, and default listing.
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mq"
 )
 
@@ -54,11 +56,11 @@ func TestListBrokers_PaginationOpaqueToken(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, path, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var out map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			var out map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			var brokers []any
-			require.NoError(t, json.Unmarshal(out["brokerSummaries"], &brokers))
+			require.NoError(t, json.Unmarshal(out["brokerSummaries"], &brokers, jsonx.V1()))
 			assert.Len(t, brokers, tt.wantCount)
 
 			rawToken, hasToken := out["nextToken"]
@@ -66,7 +68,7 @@ func TestListBrokers_PaginationOpaqueToken(t *testing.T) {
 				require.True(t, hasToken, "nextToken must be present when more pages exist")
 
 				var tok string
-				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				require.NoError(t, json.Unmarshal(rawToken, &tok, jsonx.V1()))
 				assert.NotEmpty(t, tok)
 
 				// Token must be opaque base64 integer, not a broker name.
@@ -74,7 +76,7 @@ func TestListBrokers_PaginationOpaqueToken(t *testing.T) {
 				assert.Equal(t, tt.wantCount, offset, "token encodes offset = items returned so far")
 			} else if hasToken {
 				var tok string
-				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				require.NoError(t, json.Unmarshal(rawToken, &tok, jsonx.V1()))
 				assert.Empty(t, tok, "nextToken must be empty string when no more pages")
 			}
 		})
@@ -92,27 +94,27 @@ func TestListBrokers_PaginationContinuation(t *testing.T) {
 	rec1 := doRequest(t, h, http.MethodGet, "/v1/brokers?maxResults=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	var page1 map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	var page1 map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 
 	var tok string
-	require.NoError(t, json.Unmarshal(page1["nextToken"], &tok))
+	require.NoError(t, json.Unmarshal(page1["nextToken"], &tok, jsonx.V1()))
 	require.NotEmpty(t, tok)
 
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/brokers?maxResults=2&nextToken="+tok, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var page2 map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	var page2 map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 
 	var brokers2 []any
-	require.NoError(t, json.Unmarshal(page2["brokerSummaries"], &brokers2))
+	require.NoError(t, json.Unmarshal(page2["brokerSummaries"], &brokers2, jsonx.V1()))
 	assert.Len(t, brokers2, 1, "page 2 should contain the remaining broker")
 
 	// No further pages.
 	if rawTok2, ok := page2["nextToken"]; ok {
 		var tok2 string
-		require.NoError(t, json.Unmarshal(rawTok2, &tok2))
+		require.NoError(t, json.Unmarshal(rawTok2, &tok2, jsonx.V1()))
 		assert.Empty(t, tok2, "no nextToken on final page")
 	}
 }

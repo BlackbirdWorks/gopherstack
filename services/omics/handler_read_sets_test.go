@@ -3,7 +3,7 @@ package omics_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -31,7 +32,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequestRaw(t, h, http.MethodPut,
@@ -49,7 +50,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequestRaw(t, h, http.MethodPut,
@@ -67,7 +68,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequest(t, h, http.MethodPost,
@@ -76,7 +77,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				)
 				require.Equal(t, http.StatusCreated, rec2.Code)
 				var uploadResp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp, jsonx.V1()))
 				uploadID := uploadResp["uploadId"].(string)
 
 				payload := []byte("ACGT sequence data")
@@ -90,7 +91,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec3.Code)
 				var partResp map[string]any
-				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &partResp))
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &partResp, jsonx.V1()))
 				assert.Equal(t, expectedChecksum, partResp["checksum"])
 				assert.Equal(t, "SHA256", partResp["checksumAlgorithm"])
 			},
@@ -102,7 +103,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequest(t, h, http.MethodPost,
@@ -111,7 +112,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				)
 				require.Equal(t, http.StatusCreated, rec2.Code)
 				var uploadResp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp, jsonx.V1()))
 				uploadID := uploadResp["uploadId"].(string)
 
 				payload := []byte("hello omics")
@@ -128,7 +129,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec4.Code)
 				var rsResp map[string]any
-				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &rsResp))
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &rsResp, jsonx.V1()))
 				rsID := rsResp["readSetId"].(string)
 
 				rec5 := doRequestRaw(t, h, http.MethodGet,
@@ -146,7 +147,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequestRaw(t, h, http.MethodGet,
@@ -179,7 +180,7 @@ func TestCreateMultipartReadSetUpload_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	rec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/upload", map[string]any{
@@ -191,7 +192,7 @@ func TestCreateMultipartReadSetUpload_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "FASTQ", resp["sourceFileType"])
 	assert.Equal(t, "sample-1", resp["sampleId"])
 	assert.Equal(t, "subject-1", resp["subjectId"])
@@ -211,7 +212,7 @@ func TestReadSetMetadata_FileTypeField(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
@@ -224,7 +225,7 @@ func TestReadSetMetadata_FileTypeField(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	readSets, ok := listResp["readSets"].([]any)
 	require.True(t, ok)
 	require.Len(t, readSets, 1)
@@ -280,7 +281,7 @@ func TestReadSetMetadata_FilesField_ImportJob(t *testing.T) {
 			require.Equal(t, http.StatusCreated, storeRec.Code)
 
 			var store map[string]any
-			require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+			require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 			storeID := store["id"].(string)
 
 			jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
@@ -293,7 +294,7 @@ func TestReadSetMetadata_FilesField_ImportJob(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			readSets, ok := listResp["readSets"].([]any)
 			require.True(t, ok)
 			require.Len(t, readSets, 1)
@@ -309,7 +310,7 @@ func TestReadSetMetadata_FilesField_ImportJob(t *testing.T) {
 			require.Equal(t, http.StatusOK, metaRec.Code)
 
 			var meta map[string]any
-			require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
+			require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta, jsonx.V1()))
 			files, ok := meta["files"].(map[string]any)
 			require.True(t, ok, "files sub-object must be present")
 			assert.Contains(t, files, "source1")
@@ -357,7 +358,7 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 			require.Equal(t, http.StatusCreated, storeRec.Code)
 
 			var store map[string]any
-			require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+			require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 			storeID := store["id"].(string)
 
 			uploadRec := doRequest(t, h, http.MethodPost,
@@ -367,7 +368,7 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 			require.Equal(t, http.StatusCreated, uploadRec.Code)
 
 			var uploadResp map[string]any
-			require.NoError(t, json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp))
+			require.NoError(t, json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp, jsonx.V1()))
 			uploadID := uploadResp["uploadId"].(string)
 
 			part1Rec := doRequestRaw(t, h, http.MethodPut,
@@ -396,7 +397,7 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 			// "readSetId" -- the files sub-object only ever appears on
 			// GetReadSetMetadata, so fetch it there.
 			var completeResp map[string]any
-			require.NoError(t, json.Unmarshal(completeRec.Body.Bytes(), &completeResp))
+			require.NoError(t, json.Unmarshal(completeRec.Body.Bytes(), &completeResp, jsonx.V1()))
 			readSetID, ok := completeResp["readSetId"].(string)
 			require.True(t, ok, "readSetId must be present")
 			require.NotEmpty(t, readSetID)
@@ -408,7 +409,7 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var rs map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &rs))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &rs, jsonx.V1()))
 			files, ok := rs["files"].(map[string]any)
 			require.True(t, ok, "files sub-object must be present")
 
@@ -476,7 +477,7 @@ func TestUploadReadSetPart_BodyReadError_InternalServerException(t *testing.T) {
 			require.Equal(t, http.StatusInternalServerError, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InternalServerException", resp["__type"])
 		})
 	}

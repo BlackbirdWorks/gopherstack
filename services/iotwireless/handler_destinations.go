@@ -1,11 +1,12 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -36,7 +37,7 @@ type listDestinationsResponse struct {
 
 func (h *Handler) createDestination(c *echo.Context, body []byte) error {
 	var req createDestinationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -114,7 +115,7 @@ func (h *Handler) updateDestination(c *echo.Context, name string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateDestination(
 		h.AccountID, h.DefaultRegion, name,

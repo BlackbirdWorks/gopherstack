@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -68,11 +68,11 @@ type HyperParameterTuningJob struct {
 	Strategy                      string                      `json:"Strategy,omitempty"`
 	HyperParameterTuningJobStatus string                      `json:"HyperParameterTuningJobStatus"`
 	HyperParameterTuningJobArn    string                      `json:"HyperParameterTuningJobArn"`
-	HyperParameterTuningJobConfig json.RawMessage             `json:"HyperParameterTuningJobConfig,omitempty"`
-	TrainingJobDefinitions        json.RawMessage             `json:"TrainingJobDefinitions,omitempty"`
-	TrainingJobDefinition         json.RawMessage             `json:"TrainingJobDefinition,omitempty"`
-	WarmStartConfig               json.RawMessage             `json:"WarmStartConfig,omitempty"`
-	Autotune                      json.RawMessage             `json:"Autotune,omitempty"`
+	HyperParameterTuningJobConfig jsontext.Value              `json:"HyperParameterTuningJobConfig,omitempty"`
+	TrainingJobDefinitions        jsontext.Value              `json:"TrainingJobDefinitions,omitempty"`
+	TrainingJobDefinition         jsontext.Value              `json:"TrainingJobDefinition,omitempty"`
+	WarmStartConfig               jsontext.Value              `json:"WarmStartConfig,omitempty"`
+	Autotune                      jsontext.Value              `json:"Autotune,omitempty"`
 	TrainingJobStatusCounters     HPTrainingJobStatusCounters `json:"TrainingJobStatusCounters"`
 	ResourceLimits                HPResourceLimits            `json:"ResourceLimits"`
 	ObjectiveStatusCounters       HPObjectiveStatusCounters   `json:"ObjectiveStatusCounters"`
@@ -82,11 +82,11 @@ type HyperParameterTuningJob struct {
 func cloneHPTuningJob(j *HyperParameterTuningJob) *HyperParameterTuningJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
-	cp.HyperParameterTuningJobConfig = append(json.RawMessage(nil), j.HyperParameterTuningJobConfig...)
-	cp.Autotune = append(json.RawMessage(nil), j.Autotune...)
-	cp.WarmStartConfig = append(json.RawMessage(nil), j.WarmStartConfig...)
-	cp.TrainingJobDefinition = append(json.RawMessage(nil), j.TrainingJobDefinition...)
-	cp.TrainingJobDefinitions = append(json.RawMessage(nil), j.TrainingJobDefinitions...)
+	cp.HyperParameterTuningJobConfig = append(jsontext.Value(nil), j.HyperParameterTuningJobConfig...)
+	cp.Autotune = append(jsontext.Value(nil), j.Autotune...)
+	cp.WarmStartConfig = append(jsontext.Value(nil), j.WarmStartConfig...)
+	cp.TrainingJobDefinition = append(jsontext.Value(nil), j.TrainingJobDefinition...)
+	cp.TrainingJobDefinitions = append(jsontext.Value(nil), j.TrainingJobDefinitions...)
 
 	return &cp
 }
@@ -101,11 +101,11 @@ type CreateHyperParameterTuningJobOptions struct {
 	Tags                          map[string]string
 	Name                          string
 	Strategy                      string
-	HyperParameterTuningJobConfig json.RawMessage
-	Autotune                      json.RawMessage
-	WarmStartConfig               json.RawMessage
-	TrainingJobDefinition         json.RawMessage
-	TrainingJobDefinitions        json.RawMessage
+	HyperParameterTuningJobConfig jsontext.Value
+	Autotune                      jsontext.Value
+	WarmStartConfig               jsontext.Value
+	TrainingJobDefinition         jsontext.Value
+	TrainingJobDefinitions        jsontext.Value
 	Limits                        HPResourceLimits
 }
 

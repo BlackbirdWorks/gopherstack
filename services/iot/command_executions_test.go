@@ -2,7 +2,7 @@ package iot_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
@@ -401,7 +402,7 @@ func TestCommandExecutionDeviceLifecycle(t *testing.T) {
 	e.respond(t, id, `{"status":"IN_PROGRESS","clientToken":"b"}`)
 
 	var rejected map[string]string
-	require.NoError(t, json.Unmarshal(e.expect(t, base+"rejected/json"), &rejected))
+	require.NoError(t, json.Unmarshal(e.expect(t, base+"rejected/json"), &rejected, jsonx.V1()))
 	assert.Equal(t, "TerminalStateReached", rejected["error"])
 	assert.Equal(t, "b", rejected["clientToken"])
 
@@ -457,7 +458,7 @@ func TestCommandExecutionDeviceRejections(t *testing.T) {
 				t,
 				json.Unmarshal(
 					e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+id+"/response/rejected/json"),
-					&got,
+					&got, jsonx.V1(),
 				),
 			)
 			assert.Equal(t, tt.wantErr, got["error"])
@@ -475,7 +476,7 @@ func TestCommandExecutionDeviceRejections(t *testing.T) {
 			t,
 			json.Unmarshal(
 				e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/ghost/response/rejected/json"),
-				&got,
+				&got, jsonx.V1(),
 			),
 		)
 		assert.Equal(t, "ResourceNotFound", got["error"])

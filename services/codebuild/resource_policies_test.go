@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCodeBuild_ResourcePolicy covers Put, Get, Delete.
@@ -30,7 +33,7 @@ func TestCodeBuild_ResourcePolicy(t *testing.T) {
 		var putOut struct {
 			ResourceArn string `json:"resourceArn"`
 		}
-		require.NoError(t, json.NewDecoder(putRec.Body).Decode(&putOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &putOut, jsonx.V1()))
 		assert.Equal(t, resArn, putOut.ResourceArn)
 
 		getRec := doRequest(t, h, "GetResourcePolicy", map[string]any{"resourceArn": resArn})
@@ -39,7 +42,7 @@ func TestCodeBuild_ResourcePolicy(t *testing.T) {
 		var getOut struct {
 			Policy string `json:"policy"`
 		}
-		require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 		assert.JSONEq(t, policy, getOut.Policy)
 	})
 
@@ -129,7 +132,7 @@ func TestHandler_ResourcePolicy_PutGetRoundTrip(t *testing.T) {
 				var out struct {
 					Policy string `json:"policy"`
 				}
-				require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 				assert.JSONEq(t, tt.wantPolicy, out.Policy)
 			}
 		})

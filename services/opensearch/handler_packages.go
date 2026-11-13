@@ -1,12 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDissociatePackage(
@@ -42,7 +43,7 @@ func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Reques
 	}
 
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	packageIDs := make([]string, 0, len(req.PackageList))
@@ -143,7 +144,7 @@ func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request)
 		MaxResults int32 `json:"MaxResults"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	filters := make(map[string][]string, len(req.Filters))
@@ -185,7 +186,7 @@ func (h *Handler) handleUpdatePackageRoute(w http.ResponseWriter, r *http.Reques
 		PackageDescription string `json:"PackageDescription"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	pkg, updateErr := h.Backend.UpdatePackage(req.PackageID, req.PackageDescription)
@@ -212,7 +213,7 @@ func (h *Handler) handleUpdatePackageScopeRoute(w http.ResponseWriter, r *http.R
 		PackageUserList []string `json:"PackageUserList"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	pkg, err := h.Backend.UpdatePackageScope(req.PackageID, req.Operation, req.PackageUserList)
@@ -363,7 +364,7 @@ func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request
 			PackageDescription       string                        `json:"PackageDescription"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		var pkgSource *PackageSource
 		if req.PackageSource != nil {
@@ -501,7 +502,7 @@ func (h *Handler) handleAssociatePackages(w http.ResponseWriter, r *http.Request
 	}
 
 	var req associatePackagesRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

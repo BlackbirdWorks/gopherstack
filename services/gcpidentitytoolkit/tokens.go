@@ -5,13 +5,15 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -48,7 +50,7 @@ func (b *InMemoryBackend) signRefreshLocked(p refreshPayload) (string, error) {
 		return "", err
 	}
 
-	body, err := json.Marshal(p)
+	body, err := json.Marshal(p, jsonx.V1())
 	if err != nil {
 		return "", err //nolint:wrapcheck // unreachable
 	}
@@ -84,7 +86,7 @@ func (b *InMemoryBackend) parseRefreshLocked(tok string) (*refreshPayload, bool)
 	}
 
 	var p refreshPayload
-	if json.Unmarshal(body, &p) != nil {
+	if json.Unmarshal(body, &p, jsonx.V1()) != nil {
 		return nil, false
 	}
 
@@ -126,7 +128,7 @@ func (b *InMemoryBackend) tokenClaims(
 
 	if u.CustomAttrs != "" {
 		var custom map[string]any
-		if json.Unmarshal([]byte(u.CustomAttrs), &custom) == nil {
+		if json.Unmarshal([]byte(u.CustomAttrs), &custom, jsonx.V1()) == nil {
 			maps.Copy(claims, custom)
 		}
 	}

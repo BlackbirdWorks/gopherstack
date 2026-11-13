@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestGetUnfilteredTableMetadata exercises the GetUnfilteredTableMetadata handler.
@@ -26,7 +28,7 @@ func TestGetUnfilteredTableMetadata(t *testing.T) {
 		var out struct {
 			AuthorizedColumns []string `json:"AuthorizedColumns"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.NotNil(t, out.AuthorizedColumns)
 	})
 
@@ -59,7 +61,7 @@ func TestGetUnfilteredTableMetadata(t *testing.T) {
 			} `json:"Table"`
 			AuthorizedColumns []string `json:"AuthorizedColumns"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "uftbl", out.Table.Name)
 		assert.NotNil(t, out.AuthorizedColumns)
 	})
@@ -79,7 +81,7 @@ func TestGetUnfilteredTableMetadata(t *testing.T) {
 		var out struct {
 			IsRegisteredWithLakeFormation bool `json:"IsRegisteredWithLakeFormation"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.False(t, out.IsRegisteredWithLakeFormation)
 	})
 }
@@ -102,7 +104,7 @@ func TestGetUnfilteredPartitionMetadata(t *testing.T) {
 		var out struct {
 			AuthorizedColumns []string `json:"AuthorizedColumns"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.NotNil(t, out.AuthorizedColumns)
 	})
 
@@ -141,7 +143,7 @@ func TestGetUnfilteredPartitionMetadata(t *testing.T) {
 			AuthorizedColumns             []string `json:"AuthorizedColumns"`
 			IsRegisteredWithLakeFormation bool     `json:"IsRegisteredWithLakeFormation"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, []string{"2024", "01"}, out.Partition.Values)
 		assert.NotNil(t, out.AuthorizedColumns)
 		assert.False(t, out.IsRegisteredWithLakeFormation)
@@ -165,7 +167,7 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		var out struct {
 			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.UnfilteredPartitions)
 	})
 
@@ -195,7 +197,7 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		var out struct {
 			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.UnfilteredPartitions)
 	})
 
@@ -216,7 +218,7 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 		var out struct {
 			UnfilteredPartitions []any `json:"UnfilteredPartitions"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.UnfilteredPartitions, 2)
 	})
 
@@ -241,7 +243,7 @@ func TestGetUnfilteredPartitionsMetadata(t *testing.T) {
 				AuthorizedColumns []string `json:"AuthorizedColumns"`
 			} `json:"UnfilteredPartitions"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.UnfilteredPartitions, 1)
 		assert.Equal(t, []string{"2024"}, out.UnfilteredPartitions[0].Partition.Values)
 		assert.NotNil(t, out.UnfilteredPartitions[0].AuthorizedColumns)
@@ -287,7 +289,7 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Table"`
 	}
-	require.NoError(t, json.Unmarshal(tblMetaRec.Body.Bytes(), &tblMeta))
+	require.NoError(t, json.Unmarshal(tblMetaRec.Body.Bytes(), &tblMeta, jsonx.V1()))
 	assert.Equal(t, "integ-uf-tbl", tblMeta.Table.Name)
 
 	// GetUnfilteredPartitionsMetadata lists all partitions.
@@ -300,7 +302,7 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 	var partsMeta struct {
 		UnfilteredPartitions []any `json:"UnfilteredPartitions"`
 	}
-	require.NoError(t, json.Unmarshal(partsMetaRec.Body.Bytes(), &partsMeta))
+	require.NoError(t, json.Unmarshal(partsMetaRec.Body.Bytes(), &partsMeta, jsonx.V1()))
 	assert.Len(t, partsMeta.UnfilteredPartitions, 1)
 
 	// GetUnfilteredPartitionMetadata retrieves the specific partition.
@@ -316,6 +318,6 @@ func TestUnfilteredMetadata_IntegrationFlow(t *testing.T) {
 			Values []string `json:"Values"`
 		} `json:"Partition"`
 	}
-	require.NoError(t, json.Unmarshal(partMetaRec.Body.Bytes(), &partMeta))
+	require.NoError(t, json.Unmarshal(partMetaRec.Body.Bytes(), &partMeta, jsonx.V1()))
 	assert.Equal(t, []string{"2024", "06"}, partMeta.Partition.Values)
 }

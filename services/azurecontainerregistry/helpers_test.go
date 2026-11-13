@@ -2,13 +2,14 @@ package azurecontainerregistry_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 )
@@ -72,7 +73,7 @@ func decode(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out
 }

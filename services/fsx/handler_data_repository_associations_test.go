@@ -1,13 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -42,7 +43,7 @@ func TestFSx_DataRepositoryAssociation(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			a := out["Association"].(map[string]any)
 			assert.Contains(t, a["AssociationId"].(string), "dra-")
 			assert.Equal(t, tc.fsPath, a["FileSystemPath"])
@@ -67,7 +68,7 @@ func TestFSx_DataRepositoryAssociationLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 		id := cr["Association"].(map[string]any)["AssociationId"].(string)
 
 		assert.Equal(t, 1, fsx.DRACount(b))
@@ -79,7 +80,7 @@ func TestFSx_DataRepositoryAssociationLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur, jsonx.V1()))
 		assert.Equal(t, "s3://bucket/new", ur["Association"].(map[string]any)["DataRepositoryPath"])
 
 		// describe
@@ -88,7 +89,7 @@ func TestFSx_DataRepositoryAssociationLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["Associations"].([]any), 1)
 
 		// delete

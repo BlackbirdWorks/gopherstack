@@ -2,7 +2,7 @@ package accessanalyzer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // StorageBackend defines the interface for Access Analyzer backend implementations.
@@ -11,13 +11,13 @@ type StorageBackend interface {
 	// Analyzer operations. configuration is the optional raw
 	// AnalyzerConfiguration union wire body -- see Analyzer.Configuration.
 	CreateAnalyzer(
-		name string, analyzerType AnalyzerType, tags map[string]string, configuration ...json.RawMessage,
+		name string, analyzerType AnalyzerType, tags map[string]string, configuration ...jsontext.Value,
 	) (*Analyzer, error)
 	GetAnalyzer(name string) (*Analyzer, error)
 	ListAnalyzers(analyzerType string) ([]*Analyzer, error)
 	DeleteAnalyzer(name string) error
-	UpdateAnalyzer(name string, configuration ...json.RawMessage) (*Analyzer, error)
-	CreateServiceLinkedAnalyzer(analyzerType AnalyzerType, configuration ...json.RawMessage) (*Analyzer, error)
+	UpdateAnalyzer(name string, configuration ...jsontext.Value) (*Analyzer, error)
+	CreateServiceLinkedAnalyzer(analyzerType AnalyzerType, configuration ...jsontext.Value) (*Analyzer, error)
 
 	// Archive rule operations
 	CreateArchiveRule(analyzerName, ruleName string, filter map[string]FilterCriterion) (*ArchiveRule, error)
@@ -82,7 +82,7 @@ type StorageBackend interface {
 	ListPolicyGenerations(principalArn string, maxResults int, nextToken string) ([]*PolicyGeneration, string, error)
 
 	// Access previews
-	CreateAccessPreview(analyzerArn string, configurations map[string]json.RawMessage) (*AccessPreview, error)
+	CreateAccessPreview(analyzerArn string, configurations map[string]jsontext.Value) (*AccessPreview, error)
 	GetAccessPreview(accessPreviewID string) (*AccessPreview, error)
 	ListAccessPreviews(analyzerArn string) ([]*AccessPreview, error)
 	ListAccessPreviewFindings(

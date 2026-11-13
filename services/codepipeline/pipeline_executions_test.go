@@ -2,7 +2,8 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -100,7 +102,7 @@ func TestHandler_PipelineExecution_TerminalStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, startRec.Code)
 
 			var startOut map[string]any
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 			execID, _ := startOut["pipelineExecutionId"].(string)
 			require.NotEmpty(t, execID)
 
@@ -108,7 +110,7 @@ func TestHandler_PipelineExecution_TerminalStatus(t *testing.T) {
 			require.Equal(t, tt.httpStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tt.wantType != "" {
 				assert.Equal(t, tt.wantType, out["__type"])
@@ -247,7 +249,7 @@ func TestHandler_ListPipelineExecutions_StoresAndReturns(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				summaries, _ := out["pipelineExecutionSummaries"].([]any)
 				assert.Len(t, summaries, tt.wantCount)
 			}
@@ -293,7 +295,7 @@ func TestListPipelineExecutions_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.LessOrEqual(t, len(resp.PipelineExecutionSummaries), 2, "page exceeds maxResults")
 
 		for _, s := range resp.PipelineExecutionSummaries {
@@ -392,7 +394,7 @@ func TestCPPagination_ListPipelineExecutions(t *testing.T) {
 			NextToken                  string           `json:"nextToken"`
 			PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 		total += len(out.PipelineExecutionSummaries)
 		pages++
@@ -432,7 +434,7 @@ func TestListPipelineExecutions_TriggerObject(t *testing.T) {
 	var out struct {
 		PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.PipelineExecutionSummaries, 2)
 
 	for _, exec := range out.PipelineExecutionSummaries {
@@ -598,7 +600,7 @@ func TestCPPagination_ListActionExecutions(t *testing.T) {
 			NextToken              string           `json:"nextToken"`
 			ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 		total += len(out.ActionExecutionDetails)
 		pages++

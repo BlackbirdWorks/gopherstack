@@ -2,7 +2,8 @@ package organizations_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -254,7 +256,7 @@ func TestHandler_ResourcePolicy(t *testing.T) {
 
 			if tt.op == "DescribeResourcePolicy" && tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				rp, ok := resp["ResourcePolicy"].(map[string]any)
 				require.True(t, ok, "response must have ResourcePolicy")
 				assert.NotEmpty(t, rp["Content"])
@@ -374,7 +376,7 @@ func TestPutResourcePolicy_Happy(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			assert.NotNil(t, resp["ResourcePolicy"])
 		})
 	}

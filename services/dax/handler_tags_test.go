@@ -1,7 +1,7 @@
 package dax_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
@@ -29,7 +30,7 @@ func TestHandlerTagResource(t *testing.T) {
 				t.Helper()
 				rec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
 				var resp map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["Cluster"].(map[string]any)["ClusterArn"].(string)
 			},
@@ -72,14 +73,14 @@ func TestHandlerTagResourceRequiresTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	rec := daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterValueException", errResp["__type"])
 }
 
@@ -94,14 +95,14 @@ func TestHandlerUntagResourceRequiresTagKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	rec := daxRequest(t, h, "UntagResource", map[string]any{"ResourceName": arn})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterValueException", errResp["__type"])
 }
 
@@ -113,7 +114,7 @@ func TestHandlerListTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	clusterArn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	tagRec := daxRequest(t, h, "TagResource", map[string]any{
@@ -126,7 +127,7 @@ func TestHandlerListTags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags := listResp["Tags"].([]any)
 	assert.NotEmpty(t, tags)
 }
@@ -204,7 +205,7 @@ func TestHandlerCreateClusterTagsAsArray(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.checkTag != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cluster := resp["Cluster"].(map[string]any)
 
 				// The Cluster response carries no Tags field (real AWS has none on
@@ -215,7 +216,7 @@ func TestHandlerCreateClusterTagsAsArray(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				rawTags := listResp["Tags"].([]any)
 				found := false
 				for _, rt := range rawTags {
@@ -287,7 +288,7 @@ func TestHandlerTagResourceValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 			rec := daxRequest(t, h, "TagResource", map[string]any{
@@ -300,7 +301,7 @@ func TestHandlerTagResourceValidation(t *testing.T) {
 			} else {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantCode, errResp["__type"])
 			}
 		})
@@ -317,7 +318,7 @@ func TestHandlerTagResourceQuotaExceeded(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	// Add 50 tags in two batches of 25.
@@ -345,7 +346,7 @@ func TestHandlerTagResourceQuotaExceeded(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "TagQuotaPerResourceExceeded", errResp["__type"])
 }
 
@@ -359,7 +360,7 @@ func TestHandlerTagResourceReturnsAllTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	// Add first tag.
@@ -377,7 +378,7 @@ func TestHandlerTagResourceReturnsAllTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	rawTags := resp["Tags"].([]any)
 	assert.Len(t, rawTags, 2, "TagResource must return all tags on the resource, not just added ones")
@@ -402,7 +403,7 @@ func TestHandlerUntagResourceReturnsRemainingTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	tagRec := daxRequest(t, h, "TagResource", map[string]any{
@@ -418,7 +419,7 @@ func TestHandlerUntagResourceReturnsRemainingTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, untagRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(untagRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(untagRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rawTags, ok := resp["Tags"].([]any)
 	require.True(t, ok, "UntagResource must return Tags in response")

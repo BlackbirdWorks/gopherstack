@@ -2,7 +2,7 @@ package gcpmonitoring
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -19,38 +19,38 @@ import (
 const snapshotVersion = 1
 
 type seriesSnap struct {
-	Project string          `json:"project"`
-	Unit    string          `json:"unit,omitempty"`
-	Series  json.RawMessage `json:"series"`
+	Project string         `json:"project"`
+	Unit    string         `json:"unit,omitempty"`
+	Series  jsontext.Value `json:"series"`
 }
 
 type channelSnap struct {
 	CodeAt    time.Time         `json:"codeAt"`
 	Sensitive map[string]string `json:"sensitive,omitempty"`
 	Code      string            `json:"code,omitempty"`
-	Channel   json.RawMessage   `json:"channel"`
+	Channel   jsontext.Value    `json:"channel"`
 }
 
 type uptimeSnap struct {
-	LastRun time.Time       `json:"lastRun"`
-	Config  json.RawMessage `json:"config"`
+	LastRun time.Time      `json:"lastRun"`
+	Config  jsontext.Value `json:"config"`
 }
 
 type backendSnapshot struct {
-	Descriptors map[string]json.RawMessage `json:"descriptors"`
-	Policies    map[string]json.RawMessage `json:"policies"`
-	Groups      map[string]json.RawMessage `json:"groups"`
-	Snoozes     map[string]json.RawMessage `json:"snoozes,omitempty"`
-	Services    map[string]json.RawMessage `json:"services,omitempty"`
-	SLOs        map[string]json.RawMessage `json:"slos,omitempty"`
-	Channels    map[string]channelSnap     `json:"channels"`
-	Uptime      map[string]uptimeSnap      `json:"uptime"`
-	Series      []seriesSnap               `json:"series"`
-	Incidents   []Incident                 `json:"incidents"`
-	Version     int                        `json:"version"`
+	Descriptors map[string]jsontext.Value `json:"descriptors"`
+	Policies    map[string]jsontext.Value `json:"policies"`
+	Groups      map[string]jsontext.Value `json:"groups"`
+	Snoozes     map[string]jsontext.Value `json:"snoozes,omitempty"`
+	Services    map[string]jsontext.Value `json:"services,omitempty"`
+	SLOs        map[string]jsontext.Value `json:"slos,omitempty"`
+	Channels    map[string]channelSnap    `json:"channels"`
+	Uptime      map[string]uptimeSnap     `json:"uptime"`
+	Series      []seriesSnap              `json:"series"`
+	Incidents   []Incident                `json:"incidents"`
+	Version     int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -59,12 +59,12 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
-func snapMap[T proto.Message](in map[string]T) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(in))
+func snapMap[T proto.Message](in map[string]T) map[string]jsontext.Value {
+	out := make(map[string]jsontext.Value, len(in))
 	for k, v := range in {
 		out[k] = marshalPB(v)
 	}
@@ -72,7 +72,7 @@ func snapMap[T proto.Message](in map[string]T) map[string]json.RawMessage {
 	return out
 }
 
-func restoreMap[T proto.Message](raw map[string]json.RawMessage, newT func() T) (map[string]T, error) {
+func restoreMap[T proto.Message](raw map[string]jsontext.Value, newT func() T) (map[string]T, error) {
 	out := make(map[string]T, len(raw))
 
 	for k, r := range raw {

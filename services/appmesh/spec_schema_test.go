@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,10 +105,10 @@ func TestBackend_DeepSpecValidation(t *testing.T) {
 			require.NoError(t, err)
 			_, err = b.CreateVirtualRouter("m", "r", nil, nil)
 			require.NoError(t, err)
-			_, err = b.CreateVirtualGateway("m", "g", json.RawMessage(`{"listeners":[`+httpPortMapping+`]}`), nil)
+			_, err = b.CreateVirtualGateway("m", "g", jsontext.Value(`{"listeners":[`+httpPortMapping+`]}`), nil)
 			require.NoError(t, err)
 
-			spec := json.RawMessage(tt.spec)
+			spec := jsontext.Value(tt.spec)
 
 			switch tt.kind {
 			case "node":

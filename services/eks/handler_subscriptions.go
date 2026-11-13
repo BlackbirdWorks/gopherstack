@@ -1,7 +1,7 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -144,7 +145,7 @@ func validateSubscriptionTerm(t *subscriptionTermJSON) error {
 
 func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []byte) error {
 	var in createEksAnywhereSubscriptionBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -227,7 +228,7 @@ type updateSubscriptionBody struct {
 func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string, body []byte) error {
 	var in updateSubscriptionBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

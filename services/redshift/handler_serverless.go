@@ -2,7 +2,8 @@ package redshift
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -197,7 +199,7 @@ func (h *ServerlessHandler) ExtractResource(c *echo.Context) string {
 		WorkgroupName string `json:"workgroupName"`
 	}
 
-	if json.Unmarshal(body, &probe) != nil {
+	if json.Unmarshal(body, &probe, jsonx.V1()) != nil {
 		return ""
 	}
 
@@ -348,7 +350,7 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 		ManageAdminPassword         bool        `json:"manageAdminPassword"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -382,7 +384,7 @@ func (h *ServerlessHandler) handleGetNamespace(c *echo.Context, body []byte) err
 		NamespaceName string `json:"namespaceName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -401,7 +403,7 @@ func (h *ServerlessHandler) handleListNamespaces(c *echo.Context, body []byte) e
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -429,7 +431,7 @@ func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) 
 		LogExports                  []string `json:"logExports"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -457,7 +459,7 @@ func (h *ServerlessHandler) handleDeleteNamespace(c *echo.Context, body []byte) 
 		FinalSnapshotRetentionPeriod int    `json:"finalSnapshotRetentionPeriod"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -514,7 +516,7 @@ func (r slWorkgroupReq) toParams() WorkgroupParams {
 func (h *ServerlessHandler) handleCreateWorkgroup(c *echo.Context, body []byte) error {
 	var req slWorkgroupReq
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -535,7 +537,7 @@ func (h *ServerlessHandler) handleGetWorkgroup(c *echo.Context, body []byte) err
 		WorkgroupName string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -555,7 +557,7 @@ func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) e
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -573,7 +575,7 @@ func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) e
 func (h *ServerlessHandler) handleUpdateWorkgroup(c *echo.Context, body []byte) error {
 	var req slWorkgroupReq
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -590,7 +592,7 @@ func (h *ServerlessHandler) handleDeleteWorkgroup(c *echo.Context, body []byte) 
 		WorkgroupName string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -610,7 +612,7 @@ func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, body []byte) e
 		DurationSeconds  int    `json:"durationSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -659,7 +661,7 @@ func (h *ServerlessHandler) handleCreateSnapshot(c *echo.Context, body []byte) e
 		RetentionPeriod int         `json:"retentionPeriod"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -680,7 +682,7 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 		OwnerAccount string `json:"ownerAccount"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -709,7 +711,7 @@ func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) er
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -737,7 +739,7 @@ func (h *ServerlessHandler) handleDeleteSnapshot(c *echo.Context, body []byte) e
 		SnapshotName string `json:"snapshotName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -755,7 +757,7 @@ func (h *ServerlessHandler) handleUpdateSnapshot(c *echo.Context, body []byte) e
 		SnapshotName    string `json:"snapshotName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -784,7 +786,7 @@ func (h *ServerlessHandler) handleCreateUsageLimit(c *echo.Context, body []byte)
 		Amount       int64  `json:"amount"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -807,7 +809,7 @@ func (h *ServerlessHandler) handleGetUsageLimit(c *echo.Context, body []byte) er
 		UsageLimitID string `json:"usageLimitId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -828,7 +830,7 @@ func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) 
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -850,7 +852,7 @@ func (h *ServerlessHandler) handleUpdateUsageLimit(c *echo.Context, body []byte)
 		Amount       int64  `json:"amount"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -867,7 +869,7 @@ func (h *ServerlessHandler) handleDeleteUsageLimit(c *echo.Context, body []byte)
 		UsageLimitID string `json:"usageLimitId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -892,17 +894,17 @@ func (h *ServerlessHandler) handleDeleteUsageLimit(c *echo.Context, body []byte)
 // conversion at the response boundary, same pattern as
 // applicationautoscaling's epochSecondsPtr.
 type slScheduledActionWire struct {
-	StartTime                  *float64        `json:"startTime,omitempty"`
-	EndTime                    *float64        `json:"endTime,omitempty"`
-	NamespaceName              string          `json:"namespaceName,omitempty"`
-	RoleArn                    string          `json:"roleArn,omitempty"`
-	ScheduledActionDescription string          `json:"scheduledActionDescription,omitempty"`
-	ScheduledActionName        string          `json:"scheduledActionName"`
-	ScheduledActionUUID        string          `json:"scheduledActionUuid,omitempty"`
-	State                      string          `json:"state"`
-	NextInvocations            []float64       `json:"nextInvocations,omitempty"`
-	Schedule                   json.RawMessage `json:"schedule,omitempty"`
-	TargetAction               json.RawMessage `json:"targetAction,omitempty"`
+	StartTime                  *float64       `json:"startTime,omitempty"`
+	EndTime                    *float64       `json:"endTime,omitempty"`
+	NamespaceName              string         `json:"namespaceName,omitempty"`
+	RoleArn                    string         `json:"roleArn,omitempty"`
+	ScheduledActionDescription string         `json:"scheduledActionDescription,omitempty"`
+	ScheduledActionName        string         `json:"scheduledActionName"`
+	ScheduledActionUUID        string         `json:"scheduledActionUuid,omitempty"`
+	State                      string         `json:"state"`
+	NextInvocations            []float64      `json:"nextInvocations,omitempty"`
+	Schedule                   jsontext.Value `json:"schedule,omitempty"`
+	TargetAction               jsontext.Value `json:"targetAction,omitempty"`
 }
 
 func slEpochPtr(t time.Time) *float64 {
@@ -933,18 +935,18 @@ func toScheduledActionWire(sa *ServerlessScheduledAction) *slScheduledActionWire
 
 func (h *ServerlessHandler) handleCreateScheduledAction(c *echo.Context, body []byte) error {
 	var req struct {
-		Enabled                    *bool           `json:"enabled"`
-		StartTime                  *float64        `json:"startTime"`
-		EndTime                    *float64        `json:"endTime"`
-		ScheduledActionName        string          `json:"scheduledActionName"`
-		NamespaceName              string          `json:"namespaceName"`
-		RoleArn                    string          `json:"roleArn"`
-		ScheduledActionDescription string          `json:"scheduledActionDescription"`
-		Schedule                   json.RawMessage `json:"schedule"`
-		TargetAction               json.RawMessage `json:"targetAction"`
+		Enabled                    *bool          `json:"enabled"`
+		StartTime                  *float64       `json:"startTime"`
+		EndTime                    *float64       `json:"endTime"`
+		ScheduledActionName        string         `json:"scheduledActionName"`
+		NamespaceName              string         `json:"namespaceName"`
+		RoleArn                    string         `json:"roleArn"`
+		ScheduledActionDescription string         `json:"scheduledActionDescription"`
+		Schedule                   jsontext.Value `json:"schedule"`
+		TargetAction               jsontext.Value `json:"targetAction"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -983,7 +985,7 @@ func (h *ServerlessHandler) handleGetScheduledAction(c *echo.Context, body []byt
 		ScheduledActionName string `json:"scheduledActionName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1014,7 +1016,7 @@ func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context, body []b
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -1040,17 +1042,17 @@ func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context, body []b
 
 func (h *ServerlessHandler) handleUpdateScheduledAction(c *echo.Context, body []byte) error {
 	var req struct {
-		ScheduledActionDescription *string         `json:"scheduledActionDescription"`
-		Enabled                    *bool           `json:"enabled"`
-		StartTime                  *float64        `json:"startTime"`
-		EndTime                    *float64        `json:"endTime"`
-		ScheduledActionName        string          `json:"scheduledActionName"`
-		RoleArn                    string          `json:"roleArn"`
-		Schedule                   json.RawMessage `json:"schedule"`
-		TargetAction               json.RawMessage `json:"targetAction"`
+		ScheduledActionDescription *string        `json:"scheduledActionDescription"`
+		Enabled                    *bool          `json:"enabled"`
+		StartTime                  *float64       `json:"startTime"`
+		EndTime                    *float64       `json:"endTime"`
+		ScheduledActionName        string         `json:"scheduledActionName"`
+		RoleArn                    string         `json:"roleArn"`
+		Schedule                   jsontext.Value `json:"schedule"`
+		TargetAction               jsontext.Value `json:"targetAction"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1075,7 +1077,7 @@ func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, body []
 		ScheduledActionName string `json:"scheduledActionName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1096,7 +1098,7 @@ func (h *ServerlessHandler) handleGetTrack(c *echo.Context, body []byte) error {
 		TrackName string `json:"trackName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1119,7 +1121,7 @@ func (h *ServerlessHandler) handleListTracks(c *echo.Context, body []byte) error
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -1148,7 +1150,7 @@ func (h *ServerlessHandler) handleUpdateLakehouseConfiguration(c *echo.Context, 
 		DryRun                     bool   `json:"dryRun"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1180,7 +1182,7 @@ func (h *ServerlessHandler) handleGetIdentityCenterAuthTokenSL(c *echo.Context, 
 		WorkgroupNames []string `json:"workgroupNames"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1209,7 +1211,7 @@ func (h *ServerlessHandler) handleCreateReservation(c *echo.Context, body []byte
 		Capacity    int32  `json:"capacity"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1226,7 +1228,7 @@ func (h *ServerlessHandler) handleGetReservation(c *echo.Context, body []byte) e
 		ReservationID string `json:"reservationId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1245,7 +1247,7 @@ func (h *ServerlessHandler) handleListReservations(c *echo.Context, body []byte)
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -1265,7 +1267,7 @@ func (h *ServerlessHandler) handleGetReservationOffering(c *echo.Context, body [
 		OfferingID string `json:"offeringId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -1284,7 +1286,7 @@ func (h *ServerlessHandler) handleListReservationOfferings(c *echo.Context, body
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}

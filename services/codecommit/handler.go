@@ -2,7 +2,7 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -329,7 +330,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	var input struct {
 		RepositoryName string `json:"repositoryName"`
 	}
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return ""
 	}
 
@@ -366,7 +367,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 			return nil, err
 		}
 
-		return json.Marshal(resp)
+		return json.Marshal(resp, jsonx.V1())
 	}
 
 	if action == "PutCommentReaction" {
@@ -375,7 +376,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 			return nil, err
 		}
 
-		return json.Marshal(resp)
+		return json.Marshal(resp, jsonx.V1())
 	}
 
 	if option, isPRMerge := pullRequestMergeOption(action); isPRMerge {
@@ -384,7 +385,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 			return nil, err
 		}
 
-		return json.Marshal(resp)
+		return json.Marshal(resp, jsonx.V1())
 	}
 
 	if ctxFn, isCtxOp := h.ctxOps[action]; isCtxOp {
@@ -393,7 +394,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 			return nil, err
 		}
 
-		return json.Marshal(resp)
+		return json.Marshal(resp, jsonx.V1())
 	}
 
 	fn, ok := h.ops[action]
@@ -406,7 +407,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // errCodeEntry maps a backend sentinel error to its AWS HTTP status and exception type.

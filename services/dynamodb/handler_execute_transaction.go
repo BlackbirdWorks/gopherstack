@@ -7,12 +7,13 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -38,7 +39,7 @@ type executeTransactionOutput struct {
 
 func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []byte) (any, error) {
 	var req executeTransactionInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

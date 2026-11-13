@@ -56,6 +56,7 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Region: All's cross-region list has no #table-{name} ids -- see the
 	// comment in TestE2E_DynamoDB_CreateTable in e2e_test.go.
@@ -103,6 +104,7 @@ func TestDynamoDBStreamsDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("text=No tables found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

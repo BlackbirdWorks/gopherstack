@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putTargetsInput struct {
@@ -44,7 +46,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input putTargetsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			failed, err := h.Backend.PutTargets(ctx, input.Rule, input.EventBusName, input.Targets)
@@ -62,7 +64,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 		},
 		"RemoveTargets": func(ctx context.Context, b []byte) (any, error) {
 			var input removeTargetsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			failed, err := h.Backend.RemoveTargetsForce(ctx, input.Rule, input.EventBusName, input.IDs, input.Force)
@@ -80,7 +82,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 		},
 		"ListTargetsByRule": func(ctx context.Context, b []byte) (any, error) {
 			var input listTargetsByRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			targets, next, err := h.Backend.ListTargetsByRule(

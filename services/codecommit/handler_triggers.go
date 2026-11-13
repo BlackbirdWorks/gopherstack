@@ -1,15 +1,17 @@
 package codecommit
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetRepositoryTriggers(body []byte) (any, error) {
 	var req struct {
 		RepositoryName string `json:"repositoryName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -32,7 +34,7 @@ func (h *Handler) handlePutRepositoryTriggers(body []byte) (any, error) {
 		RepositoryName string              `json:"repositoryName"`
 		Triggers       []RepositoryTrigger `json:"triggers"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -53,7 +55,7 @@ func (h *Handler) handleTestRepositoryTriggers(body []byte) (any, error) {
 		RepositoryName string              `json:"repositoryName"`
 		Triggers       []RepositoryTrigger `json:"triggers"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

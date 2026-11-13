@@ -3,7 +3,8 @@ package appsync
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +13,8 @@ import (
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/validator/rules"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -380,12 +383,12 @@ func resolveValue(val *ast.Value, variables map[string]any) any {
 		return val.Raw == "true"
 	case ast.IntValue:
 		var i float64
-		_ = json.Unmarshal([]byte(val.Raw), &i)
+		_ = json.Unmarshal([]byte(val.Raw), &i, jsonx.V1())
 
 		return i
 	case ast.FloatValue:
 		var f float64
-		_ = json.Unmarshal([]byte(val.Raw), &f)
+		_ = json.Unmarshal([]byte(val.Raw), &f, jsonx.V1())
 
 		return f
 	case ast.StringValue, ast.BlockValue, ast.EnumValue:
@@ -461,7 +464,7 @@ func functionMappingUnit(f *Function, source any) mappingUnit {
 // object -- callers that require one check the decoded type themselves).
 func unmarshalOrRaw(s string) any {
 	var v any
-	if err := json.Unmarshal([]byte(s), &v); err == nil {
+	if err := json.Unmarshal([]byte(s), &v, jsonx.V1()); err == nil {
 		return v
 	}
 
@@ -634,7 +637,7 @@ func invokeLambdaDataSource(
 
 	var lambdaResult any
 
-	if jsonErr := json.Unmarshal(result, &lambdaResult); jsonErr != nil {
+	if jsonErr := json.Unmarshal(result, &lambdaResult, jsonx.V1()); jsonErr != nil {
 		lambdaResult = string(result)
 	}
 
@@ -660,10 +663,10 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 			}
 		}
 
-		return json.Marshal(value)
+		return json.Marshal(value, jsonx.V1())
 	}
 
-	return json.Marshal(defaultLambdaEvent(mu, args))
+	return json.Marshal(defaultLambdaEvent(mu, args), jsonx.V1())
 }
 
 func defaultLambdaEvent(mu mappingUnit, args map[string]any) map[string]any {
@@ -747,10 +750,9 @@ func invokeNoneDataSource(mu mappingUnit, args map[string]any, prevResult any) (
 // parseGraphQLRequest parses the GraphQL request body.
 func parseGraphQLRequest(body []byte) (*graphqlRequest, error) {
 	var req graphqlRequest
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
 
-	if err := dec.Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(dec, &req, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fmt.Errorf("invalid GraphQL request: %w", err)
 	}
 

@@ -1,7 +1,7 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
@@ -38,7 +39,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			summary := startResp["jobSummary"].(map[string]any)
 			jobID := summary["jobId"].(string)
 			assert.NotEmpty(t, jobID)
@@ -48,7 +49,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp["jobSummaries"].([]any), 1)
 
 			// Get job.
@@ -56,7 +57,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			job := getResp["job"].(map[string]any)
 			assert.NotNil(t, job["summary"])
 			assert.NotNil(t, job["steps"])
@@ -109,7 +110,7 @@ func TestHandler_ListJobs_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["jobSummaries"].([]any), tt.wantCount)
 
 			if tt.wantNextToken {
@@ -149,7 +150,7 @@ func TestHandler_StartJob_ResponseShape(t *testing.T) {
 		} `json:"jobSummary"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload, jsonx.V1()))
 	assert.NotEmpty(t, payload.JobSummary.JobID)
 	assert.NotEmpty(t, payload.JobSummary.JobARN)
 	assert.Contains(t, payload.JobSummary.JobARN, "arn:aws:amplify:")
@@ -174,7 +175,7 @@ func TestHandler_GetJob_Steps(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["jobSummary"].(map[string]any)["jobId"].(string)
 
 	type step struct {
@@ -195,7 +196,7 @@ func TestHandler_GetJob_Steps(t *testing.T) {
 				Steps []step `json:"steps"`
 			} `json:"job"`
 		}
-		require.NoError(t, json.Unmarshal(stepsRec.Body.Bytes(), &payload))
+		require.NoError(t, json.Unmarshal(stepsRec.Body.Bytes(), &payload, jsonx.V1()))
 
 		return payload.Job.Steps
 	}

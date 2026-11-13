@@ -1,12 +1,14 @@
 package ocilogging
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -140,7 +142,7 @@ type ServiceEvent struct {
 
 // EmitServiceLog stores the event in every ACTIVE SERVICE log whose source matches; it returns how many logs took it.
 func (b *InMemoryBackend) EmitServiceLog(service, resource, category string, ev ServiceEvent) int {
-	data, err := json.Marshal(ev.Data)
+	data, err := json.Marshal(ev.Data, jsonx.V1())
 	if err != nil {
 		return 0
 	}

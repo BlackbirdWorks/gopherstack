@@ -1,7 +1,7 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/fsx/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // testFileCacheLustreConfig builds a minimal valid CreateFileCache
@@ -74,7 +76,7 @@ func TestFileCache_TagsWireShape(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createOut map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 		fcID := createOut["FileCache"].(map[string]any)["FileCacheId"].(string)
 
 		describeRec := doFSxRequest(t, h, "DescribeFileCaches", map[string]any{
@@ -83,7 +85,7 @@ func TestFileCache_TagsWireShape(t *testing.T) {
 		require.Equal(t, http.StatusOK, describeRec.Code)
 
 		var describeOut map[string]any
-		require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+		require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut, jsonx.V1()))
 
 		caches, ok := describeOut["FileCaches"].([]any)
 		require.True(t, ok)
@@ -113,7 +115,7 @@ func TestFileCache_TagsWireShape(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createOut map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 		fcID := createOut["FileCache"].(map[string]any)["FileCacheId"].(string)
 
 		updateRec := doFSxRequest(t, h, "UpdateFileCache", map[string]any{
@@ -123,7 +125,7 @@ func TestFileCache_TagsWireShape(t *testing.T) {
 		require.Equal(t, http.StatusOK, updateRec.Code)
 
 		var updateOut map[string]any
-		require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+		require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 
 		fc, ok := updateOut["FileCache"].(map[string]any)
 		require.True(t, ok)

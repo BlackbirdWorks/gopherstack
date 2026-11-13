@@ -2,7 +2,8 @@ package appmesh
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -211,12 +213,12 @@ func metaToWire(m ResourceMeta) map[string]any {
 }
 
 // specOrEmpty returns a JSON object, ensuring we never return null.
-func specOrEmpty(spec json.RawMessage) any {
+func specOrEmpty(spec jsontext.Value) any {
 	if len(spec) == 0 {
 		return map[string]any{}
 	}
 	var v any
-	if err := json.Unmarshal(spec, &v); err != nil {
+	if err := json.Unmarshal(spec, &v, jsonx.V1()); err != nil {
 		return map[string]any{}
 	}
 

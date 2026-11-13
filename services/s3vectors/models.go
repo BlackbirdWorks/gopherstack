@@ -3,10 +3,12 @@ package s3vectors
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // f32s stores a vector as float32 and serialises as base64 little-endian bytes, 4 bytes per dimension.
@@ -23,13 +25,13 @@ func (v f32s) MarshalJSON() ([]byte, error) {
 		binary.LittleEndian.PutUint32(buf[bytesPerFloat*i:], math.Float32bits(f))
 	}
 
-	return json.Marshal(base64.StdEncoding.EncodeToString(buf))
+	return json.Marshal(base64.StdEncoding.EncodeToString(buf), jsonx.V1())
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (v *f32s) UnmarshalJSON(data []byte) error {
 	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := json.Unmarshal(data, &s, jsonx.V1()); err != nil {
 		return err
 	}
 

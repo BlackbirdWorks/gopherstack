@@ -1,13 +1,14 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -141,7 +142,7 @@ func TestGetEmailTemplate_RendersTags(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Tags, 1)
 	assert.Equal(t, "team", resp.Tags[0].Key)
 	assert.Equal(t, "sec", resp.Tags[0].Value)

@@ -1,13 +1,14 @@
 package cosmosdb
 
 import (
-	"encoding/json"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -270,7 +271,7 @@ func intArg(v any) (int, bool) {
 	return int(i), true
 }
 
-func intValue(i int) any { return json.Number(strconv.Itoa(i)) }
+func intValue(i int) any { return jsonx.Number(strconv.Itoa(i)) }
 
 func boolArg(args []any, i int) bool {
 	if i >= len(args) {
@@ -459,7 +460,7 @@ func parseStringValue(name string, v any) any {
 		}
 
 		if i, iErr := strconv.ParseInt(s, 10, 64); iErr == nil {
-			return json.Number(strconv.FormatInt(i, 10))
+			return jsonx.Number(strconv.FormatInt(i, 10))
 		}
 
 		return floatResult(f)
@@ -549,13 +550,13 @@ func callMath(name string, args []any) any {
 	}
 }
 
-func mathRounding(name string, n json.Number) any {
+func mathRounding(name string, n jsonx.Number) any {
 	if i, err := n.Int64(); err == nil {
 		switch {
 		case name == biSign:
 			return intValue(cmpSign(i))
 		case name == biAbs && i < 0 && i != math.MinInt64:
-			return json.Number(strconv.FormatInt(-i, 10))
+			return jsonx.Number(strconv.FormatInt(-i, 10))
 		default:
 			return n
 		}
@@ -590,7 +591,7 @@ func cmpSign(i int64) int {
 	}
 }
 
-func mathLog(n json.Number, args []any) any {
+func mathLog(n jsonx.Number, args []any) any {
 	f := numFloat(n)
 	if f <= 0 {
 		return undef{}
@@ -823,9 +824,9 @@ func (ec *evalCtx) callDate(name string, args []any) any {
 	case biGetcurrentdatetime, biGetcurrentdatetimestatic:
 		return ec.now.Format(dateTimeLayout)
 	case biGetcurrenttimestamp, biGetcurrenttimestampstatic:
-		return json.Number(strconv.FormatInt(ec.now.UnixMilli(), 10))
+		return jsonx.Number(strconv.FormatInt(ec.now.UnixMilli(), 10))
 	case biGetcurrentticks, biGetcurrentticksstatic:
-		return json.Number(strconv.FormatInt(ec.now.UnixNano()/ticksPerNano, 10))
+		return jsonx.Number(strconv.FormatInt(ec.now.UnixNano()/ticksPerNano, 10))
 	case biTimestamptodatetime:
 		ms, ok := toNumber(args[0])
 		if !ok {
@@ -841,7 +842,7 @@ func (ec *evalCtx) callDate(name string, args []any) any {
 			return undef{}
 		}
 
-		return json.Number(strconv.FormatInt(t.UnixMilli(), 10))
+		return jsonx.Number(strconv.FormatInt(t.UnixMilli(), 10))
 	default:
 		return dateTimeOp(name, args)
 	}

@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -65,7 +66,7 @@ func TestHandler_CreateWorkGroup(t *testing.T) {
 
 			if tt.wantErr {
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.NotEmpty(t, errResp["__type"])
 			}
 		})
@@ -106,7 +107,7 @@ func TestHandler_GetWorkGroup(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["WorkGroup"]["Name"])
 			}
 		})
@@ -122,7 +123,7 @@ func TestHandler_ListWorkGroups(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string][]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.GreaterOrEqual(t, len(resp["WorkGroups"]), 1)
 
 	found := false
@@ -267,7 +268,7 @@ func TestHandler_GetWorkGroup_NoInventedTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasTags := resp["WorkGroup"]["Tags"]
 	assert.False(t, hasTags, "WorkGroup response must not carry an invented Tags field")
 
@@ -276,7 +277,7 @@ func TestHandler_GetWorkGroup_NoInventedTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string][]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	require.Len(t, tagsResp["Tags"], 1, "the tag set at creation must still be visible via ListTagsForResource")
 	assert.Equal(t, "env", tagsResp["Tags"][0]["Key"])
 }
@@ -329,7 +330,7 @@ func TestHandler_WorkGroupConfiguration_EnforceAndExtras(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wg := resp["WorkGroup"].(map[string]any)
 	cfg := wg["Configuration"].(map[string]any)
 
@@ -358,7 +359,7 @@ func TestHandler_WorkGroupSummary_IncludesFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string][]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	var found map[string]any
 	for _, wg := range resp["WorkGroups"] {
@@ -537,7 +538,7 @@ func TestWorkGroup_StateValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Contains(t, errResp["__type"], "InvalidRequestException",
 					"invalid State must return InvalidRequestException")
 			}
@@ -563,7 +564,7 @@ func TestCreateWorkGroup_AlwaysEnabled_NoStateMember(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wg, ok := resp["WorkGroup"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "ENABLED", wg["State"], "CreateWorkGroupInput has no State member; must always be ENABLED")
@@ -821,7 +822,7 @@ func TestHandler_UpdateWorkGroup_PreservesUnmentionedConfiguration(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wg, ok := resp["WorkGroup"].(map[string]any)
 	require.True(t, ok)
 	cfg, ok := wg["Configuration"].(map[string]any)

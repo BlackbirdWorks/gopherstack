@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -1136,7 +1137,7 @@ func (l *typedWriteGetObjectResponseLambda) InvokeFunction(
 			OutputToken string `json:"outputToken"`
 		} `json:"getObjectContext"`
 	}
-	if err := json.Unmarshal(payload, &event); err != nil {
+	if err := json.Unmarshal(payload, &event, jsonx.V1()); err != nil {
 		l.setResult(true, err)
 
 		return nil, 0, err

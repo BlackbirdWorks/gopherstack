@@ -2,7 +2,7 @@ package kinesisanalytics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 )
 
@@ -434,7 +435,7 @@ func TestSortedListTagsForResource(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	require.Len(t, resp.Tags, 3)
 	assert.Equal(t, "a", resp.Tags[0].Key)

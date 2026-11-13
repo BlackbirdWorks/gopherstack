@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRegions(t *testing.T) {
@@ -39,7 +41,7 @@ func TestRegions(t *testing.T) {
 			rec2 := doRequest(t, h, "DescribeRegions", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			regions, _ := r2["RegionsDescription"].([]any)
 			require.Len(t, regions, 1)
 			region := regions[0].(map[string]any)
@@ -57,7 +59,7 @@ func TestRegions(t *testing.T) {
 			rec4 := doRequest(t, h, "DescribeRegions", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4, jsonx.V1()))
 			regions2, _ := r4["RegionsDescription"].([]any)
 			assert.Empty(t, regions2)
 
@@ -78,6 +80,6 @@ func TestAddRegion_Validation(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", body["__type"])
 }

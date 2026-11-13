@@ -2,7 +2,7 @@ package textract_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -100,7 +101,7 @@ func TestSyncDocumentOps_S3ObjectValidation(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidS3ObjectException", resp["__type"])
 
 			rec = doTextractRequest(t, h, tt.action, tt.body("good-bucket", "file.pdf"))
@@ -125,7 +126,7 @@ func TestAnalyzeID_S3ObjectValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidS3ObjectException", resp["__type"])
 
 	rec = doTextractRequest(t, h, "AnalyzeID", map[string]any{
@@ -174,7 +175,7 @@ func TestStartOps_S3ObjectValidation(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidS3ObjectException", resp["__type"])
 
 			rec = doTextractRequest(t, h, tt.action, body("good-bucket"))
@@ -230,7 +231,7 @@ func createAdapterForS3Test(t *testing.T, h *textract.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["AdapterId"]
 }
@@ -263,7 +264,7 @@ func TestCreateAdapterVersion_S3ObjectValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidS3ObjectException", resp["__type"])
 
 	rec = doTextractRequest(t, h, "CreateAdapterVersion",

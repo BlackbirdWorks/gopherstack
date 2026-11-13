@@ -1,7 +1,8 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -29,7 +31,7 @@ func TestGetAnomalyMonitors_HasCreationDateAndLastUpdatedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	monARN := createOut["MonitorArn"].(string)
 
 	// Describe it
@@ -45,7 +47,7 @@ func TestGetAnomalyMonitors_HasCreationDateAndLastUpdatedDate(t *testing.T) {
 			LastUpdatedDate string `json:"LastUpdatedDate"`
 		} `json:"AnomalyMonitors"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	require.Len(t, getOut.AnomalyMonitors, 1)
 
 	m := getOut.AnomalyMonitors[0]
@@ -76,7 +78,7 @@ func TestGetAnomalyMonitors_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1 := out1["AnomalyMonitors"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["NextPageToken"].(string)
@@ -89,7 +91,7 @@ func TestGetAnomalyMonitors_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2 := out2["AnomalyMonitors"].([]any)
 	assert.Len(t, page2, 2)
 }
@@ -110,7 +112,7 @@ func TestGetAnomalySubscriptions_HasAccountId(t *testing.T) {
 	require.Equal(t, http.StatusOK, monRec.Code)
 
 	var monOut map[string]any
-	require.NoError(t, json.Unmarshal(monRec.Body.Bytes(), &monOut))
+	require.NoError(t, json.Unmarshal(monRec.Body.Bytes(), &monOut, jsonx.V1()))
 	monARN := monOut["MonitorArn"].(string)
 
 	subRec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
@@ -133,7 +135,7 @@ func TestGetAnomalySubscriptions_HasAccountId(t *testing.T) {
 			AccountID string `json:"AccountId"`
 		} `json:"AnomalySubscriptions"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	require.Len(t, getOut.AnomalySubscriptions, 1)
 	assert.NotEmpty(t, getOut.AnomalySubscriptions[0].AccountID, "AccountId must be present in subscription")
 }
@@ -153,7 +155,7 @@ func TestGetAnomalySubscriptions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, monRec.Code)
 
 	var monOut map[string]any
-	require.NoError(t, json.Unmarshal(monRec.Body.Bytes(), &monOut))
+	require.NoError(t, json.Unmarshal(monRec.Body.Bytes(), &monOut, jsonx.V1()))
 	monARN := monOut["MonitorArn"].(string)
 
 	for i := range 5 {
@@ -176,7 +178,7 @@ func TestGetAnomalySubscriptions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1 := out1["AnomalySubscriptions"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["NextPageToken"].(string)
@@ -203,7 +205,7 @@ func TestHandler_AnomalyMonitorCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["MonitorArn"])
 
 				monARN := out["MonitorArn"].(string)
@@ -227,7 +229,7 @@ func TestHandler_AnomalyMonitorCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				monARN := createOut["MonitorArn"].(string)
 
 				rec2 := doRequest(t, h, "UpdateAnomalyMonitor", map[string]any{
@@ -250,7 +252,7 @@ func TestHandler_AnomalyMonitorCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				monARN := createOut["MonitorArn"].(string)
 
 				rec2 := doRequest(t, h, "DeleteAnomalyMonitor", map[string]any{
@@ -295,7 +297,7 @@ func TestHandler_AnomalySubscriptionCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["SubscriptionArn"])
 			},
 		},
@@ -316,7 +318,7 @@ func TestHandler_AnomalySubscriptionCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				subARN := createOut["SubscriptionArn"].(string)
 
 				rec2 := doRequest(t, h, "DeleteAnomalySubscription", map[string]any{
@@ -399,7 +401,7 @@ func TestHandler_GetAnomalySubscriptions(t *testing.T) {
 			var out struct {
 				AnomalySubscriptions []map[string]any `json:"AnomalySubscriptions"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.AnomalySubscriptions, tt.wantLen)
 		})
 	}
@@ -461,7 +463,7 @@ func TestHandler_UpdateAnomalySubscription(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 				tt.updateBody["SubscriptionArn"] = createOut["SubscriptionArn"]
 			}
 
@@ -470,7 +472,7 @@ func TestHandler_UpdateAnomalySubscription(t *testing.T) {
 
 			if tt.wantFrequency != "" {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["SubscriptionArn"])
 			}
 		})
@@ -650,7 +652,7 @@ func TestHandler_GetAnomalySubscriptions_MonitorArnFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, monRec.Code)
 
 			var monOut map[string]any
-			require.NoError(t, json.NewDecoder(monRec.Body).Decode(&monOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(monRec.Body), &monOut, jsonx.V1()))
 			monARN := monOut["MonitorArn"].(string)
 
 			// Create subscription attached to monitor.
@@ -693,7 +695,7 @@ func TestHandler_GetAnomalySubscriptions_MonitorArnFilter(t *testing.T) {
 			var out struct {
 				AnomalySubscriptions []map[string]any `json:"AnomalySubscriptions"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.AnomalySubscriptions, tt.wantLen)
 		})
 	}
@@ -765,7 +767,7 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 			require.Equal(t, http.StatusOK, monRec.Code)
 
 			var monOut map[string]any
-			require.NoError(t, json.NewDecoder(monRec.Body).Decode(&monOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(monRec.Body), &monOut, jsonx.V1()))
 			monARN := monOut["MonitorArn"].(string)
 
 			arns, ok := tt.updateBody["MonitorArnList"].([]string)
@@ -786,7 +788,7 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createOut map[string]any
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 			subARN := createOut["SubscriptionArn"].(string)
 
 			tt.updateBody["SubscriptionArn"] = subARN
@@ -807,7 +809,7 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 					Threshold        float64 `json:"Threshold"`
 				} `json:"AnomalySubscriptions"`
 			}
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 			require.Len(t, getOut.AnomalySubscriptions, 1)
 			assert.Equal(t, tt.wantFrequency, getOut.AnomalySubscriptions[0].Frequency)
 			assert.Equal(t, tt.wantSubName, getOut.AnomalySubscriptions[0].SubscriptionName)
@@ -939,7 +941,7 @@ func TestHandler_UpdateAnomalyMonitor_OmittedNameUnchanged(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	monARN := createOut["MonitorArn"].(string)
 
 	updateRec := doRequest(t, h, "UpdateAnomalyMonitor", map[string]any{
@@ -957,7 +959,7 @@ func TestHandler_UpdateAnomalyMonitor_OmittedNameUnchanged(t *testing.T) {
 			MonitorName string `json:"MonitorName"`
 		} `json:"AnomalyMonitors"`
 	}
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 	require.Len(t, getOut.AnomalyMonitors, 1)
 	assert.Equal(t, "KeepMyName", getOut.AnomalyMonitors[0].MonitorName)
 }

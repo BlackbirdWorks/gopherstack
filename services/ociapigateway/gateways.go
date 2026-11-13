@@ -1,36 +1,38 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 type createGatewayIn struct {
 	Tags
-	Locks         json.RawMessage `json:"locks"`
-	CaBundles     json.RawMessage `json:"caBundles"`
-	ResponseCache json.RawMessage `json:"responseCacheDetails"`
-	DisplayName   string          `json:"displayName"`
-	CompartmentID string          `json:"compartmentId"`
-	EndpointType  string          `json:"endpointType"`
-	SubnetID      string          `json:"subnetId"`
-	CertificateID string          `json:"certificateId"`
-	IPMode        string          `json:"ipMode"`
-	NSGs          []string        `json:"networkSecurityGroupIds"`
+	Locks         jsontext.Value `json:"locks"`
+	CaBundles     jsontext.Value `json:"caBundles"`
+	ResponseCache jsontext.Value `json:"responseCacheDetails"`
+	DisplayName   string         `json:"displayName"`
+	CompartmentID string         `json:"compartmentId"`
+	EndpointType  string         `json:"endpointType"`
+	SubnetID      string         `json:"subnetId"`
+	CertificateID string         `json:"certificateId"`
+	IPMode        string         `json:"ipMode"`
+	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
 type updateGatewayIn struct {
 	Tags
-	CaBundles     json.RawMessage `json:"caBundles"`
-	ResponseCache json.RawMessage `json:"responseCacheDetails"`
-	DisplayName   *string         `json:"displayName"`
-	CertificateID *string         `json:"certificateId"`
-	NSGs          []string        `json:"networkSecurityGroupIds"`
+	CaBundles     jsontext.Value `json:"caBundles"`
+	ResponseCache jsontext.Value `json:"responseCacheDetails"`
+	DisplayName   *string        `json:"displayName"`
+	CertificateID *string        `json:"certificateId"`
+	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
 type changeCompartmentIn struct {
@@ -43,9 +45,9 @@ type GatewayWire struct {
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
-	Locks          json.RawMessage           `json:"locks,omitempty"`
-	CaBundles      json.RawMessage           `json:"caBundles,omitempty"`
-	ResponseCache  json.RawMessage           `json:"responseCacheDetails,omitempty"`
+	Locks          jsontext.Value            `json:"locks,omitempty"`
+	CaBundles      jsontext.Value            `json:"caBundles,omitempty"`
+	ResponseCache  jsontext.Value            `json:"responseCacheDetails,omitempty"`
 	ID             string                    `json:"id"`
 	CompartmentID  string                    `json:"compartmentId"`
 	EndpointType   string                    `json:"endpointType"`
@@ -117,12 +119,12 @@ func (b *InMemoryBackend) validateGateway(in *createGatewayIn) *APIError {
 	return b.checkCertificateRef(in.CertificateID)
 }
 
-func jsonIsNoCache(raw json.RawMessage) bool {
+func jsonIsNoCache(raw jsontext.Value) bool {
 	var d struct {
 		Type string `json:"type"`
 	}
 
-	return json.Unmarshal(raw, &d) == nil && d.Type == "NONE"
+	return json.Unmarshal(raw, &d, jsonx.V1()) == nil && d.Type == "NONE"
 }
 
 func (b *InMemoryBackend) gatewayNameTaken(compartment, name, except string) bool {
@@ -169,7 +171,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	return gatewayView(g), wr, g.Etag, nil
 }
 
-func nullRaw(r json.RawMessage) json.RawMessage {
+func nullRaw(r jsontext.Value) jsontext.Value {
 	if string(r) == jsonNull {
 		return nil
 	}

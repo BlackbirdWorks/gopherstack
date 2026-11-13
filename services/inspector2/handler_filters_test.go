@@ -1,7 +1,7 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -66,7 +67,7 @@ func TestFilterLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				filters, ok := resp["filters"].([]any)
 				require.True(t, ok)
 				require.Len(t, filters, 1)
@@ -89,7 +90,7 @@ func TestFilterLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				filters := resp["filters"].([]any)
 				require.Len(t, filters, 1)
 
@@ -116,7 +117,7 @@ func TestFilterLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				filters := resp["filters"].([]any)
 				require.Len(t, filters, 1)
 
@@ -139,13 +140,13 @@ func TestFilterLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, filterARN, resp["arn"])
 
 				// Verify via list
 				listRec := auditDo(t, h, http.MethodPost, "/filters/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				filters := listResp["filters"].([]any)
 				require.Len(t, filters, 1)
 
@@ -176,7 +177,7 @@ func TestFilterLifecycle(t *testing.T) {
 				// Use a list check to verify filter was created
 				listRec := auditDo(t, h, http.MethodPost, "/filters/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.Len(t, listResp["filters"].([]any), 1)
 
 				rec := auditDo(t, h, http.MethodPost, "/filters/delete", map[string]any{
@@ -186,7 +187,7 @@ func TestFilterLifecycle(t *testing.T) {
 
 				listRec2 := auditDo(t, h, http.MethodPost, "/filters/list", map[string]any{})
 				var listResp2 map[string]any
-				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+				require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 				assert.Empty(t, listResp2["filters"].([]any))
 			},
 		},
@@ -226,7 +227,7 @@ func TestFilterLifecycle(t *testing.T) {
 
 				listRec := auditDo(t, h, http.MethodPost, "/filters/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				filters := listResp["filters"].([]any)
 				require.Len(t, filters, 1)
 

@@ -2,7 +2,7 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -294,7 +295,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -346,10 +347,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		}
 	}
 
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
-	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+	if jsonx.IsSyntaxError(err) || jsonx.IsTypeError(err) {
 		return errorBlob(c, http.StatusBadRequest, errTypeValidation, err)
 	}
 
@@ -372,7 +370,7 @@ func errorBlob(c *echo.Context, status int, errType string, err error) error {
 	payload, _ := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
 		Message: stripExceptionPrefixes(err.Error()),
-	})
+	}, jsonx.V1())
 
 	return c.JSONBlob(status, payload)
 }

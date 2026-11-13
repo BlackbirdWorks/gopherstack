@@ -2,13 +2,14 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -45,7 +46,7 @@ func TestStubOps_DeleteOpsMetadata(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec := doRequest(t, h, "DeleteOpsMetadata", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -61,7 +62,7 @@ func TestStubOps_GetOpsMetadata(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec := doRequest(t, h, "GetOpsMetadata", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -77,7 +78,7 @@ func TestStubOps_UpdateOpsMetadata(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec := doRequest(t, h, "UpdateOpsMetadata", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -111,7 +112,7 @@ func TestCreateOpsMetadata_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateOpsMetadataOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.OpsMetadataArn)
 			assert.Contains(t, resp.OpsMetadataArn, "arn:aws:ssm:")
 			assert.Equal(t, 1, backend.OpsMetadataCount())
@@ -566,7 +567,7 @@ func TestClassifySSMErrorExtended(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}
@@ -592,7 +593,7 @@ func TestOpsMetadata_FullCRUD(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "OpsMetadataList")
 
 	// Get.
-	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ := json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec = doRequest(t, h, "GetOpsMetadata", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "production")
@@ -604,19 +605,19 @@ func TestOpsMetadata_FullCRUD(t *testing.T) {
 		"MetadataToUpdate": map[string]any{
 			"version": map[string]any{"Value": "2"},
 		},
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "UpdateOpsMetadata", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Get updated — both keys should be present.
-	body, _ = json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ = json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec = doRequest(t, h, "GetOpsMetadata", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "production")
 	assert.Contains(t, rec.Body.String(), "version")
 
 	// Delete.
-	body, _ = json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn})
+	body, _ = json.Marshal(map[string]any{"OpsMetadataArn": meta.OpsMetadataArn}, jsonx.V1())
 	rec = doRequest(t, h, "DeleteOpsMetadata", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 }

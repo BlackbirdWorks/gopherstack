@@ -1,13 +1,15 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const selectTestArchive = "1,alice,30\n2,bob,25\n3,carol,40\n"
@@ -31,7 +33,7 @@ func basicSelectBody(archiveID, expression string) string {
 		"OutputLocation": map[string]any{
 			"S3": map[string]any{"BucketName": "results-bucket", "Prefix": "out/"},
 		},
-	})
+	}, jsonx.V1())
 
 	return string(body)
 }
@@ -56,7 +58,7 @@ func TestInitiateJob_Select_Success(t *testing.T) {
 	assert.Contains(t, gotPathHeader, wantPath)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, gotPathHeader, resp["jobOutputPath"])
 	assert.NotEmpty(t, resp["jobId"])
 }
@@ -208,7 +210,7 @@ func TestInitiateJob_Select_Validation(t *testing.T) {
 
 			maps.Copy(payload, tt.overrides)
 
-			body, err := json.Marshal(payload)
+			body, err := json.Marshal(payload, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(
@@ -218,7 +220,7 @@ func TestInitiateJob_Select_Validation(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, errResp["code"])
 		})
 	}
@@ -237,7 +239,7 @@ func TestInitiateJob_Select_ArchiveNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["code"])
 }
 
@@ -336,7 +338,7 @@ func TestGetJobOutput_Select_HeaderNames(t *testing.T) {
 		"OutputLocation": map[string]any{
 			"S3": map[string]any{"BucketName": "bucket"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	jobID := initiateJobWithBody(t, h, "select-header-vault", string(body))
@@ -372,7 +374,7 @@ func TestGetJobOutput_Select_QuoteFieldsAlways(t *testing.T) {
 		"OutputLocation": map[string]any{
 			"S3": map[string]any{"BucketName": "bucket"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	jobID := initiateJobWithBody(t, h, "select-quote-vault", string(body))
@@ -423,7 +425,7 @@ func TestDescribeJob_Select_EchoesParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "Select", resp["Action"])
 	assert.NotEmpty(t, resp["JobOutputPath"])

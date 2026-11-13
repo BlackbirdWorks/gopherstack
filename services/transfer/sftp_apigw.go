@@ -2,7 +2,7 @@ package transfer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -205,7 +206,7 @@ func (s *sftpServer) apiGatewayLogin(
 	}
 
 	var resp idpAuthResponse
-	if jerr := json.Unmarshal(body, &resp); jerr != nil {
+	if jerr := json.Unmarshal(body, &resp, jsonx.V1()); jerr != nil {
 		return nil, errSFTPDenied
 	}
 

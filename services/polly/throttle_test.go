@@ -2,7 +2,7 @@ package polly_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/polly"
 )
 
@@ -162,7 +163,7 @@ func TestStartSpeechSynthesisStream_ThrottlingHTTPWireShape(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, second.Code)
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "ThrottlingException", out["__type"])
 }
 
@@ -189,6 +190,6 @@ func TestStartSpeechSynthesisStream_ServiceQuotaHTTPWireShape(t *testing.T) {
 	require.Equal(t, http.StatusPaymentRequired, rec.Code)
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "ServiceQuotaExceededException", out["__type"])
 }

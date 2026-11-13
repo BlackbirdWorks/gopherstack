@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -45,14 +46,14 @@ func setupMappingAPI(
 
 	rec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"map-api"}`)
 	require.Equal(t, http.StatusCreated, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	apiID := created["id"].(string)
 
 	rec = postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 
 	var list map[string]any
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list, jsonx.V1()))
 	rootID := list["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	rec = postWithHandler(t, h, e, "CreateResource",
@@ -61,7 +62,7 @@ func setupMappingAPI(
 
 	var child map[string]any
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &child))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &child, jsonx.V1()))
 	resID := child["id"].(string)
 	base := `"restApiId":"` + apiID + `","resourceId":"` + resID + `","httpMethod":"POST"`
 

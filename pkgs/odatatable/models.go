@@ -19,12 +19,14 @@ package odatatable
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // System entity property names, shared across path-predicate parsing
@@ -106,7 +108,7 @@ func (p EntityProperty) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(entityPropertyWire{Type: p.Type, Value: v})
+	return json.Marshal(entityPropertyWire{Type: p.Type, Value: v}, jsonx.V1())
 }
 
 // marshalValue dispatches to marshalScalarValue or marshalStringEncodedValue
@@ -219,7 +221,7 @@ func (p EntityProperty) marshalStringEncodedValue() (any, error) {
 func (p *EntityProperty) UnmarshalJSON(data []byte) error {
 	var wire entityPropertyWire
 
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := json.Unmarshal(data, &wire, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -428,7 +430,7 @@ const entityCompositeKeyElemCount = 2
 // encoding can't reintroduce the same collision class the struct key itself
 // was introduced to close.
 func (k entityCompositeKey) MarshalText() ([]byte, error) {
-	return json.Marshal([entityCompositeKeyElemCount]string{k.PartitionKey, k.RowKey})
+	return json.Marshal([entityCompositeKeyElemCount]string{k.PartitionKey, k.RowKey}, jsonx.V1())
 }
 
 // UnmarshalText implements encoding.TextUnmarshaler, the inverse of
@@ -442,7 +444,7 @@ func (k *entityCompositeKey) UnmarshalText(text []byte) error {
 	// two elements".
 	var pair []string
 
-	if err := json.Unmarshal(text, &pair); err != nil {
+	if err := json.Unmarshal(text, &pair, jsonx.V1()); err != nil {
 		return fmt.Errorf("odatatable: malformed entity composite key %q: %w", text, err)
 	}
 

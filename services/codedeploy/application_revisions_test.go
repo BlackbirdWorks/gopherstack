@@ -1,13 +1,14 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -42,7 +43,7 @@ func TestHandler_RegisterApplicationRevision_GetApplicationRevision(t *testing.T
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-app", resp["applicationName"])
 
 	revisionInfo, ok := resp["revisionInfo"].(map[string]any)
@@ -67,7 +68,7 @@ func TestHandler_GetApplicationRevision_NotRegistered(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "RevisionDoesNotExistException", resp["__type"])
 }
 
@@ -106,7 +107,7 @@ func TestHandler_RegisterApplicationRevision_Idempotent(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	revisions, ok := listResp["revisions"].([]any)
 	require.True(t, ok)
 	require.Len(t, revisions, 1)
@@ -116,7 +117,7 @@ func TestHandler_RegisterApplicationRevision_Idempotent(t *testing.T) {
 		"revision":        s3Revision("bucket", "key"),
 	})
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	revisionInfo, ok := getResp["revisionInfo"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "v2", revisionInfo["description"])
@@ -141,7 +142,7 @@ func TestHandler_ListApplicationRevisions_MultipleAndFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	revisions, ok := resp["revisions"].([]any)
 	require.True(t, ok)
 	require.Len(t, revisions, 2)
@@ -153,7 +154,7 @@ func TestHandler_ListApplicationRevisions_MultipleAndFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, filteredRec.Code)
 
 	var filteredResp map[string]any
-	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp))
+	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp, jsonx.V1()))
 	filtered, ok := filteredResp["revisions"].([]any)
 	require.True(t, ok)
 	require.Len(t, filtered, 1)
@@ -298,7 +299,7 @@ func TestHandler_BatchGetApplicationRevisions(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "my-app", resp["applicationName"])
 			}
 		})
@@ -330,7 +331,7 @@ func TestHandler_BatchGetApplicationRevisions_PopulatesRegistered(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	revisions, ok := resp["revisions"].([]any)
 	require.True(t, ok)
 	require.Len(t, revisions, 2)

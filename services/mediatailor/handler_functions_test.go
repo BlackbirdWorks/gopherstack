@@ -1,13 +1,15 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestFunction_CRUD's subtests share one Handler and depend on running in
@@ -39,7 +41,7 @@ func TestFunction_CRUD(t *testing.T) { //nolint:tparallel // subtests are order-
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "fn1", resp["FunctionId"])
 				assert.Equal(t, "CUSTOM_OUTPUT", resp["FunctionType"])
 				assert.Contains(t, resp["Arn"], ":mediatailor:")
@@ -55,7 +57,7 @@ func TestFunction_CRUD(t *testing.T) { //nolint:tparallel // subtests are order-
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "fn1", resp["FunctionId"])
 				assert.Equal(t, "my function", resp["Description"])
 			},
@@ -69,7 +71,7 @@ func TestFunction_CRUD(t *testing.T) { //nolint:tparallel // subtests are order-
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items, _ := resp["Items"].([]any)
 				assert.Len(t, items, 1)
 			},
@@ -161,7 +163,7 @@ func TestListFunctions_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2)
 }

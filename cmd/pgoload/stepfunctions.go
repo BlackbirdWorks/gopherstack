@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const sfnStateMachineName = "pgoload-sm"
@@ -30,7 +32,7 @@ func sfnDefinition() string {
 		"States": map[string]any{
 			sfnPassState: map[string]any{"Type": "Pass", "End": true},
 		},
-	})
+	}, jsonx.V1())
 
 	return string(def)
 }

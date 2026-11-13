@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -43,20 +43,20 @@ type EdgeDeploymentModelConfig struct {
 // device selection and deployment configs are stored opaquely (as submitted)
 // since this emulator does not act on them beyond round-tripping.
 type EdgeDeploymentStage struct {
-	StageName             string          `json:"StageName"`
-	DeploymentStatus      string          `json:"DeploymentStatus"`
-	DeviceSelectionConfig json.RawMessage `json:"DeviceSelectionConfig,omitempty"`
-	DeploymentConfig      json.RawMessage `json:"DeploymentConfig,omitempty"`
+	StageName             string         `json:"StageName"`
+	DeploymentStatus      string         `json:"DeploymentStatus"`
+	DeviceSelectionConfig jsontext.Value `json:"DeviceSelectionConfig,omitempty"`
+	DeploymentConfig      jsontext.Value `json:"DeploymentConfig,omitempty"`
 }
 
 func cloneEdgeDeploymentStage(s *EdgeDeploymentStage) *EdgeDeploymentStage {
 	cp := *s
 	if s.DeviceSelectionConfig != nil {
-		cp.DeviceSelectionConfig = append(json.RawMessage(nil), s.DeviceSelectionConfig...)
+		cp.DeviceSelectionConfig = append(jsontext.Value(nil), s.DeviceSelectionConfig...)
 	}
 
 	if s.DeploymentConfig != nil {
-		cp.DeploymentConfig = append(json.RawMessage(nil), s.DeploymentConfig...)
+		cp.DeploymentConfig = append(jsontext.Value(nil), s.DeploymentConfig...)
 	}
 
 	return &cp
@@ -96,8 +96,8 @@ func cloneEdgeDeploymentPlan(p *EdgeDeploymentPlan) *EdgeDeploymentPlan {
 // CreateEdgeDeploymentPlan or CreateEdgeDeploymentStage.
 type EdgeDeploymentStageInput struct {
 	StageName             string
-	DeviceSelectionConfig json.RawMessage
-	DeploymentConfig      json.RawMessage
+	DeviceSelectionConfig jsontext.Value
+	DeploymentConfig      jsontext.Value
 }
 
 func buildEdgeDeploymentStages(inputs []EdgeDeploymentStageInput) []*EdgeDeploymentStage {

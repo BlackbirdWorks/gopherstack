@@ -3,7 +3,8 @@ package lambda_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -48,7 +50,7 @@ func regionCall(t *testing.T, h *lambda.Handler, region, method, path string, bo
 
 	var buf bytes.Buffer
 	if body != nil {
-		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		require.NoError(t, json.MarshalEncode(jsontext.NewEncoder(&buf, jsonx.V1()), body))
 	}
 
 	req := httptest.NewRequest(method, path, &buf).WithContext(regionCtx(region))
@@ -77,7 +79,7 @@ func createRegionFunction(t *testing.T, h *lambda.Handler, region, name string) 
 		FunctionArn string `json:"FunctionArn"`
 	}
 
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out.FunctionArn
 }
@@ -95,7 +97,7 @@ func regionFunctionNames(t *testing.T, h *lambda.Handler, region string) []strin
 		} `json:"Functions"`
 	}
 
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	names := make([]string, 0, len(out.Functions))
 
@@ -316,9 +318,9 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			snap := src.Snapshot(context.Background())
 			require.NotNil(t, snap)
 
-			var doc map[string]json.RawMessage
+			var doc map[string]jsontext.Value
 
-			require.NoError(t, json.Unmarshal(snap, &doc))
+			require.NoError(t, json.Unmarshal(snap, &doc, jsonx.V1()))
 
 			_, hasRegions := doc["regions"]
 			assert.Equal(t, tc.remote, hasRegions)

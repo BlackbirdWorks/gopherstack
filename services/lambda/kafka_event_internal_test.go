@@ -2,12 +2,14 @@ package lambda
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func kafkaTestRecord(topic string, partition int32, offset int64, value string) KafkaRecord {
@@ -63,7 +65,7 @@ func TestBuildKafkaEventPayload(t *testing.T) {
 
 			var ev map[string]any
 
-			require.NoError(t, json.Unmarshal(raw, &ev))
+			require.NoError(t, json.Unmarshal(raw, &ev, jsonx.V1()))
 			assert.Equal(t, tt.source, ev["eventSource"])
 			assert.Equal(t, "b1:9092,b2:9092", ev["bootstrapServers"])
 

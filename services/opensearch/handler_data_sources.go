@@ -1,12 +1,14 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // directQueryDataSourceJSON renders a DirectQueryDataSource as the wire-shape
@@ -15,11 +17,11 @@ import (
 // "DataSourceName" -- they are genuinely different field names on the real
 // API, not a typo.
 type directQueryDataSourceJSON struct {
-	DataSourceArn  string          `json:"DataSourceArn"`
-	DataSourceName string          `json:"DataSourceName"`
-	DataSourceType json.RawMessage `json:"DataSourceType,omitempty"`
-	Description    string          `json:"Description,omitempty"`
-	OpenSearchArns []string        `json:"OpenSearchArns"`
+	DataSourceArn  string         `json:"DataSourceArn"`
+	DataSourceName string         `json:"DataSourceName"`
+	DataSourceType jsontext.Value `json:"DataSourceType,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	OpenSearchArns []string       `json:"OpenSearchArns"`
 }
 
 func toDirectQueryDataSourceJSON(ds *DirectQueryDataSource) directQueryDataSourceJSON {
@@ -44,10 +46,10 @@ type getDirectQueryDataSourceOutputJSON struct {
 // dataSourceJSON renders a DataSource as the wire-shape types.DataSourceDetails
 // / GetDataSourceOutput object (top-level fields, no envelope).
 type dataSourceJSON struct {
-	Description    string          `json:"Description,omitempty"`
-	Name           string          `json:"Name"`
-	Status         string          `json:"Status,omitempty"`
-	DataSourceType json.RawMessage `json:"DataSourceType,omitempty"`
+	Description    string         `json:"Description,omitempty"`
+	Name           string         `json:"Name"`
+	Status         string         `json:"Status,omitempty"`
+	DataSourceType jsontext.Value `json:"DataSourceType,omitempty"`
 }
 
 func toDataSourceJSON(ds *DataSource) dataSourceJSON {
@@ -129,13 +131,13 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 		return
 	}
 	var req struct {
-		DataSourceType         json.RawMessage `json:"DataSourceType"`
-		Description            string          `json:"Description"`
-		DataSourceAccessPolicy string          `json:"DataSourceAccessPolicy"`
-		OpenSearchArns         []string        `json:"OpenSearchArns"`
+		DataSourceType         jsontext.Value `json:"DataSourceType"`
+		Description            string         `json:"Description"`
+		DataSourceAccessPolicy string         `json:"DataSourceAccessPolicy"`
+		OpenSearchArns         []string       `json:"OpenSearchArns"`
 	}
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return
@@ -160,9 +162,9 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 // (types.UpdateDataSourceInput -- DomainName and Name come from the URL
 // path, not the body).
 type updateDataSourceRequest struct {
-	Description    string          `json:"Description"`
-	Status         string          `json:"Status"`
-	DataSourceType json.RawMessage `json:"DataSourceType"`
+	Description    string         `json:"Description"`
+	Status         string         `json:"Status"`
+	DataSourceType jsontext.Value `json:"DataSourceType"`
 }
 
 // handleUpdateDataSource handles PUT /2021-01-01/opensearch/domain/{DomainName}/dataSource/{Name}.
@@ -176,7 +178,7 @@ func (h *Handler) handleUpdateDataSource(w http.ResponseWriter, r *http.Request,
 
 	var req updateDataSourceRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return
@@ -195,9 +197,9 @@ func (h *Handler) handleUpdateDataSource(w http.ResponseWriter, r *http.Request,
 
 // addDataSourceRequest is the JSON request body for AddDataSource.
 type addDataSourceRequest struct {
-	Name           string          `json:"Name"`
-	Description    string          `json:"Description"`
-	DataSourceType json.RawMessage `json:"DataSourceType"`
+	Name           string         `json:"Name"`
+	Description    string         `json:"Description"`
+	DataSourceType jsontext.Value `json:"DataSourceType"`
 }
 
 // addDataSourceOutput is the JSON response for AddDataSource.
@@ -214,7 +216,7 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 	}
 
 	var req addDataSourceRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -246,11 +248,11 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 
 // addDirectQueryDataSourceRequest is the JSON request body for AddDirectQueryDataSource.
 type addDirectQueryDataSourceRequest struct {
-	DataSourceName         string          `json:"DataSourceName"`
-	Description            string          `json:"Description"`
-	DataSourceType         json.RawMessage `json:"DataSourceType"`
-	DataSourceAccessPolicy string          `json:"DataSourceAccessPolicy"`
-	OpenSearchArns         []string        `json:"OpenSearchArns"`
+	DataSourceName         string         `json:"DataSourceName"`
+	Description            string         `json:"Description"`
+	DataSourceType         jsontext.Value `json:"DataSourceType"`
+	DataSourceAccessPolicy string         `json:"DataSourceAccessPolicy"`
+	OpenSearchArns         []string       `json:"OpenSearchArns"`
 }
 
 // addDirectQueryDataSourceOutput is the JSON response for AddDirectQueryDataSource.
@@ -267,7 +269,7 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 	}
 
 	var req addDirectQueryDataSourceRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

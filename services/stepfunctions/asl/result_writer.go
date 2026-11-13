@@ -3,11 +3,12 @@ package asl
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -172,7 +173,7 @@ func (e *Executor) exportMapResults(
 		DestinationBucket: bucket,
 		MapRunArn:         mapRunARN,
 		ResultFiles:       files,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, 0, fmt.Errorf("ResultWriter: marshal manifest: %w", err)
 	}
@@ -267,7 +268,7 @@ func buildMapItemRecord(
 }
 
 func stringifyJSON(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return aslNullLiteral
 	}
@@ -358,7 +359,7 @@ func encodeJSONLines(entries []any) ([]byte, error) {
 			buf.WriteByte('\n')
 		}
 
-		b, err := json.Marshal(e)
+		b, err := json.Marshal(e, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("marshal JSONL entry: %w", err)
 		}
@@ -501,7 +502,7 @@ func (e *Executor) writeMapResultFile(
 	if outputType == outputTypeJSONL {
 		data, err = encodeJSONLines(entries)
 	} else {
-		data, err = json.Marshal(entries)
+		data, err = json.Marshal(entries, jsonx.V1())
 	}
 
 	if err != nil {

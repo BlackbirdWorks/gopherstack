@@ -1,7 +1,7 @@
 package kafka_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -333,7 +334,7 @@ func TestUpdateOpsLiveUnderV1ClustersPath(t *testing.T) {
 				tt.method, tt.suffix, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["clusterOperationArn"])
 
 			// The old (wrong) /api/v2 path must no longer resolve to the same op --
@@ -363,7 +364,7 @@ func TestRejectClientVpcConnectionRealPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	vpcConnArn, _ := createResp["vpcConnectionArn"].(string)
 	require.NotEmpty(t, vpcConnArn)
 
@@ -399,7 +400,7 @@ func TestListVpcConnectionsPluralPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	conns, _ := resp["vpcConnections"].([]any)
 	assert.Len(t, conns, 1)
 
@@ -425,7 +426,7 @@ func TestGetCompatibleKafkaVersionsTopLevelPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions, _ := resp["compatibleKafkaVersions"].([]any)
 	assert.NotEmpty(t, versions)
 
@@ -477,7 +478,7 @@ func TestUpdateReplicationInfoStripsSuffix(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, replicatorArn, resp["replicatorArn"],
 		"the resolved replicator ARN must not include the /replication-info suffix")
 }

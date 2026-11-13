@@ -2,7 +2,7 @@ package gcpmonitoring_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 )
 
@@ -265,7 +266,7 @@ func mustLabels(t *testing.T, msg published) map[string]string {
 			} `json:"metric"`
 		} `json:"incident"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(msg.data), &p))
+	require.NoError(t, json.Unmarshal([]byte(msg.data), &p, jsonx.V1()))
 
 	return p.Incident.Metric.Labels
 }

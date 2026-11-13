@@ -3,7 +3,7 @@ package resourcegroups
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -258,7 +259,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req extractResourceNameInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.Name != "" {
 		return req.Name
@@ -339,7 +340,7 @@ func mergeListGroupsQuery(body []byte, q url.Values) ([]byte, error) {
 
 	doc := map[string]any{}
 	if len(bytes.TrimSpace(body)) > 0 {
-		if err := json.Unmarshal(body, &doc); err != nil {
+		if err := json.Unmarshal(body, &doc, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -357,7 +358,7 @@ func mergeListGroupsQuery(body []byte, q url.Values) ([]byte, error) {
 		doc["NextToken"] = token
 	}
 
-	return json.Marshal(doc)
+	return json.Marshal(doc, jsonx.V1())
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
@@ -371,7 +372,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // amznErrorTypeHeader carries the modeled exception type for the restjson1
@@ -388,15 +389,12 @@ const errTypeBadRequest = "BadRequestException"
 // NotFoundException, BadRequestException, ForbiddenException,
 // InternalServerErrorException, MethodNotAllowedException, TooManyRequestsException).
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	code := http.StatusInternalServerError
 	wireType := "InternalServerErrorException"
 
 	switch {
 	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		code, wireType = http.StatusBadRequest, errTypeBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		code, wireType = http.StatusBadRequest, errTypeBadRequest

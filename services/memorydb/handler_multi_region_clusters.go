@@ -2,17 +2,19 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createMultiRegionClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -42,7 +44,7 @@ func (h *Handler) handleCreateMultiRegionCluster(ctx context.Context, c *echo.Co
 func (h *Handler) handleDeleteMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteMultiRegionClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -71,7 +73,7 @@ func (h *Handler) handleDeleteMultiRegionCluster(ctx context.Context, c *echo.Co
 func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionClustersRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -108,7 +110,7 @@ func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo
 func (h *Handler) handleDescribeMultiRegionParameterGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionParameterGroupsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -143,7 +145,7 @@ func (h *Handler) handleDescribeMultiRegionParameterGroups(ctx context.Context, 
 func (h *Handler) handleListAllowedMultiRegionClusterUpdates(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listAllowedMultiRegionClusterUpdatesRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -170,7 +172,7 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(ctx context.Context
 func (h *Handler) handleUpdateMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateMultiRegionClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -196,7 +198,7 @@ func (h *Handler) handleUpdateMultiRegionCluster(ctx context.Context, c *echo.Co
 func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionParametersRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

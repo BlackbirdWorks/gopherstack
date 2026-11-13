@@ -1,13 +1,14 @@
 package timestreamquery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
 
@@ -295,7 +296,7 @@ func TestCancelQuery_UnknownIDReturnsValidationException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 }
 

@@ -1,12 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // wireError decodes the AWS JSON-protocol error envelope (__type/message).
@@ -45,7 +48,7 @@ func TestGetCostAndUsage_InvalidGranularityRejected(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var wireErr wireError
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&wireErr))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &wireErr, jsonx.V1()))
 			assert.Equal(t, "ValidationError", wireErr.Type)
 		})
 	}
@@ -74,7 +77,7 @@ func TestGetCostAndUsage_HourlyGranularityBucketsHourly(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"ResultsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	require.Len(t, out.ResultsByTime, 24, "one bucket per hour across a single day")
 	assert.Equal(t, "2024-01-01T00:00:00Z", out.ResultsByTime[0].TimePeriod["Start"])

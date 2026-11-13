@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -23,7 +24,7 @@ func TestContainerInstance_DRAINING_State(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 	assert.Equal(t, "ACTIVE", ciOut["containerInstance"].(map[string]any)["status"])
 
@@ -36,7 +37,7 @@ func TestContainerInstance_DRAINING_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, drainResp.Code)
 
 	var drainOut map[string]any
-	require.NoError(t, json.Unmarshal(drainResp.Body.Bytes(), &drainOut))
+	require.NoError(t, json.Unmarshal(drainResp.Body.Bytes(), &drainOut, jsonx.V1()))
 	instances := drainOut["containerInstances"].([]any)
 	require.Len(t, instances, 1)
 	assert.Equal(t, "DRAINING", instances[0].(map[string]any)["status"])
@@ -48,7 +49,7 @@ func TestContainerInstance_DRAINING_State(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	described := descOut["containerInstances"].([]any)
 	require.Len(t, described, 1)
 	assert.Equal(t, "DRAINING", described[0].(map[string]any)["status"])
@@ -65,7 +66,7 @@ func TestContainerInstance_DRAINING_to_ACTIVE(t *testing.T) {
 		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-react-5678"),
 	})
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	// Drain then re-activate
@@ -82,7 +83,7 @@ func TestContainerInstance_DRAINING_to_ACTIVE(t *testing.T) {
 	require.Equal(t, http.StatusOK, activeResp.Code)
 
 	var activeOut map[string]any
-	require.NoError(t, json.Unmarshal(activeResp.Body.Bytes(), &activeOut))
+	require.NoError(t, json.Unmarshal(activeResp.Body.Bytes(), &activeOut, jsonx.V1()))
 	instances := activeOut["containerInstances"].([]any)
 	assert.Equal(t, "ACTIVE", instances[0].(map[string]any)["status"])
 }
@@ -99,7 +100,7 @@ func TestContainerInstance_UpdateAgent(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	resp := doECSRequest(t, h, "UpdateContainerAgent", map[string]any{
@@ -109,7 +110,7 @@ func TestContainerInstance_UpdateAgent(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	ci := out["containerInstance"].(map[string]any)
 	assert.NotEmpty(t, ci["containerInstanceArn"])
 }
@@ -129,7 +130,7 @@ func TestContainerInstance_Deregister_Force(t *testing.T) {
 		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-force-1234"),
 	})
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	// Start a task on this container instance
@@ -152,7 +153,7 @@ func TestContainerInstance_Deregister_Force(t *testing.T) {
 		"cluster": "deregforce-cluster",
 	})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	arns := listOut["containerInstanceArns"].([]any)
 	assert.Empty(t, arns)
 }
@@ -219,7 +220,7 @@ func TestECS_RegisterContainerInstance(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				ci := resp["containerInstance"].(map[string]any)
 				assert.Equal(t, tt.wantID, ci["ec2InstanceId"])
@@ -302,7 +303,7 @@ func TestECS_ListContainerInstances(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				arns := resp["containerInstanceArns"].([]any)
 				assert.Len(t, arns, tt.wantLen)
@@ -348,7 +349,7 @@ func TestECS_DescribeContainerInstances(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var regResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 
 			ciArn := regResp["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
@@ -364,7 +365,7 @@ func TestECS_DescribeContainerInstances(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec2.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 			cis := resp["containerInstances"].([]any)
 			assert.Len(t, cis, tt.wantLen)
@@ -391,7 +392,7 @@ func TestECS_DescribeContainerInstances_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	instances, _ := resp["containerInstances"].([]any)
 	assert.Empty(t, instances)
@@ -428,7 +429,7 @@ func TestECS_DeregisterContainerInstance(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var regResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 
 			ciArn := regResp["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
@@ -442,7 +443,7 @@ func TestECS_DeregisterContainerInstance(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 				ci := resp["containerInstance"].(map[string]any)
 				assert.Equal(t, "INACTIVE", ci["status"])
@@ -545,7 +546,7 @@ func TestECS_UpdateContainerInstancesState(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var regResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 
 			ciArn := regResp["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
@@ -559,7 +560,7 @@ func TestECS_UpdateContainerInstancesState(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 				cis := resp["containerInstances"].([]any)
 				require.Len(t, cis, 1)
@@ -585,7 +586,7 @@ func TestECS_UpdateContainerInstancesState_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Empty(t, resp["containerInstances"])
 
@@ -633,7 +634,7 @@ func TestECS_UpdateContainerAgent(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var regResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 				ci := regResp["containerInstance"].(map[string]any)
 				containerInstanceArn = ci["containerInstanceArn"].(string)
 			} else {
@@ -651,7 +652,7 @@ func TestECS_UpdateContainerAgent(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			ci, ok := resp["containerInstance"].(map[string]any)
 			require.True(t, ok)
@@ -678,7 +679,7 @@ func TestDescribeContainerInstances_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		instances, _ := resp["containerInstances"].([]any)
 		assert.Empty(t, instances)
@@ -702,7 +703,7 @@ func TestDescribeContainerInstances_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, regResp.Code)
 
 		var regOut map[string]any
-		require.NoError(t, json.Unmarshal(regResp.Body.Bytes(), &regOut))
+		require.NoError(t, json.Unmarshal(regResp.Body.Bytes(), &regOut, jsonx.V1()))
 		ciArn := regOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 		rec := doECSRequest(t, h, "DescribeContainerInstances", map[string]any{
@@ -715,7 +716,7 @@ func TestDescribeContainerInstances_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		instances, _ := resp["containerInstances"].([]any)
 		assert.Len(t, instances, 1)
@@ -750,7 +751,7 @@ func TestDescribeContainerInstances_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		instances, _ := resp["containerInstances"].([]any)
 		assert.Len(t, instances, 2)
@@ -778,7 +779,7 @@ func TestDescribeContainerInstances_TagsRequireInclude(t *testing.T) {
 	require.Equal(t, http.StatusOK, ciResp.Code)
 
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
@@ -797,7 +798,7 @@ func TestDescribeContainerInstances_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ci := resp["containerInstances"].([]any)[0].(map[string]any)
 		assert.Nil(t, ci["tags"])
 	})
@@ -813,7 +814,7 @@ func TestDescribeContainerInstances_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ci := resp["containerInstances"].([]any)[0].(map[string]any)
 		tags := ci["tags"].([]any)
 		require.Len(t, tags, 1)

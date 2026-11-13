@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -66,7 +67,7 @@ func TestHandler_ResourceServers_Accurate(t *testing.T) {
 			} `json:"Scopes"`
 		} `json:"ResourceServer"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "My API", resp.ResourceServer.Name)
 	assert.Len(t, resp.ResourceServer.Scopes, 1)
 	assert.Equal(t, "read", resp.ResourceServer.Scopes[0].ScopeName)
@@ -98,7 +99,7 @@ func TestResourceServer_CRUD(t *testing.T) {
 			Identifier string `json:"Identifier"`
 		} `json:"ResourceServers"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.ResourceServers, 1)
 	assert.Equal(t, "https://api.example.com", listResp.ResourceServers[0].Identifier)
 }
@@ -279,7 +280,7 @@ func TestHandler_ListResourceServers(t *testing.T) {
 			var resp struct {
 				ResourceServers []map[string]any `json:"ResourceServers,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ResourceServers, tt.count)
 		})
 	}
@@ -399,7 +400,7 @@ func TestListResourceServers_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
 
 	var page1 listOut
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.ResourceServers, 2)
 	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more resource servers remain")
 
@@ -411,7 +412,7 @@ func TestListResourceServers_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
 
 	var page2 listOut
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.ResourceServers, 1)
 	require.Empty(t, page2.NextToken)
 

@@ -3,13 +3,16 @@ package cloudwatch
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"strings"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const jsonContentTypePrefix = "application/x-amz-json"
@@ -47,11 +50,10 @@ func (h *Handler) dispatchJSONTarget(op string, body []byte, c *echo.Context) er
 	input := cbor.Map{}
 
 	if len(bytes.TrimSpace(body)) > 0 {
-		dec := json.NewDecoder(bytes.NewReader(body))
-		dec.UseNumber()
+		dec := jsontext.NewDecoder(bytes.NewReader(body))
 
 		var raw any
-		if err := dec.Decode(&raw); err != nil {
+		if err := json.UnmarshalDecode(dec, &raw, jsonx.V1(), jsonx.UseNumber()); err != nil {
 			return writeJSONError(c, http.StatusBadRequest, "SerializationException", err.Error())
 		}
 
@@ -100,7 +102,7 @@ func writeBufferedAsJSON(c *echo.Context, buf *bufferedResponse) error {
 }
 
 func writeJSON(c *echo.Context, status int, v any) error {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -138,14 +140,14 @@ func jsonToCBOR(v any) cbor.Value {
 		return cbor.String(t)
 	case bool:
 		return cbor.Bool(t)
-	case json.Number:
+	case jsonx.Number:
 		return jsonNumberToCBOR(t)
 	default:
 		return &cbor.Nil{}
 	}
 }
 
-func jsonNumberToCBOR(n json.Number) cbor.Value {
+func jsonNumberToCBOR(n jsonx.Number) cbor.Value {
 	if i, err := n.Int64(); err == nil {
 		if i >= 0 {
 			return cbor.Uint(i)

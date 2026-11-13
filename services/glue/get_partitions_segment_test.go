@@ -1,13 +1,15 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGetPartitions_Segment(t *testing.T) {
@@ -57,7 +59,7 @@ func TestGetPartitions_Segment(t *testing.T) {
 			var out struct {
 				Partitions []map[string]any `json:"Partitions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Partitions, tt.wantCount)
 		})
 	}
@@ -107,7 +109,7 @@ func TestGetPartitions_ExcludeColumnSchema(t *testing.T) {
 					} `json:"StorageDescriptor"`
 				} `json:"Partitions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.Len(t, out.Partitions, 1)
 			assert.Len(t, out.Partitions[0].StorageDescriptor.Columns, tt.wantColumns)
 			assert.Equal(t, "s3://bucket/p", out.Partitions[0].StorageDescriptor.Location)

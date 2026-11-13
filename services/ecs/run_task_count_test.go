@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRunTaskCount(t *testing.T) {
@@ -40,7 +42,7 @@ func TestRunTaskCount(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out["tasks"], tt.want)
 		})
 	}

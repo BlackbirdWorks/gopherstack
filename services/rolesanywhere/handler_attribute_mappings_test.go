@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Attribute Mapping HTTP ----
@@ -38,7 +40,7 @@ func TestHandler_AttributeMapping_CRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, recProfile.Code)
 
 			var profileResp map[string]any
-			require.NoError(t, json.Unmarshal(recProfile.Body.Bytes(), &profileResp))
+			require.NoError(t, json.Unmarshal(recProfile.Body.Bytes(), &profileResp, jsonx.V1()))
 			p := profileResp["profile"].(map[string]any)
 			profileID := p["profileId"].(string)
 
@@ -56,7 +58,7 @@ func TestHandler_AttributeMapping_CRUD(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, recPut.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp, jsonx.V1()))
 			profileInResp := putResp["profile"].(map[string]any)
 			assert.Equal(t, profileID, profileInResp["profileId"])
 

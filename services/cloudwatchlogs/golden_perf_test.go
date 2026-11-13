@@ -12,7 +12,8 @@ package cloudwatchlogs_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -63,13 +65,13 @@ func checkGoldenLogs(t *testing.T, name string, got []byte) {
 	t.Helper()
 
 	var parsed any
-	require.NoError(t, json.Unmarshal(got, &parsed))
-	redacted, err := json.Marshal(redactVolatile(parsed))
+	require.NoError(t, json.Unmarshal(got, &parsed, jsonx.V1()))
+	redacted, err := json.Marshal(redactVolatile(parsed), jsonx.V1())
 	require.NoError(t, err)
 
-	var buf bytes.Buffer
-	require.NoError(t, json.Indent(&buf, redacted, "", "  "))
-	pretty := buf.Bytes()
+	indented := jsontext.Value(bytes.Clone(redacted))
+	require.NoError(t, indented.Indent(jsonx.V1(), jsontext.WithIndent("  ")))
+	pretty := []byte(indented)
 
 	path := goldenLogsPath(name)
 	if os.Getenv("CWL_GOLDEN_UPDATE") != "" {
@@ -107,7 +109,7 @@ func seedGoldenStream(
 	}
 	body, err := json.Marshal(map[string]any{
 		"logGroupName": group, "logStreamName": stream, "logEvents": events,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec = doLogsRequest(t, h, e, "PutLogEvents", string(body))
@@ -135,7 +137,7 @@ func TestGolden_FilterLogEventsInterleaved(t *testing.T) {
 		"logGroupName":  "golden-grp",
 		"filterPattern": "line",
 		"limit":         50,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec = doLogsRequest(t, h, e, "FilterLogEvents", string(body))
@@ -161,7 +163,7 @@ func TestGolden_GetLogEvents(t *testing.T) {
 		"logGroupName":  "golden-grp2",
 		"logStreamName": "s",
 		"limit":         10,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec = doLogsRequest(t, h, e, "GetLogEvents", string(body))

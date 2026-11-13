@@ -1,7 +1,8 @@
 package batch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
 
@@ -198,7 +200,7 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var submitResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp, jsonx.V1()))
 	jobID := submitResp["jobId"].(string)
 	assert.NotEmpty(t, submitResp["jobArn"], "SubmitJob response should include jobArn")
 
@@ -209,7 +211,7 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	jobs := descResp["jobs"].([]any)
 	require.Len(t, jobs, 1)
 
@@ -621,7 +623,7 @@ func TestDescribeJobs_TagsPresentNoTags(t *testing.T) {
 	jobs := out["jobs"].([]any)
 	require.Len(t, jobs, 1)
 
-	itemBytes, err := json.Marshal(jobs[0])
+	itemBytes, err := json.Marshal(jobs[0], jsonx.V1())
 	require.NoError(t, err)
 	assertTagsPresent(t, itemBytes)
 }
@@ -668,8 +670,8 @@ func TestDescribeJobs_EmptyList(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var rawMap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap))
+	var rawMap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap, jsonx.V1()))
 	raw, ok := rawMap["jobs"]
 	require.True(t, ok, "jobs key must be present")
 	assert.Equal(t, "[]", string(raw), "jobs must be [] not null when no matching jobs found")
@@ -695,7 +697,7 @@ func TestListJobs_SummaryIncludesJobArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	summaries, _ := out["jobSummaryList"].([]any)
 	require.Len(t, summaries, 1)
 
@@ -720,7 +722,7 @@ func TestListJobs_SummaryIncludesTimestamps(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var submitOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitOut, jsonx.V1()))
 	jobID := submitOut["jobId"]
 
 	rec = post(t, h, "/v1/terminatejob", map[string]any{
@@ -736,7 +738,7 @@ func TestListJobs_SummaryIncludesTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	summaries, _ := out["jobSummaryList"].([]any)
 	require.Len(t, summaries, 1)
 

@@ -5,7 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ses"
 )
 
@@ -173,7 +174,7 @@ func TestInboundS3KMS(t *testing.T) {
 				assert.NotContains(t, string(ct), "body line")
 
 				var mat map[string]string
-				require.NoError(t, json.Unmarshal([]byte(meta["x-amz-matdesc"]), &mat))
+				require.NoError(t, json.Unmarshal([]byte(meta["x-amz-matdesc"]), &mat, jsonx.V1()))
 				assert.Equal(t, "r", mat["aws:ses:rule-name"])
 				assert.Equal(t, log[0].MessageID, mat["aws:ses:message-id"])
 

@@ -1,7 +1,7 @@
 package kafka_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestKafka_TagOperations(t *testing.T) {
@@ -43,7 +45,7 @@ func TestKafka_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 			encodedArn := url.PathEscape(clusterArn)
 			tagPath := "/v1/tags/" + encodedArn
@@ -98,7 +100,7 @@ func TestTag_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	assert.Equal(t, "test", tags["env"])
 	assert.Equal(t, "infra", tags["team"])
@@ -119,7 +121,7 @@ func TestTag_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	tags2, _ := listResp2["tags"].(map[string]any)
 	assert.Equal(t, "test", tags2["env"])
 	_, hasTeam := tags2["team"]
@@ -138,7 +140,7 @@ func TestTag_ListEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	assert.Empty(t, tags, "freshly created cluster should have no tags")
 }

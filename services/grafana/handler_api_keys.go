@@ -2,8 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createWorkspaceAPIKeyRequest mirrors CreateWorkspaceApiKeyInput's JSON body.
@@ -17,7 +19,7 @@ func (h *Handler) handleCreateWorkspaceAPIKey(_ context.Context, r *http.Request
 	segs := rawPathSegments(r)
 
 	var req createWorkspaceAPIKeyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -30,7 +32,7 @@ func (h *Handler) handleCreateWorkspaceAPIKey(_ context.Context, r *http.Request
 		"key":          key.Key,
 		"keyName":      key.KeyName,
 		keyWorkspaceID: key.WorkspaceID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteWorkspaceAPIKey(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -44,5 +46,5 @@ func (h *Handler) handleDeleteWorkspaceAPIKey(_ context.Context, r *http.Request
 	return json.Marshal(map[string]any{
 		"keyName":      keyName,
 		keyWorkspaceID: workspaceID,
-	})
+	}, jsonx.V1())
 }

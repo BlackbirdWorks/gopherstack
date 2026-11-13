@@ -3,7 +3,7 @@ package dashboard_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -114,7 +115,7 @@ func (f ciFixture) settle(t *testing.T, id, state string) {
 			State string `json:"lifecycleState"`
 		}
 
-		return json.Unmarshal(rec.Body.Bytes(), &got) == nil && got.State == state
+		return json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()) == nil && got.State == state
 	}, 10*time.Second, 5*time.Millisecond)
 }
 
@@ -141,7 +142,7 @@ func ciCreateDirect(t *testing.T, f ciFixture) string {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inst))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inst, jsonx.V1()))
 	f.settle(t, inst.ID, "ACTIVE")
 
 	return inst.ID
@@ -164,7 +165,7 @@ func TestOCIContainerInstancesProxyScrubbing(t *testing.T) {
 
 	rec := f.proxy(t, http.MethodGet, ciAPI+"/containers?compartmentId="+ciComp+"&containerInstanceId="+id, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrList))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrList, jsonx.V1()))
 	require.Len(t, ctrList.Items, 1)
 
 	rawCtr := f.direct(t, http.MethodGet, "/20210415/containers/"+ctrList.Items[0].ID, "")
@@ -240,7 +241,7 @@ func TestOCIContainerInstancesProxyCreateRebuild(t *testing.T) {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inst))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inst, jsonx.V1()))
 
 	raw := f.direct(t, http.MethodGet, "/20210415/containerInstances/"+inst.ID, "").Body.String()
 	for _, dropped := range []string{"mallory", "securityContext", "EMPTYDIR", "registryEndpoint", "runAsUser"} {
@@ -410,7 +411,7 @@ func TestOCIContainerInstancesProxyLogsStateEngine(t *testing.T) {
 	}
 
 	rec := f.proxy(t, http.MethodGet, ciAPI+"/containers?compartmentId="+ciComp+"&containerInstanceId="+id, "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrs))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrs, jsonx.V1()))
 	require.Len(t, ctrs.Items, 1)
 
 	rec = f.proxy(t, http.MethodPost, ciAPI+"/containers/"+ctrs.Items[0].ID+"/actions/retrieveLogs", "")
@@ -442,7 +443,7 @@ func TestOCIContainerInstancesProxyLogsDockerEngine(t *testing.T) {
 	}
 
 	rec := f.proxy(t, http.MethodGet, ciAPI+"/containers?compartmentId="+ciComp+"&containerInstanceId="+id, "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrs))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctrs, jsonx.V1()))
 	require.Len(t, ctrs.Items, 1)
 
 	rec = f.proxy(t, http.MethodPost, ciAPI+"/containers/"+ctrs.Items[0].ID+"/actions/retrieveLogs", "")
@@ -496,14 +497,14 @@ func TestOCIContainerInstancesProxySubnets(t *testing.T) {
 	)
 	require.Nil(t, aerr)
 
-	vcnJSON, err := json.Marshal(vcn)
+	vcnJSON, err := json.Marshal(vcn, jsonx.V1())
 	require.NoError(t, err)
 
 	var v struct {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(vcnJSON, &v))
+	require.NoError(t, json.Unmarshal(vcnJSON, &v, jsonx.V1()))
 
 	_, _, aerr = be.CreateSubnet(ocicore.CreateSubnetIn{
 		CompartmentID: ciComp, VcnID: v.ID, DisplayName: "sub-a", CidrBlock: "10.0.1.0/24",

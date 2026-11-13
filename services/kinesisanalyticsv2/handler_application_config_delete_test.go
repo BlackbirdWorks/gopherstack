@@ -1,13 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
@@ -28,7 +29,7 @@ func TestKAV2_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 		})
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		descs := out["CloudWatchLoggingOptionDescriptions"].([]any)
 		desc := descs[0].(map[string]any)
 
@@ -77,7 +78,7 @@ func TestKAV2_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				descs, ok := out["CloudWatchLoggingOptionDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, descs, tt.wantCWLCount)
@@ -125,7 +126,7 @@ func TestKAV2_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 		})
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		inputs := out["InputDescriptions"].([]any)
 		input := inputs[0].(map[string]any)
 		inputID := input["InputId"].(string)
@@ -226,7 +227,7 @@ func TestKAV2_DeleteApplicationOutput(t *testing.T) {
 		})
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		outputs := out["OutputDescriptions"].([]any)
 		output := outputs[0].(map[string]any)
 
@@ -287,7 +288,7 @@ func TestKAV2_DeleteApplicationOutput(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["ApplicationARN"])
 			}
 		})

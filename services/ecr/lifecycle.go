@@ -2,10 +2,12 @@ package ecr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const weeksPerDays = 7
@@ -72,7 +74,7 @@ func evaluateLifecyclePolicy(
 	}
 
 	var doc lifecyclePolicyDoc
-	if err := json.Unmarshal([]byte(policyText), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyText), &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 

@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -86,7 +87,7 @@ func TestHandler_GetDataCatalog(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				dc, _ := resp["DataCatalog"].(map[string]any)
 				require.NotNil(t, dc)
 				assert.Equal(t, tt.wantType, dc["Type"])
@@ -110,7 +111,7 @@ func TestHandler_CreateDataCatalog_ReturnsDataCatalog(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dc, ok := resp["DataCatalog"].(map[string]any)
 	require.True(t, ok, "CreateDataCatalogOutput must carry a DataCatalog object")
 	assert.Equal(t, "created-cat", dc["Name"])
@@ -145,7 +146,7 @@ func TestHandler_ListDataCatalogs(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			list, _ := resp["DataCatalogsSummary"].([]any)
 			assert.GreaterOrEqual(t, len(list), 1)
 		})
@@ -239,7 +240,7 @@ func TestHandler_DeleteDataCatalog_ReturnsDataCatalog(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dc, ok := resp["DataCatalog"].(map[string]any)
 	require.True(t, ok, "DeleteDataCatalogOutput must carry the deleted DataCatalog object")
 	assert.Equal(t, "del-cat2", dc["Name"])
@@ -300,7 +301,7 @@ func TestHandler_DeleteDataCatalog_FederatedReportsDeleteComplete(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dc, ok := resp["DataCatalog"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "DELETE_COMPLETE", dc["Status"])
@@ -386,7 +387,7 @@ func TestHandler_DataCatalog_FederatedStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			dc := resp["DataCatalog"].(map[string]any)
 
 			assert.Equal(t, tt.wantStatus, dc["Status"])
@@ -408,7 +409,7 @@ func TestHandler_DataCatalog_ListIncludesStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["DataCatalogsSummary"].([]any)
 	require.True(t, ok)
@@ -505,7 +506,7 @@ func TestListDataCatalogs_NextTokenOmittedWhenEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasNextToken := resp["NextToken"]
 	assert.False(t, hasNextToken,
@@ -627,7 +628,7 @@ func TestAwsDataCatalog_BuiltIn(t *testing.T) {
 
 			if tt.check != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})

@@ -1,13 +1,14 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -36,7 +37,7 @@ type startQueryBody struct {
 
 func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 	var in startQueryBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -87,7 +88,7 @@ type cancelQueryBody struct {
 
 func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 	var in cancelQueryBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -125,7 +126,7 @@ type describeQueryBody struct {
 
 func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 	var in describeQueryBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -188,7 +189,7 @@ type getQueryResultsBody struct {
 
 func (h *Handler) handleGetQueryResults(c *echo.Context, body []byte) error {
 	var in getQueryResultsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -241,7 +242,7 @@ type listQueriesBody struct {
 func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
 	var in listQueriesBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -329,7 +330,7 @@ type generateQueryBody struct {
 
 func (h *Handler) handleGenerateQuery(c *echo.Context, body []byte) error {
 	var in generateQueryBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

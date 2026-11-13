@@ -2,9 +2,11 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // getRateBasedStatementManagedKeysRequest is the request body for GetRateBasedStatementManagedKeys.
@@ -19,7 +21,7 @@ type getRateBasedStatementManagedKeysRequest struct {
 // handleGetRateBasedStatementManagedKeys returns empty rate-based managed keys.
 func (h *Handler) handleGetRateBasedStatementManagedKeys(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRateBasedStatementManagedKeysRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -46,7 +48,7 @@ func (h *Handler) handleGetRateBasedStatementManagedKeys(ctx context.Context, bo
 	return json.Marshal(map[string]any{
 		"ManagedKeysIPV4": map[string]any{keyIPAddressVersion: "IPV4", keyAddresses: []any{}},
 		"ManagedKeysIPV6": map[string]any{keyIPAddressVersion: "IPV6", keyAddresses: []any{}},
-	})
+	}, jsonx.V1())
 }
 
 // getSampledRequestsRequest is the request body for GetSampledRequests.
@@ -61,7 +63,7 @@ type getSampledRequestsRequest struct {
 // handleGetSampledRequests returns an empty sampled requests response.
 func (h *Handler) handleGetSampledRequests(ctx context.Context, body []byte) ([]byte, error) {
 	var req getSampledRequestsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) handleGetSampledRequests(ctx context.Context, body []byte) ([]
 		"SampledRequests": []any{},
 		"PopulationSize":  int64(0),
 		"TimeWindow":      req.TimeWindow,
-	})
+	}, jsonx.V1())
 }
 
 // getTopPathStatisticsByTrafficRequest is the request body for
@@ -128,7 +130,7 @@ type getTopPathStatisticsByTrafficRequest struct {
 // this same structural gap.
 func (h *Handler) handleGetTopPathStatisticsByTraffic(ctx context.Context, body []byte) ([]byte, error) {
 	var req getTopPathStatisticsByTrafficRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -166,7 +168,7 @@ func (h *Handler) handleGetTopPathStatisticsByTraffic(ctx context.Context, body 
 	return json.Marshal(map[string]any{
 		"PathStatistics":    []any{},
 		"TotalRequestCount": int64(0),
-	})
+	}, jsonx.V1())
 }
 
 // rateBasedRuleDispatchOps returns the rate-based-rule and traffic-monitoring operation

@@ -2,7 +2,7 @@ package appsync_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
@@ -74,7 +75,7 @@ func newRealtimeFixture(t *testing.T) *rtFixture {
 func (f *rtFixture) dial(t *testing.T, apiKey string) *websocket.Conn {
 	t.Helper()
 
-	hdr, err := json.Marshal(map[string]string{"x-api-key": apiKey})
+	hdr, err := json.Marshal(map[string]string{"x-api-key": apiKey}, jsonx.V1())
 	require.NoError(t, err)
 
 	d := websocket.Dialer{Subprotocols: []string{"graphql-ws"}}
@@ -99,7 +100,7 @@ func readMsg(t *testing.T, conn *websocket.Conn) map[string]any {
 func startMsg(t *testing.T, id, query, apiKey string) map[string]any {
 	t.Helper()
 
-	data, err := json.Marshal(map[string]any{"query": query})
+	data, err := json.Marshal(map[string]any{"query": query}, jsonx.V1())
 	require.NoError(t, err)
 
 	return map[string]any{
@@ -164,7 +165,7 @@ func TestRealtime_SubscriptionDelivery(t *testing.T) {
 			assert.Equal(t, "data", msg["type"])
 			assert.Equal(t, "sub1", msg["id"])
 
-			payload, mErr := json.Marshal(msg["payload"])
+			payload, mErr := json.Marshal(msg["payload"], jsonx.V1())
 			require.NoError(t, mErr)
 			assert.JSONEq(t, `{"data":`+tt.want+`}`, string(payload))
 

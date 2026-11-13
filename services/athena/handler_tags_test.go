@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -98,7 +99,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string][]map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["Tags"], tt.wantCount)
 			assert.Equal(t, "team", resp["Tags"][0]["Key"])
 			assert.Equal(t, "platform", resp["Tags"][0]["Value"])
@@ -126,7 +127,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	tags1, _ := page1["Tags"].([]any)
 	require.Len(t, tags1, 2)
 	nextToken, ok := page1["NextToken"].(string)
@@ -138,7 +139,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	tags2, _ := page2["Tags"].([]any)
 	require.Len(t, tags2, 1)
 	_, hasNextToken := page2["NextToken"]

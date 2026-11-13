@@ -1,12 +1,14 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestLifecycleConfiguration tests DescribeLifecycleConfiguration and PutLifecycleConfiguration.
@@ -142,7 +144,7 @@ func TestLifecyclePolicy_InvalidTransitionRejected(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rec := doREST(t, h, http.MethodPut,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/lifecycle-configuration",

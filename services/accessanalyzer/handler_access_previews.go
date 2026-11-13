@@ -1,9 +1,12 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -54,11 +57,11 @@ func (h *Handler) dispatchAccessPreviewOps(
 // AccessPreview.Configurations godoc).
 func (h *Handler) handleCreateAccessPreview(body []byte) (any, int, error) {
 	var req struct {
-		Configurations map[string]json.RawMessage `json:"configurations"`
-		AnalyzerArn    string                     `json:"analyzerArn"`
+		Configurations map[string]jsontext.Value `json:"configurations"`
+		AnalyzerArn    string                    `json:"analyzerArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -135,7 +138,7 @@ func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any
 		MaxResults  int                        `json:"maxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

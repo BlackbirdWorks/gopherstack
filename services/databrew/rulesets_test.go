@@ -2,13 +2,14 @@ package databrew_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
 
@@ -177,7 +178,7 @@ func TestHandlerCreateRuleset(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-ruleset", resp["Name"])
 }
 
@@ -204,7 +205,7 @@ func TestHandlerListRulesets(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Rulesets"])
 }
 
@@ -283,7 +284,7 @@ func TestHandlerListRulesets_RuleCount(t *testing.T) {
 	var resp struct {
 		Rulesets []map[string]any `json:"Rulesets"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Rulesets, 1)
 	assert.InDelta(t, float64(1), resp.Rulesets[0]["RuleCount"], 0)
 }
@@ -308,7 +309,7 @@ func TestHandlerListRulesets_NoRulesLeak(t *testing.T) {
 	var resp struct {
 		Rulesets []map[string]any `json:"Rulesets"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Rulesets, 1)
 	_, hasRules := resp.Rulesets[0]["Rules"]
 	assert.False(t, hasRules, "ListRulesets item leaked Rules; real types.RulesetItem has no Rules member")
@@ -331,7 +332,7 @@ func TestHandlerDescribeRuleset_NoAccountIDOrRuleCountLeak(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets/no-leak-describe-rs", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasAccountID := resp["AccountId"]
 	assert.False(
 		t,

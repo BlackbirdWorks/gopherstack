@@ -2,13 +2,14 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resourceShareObject is the JSON representation of a ResourceShare.
@@ -76,7 +77,7 @@ type createResourceShareResponse struct {
 
 func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]byte, error) {
 	var req createResourceShareRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -109,7 +110,7 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(createResourceShareResponse{
 		ResourceShare: toResourceShareObject(rs),
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) createResourceShare(req createResourceShareRequest) (*ResourceShare, error) {
@@ -173,7 +174,7 @@ type getResourceSharesResponse struct {
 
 func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byte, error) {
 	var req getResourceSharesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +202,7 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(getResourceSharesResponse{NextToken: nextToken, ResourceShares: page})
+	return json.Marshal(getResourceSharesResponse{NextToken: nextToken, ResourceShares: page}, jsonx.V1())
 }
 
 // getResourceSharesByARN looks up each requested ARN individually, applying
@@ -322,7 +323,7 @@ type updateResourceShareResponse struct {
 
 func (h *Handler) handleUpdateResourceShare(_ context.Context, body []byte) ([]byte, error) {
 	var req updateResourceShareRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -349,7 +350,7 @@ func (h *Handler) handleUpdateResourceShare(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(updateResourceShareResponse{
 		ResourceShare: toResourceShareObject(rs),
-	})
+	}, jsonx.V1())
 }
 
 type deleteResourceShareResponse struct {
@@ -373,7 +374,7 @@ func (h *Handler) handleDeleteResourceShare(_ context.Context, c *echo.Context) 
 		return nil, err
 	}
 
-	return json.Marshal(deleteResourceShareResponse{ReturnValue: true})
+	return json.Marshal(deleteResourceShareResponse{ReturnValue: true}, jsonx.V1())
 }
 
 type enableSharingWithAwsOrganizationResponse struct {
@@ -385,7 +386,7 @@ func (h *Handler) handleEnableSharingWithAwsOrganization() ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(enableSharingWithAwsOrganizationResponse{ReturnValue: true})
+	return json.Marshal(enableSharingWithAwsOrganizationResponse{ReturnValue: true}, jsonx.V1())
 }
 
 type promoteResourceShareCreatedFromPolicyResponse struct {
@@ -415,5 +416,5 @@ func (h *Handler) handlePromoteResourceShareCreatedFromPolicy(
 		return nil, err
 	}
 
-	return json.Marshal(promoteResourceShareCreatedFromPolicyResponse{ReturnValue: true})
+	return json.Marshal(promoteResourceShareCreatedFromPolicyResponse{ReturnValue: true}, jsonx.V1())
 }

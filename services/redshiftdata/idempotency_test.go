@@ -1,12 +1,14 @@
 package redshiftdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestExecuteStatement_ClientToken_ReplaysOnRetry verifies that retrying an
@@ -35,13 +37,13 @@ func TestExecuteStatement_ClientToken_ReplaysOnRetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec2 := doRequest(t, h, "ExecuteStatement", req)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1["Id"], out2["Id"], "retry with the same ClientToken must replay the same statement Id")
 
@@ -51,7 +53,7 @@ func TestExecuteStatement_ClientToken_ReplaysOnRetry(t *testing.T) {
 	var list struct {
 		Statements []map[string]any `json:"Statements"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list, jsonx.V1()))
 	assert.Len(t, list.Statements, 1, "exactly one statement should actually be created")
 }
 
@@ -74,13 +76,13 @@ func TestExecuteStatement_NoClientToken_CreatesDistinctStatements(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec2 := doRequest(t, h, "ExecuteStatement", req)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.NotEqual(t, out1["Id"], out2["Id"], "without a ClientToken each call must create a distinct statement")
 }
@@ -105,13 +107,13 @@ func TestBatchExecuteStatement_ClientToken_ReplaysOnRetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec2 := doRequest(t, h, "BatchExecuteStatement", req)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1["Id"], out2["Id"], "retry with the same ClientToken must replay the same batch statement Id")
 }

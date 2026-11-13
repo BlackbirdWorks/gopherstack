@@ -1,13 +1,14 @@
 package directoryservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Directory Data Access ---
@@ -22,7 +23,7 @@ func (h *Handler) handleEnableDirectoryDataAccess(c *echo.Context) error {
 		DirectoryID string `json:"DirectoryId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -47,7 +48,7 @@ func (h *Handler) handleDisableDirectoryDataAccess(c *echo.Context) error {
 		DirectoryID string `json:"DirectoryId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) handleDescribeDirectoryDataAccess(c *echo.Context) error {
 		DirectoryID string `json:"DirectoryId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -115,7 +116,7 @@ func (h *Handler) handleUpdateSettings(c *echo.Context) error {
 		} `json:"Settings"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -149,7 +150,7 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}
@@ -226,7 +227,7 @@ func (h *Handler) handleUpdateDirectorySetup(c *echo.Context) error {
 		CreateSnapshotBeforeUpdate bool   `json:"CreateSnapshotBeforeUpdate"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -285,7 +286,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}

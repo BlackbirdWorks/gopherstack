@@ -3,11 +3,13 @@ package stepfunctions
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const traceMask = "***"
@@ -79,7 +81,7 @@ func (t *httpTrace) headers(h http.Header, dropAuth string) string {
 		flat[k] = t.scrub(strings.Join(vs, ","))
 	}
 
-	raw, _ := json.Marshal(flat)
+	raw, _ := json.Marshal(flat, jsonx.V1())
 
 	return string(raw)
 }

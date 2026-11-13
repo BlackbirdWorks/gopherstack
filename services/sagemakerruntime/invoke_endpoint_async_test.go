@@ -1,7 +1,7 @@
 package sagemakerruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- InvokeEndpointAsync tests ---
@@ -41,7 +43,7 @@ func TestHandler_InvokeEndpointAsync(t *testing.T) {
 			assert.Equal(t, http.StatusAccepted, rec.Code)
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out["InferenceId"])
 			assert.NotContains(t, out, "OutputLocation")
 			assert.NotContains(t, out, "FailureLocation")
@@ -351,7 +353,7 @@ func TestAsyncInvocation_BodyInputLocationMutualExclusion(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "ValidationError", out["__type"])
 				assert.Contains(t, out["message"], "mutually exclusive")
 			}

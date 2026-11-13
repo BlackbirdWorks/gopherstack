@@ -2,7 +2,7 @@ package verifiedpermissions_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -42,7 +43,7 @@ func TestVPHandler_PolicyCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var storeResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 			storeID := storeResp["policyStoreId"].(string)
 
 			// Create policy
@@ -57,7 +58,7 @@ func TestVPHandler_PolicyCRUD(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var policyResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp, jsonx.V1()))
 			policyID := policyResp["policyId"].(string)
 			assert.NotEmpty(t, policyID)
 
@@ -253,7 +254,7 @@ func TestVPHandler_GetPolicy_NotFound(t *testing.T) {
 		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 	)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 	storeID := storeResp["policyStoreId"].(string)
 
 	rec = doVPRequest(t, h, "GetPolicy", map[string]any{
@@ -280,7 +281,7 @@ func TestVPHandler_DeletePolicy_IdempotentOnMissingPolicy(t *testing.T) {
 		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 	)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 	storeID := storeResp["policyStoreId"].(string)
 
 	rec = doVPRequest(t, h, "DeletePolicy", map[string]any{
@@ -318,7 +319,7 @@ func TestVPHandler_CreatePolicy_TemplateLinked(t *testing.T) {
 		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 	)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 	storeID := storeResp["policyStoreId"].(string)
 
 	// Create a policy template first.
@@ -329,7 +330,7 @@ func TestVPHandler_CreatePolicy_TemplateLinked(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tmplRec.Code)
 	var tmplResp map[string]any
-	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp, jsonx.V1()))
 	templateID := tmplResp["policyTemplateId"].(string)
 
 	// Create template-linked policy
@@ -346,7 +347,7 @@ func TestVPHandler_CreatePolicy_TemplateLinked(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var policyResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp, jsonx.V1()))
 	assert.Equal(t, "TEMPLATE_LINKED", policyResp["policyType"])
 }
 
@@ -370,7 +371,7 @@ func TestVPHandler_UpdatePolicy_TemplateLinkedRejected(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tmplRec.Code)
 	var tmplResp map[string]any
-	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp, jsonx.V1()))
 	templateID := tmplResp["policyTemplateId"].(string)
 
 	createRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
@@ -385,7 +386,7 @@ func TestVPHandler_UpdatePolicy_TemplateLinkedRejected(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	policyID := createResp["policyId"].(string)
 
 	t.Run("templateLinked definition rejected outright", func(t *testing.T) {
@@ -429,7 +430,7 @@ func TestVPHandler_UpdatePolicy_TemplateLinkedRejected(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, staticRec.Code)
 		var staticResp map[string]any
-		require.NoError(t, json.Unmarshal(staticRec.Body.Bytes(), &staticResp))
+		require.NoError(t, json.Unmarshal(staticRec.Body.Bytes(), &staticResp, jsonx.V1()))
 		staticPolicyID := staticResp["policyId"].(string)
 
 		rec := doVPRequest(t, h, "UpdatePolicy", map[string]any{
@@ -449,7 +450,7 @@ func TestVPHandler_UpdatePolicy_TemplateLinkedRejected(t *testing.T) {
 	getRec := doVPRequest(t, h, "GetPolicy", map[string]any{"policyStoreId": storeID, "policyId": policyID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	def := getResp["definition"].(map[string]any)["templateLinked"].(map[string]any)
 	assert.Equal(t, "alice", def["principal"].(map[string]any)["entityId"])
 }
@@ -479,7 +480,7 @@ func TestVPHandler_BatchGetPolicy(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var pResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pResp, jsonx.V1()))
 				policyID := pResp["policyId"].(string)
 
 				return map[string]any{
@@ -544,7 +545,7 @@ func TestVPHandler_BatchGetPolicy(t *testing.T) {
 
 			if tt.check != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -562,7 +563,7 @@ func TestVPHandler_BatchGetPolicy_EmptyRequests(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["results"])
 	assert.Empty(t, resp["errors"])
 }
@@ -580,7 +581,7 @@ func TestVPHandler_ListPolicies_FilterByPrincipalIdentifier(t *testing.T) {
 	require.Equal(t, http.StatusOK, ptRec.Code)
 
 	var ptResp map[string]any
-	require.NoError(t, json.Unmarshal(ptRec.Body.Bytes(), &ptResp))
+	require.NoError(t, json.Unmarshal(ptRec.Body.Bytes(), &ptResp, jsonx.V1()))
 	templateID := ptResp["policyTemplateId"].(string)
 
 	linkedRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
@@ -614,7 +615,7 @@ func TestVPHandler_ListPolicies_FilterByPrincipalIdentifier(t *testing.T) {
 	require.Equal(t, http.StatusOK, filteredRec.Code, "body: %s", filteredRec.Body.String())
 
 	var filteredResp map[string]any
-	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp))
+	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp, jsonx.V1()))
 	policies := filteredResp["policies"].([]any)
 	require.Len(t, policies, 1)
 
@@ -628,7 +629,7 @@ func TestVPHandler_ListPolicies_FilterByPrincipalIdentifier(t *testing.T) {
 	require.Equal(t, http.StatusOK, unspecifiedRec.Code, "body: %s", unspecifiedRec.Body.String())
 
 	var unspecifiedResp map[string]any
-	require.NoError(t, json.Unmarshal(unspecifiedRec.Body.Bytes(), &unspecifiedResp))
+	require.NoError(t, json.Unmarshal(unspecifiedRec.Body.Bytes(), &unspecifiedResp, jsonx.V1()))
 	unspecifiedPolicies := unspecifiedResp["policies"].([]any)
 	require.Len(t, unspecifiedPolicies, 1)
 }
@@ -649,7 +650,7 @@ func TestVPHandler_BatchGetPolicy_IncludesDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, storeRec.Code)
 
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 
 	policyStoreID, _ := storeResp["policyStoreId"].(string)
 	require.NotEmpty(t, policyStoreID)
@@ -667,7 +668,7 @@ func TestVPHandler_BatchGetPolicy_IncludesDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, staticRec.Code)
 
 	var staticResp map[string]any
-	require.NoError(t, json.Unmarshal(staticRec.Body.Bytes(), &staticResp))
+	require.NoError(t, json.Unmarshal(staticRec.Body.Bytes(), &staticResp, jsonx.V1()))
 
 	staticPolicyID, _ := staticResp["policyId"].(string)
 	require.NotEmpty(t, staticPolicyID)
@@ -681,7 +682,7 @@ func TestVPHandler_BatchGetPolicy_IncludesDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, tmplRec.Code)
 
 	var tmplResp map[string]any
-	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp, jsonx.V1()))
 
 	templateID, _ := tmplResp["policyTemplateId"].(string)
 	require.NotEmpty(t, templateID)
@@ -705,7 +706,7 @@ func TestVPHandler_BatchGetPolicy_IncludesDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, tlRec.Code)
 
 	var tlResp map[string]any
-	require.NoError(t, json.Unmarshal(tlRec.Body.Bytes(), &tlResp))
+	require.NoError(t, json.Unmarshal(tlRec.Body.Bytes(), &tlResp, jsonx.V1()))
 
 	tlPolicyID, _ := tlResp["policyId"].(string)
 	require.NotEmpty(t, tlPolicyID)
@@ -748,7 +749,7 @@ func TestVPHandler_BatchGetPolicy_IncludesDefinition(t *testing.T) {
 			require.Equal(t, http.StatusOK, batchRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			results, ok := resp["results"].([]any)
 			require.True(t, ok, "results must be an array")
@@ -779,7 +780,7 @@ func TestVPHandler_ListPolicies_PaginationOpaqueTokens(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	// Create 3 policies.
@@ -803,7 +804,7 @@ func TestVPHandler_ListPolicies_PaginationOpaqueTokens(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, page1Rec.Code)
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	nextToken, _ := page1["nextToken"].(string)
 	require.NotEmpty(t, nextToken, "nextToken must be present when more results exist")
@@ -821,7 +822,7 @@ func TestVPHandler_ListPolicies_PaginationOpaqueTokens(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, page2Rec.Code, "page2 body: %s", page2Rec.Body.String())
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	page2Items, _ := page2["policies"].([]any)
 	assert.Len(t, page2Items, 1, "page2 should have the remaining 1 policy")
@@ -851,7 +852,7 @@ func TestVPHandler_CreatePolicy_StaticScopeEcho(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "Forbid", resp["effect"])
 
@@ -894,7 +895,7 @@ func TestVPHandler_CreatePolicy_UnconstrainedScopeOmitsEchoFields(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "Permit", resp["effect"])
 	assert.NotContains(t, resp, "principal")
@@ -919,7 +920,7 @@ func TestVPHandler_GetPolicy_TemplateLinkedScopeEcho(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tmplRec.Code)
 	var tmplResp map[string]any
-	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp, jsonx.V1()))
 	templateID := tmplResp["policyTemplateId"].(string)
 
 	rec := doVPRequest(t, h, "CreatePolicy", map[string]any{
@@ -934,7 +935,7 @@ func TestVPHandler_GetPolicy_TemplateLinkedScopeEcho(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	policyID := createResp["policyId"].(string)
 
 	assert.Equal(t, "Forbid", createResp["effect"])
@@ -949,7 +950,7 @@ func TestVPHandler_GetPolicy_TemplateLinkedScopeEcho(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	principal, _ := getResp["principal"].(map[string]any)
 	require.NotNil(t, principal)
@@ -982,7 +983,7 @@ func TestVPHandler_ListPolicies_StaticItemOmitsStatement(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	items, _ := listResp["policies"].([]any)
 	require.Len(t, items, 1)
@@ -999,7 +1000,7 @@ func TestVPHandler_ListPolicies_StaticItemOmitsStatement(t *testing.T) {
 	getRec := doVPRequest(t, h, "GetPolicy", map[string]any{"policyStoreId": storeID, "policyId": policyID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	getStatic, _ := getResp["definition"].(map[string]any)["static"].(map[string]any)
 	assert.Equal(t, `permit(principal, action, resource);`, getStatic["statement"])
 }

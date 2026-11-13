@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrProjectNotFound is returned when a project does not exist.
@@ -37,8 +39,8 @@ type Project struct {
 	ProjectStatus                     string            `json:"ProjectStatus"`
 	ProjectDescription                string            `json:"ProjectDescription,omitempty"`
 	ProvisionedProductID              string            `json:"ProvisionedProductId,omitempty"`
-	ServiceCatalogProvisioningDetails json.RawMessage   `json:"ServiceCatalogProvisioningDetails,omitempty"`
-	TemplateProviders                 json.RawMessage   `json:"TemplateProviders,omitempty"`
+	ServiceCatalogProvisioningDetails jsontext.Value    `json:"ServiceCatalogProvisioningDetails,omitempty"`
+	TemplateProviders                 jsontext.Value    `json:"TemplateProviders,omitempty"`
 }
 
 func cloneProject(p *Project) *Project {
@@ -46,8 +48,8 @@ func cloneProject(p *Project) *Project {
 	cp.Tags = maps.Clone(p.Tags)
 	cp.CreatedBy = cloneUserContext(p.CreatedBy)
 	cp.LastModifiedBy = cloneUserContext(p.LastModifiedBy)
-	cp.ServiceCatalogProvisioningDetails = append(json.RawMessage(nil), p.ServiceCatalogProvisioningDetails...)
-	cp.TemplateProviders = append(json.RawMessage(nil), p.TemplateProviders...)
+	cp.ServiceCatalogProvisioningDetails = append(jsontext.Value(nil), p.ServiceCatalogProvisioningDetails...)
+	cp.TemplateProviders = append(jsontext.Value(nil), p.TemplateProviders...)
 
 	return &cp
 }
@@ -68,7 +70,7 @@ func (p *Project) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(p),
 		CreationTime:     epochSeconds(p.CreationTime),
 		LastModifiedTime: epochSeconds(p.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [Project.MarshalJSON], read by
@@ -82,7 +84,7 @@ func (p *Project) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(p)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -97,8 +99,8 @@ type CreateProjectOptions struct {
 	Tags                              map[string]string
 	Name                              string
 	Description                       string
-	ServiceCatalogProvisioningDetails json.RawMessage
-	TemplateProviders                 json.RawMessage
+	ServiceCatalogProvisioningDetails jsontext.Value
+	TemplateProviders                 jsontext.Value
 }
 
 // CreateProject creates a SageMaker project.

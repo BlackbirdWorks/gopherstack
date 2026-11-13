@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediastoredata"
 )
 
@@ -196,7 +197,7 @@ func TestMediaStoreData_PutObject(t *testing.T) {
 
 			if tt.wantETag {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["ETag"])
 				assert.NotEmpty(t, resp["StorageClass"])
 			}
@@ -354,7 +355,7 @@ func TestMediaStoreData_ListItems(t *testing.T) {
 				} `json:"Items"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Items, len(tt.wantNames))
 
 			for i, item := range resp.Items {
@@ -468,7 +469,7 @@ func TestMediaStoreData_Lifecycle(t *testing.T) {
 				} `json:"Items"`
 			}
 
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			require.Len(t, listResp.Items, 1)
 			assert.Equal(t, tt.wantFolder, listResp.Items[0].Name)
 			assert.Equal(t, "FOLDER", listResp.Items[0].Type)
@@ -496,7 +497,7 @@ func TestMediaStoreData_PutObject_SHA256InResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, wantSHA, resp["ContentSHA256"])
 	assert.NotEmpty(t, rec.Header().Get("ETag"))
 }
@@ -559,7 +560,7 @@ func TestMediaStoreData_PathValidation(t *testing.T) {
 				// AWS-wide/gopherstack-wide convention for parameter
 				// validation failures (see errors.go).
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -605,7 +606,7 @@ func TestMediaStoreData_StorageClassValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -645,7 +646,7 @@ func TestMediaStoreData_UploadAvailabilityValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -692,7 +693,7 @@ func TestMediaStoreData_ObjectSizeLimit(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -819,7 +820,7 @@ func TestMediaStoreData_RangeRequests(t *testing.T) {
 				// only matches this exact string, not a fabricated
 				// "InvalidRangeException".
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "RequestedRangeNotSatisfiableException", resp["__type"])
 				assert.NotEmpty(t, rec.Header().Get("Content-Range"))
 			}
@@ -848,7 +849,7 @@ func TestMediaStoreData_ListItems_Pagination(t *testing.T) {
 		} `json:"Items"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Items, 2)
 	require.NotNil(t, page1.NextToken)
 
@@ -863,7 +864,7 @@ func TestMediaStoreData_ListItems_Pagination(t *testing.T) {
 		} `json:"Items"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Items, 2)
 
 	// Names must not overlap pages.
@@ -932,7 +933,7 @@ func TestMediaStoreData_ContentSHA256Verification(t *testing.T) {
 		// payload hash that doesn't match the actual body), not a fabricated
 		// mediastoredata-specific "InvalidContentSHA256Exception".
 		var resp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "XAmzContentSHA256Mismatch", resp["__type"])
 	})
 

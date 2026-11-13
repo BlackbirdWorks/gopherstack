@@ -3,7 +3,7 @@ package ecs_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
@@ -46,7 +47,7 @@ func doECSRequest(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -74,7 +75,7 @@ func fakeInstanceIdentityDocument(instanceID string) string {
 		"instanceId": instanceID,
 		"region":     testRegion,
 		"accountId":  testAccountID,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}
@@ -124,7 +125,7 @@ func registerTestTaskDef(t *testing.T, h *ecs.Handler, family string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 }
@@ -500,7 +501,7 @@ func TestConcurrent_CreateServices(t *testing.T) {
 				"serviceName":    "concurrent-svc-" + string(rune('a'+idx)),
 				"taskDefinition": "concurrent-task",
 				"desiredCount":   1,
-			})
+			}, jsonx.V1())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -540,7 +541,7 @@ func TestConcurrent_RegisterContainerInstances(t *testing.T) {
 				"instanceIdentityDocument": fakeInstanceIdentityDocument(
 					"i-concurrent-" + string(rune('a'+idx)),
 				),
-			})
+			}, jsonx.V1())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -565,7 +566,7 @@ func TestConcurrent_RegisterContainerInstances(t *testing.T) {
 		"cluster": "concurrent-ci-cluster",
 	})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	arns := listOut["containerInstanceArns"].([]any)
 	assert.Len(t, arns, 20)
 }
@@ -584,7 +585,7 @@ func TestHandler_Reset_ClearsAll(t *testing.T) {
 	listResp := doECSRequest(t, h, "ListClusters", map[string]any{})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out, jsonx.V1()))
 	// No custom clusters after reset
 	arns := out["clusterArns"].([]any)
 	for _, arn := range arns {
@@ -691,7 +692,7 @@ func TestHandler_Reset_ClearsCapacityProviders(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cps, ok := resp["capacityProviders"].([]any)
 			require.True(t, ok)
@@ -870,7 +871,7 @@ func TestHandler_Snapshot_Restore(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cps, ok := resp["capacityProviders"].([]any)
 			require.True(t, ok)

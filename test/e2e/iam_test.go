@@ -35,6 +35,7 @@ func TestIAMDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iam")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

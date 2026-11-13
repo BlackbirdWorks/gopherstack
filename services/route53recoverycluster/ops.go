@@ -2,9 +2,10 @@ package route53recoverycluster
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	cc "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
 )
@@ -48,7 +49,7 @@ func (h *Handler) dispatch(_ context.Context, action, clusterID string, body []b
 		return nil, err
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 func decode(body []byte, v any) error {
@@ -56,7 +57,7 @@ func decode(body []byte, v any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return restroute.Validation("request body is not valid JSON for this operation")
 	}
 

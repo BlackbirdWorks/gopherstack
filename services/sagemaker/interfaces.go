@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // StorageBackend defines the interface for SageMaker backend implementations.
@@ -47,7 +47,7 @@ type StorageBackend interface {
 		kmsKeyID string,
 		shadowProductionVariants []ProductionVariant,
 		enableNetworkIsolation bool,
-		explainerConfig, metricsConfig json.RawMessage,
+		explainerConfig, metricsConfig jsontext.Value,
 	) error
 
 	AddTags(ctx context.Context, resourceARN string, tags map[string]string) error

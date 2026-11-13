@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
@@ -17,7 +19,7 @@ func (h *Handler) handleCreateIDMappingTable(_ context.Context, body []byte) ([]
 		Description          string            `json:"description"`
 		KmsKeyArn            string            `json:"kmsKeyArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.CreateIDMappingTable(
 		req.MembershipIdentifier,
 		req.Name,
@@ -38,7 +40,7 @@ func (h *Handler) handleGetIDMappingTable(_ context.Context, body []byte) ([]byt
 		MembershipIdentifier     string `json:"membershipIdentifier"`
 		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.GetIDMappingTable(req.MembershipIdentifier, req.IDMappingTableIdentifier)
 	if err != nil {
 		return nil, err
@@ -55,7 +57,7 @@ func (h *Handler) handleListIDMappingTables(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListIDMappingTables(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -79,7 +81,7 @@ func (h *Handler) handleUpdateIDMappingTable(_ context.Context, body []byte) ([]
 		Description              string `json:"description"`
 		KmsKeyArn                string `json:"kmsKeyArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.UpdateIDMappingTable(
 		req.MembershipIdentifier,
 		req.IDMappingTableIdentifier,
@@ -98,7 +100,7 @@ func (h *Handler) handleDeleteIDMappingTable(_ context.Context, body []byte) ([]
 		MembershipIdentifier     string `json:"membershipIdentifier"`
 		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteIDMappingTable(
 		req.MembershipIdentifier,
@@ -112,7 +114,7 @@ func (h *Handler) handlePopulateIDMappingTable(_ context.Context, body []byte) (
 		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 		JobType                  string `json:"jobType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	switch req.JobType {
 	case "", "INCREMENTAL", "BATCH", "DELETE_ONLY":

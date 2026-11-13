@@ -1,13 +1,14 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -55,7 +56,7 @@ func TestHandler_StartLendingAnalysis_ClientRequestTokenIdempotency(t *testing.T
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	jobID1 := resp1["JobId"]
 	require.NotEmpty(t, jobID1)
 
@@ -63,7 +64,7 @@ func TestHandler_StartLendingAnalysis_ClientRequestTokenIdempotency(t *testing.T
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	assert.Equal(t, jobID1, resp2["JobId"], "same ClientRequestToken must return same JobId")
 	assert.Equal(t, 1, textract.LendingJobCount(h.Backend.(*textract.InMemoryBackend)))
@@ -83,7 +84,7 @@ func TestHandler_GetLendingAnalysisSummary_IncludesWarnings(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	textract.AddLendingJobInternal(b, &textract.LendingJob{
@@ -103,7 +104,7 @@ func TestHandler_GetLendingAnalysisSummary_IncludesWarnings(t *testing.T) {
 			Pages     []int  `json:"Pages"`
 		} `json:"Warnings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Warnings, 1)
 	assert.Equal(t, "InvalidPageException", resp.Warnings[0].ErrorCode)
 }
@@ -123,14 +124,14 @@ func TestHandler_GetLendingAnalysis_ExpandedLendingResult(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 
 	results, ok := getResp["Results"].([]any)
@@ -163,14 +164,14 @@ func TestHandler_GetLendingAnalysisSummary_PopulatedSummary(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetLendingAnalysisSummary", map[string]any{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 
 	summary, ok := getResp["Summary"].(map[string]any)
@@ -195,14 +196,14 @@ func TestHandler_GetLendingAnalysis_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]string{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m, jsonx.V1()))
 	ver, ok := m["AnalyzeLendingModelVersion"].(string)
 	assert.True(t, ok, "GetLendingAnalysis must have AnalyzeLendingModelVersion")
 	assert.Equal(t, "1.0", ver)
@@ -224,7 +225,7 @@ func TestHandler_StartLendingAnalysis_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -232,7 +233,7 @@ func TestHandler_StartLendingAnalysis_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 }
 
@@ -264,14 +265,14 @@ func TestHandler_GetLendingAnalysisSummary_HappyPath(t *testing.T) {
 	})
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	rec := doTextractRequest(t, h, "GetLendingAnalysisSummary", map[string]string{"JobId": jobID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", resp["JobStatus"])
 	assert.Equal(t, "1.0", resp["AnalyzeLendingModelVersion"])
 }
@@ -285,7 +286,7 @@ func TestHandler_GetLendingAnalysisSummary_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidJobIdException", errResp["__type"])
 }
 
@@ -308,14 +309,14 @@ func TestHandler_GetLendingAnalysis_LendingFieldWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	results, ok := getResp["Results"].([]any)
 	require.True(t, ok)
@@ -372,14 +373,14 @@ func TestHandler_GetLendingAnalysis_PageClassificationUsesPrediction(t *testing.
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetLendingAnalysis", map[string]any{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	results, ok := getResp["Results"].([]any)
 	require.True(t, ok)
@@ -441,7 +442,7 @@ func TestHandler_GetLendingAnalysis_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Results   []map[string]any `json:"Results"`
 	}
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	assert.Len(t, resp1.Results, 2)
 	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
 
@@ -455,7 +456,7 @@ func TestHandler_GetLendingAnalysis_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Results   []map[string]any `json:"Results"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2.Results, 3, "remaining 3 results on the second page")
 	assert.Empty(t, resp2.NextToken, "no more pages")
 }

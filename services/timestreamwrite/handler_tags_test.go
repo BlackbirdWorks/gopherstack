@@ -1,13 +1,15 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagResource_UntagResource_ListTagsForResource(t *testing.T) {
@@ -34,7 +36,7 @@ func TestHandler_TagResource_UntagResource_ListTagsForResource(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, tags, 2)
@@ -48,7 +50,7 @@ func TestHandler_TagResource_UntagResource_ListTagsForResource(t *testing.T) {
 	rec = doRequest(t, h, "ListTagsForResource", map[string]string{"ResourceARN": arn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok = listResp["Tags"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, tags, 1)
@@ -96,7 +98,7 @@ func TestHandler_ListTagsForResource_Sorted(t *testing.T) {
 
 	descRec := doRequest(t, h, "DescribeDatabase", map[string]any{"DatabaseName": "sort-db"})
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	arn := descOut["Database"].(map[string]any)["Arn"].(string)
 
 	doRequest(t, h, "TagResource", map[string]any{
@@ -112,7 +114,7 @@ func TestHandler_ListTagsForResource_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	tags := tagsOut["Tags"].([]any)
 	require.Len(t, tags, 3)
@@ -185,7 +187,7 @@ func TestHandler_TagResource_HTTP400OnUnknownARN(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"])
 }
 
@@ -207,7 +209,7 @@ func TestHandler_TagResource_ScheduledQueryARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags := out["Tags"].([]any)
 	require.Len(t, tags, 1)
@@ -249,7 +251,7 @@ func TestHandler_ListTagsForResource_EmptyWhenNoTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Tags field should be present and empty (not absent).
 	tags, ok := out["Tags"]
@@ -287,7 +289,7 @@ func TestHandler_UntagResource_FromKnownARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags := out["Tags"].([]any)
 	require.Len(t, tags, 1)
@@ -327,7 +329,7 @@ func TestHandler_TagResource_CumulativeUpdates(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags := out["Tags"].([]any)
 	require.Len(t, tags, 2, "should have two distinct tags")

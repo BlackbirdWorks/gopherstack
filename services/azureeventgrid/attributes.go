@@ -1,10 +1,12 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -36,13 +38,13 @@ func (d Destination) mappings() ([]attrMapping, error) {
 		return nil, nil
 	}
 
-	data, err := json.Marshal(raw)
+	data, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil, invalidSpec("deliveryAttributeMappings is not valid JSON")
 	}
 
 	var out []attrMapping
-	if err = json.Unmarshal(data, &out); err != nil {
+	if err = json.Unmarshal(data, &out, jsonx.V1()); err != nil {
 		return nil, invalidSpec("deliveryAttributeMappings is malformed: %v", err)
 	}
 
@@ -133,7 +135,7 @@ func headerValue(v any) string {
 		return s
 	}
 
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonx.V1())
 
 	return string(raw)
 }

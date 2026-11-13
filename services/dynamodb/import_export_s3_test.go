@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"sort"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -408,7 +409,7 @@ func TestDescribeImport(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, code)
 
 			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
+				bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
 			}
 		})

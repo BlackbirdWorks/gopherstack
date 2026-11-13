@@ -2,7 +2,7 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -196,7 +196,7 @@ func buildPersistenceDTORegistry() (
 // Repositories, and is rebuilt by rebuildRepositoriesByARN on Restore rather
 // than persisted.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage               `json:"tables"`
+	Tables            map[string]jsontext.Value                `json:"tables"`
 	RepoTemplateAssoc map[string]map[string]struct{}           `json:"repoTemplateAssoc"`
 	PRApprovals       map[string]map[string]string             `json:"prApprovals"`
 	PROverrides       map[string]bool                          `json:"prOverrides"`
@@ -337,7 +337,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // prApprovalRules; see store_setup.go's registerAllTables doc) from tables
 // via the ephemeral DTO registry, factored out of Restore to keep Restore's
 // own cognitive complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(tables map[string]jsontext.Value) error {
 	dtoReg, commentDTOs, fileDTOs, prApprovalRuleDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("codecommit: restore snapshot DTO tables: %w", err)

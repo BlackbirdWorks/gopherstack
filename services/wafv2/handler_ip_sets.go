@@ -2,9 +2,10 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -21,7 +22,7 @@ type createIPSetRequest struct {
 
 func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req createIPSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -88,7 +89,7 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 			keyLockToken:   s.LockToken,
 			keyDescription: s.Description,
 		},
-	})
+	}, jsonx.V1())
 }
 
 // getIPSetRequest is the request body for GetIPSet.
@@ -100,7 +101,7 @@ type getIPSetRequest struct {
 
 func (h *Handler) handleGetIPSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getIPSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -134,7 +135,7 @@ func (h *Handler) handleGetIPSet(ctx context.Context, body []byte) ([]byte, erro
 			keyAddresses:        s.Addresses,
 		},
 		keyLockToken: s.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // updateIPSetRequest is the request body for UpdateIPSet.
@@ -149,7 +150,7 @@ type updateIPSetRequest struct {
 
 func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateIPSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -191,7 +192,7 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 
 	return json.Marshal(map[string]string{
 		keyNextLockToken: s.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // deleteIPSetRequest is the request body for DeleteIPSet.
@@ -204,7 +205,7 @@ type deleteIPSetRequest struct {
 
 func (h *Handler) handleDeleteIPSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteIPSetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

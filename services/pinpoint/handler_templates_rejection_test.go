@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestUpdateTemplate_RejectedUpdate_DoesNotDoubleWrite is a regression test
@@ -40,7 +42,7 @@ func TestUpdateTemplate_RejectedUpdate_DoesNotDoubleWrite(t *testing.T) {
 		"a rejected update must not write a second (success) response onto the same body")
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp),
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()),
 		"response body must decode as exactly one JSON object -- a second "+
 			"write appended after the committed 404 corrupts it")
 	assert.Equal(t, "NotFoundException", resp["__type"])

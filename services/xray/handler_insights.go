@@ -2,10 +2,11 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -64,7 +65,7 @@ func toInsightView(i *Insight) insightView {
 func (h *Handler) handleGetInsight(_ context.Context, body []byte) ([]byte, error) {
 	var in getInsightInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -80,7 +81,7 @@ func (h *Handler) handleGetInsight(_ context.Context, body []byte) ([]byte, erro
 
 	return json.Marshal(map[string]any{
 		"Insight": toInsightView(i),
-	})
+	}, jsonx.V1())
 }
 
 type getInsightEventsInput struct {
@@ -97,7 +98,7 @@ type insightEventView struct {
 func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte, error) {
 	var in getInsightEventsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -128,7 +129,7 @@ func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]any{
 		"InsightEvents": pg.Data,
 		keyNextToken:    pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 type getInsightImpactGraphInput struct {
@@ -141,7 +142,7 @@ type getInsightImpactGraphInput struct {
 func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([]byte, error) {
 	var in getInsightImpactGraphInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -163,7 +164,7 @@ func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([
 		"ServiceGraphStartTime": in.StartTime,
 		"ServiceGraphEndTime":   in.EndTime,
 		keyNextToken:            "",
-	})
+	}, jsonx.V1())
 }
 
 type getInsightSummariesInput struct {
@@ -215,7 +216,7 @@ func toInsightSummaryView(i *Insight) insightSummaryView {
 func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]byte, error) {
 	var in getInsightSummariesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -266,5 +267,5 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{
 		"InsightSummaries": pg.Data,
 		keyNextToken:       pg.Next,
-	})
+	}, jsonx.V1())
 }

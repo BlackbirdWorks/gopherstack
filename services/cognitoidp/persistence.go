@@ -4,13 +4,15 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -133,7 +135,7 @@ type backendSnapshot struct {
 	TokenRevokedBeforeSeq map[string]int64                          `json:"tokenRevokedBeforeSeq,omitempty"`
 	TokenRevokedBefore    map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
 	RevokedChains         map[string]time.Time                      `json:"revokedChains,omitempty"`
-	Tables                map[string]json.RawMessage                `json:"tables,omitempty"`
+	Tables                map[string]jsontext.Value                 `json:"tables,omitempty"`
 	ResourceTags          map[string]map[string]string              `json:"resourceTags,omitempty"`
 	RiskConfigurations    map[string]*RiskConfiguration             `json:"riskConfigurations,omitempty"`
 	LogDeliveryConfigs    map[string]*LogDeliveryConfig             `json:"logDeliveryConfigs,omitempty"`
@@ -345,7 +347,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Endpoint:              b.endpoint,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cognitoidp: failed to marshal backend snapshot", "error", err)
 
@@ -425,7 +427,7 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 // every secondary index registered on it, e.g. clientsByPool/groupsByPool, so
 // no separate index rebuild step is needed for these). Caller must hold b.mu
 // in write mode.
-func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg := store.NewRegistry()
 
 	poolDTOs := store.Register(dtoReg, "pools", store.New(poolSnapshotKeyFn))
@@ -468,7 +470,7 @@ func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage)
 // a shape from some other future change) is likewise dropped rather than
 // failing the whole Restore, unlike dtoReg.RestoreAll's other tables. Caller
 // must hold b.mu in write mode.
-func (b *InMemoryBackend) restoreTermsLocked(ctx context.Context, raw json.RawMessage) {
+func (b *InMemoryBackend) restoreTermsLocked(ctx context.Context, raw jsontext.Value) {
 	if len(raw) == 0 {
 		b.terms.Restore(nil)
 
@@ -477,7 +479,7 @@ func (b *InMemoryBackend) restoreTermsLocked(ctx context.Context, raw json.RawMe
 
 	var items []*Terms
 
-	if err := json.Unmarshal(raw, &items); err != nil {
+	if err := json.Unmarshal(raw, &items, jsonx.V1()); err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cognitoidp: dropping unparseable terms snapshot", "error", err)
 		b.terms.Restore(nil)
 

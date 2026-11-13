@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -31,7 +32,7 @@ func TestNotebookExecution(t *testing.T) {
 	var startOut struct {
 		NotebookExecutionID string `json:"NotebookExecutionId"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut.NotebookExecutionID)
 
 	// Describe it.
@@ -47,7 +48,7 @@ func TestNotebookExecution(t *testing.T) {
 			NotebookExecutionName string `json:"NotebookExecutionName"`
 		} `json:"NotebookExecution"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, startOut.NotebookExecutionID, descOut.NotebookExecution.NotebookExecutionID)
 	assert.Equal(t, "RUNNING", descOut.NotebookExecution.Status)
 	assert.Equal(t, "test-run", descOut.NotebookExecution.NotebookExecutionName)
@@ -62,7 +63,7 @@ func TestNotebookExecution(t *testing.T) {
 			Status              string `json:"Status"`
 		} `json:"NotebookExecutions"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.NotebookExecutions, 1)
 	assert.Equal(t, startOut.NotebookExecutionID, listOut.NotebookExecutions[0].NotebookExecutionID)
 
@@ -83,7 +84,7 @@ func TestNotebookExecution(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"NotebookExecution"`
 	}
-	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.Equal(t, "STOPPED", descOut2.NotebookExecution.Status)
 }
 
@@ -127,7 +128,7 @@ func TestNotebookExecution_ListFilter(t *testing.T) {
 			NotebookExecutionID string `json:"NotebookExecutionId"`
 		} `json:"NotebookExecutions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.NotebookExecutions, 3)
 }
 
@@ -155,7 +156,7 @@ func TestNotebookExecution_ListNoParamsOrTagsLeak(t *testing.T) {
 	var raw struct {
 		NotebookExecutions []map[string]any `json:"NotebookExecutions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.NotebookExecutions, 1)
 
 	item := raw.NotebookExecutions[0]
@@ -232,7 +233,7 @@ func TestNotebookExecution_TagsEmptyNotAbsent(t *testing.T) {
 			var start struct {
 				NotebookExecutionID string `json:"NotebookExecutionId"`
 			}
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &start))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &start, jsonx.V1()))
 
 			rec := doEMRRequest(t, h, "DescribeNotebookExecution", map[string]any{
 				"NotebookExecutionId": start.NotebookExecutionID,
@@ -240,7 +241,7 @@ func TestNotebookExecution_TagsEmptyNotAbsent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			ne, ok := raw["NotebookExecution"].(map[string]any)
 			require.True(t, ok, "NotebookExecution must be an object")

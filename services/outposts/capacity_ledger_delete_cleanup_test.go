@@ -1,17 +1,20 @@
 package outposts_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	outpostssdk "github.com/aws/aws-sdk-go-v2/service/outposts"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // snapshotTables is a local decode of backendSnapshot's exported shape,
 // just enough to inspect one table's raw contents in a black-box test.
 type snapshotTables struct {
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 }
 
 // TestDeleteOutpost_CleansRunningInstanceLedger guards against a ghost-row
@@ -52,7 +55,7 @@ func TestDeleteOutpost_CleansRunningInstanceLedger(t *testing.T) {
 	require.NoError(t, err)
 
 	var snap snapshotTables
-	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &snap))
+	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &snap, jsonx.V1()))
 
 	require.NotContains(t, string(snap.Tables["runningInstances"]), leakedInstanceID,
 		"DeleteOutpost must clean up runningInstances rows for its own Asset(s), not leak them")

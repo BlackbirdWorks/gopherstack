@@ -1,11 +1,13 @@
 package timestreamquery //nolint:testpackage // needs unexported marshalColumnInfos for the wire-shape check.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestMarshalColumnInfos_PreservesNestedUnion verifies that marshalColumnInfos
@@ -95,12 +97,12 @@ func TestMarshalColumnInfos_PreservesNestedUnion(t *testing.T) {
 			require.Len(t, marshalled, 1)
 
 			// Round-trip through JSON, exactly as the handler's response does.
-			raw, err := json.Marshal(marshalled)
+			raw, err := json.Marshal(marshalled, jsonx.V1())
 			require.NoError(t, err)
 
 			var decoded []map[string]any
 
-			require.NoError(t, json.Unmarshal(raw, &decoded))
+			require.NoError(t, json.Unmarshal(raw, &decoded, jsonx.V1()))
 			require.Len(t, decoded, 1)
 
 			typ, ok := decoded[0]["Type"].(map[string]any)

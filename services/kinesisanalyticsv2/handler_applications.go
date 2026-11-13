@@ -2,13 +2,14 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maintenanceWindowDuration = 8 * time.Hour
@@ -227,8 +228,8 @@ type listApplicationsOutput struct {
 }
 
 type deleteApplicationInput struct {
-	ApplicationName string      `json:"ApplicationName"`
-	CreateTimestamp json.Number `json:"CreateTimestamp,omitempty"`
+	ApplicationName string       `json:"ApplicationName"`
+	CreateTimestamp jsonx.Number `json:"CreateTimestamp,omitempty"`
 }
 
 type startApplicationInput struct {
@@ -313,7 +314,7 @@ type discoverInputSchemaOutput struct {
 
 func (h *Handler) handleCreateApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -575,7 +576,7 @@ func buildZeppelinConfigDesc(in *zeppelinApplicationConfigInput) *ZeppelinApplic
 
 func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -591,7 +592,7 @@ func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context
 
 func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -612,7 +613,7 @@ func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, b
 // DeleteApplication validates against. Returns nil (skip the check) when the
 // field is absent or unparseable, matching the pre-existing "leniency, never
 // causes a false accept/reject" note in PARITY.md.
-func deleteTimestampSeconds(n json.Number) *float64 {
+func deleteTimestampSeconds(n jsonx.Number) *float64 {
 	if n == "" {
 		return nil
 	}
@@ -627,7 +628,7 @@ func deleteTimestampSeconds(n json.Number) *float64 {
 
 func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -641,7 +642,7 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, 
 
 func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in startApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -662,7 +663,7 @@ func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, b
 
 func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in startStopApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -690,7 +691,7 @@ func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(
 	ctx context.Context, c *echo.Context, body []byte,
 ) error {
 	var in updateMaintenanceConfigInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -711,7 +712,7 @@ func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(
 
 func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context, body []byte) error {
 	var in discoverInputSchemaInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

@@ -1,12 +1,13 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -55,7 +56,7 @@ type presetsListOutput struct {
 
 func (h *Handler) handleCreatePreset(c *echo.Context, body []byte) error {
 	var in createPresetInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -120,7 +121,7 @@ type updatePresetInput struct {
 
 func (h *Handler) handleUpdatePreset(c *echo.Context, name string, body []byte) error {
 	var in updatePresetInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

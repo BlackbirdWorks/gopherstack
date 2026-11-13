@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // dataCatalogRespKey is the JSON response key CreateDataCatalog,
 // GetDataCatalog, and DeleteDataCatalog all wrap their DataCatalog payload
@@ -40,7 +44,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"CreateDataCatalog": func(b []byte) (any, error) {
 			var input createDataCatalogInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -59,7 +63,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 		},
 		"GetDataCatalog": func(b []byte) (any, error) {
 			var input getDataCatalogInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -72,7 +76,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 		},
 		"ListDataCatalogs": func(b []byte) (any, error) {
 			var input listDataCatalogsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -90,7 +94,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 		},
 		"UpdateDataCatalog": func(b []byte) (any, error) {
 			var input updateDataCatalogInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -100,7 +104,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 		},
 		"DeleteDataCatalog": func(b []byte) (any, error) {
 			var input deleteDataCatalogInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

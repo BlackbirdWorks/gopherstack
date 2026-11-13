@@ -1,7 +1,8 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resolveTopicRuleDestinationOps resolves the topic-rule-destination op
@@ -148,14 +150,14 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 	var wrapped struct {
 		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
 	}
-	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
+	if jsonErr := json.Unmarshal(rawBody, &wrapped, jsonx.V1()); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, jsonErr.Error()})
 	}
 
 	payload := wrapped.TopicRulePayload
 	if payload == nil {
 		var flat TopicRulePayload
-		if jsonErr := json.Unmarshal(rawBody, &flat); jsonErr == nil && flat.SQL != "" {
+		if jsonErr := json.Unmarshal(rawBody, &flat, jsonx.V1()); jsonErr == nil && flat.SQL != "" {
 			payload = &flat
 		}
 	}
@@ -329,14 +331,14 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 	var wrapped struct {
 		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
 	}
-	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
+	if jsonErr := json.Unmarshal(rawBody, &wrapped, jsonx.V1()); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, jsonErr.Error()})
 	}
 
 	payload := wrapped.TopicRulePayload
 	if payload == nil {
 		var flat TopicRulePayload
-		if jsonErr := json.Unmarshal(rawBody, &flat); jsonErr == nil && flat.SQL != "" {
+		if jsonErr := json.Unmarshal(rawBody, &flat, jsonx.V1()); jsonErr == nil && flat.SQL != "" {
 			payload = &flat
 		}
 	}
@@ -416,7 +418,7 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	var body struct {
 		DestinationConfiguration *TopicRuleDestinationConfiguration `json:"destinationConfiguration"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -472,7 +474,7 @@ func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
 		ARN    string `json:"arn"`
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}

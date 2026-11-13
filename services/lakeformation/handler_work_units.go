@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetQueryState(_ context.Context, c *echo.Context, body []byte) error {
 	var in getQueryStateInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	state, err := h.Backend.GetQueryState(in.QueryID)
@@ -24,7 +26,7 @@ func (h *Handler) handleGetQueryState(_ context.Context, c *echo.Context, body [
 
 func (h *Handler) handleGetQueryStatistics(_ context.Context, c *echo.Context, body []byte) error {
 	var in getQueryStatisticsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	exec, plan, err := h.Backend.GetQueryStatistics(in.QueryID)
@@ -37,7 +39,7 @@ func (h *Handler) handleGetQueryStatistics(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, body []byte) error {
 	var in getWorkUnitResultsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	result, err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitID, in.WorkUnitToken)
@@ -50,7 +52,7 @@ func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []byte) error {
 	var in getWorkUnitsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	ranges, nextToken, err := h.Backend.GetWorkUnits(in.QueryID)
@@ -63,7 +65,7 @@ func (h *Handler) handleGetWorkUnits(_ context.Context, c *echo.Context, body []
 
 func (h *Handler) handleStartQueryPlanning(_ context.Context, c *echo.Context, body []byte) error {
 	var in startQueryPlanningInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	if strings.TrimSpace(in.QueryString) == "" {

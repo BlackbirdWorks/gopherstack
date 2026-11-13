@@ -2,7 +2,7 @@ package ssm
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -68,7 +70,7 @@ func parseScriptSteps(content, format string, params map[string][]string) ([]scr
 	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
-		err = json.Unmarshal([]byte(content), &doc)
+		err = json.Unmarshal([]byte(content), &doc, jsonx.V1())
 	}
 
 	if err != nil {

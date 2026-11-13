@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PutTraceSegments(t *testing.T) {
@@ -55,7 +57,7 @@ func TestHandler_PutTraceSegments_Unprocessed(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
 	require.True(t, ok)
@@ -82,7 +84,7 @@ func TestPutAndGetTraceSummaries_Populated(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -124,7 +126,7 @@ func TestPutTraceSegments_MalformedJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "malformed segments should not crash the handler")
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
 	require.True(t, ok)
@@ -145,7 +147,7 @@ func TestPutTraceSegments_MissingTraceID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
 	require.True(t, ok)
@@ -292,7 +294,7 @@ func TestHandler_PutTraceSegments_ExactLimitRespondsWithUnprocessedField(t *test
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasField := resp["UnprocessedTraceSegments"]
 	assert.True(t, hasField)
 }
@@ -361,7 +363,7 @@ func TestPutTraceSegments_ParsesSegmentFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			unprocessed, _ := resp["UnprocessedTraceSegments"].([]any)
 			if tt.wantParsed {
@@ -400,7 +402,7 @@ func TestPutTraceSegments_IndexesSegmentsForDownstreamAPIs(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var sumResp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &sumResp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &sumResp, jsonx.V1()))
 
 	summaries, ok := sumResp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -411,7 +413,7 @@ func TestPutTraceSegments_IndexesSegmentsForDownstreamAPIs(t *testing.T) {
 	require.Equal(t, http.StatusOK, batchRec.Code)
 
 	var batchResp map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp, jsonx.V1()))
 
 	traces, ok := batchResp["Traces"].([]any)
 	require.True(t, ok)
@@ -437,7 +439,7 @@ func TestPutTraceSegments_MultipleTracesIndexedSeparately(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var sumResp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &sumResp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &sumResp, jsonx.V1()))
 
 	summaries, _ := sumResp["TraceSummaries"].([]any)
 	assert.Len(t, summaries, 3, "three separate traces must be indexed separately")

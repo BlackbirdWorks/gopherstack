@@ -1,13 +1,15 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const extSecret = "s3cr3t-protected-value"
@@ -169,7 +171,7 @@ func TestComputeSDK_ExtensionSecretsNotPersisted(t *testing.T) {
 	require.NoError(t, err)
 
 	snap := src.handler.Snapshot(t.Context())
-	raw, err := json.Marshal(snap)
+	raw, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), extSecret)
 
@@ -374,7 +376,7 @@ func TestComputeSDK_ManagedRunCommands(t *testing.T) {
 			assert.Equal(t, "Succeeded", *got.Properties.ProvisioningState)
 			assert.Equal(t, "Unknown", string(*got.Properties.InstanceView.ExecutionState))
 
-			raw, err := json.Marshal(s.handler.Snapshot(t.Context()))
+			raw, err := json.Marshal(s.handler.Snapshot(t.Context()), jsonx.V1())
 			require.NoError(t, err)
 			assert.NotContains(t, string(raw), extSecret)
 

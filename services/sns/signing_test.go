@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -76,7 +77,7 @@ func parseNotificationEnvelope(t *testing.T, body string) snsNotificationEnvelop
 	t.Helper()
 
 	var env snsNotificationEnvelope
-	require.NoError(t, json.Unmarshal([]byte(body), &env), "invalid SNS notification envelope")
+	require.NoError(t, json.Unmarshal([]byte(body), &env, jsonx.V1()), "invalid SNS notification envelope")
 
 	return env
 }

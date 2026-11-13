@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -41,19 +42,19 @@ func TestExportBackupPlanTemplate_RealRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 	planID := created["BackupPlanId"].(string)
 
 	resp := doRequest(t, h, http.MethodGet, "/backup/plans/"+planID+"/toTemplate", "")
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	tmplJSON, ok := out["BackupPlanTemplateJson"].(string)
 	require.True(t, ok)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal([]byte(tmplJSON), &tmpl))
+	require.NoError(t, json.Unmarshal([]byte(tmplJSON), &tmpl, jsonx.V1()))
 	assert.Equal(t, "export-plan", tmpl["BackupPlanName"])
 	rules, ok := tmpl["Rules"].([]any)
 	require.True(t, ok)
@@ -75,7 +76,7 @@ func TestGetBackupPlanFromJSON_BuildsFromParsedBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	plan, ok := out["BackupPlan"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "json-plan", plan["BackupPlanName"])
@@ -107,7 +108,7 @@ func TestGetBackupPlanFromTemplate_ResolvesBuiltinTemplate(t *testing.T) {
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var list map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &list, jsonx.V1()))
 	tmpls, ok := list["BackupPlanTemplatesList"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, tmpls)
@@ -120,7 +121,7 @@ func TestGetBackupPlanFromTemplate_ResolvesBuiltinTemplate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getResp.Code)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &doc))
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &doc, jsonx.V1()))
 	planDoc, ok := doc["BackupPlanDocument"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, tmplName, planDoc["BackupPlanName"])
@@ -148,7 +149,7 @@ func TestListBackupPlanTemplates_ReturnsBuiltinCatalog(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	items, ok := out["BackupPlanTemplatesList"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, items)

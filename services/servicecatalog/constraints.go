@@ -3,9 +3,11 @@ package servicecatalog
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxNotificationARNs = 5
@@ -28,7 +30,7 @@ func constraintDetail(c *Constraint) *ConstraintDetail {
 // validateConstraintParameters checks the JSON a constraint type requires.
 func validateConstraintParameters(typ, params string) error {
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(params), &doc); err != nil {
+	if err := json.Unmarshal([]byte(params), &doc, jsonx.V1()); err != nil {
 		return invalid("Parameters is not a valid JSON object")
 	}
 

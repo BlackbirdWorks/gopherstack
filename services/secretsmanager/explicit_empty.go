@@ -1,15 +1,18 @@
 package secretsmanager
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // rejectExplicitEmpty fails when any named member is present as "": the SDK
 // models them as *string with a min length, so omitted keeps and "" is invalid.
 func rejectExplicitEmpty(data []byte, op string, members ...string) error {
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(data, &probe); err != nil {
+	var probe map[string]jsontext.Value
+	if err := json.Unmarshal(data, &probe, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -32,7 +35,7 @@ func (in *PutSecretValueInput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	return json.Unmarshal(data, (*putSecretValueInputAlias)(in))
+	return json.Unmarshal(data, (*putSecretValueInputAlias)(in), jsonx.V1())
 }
 
 type updateSecretInputAlias UpdateSecretInput
@@ -43,7 +46,7 @@ func (in *UpdateSecretInput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	return json.Unmarshal(data, (*updateSecretInputAlias)(in))
+	return json.Unmarshal(data, (*updateSecretInputAlias)(in), jsonx.V1())
 }
 
 type updateSecretVersionStageInputAlias UpdateSecretVersionStageInput
@@ -56,5 +59,5 @@ func (in *UpdateSecretVersionStageInput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	return json.Unmarshal(data, (*updateSecretVersionStageInputAlias)(in))
+	return json.Unmarshal(data, (*updateSecretVersionStageInputAlias)(in), jsonx.V1())
 }

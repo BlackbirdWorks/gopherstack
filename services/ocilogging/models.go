@@ -1,7 +1,7 @@
 package ocilogging
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -87,21 +87,21 @@ type Log struct {
 
 // AgentConfig is a stored unified agent configuration.
 type AgentConfig struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeModified  time.Time       `json:"timeModified"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	ServiceConfig json.RawMessage `json:"serviceConfiguration"`
-	Tags          Tags            `json:"tags"`
-	ID            string          `json:"id"`
-	CompartmentID string          `json:"compartmentId"`
-	Name          string          `json:"displayName"`
-	Description   string          `json:"description,omitempty"`
-	State         string          `json:"state"`
-	ConfigType    string          `json:"configurationType"`
-	Etag          string          `json:"etag"`
-	Groups        []string        `json:"groupList,omitempty"`
-	Seq           int64           `json:"seq"`
-	Enabled       bool            `json:"isEnabled"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeModified  time.Time      `json:"timeModified"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	ServiceConfig jsontext.Value `json:"serviceConfiguration"`
+	Tags          Tags           `json:"tags"`
+	ID            string         `json:"id"`
+	CompartmentID string         `json:"compartmentId"`
+	Name          string         `json:"displayName"`
+	Description   string         `json:"description,omitempty"`
+	State         string         `json:"state"`
+	ConfigType    string         `json:"configurationType"`
+	Etag          string         `json:"etag"`
+	Groups        []string       `json:"groupList,omitempty"`
+	Seq           int64          `json:"seq"`
+	Enabled       bool           `json:"isEnabled"`
 }
 
 // Entry is one ingested log record.

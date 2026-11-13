@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -357,7 +358,7 @@ func TestComputedProperties_UsableInQueries(t *testing.T) {
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

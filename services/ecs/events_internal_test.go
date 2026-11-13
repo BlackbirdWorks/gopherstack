@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type publishedEvent struct {
@@ -30,7 +31,7 @@ func (p *recordingPublisher) PublishEvent(
 	ctx context.Context, source, detailType string, resources []string, detail string,
 ) {
 	var d map[string]any
-	if err := json.Unmarshal([]byte(detail), &d); err != nil {
+	if err := json.Unmarshal([]byte(detail), &d, jsonx.V1()); err != nil {
 		panic(err)
 	}
 

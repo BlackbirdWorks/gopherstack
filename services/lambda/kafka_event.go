@@ -2,11 +2,13 @@ package lambda
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -101,7 +103,7 @@ func buildKafkaEventPayload(eventSource, eventSourceARN, bootstrap string, recs 
 		})
 	}
 
-	return json.Marshal(ev)
+	return json.Marshal(ev, jsonx.V1())
 }
 
 // kafkaFilterView is the record shape FilterCriteria is matched against; only "value" is a data key.

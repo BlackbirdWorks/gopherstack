@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -182,7 +183,7 @@ func TestServiceRoleAuthzStepFunctionsLegacy(t *testing.T) {
 
 func jsonAtOptional(raw *string, path ...string) (string, bool) {
 	var cur any
-	if raw == nil || json.Unmarshal([]byte(*raw), &cur) != nil {
+	if raw == nil || json.Unmarshal([]byte(*raw), &cur, jsonx.V1()) != nil {
 		return "", false
 	}
 

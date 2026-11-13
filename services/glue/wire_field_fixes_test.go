@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -128,7 +129,7 @@ func TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember(t *testin
 	)
 	require.Equal(t, 200, startRec.Code)
 	var startOut map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"]
 
 	cancelRec := doGlueRequest(t, h, "CancelDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
@@ -140,7 +141,7 @@ func TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember(t *testin
 	var getOut struct {
 		Status string `json:"Status"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, string(types.TaskStatusTypeStopped), getOut.Status)
 }
 

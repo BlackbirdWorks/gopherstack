@@ -2,12 +2,14 @@ package organizations_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
@@ -124,11 +126,11 @@ func TestRestoreMigratesMissingDefaultSCPs(t *testing.T) {
 
 	o := newSCPOrg(t)
 
-	var snap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(o.b.Snapshot(context.Background()), &snap))
+	var snap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(o.b.Snapshot(context.Background()), &snap, jsonx.V1()))
 
 	oldShape := func(key string, v any) {
-		raw, err := json.Marshal(v)
+		raw, err := json.Marshal(v, jsonx.V1())
 		require.NoError(t, err)
 
 		snap[key] = raw
@@ -137,7 +139,7 @@ func TestRestoreMigratesMissingDefaultSCPs(t *testing.T) {
 	oldShape("targetPolicies", map[string][]string{o.rootID: {"p-FullAWSAccess"}})
 	oldShape("policyTargets", map[string][]string{"p-FullAWSAccess": {o.rootID}})
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	restored := organizations.NewInMemoryBackend("000000000000", "us-east-1")

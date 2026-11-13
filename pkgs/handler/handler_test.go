@@ -2,7 +2,7 @@ package handler_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/handler"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- OperationContext ---
@@ -158,7 +159,7 @@ func TestWriteJSON_SetsHeadersAndBody(t *testing.T) {
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	var got map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "value", got["key"])
 }
 

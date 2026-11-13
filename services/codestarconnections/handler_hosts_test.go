@@ -2,13 +2,14 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -52,7 +53,7 @@ func TestHandler_CreateHost(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out["HostArn"])
 		})
 	}
@@ -132,7 +133,7 @@ func TestHandler_GetHost(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "test-host", out["Name"])
 			assert.Equal(t, "GitHubEnterpriseServer", out["ProviderType"])
 			assert.Equal(t, "https://example.com", out["ProviderEndpoint"])
@@ -152,7 +153,7 @@ func TestHandler_ListHosts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	hosts, ok := out["Hosts"].([]any)
 	require.True(t, ok)
 	assert.Len(t, hosts, 2)
@@ -346,7 +347,7 @@ func TestSortedListHosts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	hosts := out["Hosts"].([]any)
 	require.Len(t, hosts, 3)
 
@@ -380,7 +381,7 @@ func TestGetHostIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 	_, hasTags := out["Tags"]
 	assert.False(t, hasTags, "GetHost should not include Tags in response")
 
@@ -388,7 +389,7 @@ func TestGetHostIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTags.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsOut, jsonx.V1()))
 	tags := tagsOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "platform", tags[0].(map[string]any)["Value"].(string))

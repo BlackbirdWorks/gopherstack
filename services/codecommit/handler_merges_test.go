@@ -1,13 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
 
@@ -86,7 +87,7 @@ func TestHandler_BatchDescribeMergeConflicts(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "conflicts")
 				assert.Contains(t, resp, "destinationCommitId")
 				assert.Contains(t, resp, "sourceCommitId")
@@ -151,7 +152,7 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				conflicts := resp["conflicts"].([]any)
 				assert.Len(t, conflicts, tt.wantConflicts)
 				assert.Len(t, resp["errors"], tt.wantErrors)
@@ -174,7 +175,7 @@ func TestHandler_MergePullRequestByFastForward(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
@@ -193,7 +194,7 @@ func TestHandler_MergePullRequestBySquash(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
@@ -212,7 +213,7 @@ func TestHandler_MergePullRequestByThreeWay(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
@@ -233,7 +234,7 @@ func TestHandler_MergeBranchesByFastForward(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(
 		t,
 		sourceTip,
@@ -271,7 +272,7 @@ func TestHandler_MergeBranchesByFastForward_UnknownSpecifier(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "CommitDoesNotExistException", resp["__type"])
 		})
 	}
@@ -295,7 +296,7 @@ func TestHandler_MergeBranchesBySquash(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	commitID, _ := resp["commitId"].(string)
 	require.NotEmpty(t, commitID)
 
@@ -306,7 +307,7 @@ func TestHandler_MergeBranchesBySquash(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	commit, ok := getResp["commit"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "squash it", commit["message"])
@@ -333,7 +334,7 @@ func TestHandler_MergeBranchesByThreeWay(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	commitID, _ := resp["commitId"].(string)
 	require.NotEmpty(t, commitID)
 
@@ -344,7 +345,7 @@ func TestHandler_MergeBranchesByThreeWay(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	commit, ok := getResp["commit"].(map[string]any)
 	require.True(t, ok)
 	parents, ok := commit["parents"].([]any)
@@ -373,7 +374,7 @@ func TestHandler_MergeBranchesBySquash_TargetBranch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	commitID, _ := resp["commitId"].(string)
 
 	assert.Equal(t, commitID, mustBranchTip(t, h, "sq-target-repo", "release"),
@@ -408,7 +409,7 @@ func mustBranchTip(t *testing.T, h *codecommit.Handler, repoName, branchName str
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	branch, ok := resp["branch"].(map[string]any)
 	require.True(t, ok)
 	commitID, _ := branch["commitId"].(string)
@@ -443,7 +444,7 @@ func TestHandler_MergeBranches_AllStrategies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["commitId"])
 			assert.NotEmpty(t, resp["treeId"])
 		})
@@ -465,7 +466,7 @@ func TestHandler_GetMergeOptions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	opts := resp["mergeOptions"].([]any)
 	assert.Len(t, opts, 3)
 
@@ -475,7 +476,7 @@ func TestHandler_GetMergeOptions(t *testing.T) {
 			CommitID string `json:"commitId"`
 		} `json:"branch"`
 	}
-	require.NoError(t, json.Unmarshal(branch.Body.Bytes(), &branchResp))
+	require.NoError(t, json.Unmarshal(branch.Body.Bytes(), &branchResp, jsonx.V1()))
 	assert.Equal(t, branchResp.Branch.CommitID, resp["destinationCommitId"])
 	assert.Equal(t, branchResp.Branch.CommitID, resp["baseCommitId"], "feature forked from main's tip")
 }
@@ -512,7 +513,7 @@ func TestHandler_MergeOptions_AllStrategies(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	opts := resp["mergeOptions"].([]any)
 	assert.Len(t, opts, 3)
 
@@ -541,7 +542,7 @@ func TestHandler_CreateUnreferencedMergeCommit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["commitId"])
 }
 
@@ -593,7 +594,7 @@ func TestHandler_CreateUnreferencedMergeCommit_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, branchRec.Code)
 
 	var brResp map[string]any
-	require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &brResp))
+	require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &brResp, jsonx.V1()))
 	commitID := brResp["branch"].(map[string]any)["commitId"].(string)
 
 	rec := doRequest(t, h, "CreateUnreferencedMergeCommit", map[string]any{
@@ -605,7 +606,7 @@ func TestHandler_CreateUnreferencedMergeCommit_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["commitId"])
 	assert.NotEmpty(t, resp["treeId"])
 }
@@ -631,7 +632,7 @@ func TestHandler_GetMergeCommit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["mergedCommitId"])
 	assert.NotEmpty(
 		t,
@@ -672,7 +673,7 @@ func TestGetMergeCommit_ResolvesParents(t *testing.T) {
 	require.Equal(t, http.StatusOK, baseRec.Code)
 
 	var baseOut map[string]any
-	require.NoError(t, json.Unmarshal(baseRec.Body.Bytes(), &baseOut))
+	require.NoError(t, json.Unmarshal(baseRec.Body.Bytes(), &baseOut, jsonx.V1()))
 	baseCommitID := baseOut["commitId"].(string)
 
 	// Create feature branch from base.
@@ -691,7 +692,7 @@ func TestGetMergeCommit_ResolvesParents(t *testing.T) {
 	require.Equal(t, http.StatusOK, featureRec.Code)
 
 	var featureOut map[string]any
-	require.NoError(t, json.Unmarshal(featureRec.Body.Bytes(), &featureOut))
+	require.NoError(t, json.Unmarshal(featureRec.Body.Bytes(), &featureOut, jsonx.V1()))
 	featureCommitID := featureOut["commitId"].(string)
 
 	// Fast-forward merge.
@@ -712,7 +713,7 @@ func TestGetMergeCommit_ResolvesParents(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["mergedCommitId"],
 		"GetMergeCommit must return a non-empty mergedCommitId")
 }
@@ -733,7 +734,7 @@ func TestHandler_GetMergeConflicts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// No content-diff engine backs this emulator, so a merge between two
 	// resolvable specifiers is always reported mergeable (see PARITY.md gaps).
 	assert.Equal(t, true, resp["mergeable"])
@@ -757,7 +758,7 @@ func TestHandler_GetMergeConflicts_NoConflicts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, true, resp["mergeable"])
 }
 
@@ -855,7 +856,7 @@ func TestHandler_DescribeMergeConflicts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEqual(t, "feature", resp["sourceCommitId"], "specifiers resolve to commit IDs")
 	assert.NotEmpty(t, resp["sourceCommitId"])
 	assert.NotEmpty(t, resp["destinationCommitId"])

@@ -2,7 +2,7 @@ package medialive_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
@@ -90,7 +91,7 @@ func TestDescribeChannel_UnknownChannelRawEnvelope(t *testing.T) {
 	require.NoError(t, err)
 
 	var envelope map[string]any
-	require.NoError(t, json.Unmarshal(raw, &envelope))
+	require.NoError(t, json.Unmarshal(raw, &envelope, jsonx.V1()))
 
 	_, hasMessage := envelope["Message"]
 	assert.True(t, hasMessage, "raw body must carry a Message key restjson.GetErrorInfo reads: %s", raw)

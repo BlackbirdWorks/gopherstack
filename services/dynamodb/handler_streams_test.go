@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -264,7 +265,7 @@ func TestHandler_ExportAndDescribeExport(t *testing.T) {
 			ExportArn string `json:"ExportArn"`
 		} `json:"ExportDescription"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &exp))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &exp, jsonx.V1()))
 	require.NotEmpty(t, exp.ExportDescription.ExportArn)
 
 	// DescribeExport on the returned ARN succeeds.
@@ -286,7 +287,7 @@ func TestHandler_DescribeTable_ReturnsStreamFields(t *testing.T) {
 
 	handler, streamARN := newStreamEnabledHandler(t)
 
-	reqBody, err := json.Marshal(models.DescribeTableInput{TableName: "StreamHandlerTable"})
+	reqBody, err := json.Marshal(models.DescribeTableInput{TableName: "StreamHandlerTable"}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
@@ -299,7 +300,7 @@ func TestHandler_DescribeTable_ReturnsStreamFields(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var out models.DescribeTableOutput
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(
 		t,

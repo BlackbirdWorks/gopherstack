@@ -1,12 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDomainMaintenance_StartListGet(t *testing.T) {
@@ -23,7 +26,7 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, sr.StatusCode)
 
 	var sOut map[string]any
-	require.NoError(t, json.NewDecoder(sr.Body).Decode(&sOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(sr.Body), &sOut, jsonx.V1()))
 	maintID := sOut["MaintenanceId"].(string)
 	assert.NotEmpty(t, maintID)
 
@@ -34,7 +37,7 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	maintenances, ok := lOut["DomainMaintenances"].([]any)
 	require.True(t, ok)
 	assert.Len(t, maintenances, 1)
@@ -46,7 +49,7 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, gr.StatusCode)
 
 	var gOut map[string]any
-	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &gOut, jsonx.V1()))
 	assert.Equal(t, maintID, gOut["MaintenanceId"])
 }
 
@@ -111,7 +114,7 @@ func TestDeleteDomain_CleansUpMaintenances(t *testing.T) {
 			var got struct {
 				DomainMaintenances []any `json:"DomainMaintenances"`
 			}
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &got, jsonx.V1()))
 			assert.Empty(t, got.DomainMaintenances, "expected no orphaned maintenances after delete+recreate")
 		})
 	}

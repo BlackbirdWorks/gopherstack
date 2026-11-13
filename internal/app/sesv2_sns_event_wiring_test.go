@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -13,6 +13,8 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSESv2SNSEventDestinationWiring(t *testing.T) {
@@ -114,7 +116,7 @@ func TestSESv2SNSEventDestinationWiring(t *testing.T) {
 						Message string `json:"Message"`
 					}
 
-					if json.Unmarshal([]byte(aws.ToString(m.Body)), &env) != nil {
+					if json.Unmarshal([]byte(aws.ToString(m.Body)), &env, jsonx.V1()) != nil {
 						continue
 					}
 
@@ -122,7 +124,7 @@ func TestSESv2SNSEventDestinationWiring(t *testing.T) {
 						EventType string `json:"eventType"`
 					}
 
-					if json.Unmarshal([]byte(env.Message), &ev) == nil {
+					if json.Unmarshal([]byte(env.Message), &ev, jsonx.V1()) == nil {
 						got[ev.EventType] = true
 					}
 				}

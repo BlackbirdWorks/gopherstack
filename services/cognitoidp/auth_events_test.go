@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAdminListUserAuthEvents_EmptyButValid(t *testing.T) {
@@ -26,7 +28,7 @@ func TestAdminListUserAuthEvents_EmptyButValid(t *testing.T) {
 		NextToken  string           `json:"NextToken,omitempty"`
 		AuthEvents []map[string]any `json:"AuthEvents,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.AuthEvents)
 	assert.Empty(t, resp.NextToken)
 
@@ -122,7 +124,7 @@ func TestHandler_AdminListUserAuthEvents_Validation(t *testing.T) {
 		var resp struct {
 			AuthEvents []map[string]any `json:"AuthEvents"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Empty(t, resp.AuthEvents)
 	})
 

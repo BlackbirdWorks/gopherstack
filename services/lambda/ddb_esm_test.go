@@ -2,13 +2,14 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -260,7 +261,7 @@ func TestLambda_DDB_Poller_InvokesLambdaWithRecords(t *testing.T) {
 			AWSRegion    string `json:"awsRegion"`
 		} `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(payloads[0], &event))
+	require.NoError(t, json.Unmarshal(payloads[0], &event, jsonx.V1()))
 
 	require.Len(t, event.Records, 2)
 	assert.Equal(t, "event-1", event.Records[0].EventID)

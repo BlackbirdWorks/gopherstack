@@ -2,8 +2,10 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type discoverInstancesRequest struct {
@@ -17,7 +19,7 @@ type discoverInstancesRequest struct {
 
 func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byte, error) {
 	var req discoverInstancesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -68,7 +70,7 @@ func (h *Handler) handleDiscoverInstances(_ context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{
 		"Instances":         items,
 		"InstancesRevision": revision,
-	})
+	}, jsonx.V1())
 }
 
 type discoverInstancesRevisionRequest struct {
@@ -78,7 +80,7 @@ type discoverInstancesRevisionRequest struct {
 
 func (h *Handler) handleDiscoverInstancesRevision(_ context.Context, body []byte) ([]byte, error) {
 	var req discoverInstancesRevisionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -97,5 +99,5 @@ func (h *Handler) handleDiscoverInstancesRevision(_ context.Context, body []byte
 
 	return json.Marshal(map[string]any{
 		"InstancesRevision": revision,
-	})
+	}, jsonx.V1())
 }

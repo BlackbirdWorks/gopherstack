@@ -1,7 +1,7 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -66,17 +67,17 @@ func TestACMHandler_RequestCertificate_Tags(t *testing.T) {
 	var out struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Verify tags are stored
-	listBody, _ := json.Marshal(map[string]string{"CertificateArn": out.CertificateArn})
+	listBody, _ := json.Marshal(map[string]string{"CertificateArn": out.CertificateArn}, jsonx.V1())
 	listRec := postACMJSON(t, h, "ListTagsForCertificate", string(listBody))
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut struct {
 		Tags []map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	tagMap := make(map[string]string)
 	for _, t2 := range tagsOut.Tags {
@@ -113,18 +114,18 @@ func TestACMHandler_GenericResourceTags_RouteByArnType(t *testing.T) {
 				var reqOut struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 				// Tag via the certificate-specific op...
 				addBody, _ := json.Marshal(map[string]any{
 					"CertificateArn": reqOut.CertificateArn,
 					"Tags":           []map[string]string{{"Key": "via", "Value": "AddTagsToCertificate"}},
-				})
+				}, jsonx.V1())
 				addRec := postACMJSON(t, h, "AddTagsToCertificate", string(addBody))
 				require.Equal(t, http.StatusOK, addRec.Code)
 
 				// ...and read it back via the generic op.
-				listBody, _ := json.Marshal(map[string]string{"ResourceArn": reqOut.CertificateArn})
+				listBody, _ := json.Marshal(map[string]string{"ResourceArn": reqOut.CertificateArn}, jsonx.V1())
 				listRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 				assert.Contains(t, listRec.Body.String(), "AddTagsToCertificate")
@@ -133,12 +134,12 @@ func TestACMHandler_GenericResourceTags_RouteByArnType(t *testing.T) {
 				tagBody, _ := json.Marshal(map[string]any{
 					"ResourceArn": reqOut.CertificateArn,
 					"Tags":        []map[string]string{{"Key": "via", "Value": "TagResource"}},
-				})
+				}, jsonx.V1())
 				tagRec := postACMJSON(t, h, "TagResource", string(tagBody))
 				require.Equal(t, http.StatusOK, tagRec.Code, tagRec.Body.String())
 
 				// ...and read it back via the certificate-specific op.
-				certListBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+				certListBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 				certListRec := postACMJSON(t, h, "ListTagsForCertificate", string(certListBody))
 				require.Equal(t, http.StatusOK, certListRec.Code)
 				assert.Contains(t, certListRec.Body.String(), "TagResource")
@@ -154,16 +155,19 @@ func TestACMHandler_GenericResourceTags_RouteByArnType(t *testing.T) {
 				tagBody, _ := json.Marshal(map[string]any{
 					"ResourceArn": epARN,
 					"Tags":        []map[string]string{{"Key": "env", "Value": "prod"}},
-				})
+				}, jsonx.V1())
 				tagRec := postACMJSON(t, h, "TagResource", string(tagBody))
 				require.Equal(t, http.StatusOK, tagRec.Code, tagRec.Body.String())
 
-				listBody, _ := json.Marshal(map[string]string{"ResourceArn": epARN})
+				listBody, _ := json.Marshal(map[string]string{"ResourceArn": epARN}, jsonx.V1())
 				listRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 				assert.Contains(t, listRec.Body.String(), "prod")
 
-				untagBody, _ := json.Marshal(map[string]any{"ResourceArn": epARN, "TagKeys": []string{"env"}})
+				untagBody, _ := json.Marshal(
+					map[string]any{"ResourceArn": epARN, "TagKeys": []string{"env"}},
+					jsonx.V1(),
+				)
 				untagRec := postACMJSON(t, h, "UntagResource", string(untagBody))
 				require.Equal(t, http.StatusOK, untagRec.Code)
 
@@ -250,7 +254,7 @@ func TestACMHandler_NewStyleTagValidation_UsesValidationAndServiceQuota(t *testi
 					"AuthorizationBehavior": "PRE_APPROVED",
 					"CertificateAuthority":  map[string]any{"PublicCertificateAuthority": map[string]any{}},
 					"Tags":                  tooManyTags(),
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := postACMJSON(t, h, "CreateAcmeEndpoint", string(body))
@@ -268,7 +272,7 @@ func TestACMHandler_NewStyleTagValidation_UsesValidationAndServiceQuota(t *testi
 				body, err := json.Marshal(map[string]any{
 					"ResourceArn": epARN,
 					"Tags":        []map[string]string{{"Key": "aws:reserved", "Value": "v"}},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := postACMJSON(t, h, "TagResource", string(body))
@@ -276,7 +280,7 @@ func TestACMHandler_NewStyleTagValidation_UsesValidationAndServiceQuota(t *testi
 				assert.Contains(t, rec.Body.String(), "ValidationException")
 				assert.NotContains(t, rec.Body.String(), "InvalidTagException")
 
-				listBody, _ := json.Marshal(map[string]string{"ResourceArn": epARN})
+				listBody, _ := json.Marshal(map[string]string{"ResourceArn": epARN}, jsonx.V1())
 				listRec := postACMJSON(t, h, "ListTagsForResource", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 				assert.JSONEq(t, `{"Tags":[]}`, listRec.Body.String(), "rejected tag must not be stored")
@@ -289,7 +293,7 @@ func TestACMHandler_NewStyleTagValidation_UsesValidationAndServiceQuota(t *testi
 
 				epARN := createTestAcmeEndpoint(t, h)
 
-				body, err := json.Marshal(map[string]any{"ResourceArn": epARN, "Tags": tooManyTags()})
+				body, err := json.Marshal(map[string]any{"ResourceArn": epARN, "Tags": tooManyTags()}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := postACMJSON(t, h, "TagResource", string(body))
@@ -336,7 +340,7 @@ func TestACMHandler_LegacyTagOps_KeyOrValueTooLong_InvalidTagException(t *testin
 			body, err := json.Marshal(map[string]any{
 				"DomainName": "toolong.example.com",
 				"Tags":       tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := postACMJSON(t, h, "RequestCertificate", string(body))

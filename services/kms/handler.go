@@ -2,7 +2,7 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -215,7 +216,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -262,7 +263,7 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 func unmarshalAction[T any](fn func(context.Context, *T) (any, error)) kmsActionFn {
 	return func(ctx context.Context, b []byte) (any, error) {
 		var input T
-		if err := json.Unmarshal(b, &input); err != nil {
+		if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 
@@ -300,7 +301,7 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, 
 		return nil, err
 	}
 
-	return json.Marshal(response)
+	return json.Marshal(response, jsonx.V1())
 }
 
 // handleError writes a structured error response for a KMS operation failure.
@@ -389,7 +390,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	payload, _ := json.Marshal(ErrorResponse{
 		Type:    errorType,
 		Message: errorMessage(reqErr),
-	})
+	}, jsonx.V1())
 
 	return c.JSONBlob(statusCode, payload)
 }

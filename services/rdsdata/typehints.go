@@ -1,11 +1,13 @@
 package rdsdata
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // SqlParameter.TypeHint enum values (rdsdata@v1.35.4 types/enums.go's
@@ -89,7 +91,7 @@ func validateTypeHintFormat(hint, value string) error {
 			return fmt.Errorf("%w: %s requires a decimal number", errBadTypeHintValue, typeHintDecimal)
 		}
 	case typeHintJSON:
-		if !json.Valid([]byte(value)) {
+		if !jsontext.Value([]byte(value)).IsValid(jsonx.V1()) {
 			return fmt.Errorf("%w: %s requires valid JSON", errBadTypeHintValue, typeHintJSON)
 		}
 	case typeHintUUID:

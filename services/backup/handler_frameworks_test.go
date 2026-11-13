@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -70,7 +71,7 @@ func TestFrameworkControls(t *testing.T) {
 			require.Equal(t, tt.wantStatus, resp.Code)
 
 			var createData map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createData))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createData, jsonx.V1()))
 			fwName := createData["FrameworkName"].(string)
 
 			// Describe and verify controls.
@@ -78,7 +79,7 @@ func TestFrameworkControls(t *testing.T) {
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var fwData map[string]any
-			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &fwData))
+			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &fwData, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus2, fwData["FrameworkStatus"])
 			assert.Equal(t, "COMPLETED", fwData["DeploymentStatus"])
 			if tt.wantControlLen > 0 {

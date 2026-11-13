@@ -1,7 +1,7 @@
 package awserr
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"hash/crc32"
@@ -9,6 +9,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Protocol identifies the AWS wire protocol used to encode an error envelope.
@@ -129,7 +131,7 @@ func Write(c *echo.Context, proto Protocol, e APIError) error {
 }
 
 func writeJSON(c *echo.Context, contentType string, e APIError) error {
-	body, _ := json.Marshal(jsonErrorEnvelope{Type: e.Code, Message: e.Message, MessageCap: e.Message})
+	body, _ := json.Marshal(jsonErrorEnvelope{Type: e.Code, Message: e.Message, MessageCap: e.Message}, jsonx.V1())
 	checksum := crc32.ChecksumIEEE(body)
 	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 	c.Response().Header().Set("Content-Type", contentType)

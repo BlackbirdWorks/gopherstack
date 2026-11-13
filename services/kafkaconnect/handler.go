@@ -1,7 +1,7 @@
 package kafkaconnect
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -225,7 +226,7 @@ func decodeBody[T any](body []byte, out *T) error {
 		return nil
 	}
 
-	return json.Unmarshal(body, out)
+	return json.Unmarshal(body, out, jsonx.V1())
 }
 
 // writeJSON writes a 200 JSON response.

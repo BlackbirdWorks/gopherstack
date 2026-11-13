@@ -2,9 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -94,7 +95,7 @@ type createSamplingRuleInput struct {
 func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]byte, error) {
 	var in createSamplingRuleInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -143,7 +144,7 @@ func (h *Handler) handleCreateSamplingRule(_ context.Context, body []byte) ([]by
 
 	return json.Marshal(map[string]any{
 		keySamplingRuleRecord: toSamplingRuleRecord(r),
-	})
+	}, jsonx.V1())
 }
 
 type getSamplingRulesInput struct {
@@ -153,7 +154,7 @@ type getSamplingRulesInput struct {
 func (h *Handler) handleGetSamplingRules(_ context.Context, body []byte) ([]byte, error) {
 	var in getSamplingRulesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -174,7 +175,7 @@ func (h *Handler) handleGetSamplingRules(_ context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]any{
 		"SamplingRuleRecords": pg.Data,
 		keyNextToken:          pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 // samplingRuleUpdateInput uses json.RawMessage so we can detect which fields
@@ -204,7 +205,7 @@ type updateSamplingRuleInput struct {
 func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]byte, error) {
 	var in updateSamplingRuleInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -246,7 +247,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 
 	return json.Marshal(map[string]any{
 		keySamplingRuleRecord: toSamplingRuleRecord(r),
-	})
+	}, jsonx.V1())
 }
 
 type deleteSamplingRuleInput struct {
@@ -257,7 +258,7 @@ type deleteSamplingRuleInput struct {
 func (h *Handler) handleDeleteSamplingRule(_ context.Context, body []byte) ([]byte, error) {
 	var in deleteSamplingRuleInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -273,5 +274,5 @@ func (h *Handler) handleDeleteSamplingRule(_ context.Context, body []byte) ([]by
 
 	return json.Marshal(map[string]any{
 		keySamplingRuleRecord: toSamplingRuleRecord(r),
-	})
+	}, jsonx.V1())
 }

@@ -1,7 +1,7 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
@@ -119,7 +120,7 @@ func TestHandler_ListTables(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tbls, ok := resp["Tables"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, tbls, 2)
@@ -150,7 +151,7 @@ func TestHandler_ListTables_DatabaseNameOptional(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tbls, ok := resp["Tables"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tbls, 2)
@@ -255,7 +256,7 @@ func TestHandler_ListTables_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbls := out["Tables"].([]any)
 	require.Len(t, tbls, 2)
@@ -278,7 +279,7 @@ func TestHandler_ListTables_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	tbls1 := out1["Tables"].([]any)
 	assert.Len(t, tbls1, 2)
@@ -294,7 +295,7 @@ func TestHandler_ListTables_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	tbls2 := out2["Tables"].([]any)
 	assert.Len(t, tbls2, 1)
@@ -323,7 +324,7 @@ func TestHandler_CreateTable_WithSchema(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	schema, ok := tbl["Schema"].(map[string]any)
@@ -361,7 +362,7 @@ func TestHandler_DescribeTable_ReturnsSchema(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	schema, ok := tbl["Schema"].(map[string]any)
@@ -394,7 +395,7 @@ func TestHandler_UpdateTable_WithSchema(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	schema := tbl["Schema"].(map[string]any)
@@ -423,7 +424,7 @@ func TestHandler_ListTables_IncludesSchema(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tables := out["Tables"].([]any)
 	require.Len(t, tables, 1)
@@ -458,7 +459,7 @@ func TestHandler_CreateTable_MagneticStoreRejectedDataLocation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	mswp := tbl["MagneticStoreWriteProperties"].(map[string]any)
@@ -501,7 +502,7 @@ func TestHandler_DescribeTable_MagneticStoreRejectedDataLocationRoundTrip(t *tes
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	mswp := tbl["MagneticStoreWriteProperties"].(map[string]any)
@@ -578,7 +579,7 @@ func TestHandler_CreateTable_NameFormatValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -690,7 +691,7 @@ func TestHandler_CreateTable_RetentionPropertiesRangeValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -817,7 +818,7 @@ func TestHandler_CreateTable_PartitionKeyTypeValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -846,7 +847,7 @@ func TestHandler_UpdateTable_PartitionKeyValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 
 	// Valid DIMENSION with Name should succeed.
@@ -879,7 +880,7 @@ func TestHandler_CreateTable_TagValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 }
 
@@ -897,7 +898,7 @@ func TestHandler_CreateTable_ConflictException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ConflictException", body["__type"])
 }
 
@@ -916,7 +917,7 @@ func TestHandler_CreateTable_StatusActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	assert.Equal(t, "ACTIVE", tbl["TableStatus"])
@@ -941,7 +942,7 @@ func TestHandler_DescribeTable_StatusActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	assert.Equal(t, "ACTIVE", tbl["TableStatus"])
@@ -966,7 +967,7 @@ func TestHandler_ListTables_StatusActive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tables := out["Tables"].([]any)
 	require.Len(t, tables, 3)
@@ -994,7 +995,7 @@ func TestHandler_CreateTable_ARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	arn := tbl["Arn"].(string)
@@ -1018,7 +1019,7 @@ func TestHandler_CreateTable_TimestampsAreFloats(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	tbl := raw["Table"].(map[string]any)
 	ct, ok := tbl["CreationTime"].(float64)
@@ -1043,7 +1044,7 @@ func TestHandler_CreateTable_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	arn := tbl["Arn"].(string)
@@ -1052,7 +1053,7 @@ func TestHandler_CreateTable_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	tags := tagsOut["Tags"].([]any)
 	assert.Len(t, tags, 1)
@@ -1081,7 +1082,7 @@ func TestHandler_CreateTable_RetentionProperties(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	rp := tbl["RetentionProperties"].(map[string]any)
@@ -1108,7 +1109,7 @@ func TestHandler_CreateTable_MagneticStoreWriteProperties(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	mswp := tbl["MagneticStoreWriteProperties"].(map[string]any)
@@ -1136,7 +1137,7 @@ func TestHandler_UpdateTable_RetentionProperties(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	rp := tbl["RetentionProperties"].(map[string]any)
@@ -1170,7 +1171,7 @@ func TestHandler_UpdateTable_MagneticStoreWriteProperties(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	tbl := out["Table"].(map[string]any)
 	mswp := tbl["MagneticStoreWriteProperties"].(map[string]any)
 	assert.Equal(t, true, mswp["EnableMagneticStoreWrites"])
@@ -1224,7 +1225,7 @@ func TestHandler_CreateTable_DefaultRetentionProperties(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			tbl := out["Table"].(map[string]any)
 			rp := tbl["RetentionProperties"].(map[string]any)
@@ -1250,7 +1251,7 @@ func TestHandler_CreateTable_NoPropertiesReturnsDefaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	rp, hasRP := tbl["RetentionProperties"]
@@ -1290,7 +1291,7 @@ func TestHandler_DescribeTable_RetentionAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tbl := out["Table"].(map[string]any)
 	rp := tbl["RetentionProperties"].(map[string]any)
@@ -1318,7 +1319,7 @@ func TestHandler_ListTables_IncludesRetentionProperties(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tables := out["Tables"].([]any)
 	require.Len(t, tables, 1)

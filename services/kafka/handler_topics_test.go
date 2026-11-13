@@ -3,7 +3,7 @@ package kafka_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestKafka_CreateTopic(t *testing.T) {
@@ -57,14 +59,14 @@ func TestKafka_CreateTopic(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 			encodedArn := url.PathEscape(clusterArn)
 
 			var bodyBytes []byte
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -86,7 +88,7 @@ func TestKafka_CreateTopic(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "my-topic", resp["topicName"])
 			}
 		})
@@ -123,14 +125,14 @@ func TestKafka_DeleteTopic(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 			encodedArn := url.PathEscape(clusterArn)
 
 			// Create topic
 			e := echo.New()
 			topicBody, _ := json.Marshal(
-				map[string]any{"topicName": "my-topic", "replicationFactor": 1, "partitionCount": 3},
+				map[string]any{"topicName": "my-topic", "replicationFactor": 1, "partitionCount": 3}, jsonx.V1(),
 			)
 			reqCreate := httptest.NewRequest(
 				http.MethodPost,
@@ -236,7 +238,7 @@ func TestListTopicsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	topics1 := resp1["topics"].([]any)
 	assert.Len(t, topics1, 3)
 
@@ -253,7 +255,7 @@ func TestListTopicsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	topics2 := resp2["topics"].([]any)
 	assert.Len(t, topics2, 2)
 	assert.Empty(t, resp2["nextToken"])

@@ -2,8 +2,9 @@ package awsconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -33,7 +34,7 @@ type extractDeliveryChannelNameInput struct {
 
 func extractDeliveryChannelName(body []byte) string {
 	var req extractDeliveryChannelNameInput
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -46,7 +47,7 @@ type extractFirstDeliveryChannelNameInput struct {
 
 func extractFirstDeliveryChannelName(body []byte) string {
 	var req extractFirstDeliveryChannelNameInput
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 	if len(req.DeliveryChannelNames) > 0 {

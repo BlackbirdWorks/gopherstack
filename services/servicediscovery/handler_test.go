@@ -2,7 +2,7 @@ package servicediscovery_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
@@ -29,7 +30,7 @@ func doSDRequest(t *testing.T, h *servicediscovery.Handler, op string, body any)
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -215,7 +216,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			h := newTestHandler(t)
 			e := echo.New()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
@@ -288,7 +289,7 @@ func TestServiceDiscovery_Handler_Reset(t *testing.T) {
 			var out struct {
 				Namespaces []any `json:"Namespaces"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Namespaces, tt.wantAfter)
 		})
 	}
@@ -358,13 +359,13 @@ func createNamespaceHelper(t *testing.T, h *servicediscovery.Handler, name strin
 	require.Equal(t, 200, nsRec.Code)
 
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 
 	opID := nsResp["OperationId"].(string)
 	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 
 	var nsOpResp map[string]any
-	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp, jsonx.V1()))
 
 	return nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 }

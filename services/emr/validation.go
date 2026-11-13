@@ -1,11 +1,12 @@
 package emr
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -62,7 +63,7 @@ func checkMarker(body []byte) error {
 		NextToken string `json:"NextToken"`
 	}
 
-	if json.Unmarshal(body, &in) == nil {
+	if json.Unmarshal(body, &in, jsonx.V1()) == nil {
 		for _, tok := range []string{in.Marker, in.NextToken} {
 			if page.ValidateToken(tok) != nil {
 				return fmt.Errorf("%w: Invalid marker", ErrValidation)

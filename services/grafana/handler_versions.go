@@ -2,9 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -34,5 +35,5 @@ func (h *Handler) handleListVersions(_ context.Context, r *http.Request, _ []byt
 		out["nextToken"] = p.Next
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }

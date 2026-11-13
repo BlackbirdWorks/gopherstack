@@ -30,8 +30,9 @@ package codedeploy
 // NOT converted: there is no *T value for store.Table to key on. It remains
 // a plain map, unchanged by this refactor (see backend.go).
 import (
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -61,7 +62,7 @@ func deploymentConfigTableKeyFn(v *DeploymentConfig) string { return v.Deploymen
 // which is exactly the identity real CodeDeploy uses to deduplicate
 // registrations of the same revision.
 func applicationRevisionKey(appName string, r RevisionLocation) string {
-	b, _ := json.Marshal(r)
+	b, _ := json.Marshal(r, jsonx.V1())
 
 	return appName + "\x00" + string(b)
 }

@@ -2,13 +2,14 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -45,7 +46,7 @@ func TestHandler_UpdateAndDescribeFeatureMetadata(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recDescribe.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &describeOut, jsonx.V1()))
 	assert.Equal(t, "the record id", describeOut["Description"])
 	assert.Equal(t, "id", describeOut["FeatureName"])
 	assert.Equal(t, "Integral", describeOut["FeatureType"])
@@ -90,7 +91,7 @@ func TestHandler_UpdateFeatureMetadata_ParameterRemovals(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	params, ok := out["Parameters"].([]any)
 	require.True(t, ok)
@@ -124,7 +125,7 @@ func TestHandler_DescribeFeatureMetadata_LastModifiedTimeDefaultsToGroupCreation
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, out["CreationTime"], out["LastModifiedTime"],
 		"a never-updated feature's LastModifiedTime falls back to the group's CreationTime")

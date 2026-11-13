@@ -1,7 +1,8 @@
 package redshiftdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/redshiftdata"
 )
@@ -219,13 +221,13 @@ func TestDescribeStatement_NoFabricatedFields(t *testing.T) {
 			var execResp struct {
 				ID string `json:"Id"`
 			}
-			require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+			require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp, jsonx.V1()))
 
 			rec := doRequest(t, h, "DescribeStatement", map[string]any{"Id": execResp.ID})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotContains(t, resp, tt.field)
 		})
 	}

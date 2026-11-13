@@ -1,11 +1,13 @@
 package awsconfig
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Compliance type constants used by the evaluation engine.
@@ -109,7 +111,7 @@ func parseConfiguration(configuration string) map[string]any {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal([]byte(configuration), &m); err != nil {
+	if err := json.Unmarshal([]byte(configuration), &m, jsonx.V1()); err != nil {
 		return map[string]any{}
 	}
 
@@ -125,7 +127,7 @@ func parseInputParameters(input string) map[string]string {
 	}
 
 	var raw map[string]any
-	if err := json.Unmarshal([]byte(input), &raw); err != nil {
+	if err := json.Unmarshal([]byte(input), &raw, jsonx.V1()); err != nil {
 		return out
 	}
 
@@ -134,7 +136,7 @@ func parseInputParameters(input string) map[string]string {
 		case string:
 			out[k] = tv
 		default:
-			b, _ := json.Marshal(tv)
+			b, _ := json.Marshal(tv, jsonx.V1())
 			out[k] = string(b)
 		}
 	}

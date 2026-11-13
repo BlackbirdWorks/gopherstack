@@ -1,11 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -62,7 +63,7 @@ func (h *Handler) dispatchEffectivePolicy(c *echo.Context, op string, body []byt
 
 func (h *Handler) handleDescribeEffectivePolicy(c *echo.Context, body []byte) error {
 	var req describeEffectivePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -87,7 +88,7 @@ func (h *Handler) handleDescribeEffectivePolicy(c *echo.Context, body []byte) er
 
 func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, body []byte) error {
 	var req listEffectivePolicyValidationErrorsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

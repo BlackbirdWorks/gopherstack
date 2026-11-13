@@ -3,12 +3,14 @@ package pipes
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -88,7 +90,7 @@ func (r *Runner) invokeTimestreamTarget(ctx context.Context, p *Pipe, payload []
 // or the payload itself as a single event.
 func splitPipeEvents(payload []byte) []any {
 	var v any
-	if err := json.Unmarshal(payload, &v); err != nil {
+	if err := json.Unmarshal(payload, &v, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -331,11 +333,11 @@ func decodeEmbeddedJSON(v any) any {
 	}
 
 	var out any
-	if json.Unmarshal([]byte(s), &out) == nil {
+	if json.Unmarshal([]byte(s), &out, jsonx.V1()) == nil {
 		return out
 	}
 
-	if raw, err := base64.StdEncoding.DecodeString(s); err == nil && json.Unmarshal(raw, &out) == nil {
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil && json.Unmarshal(raw, &out, jsonx.V1()) == nil {
 		return out
 	}
 
@@ -354,7 +356,7 @@ func pipeScalarString(v any) string {
 		return ""
 	}
 
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return string(b)
 }

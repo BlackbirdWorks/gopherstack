@@ -2,7 +2,7 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -269,7 +270,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	var req extractStreamNameInput
 
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -378,7 +379,7 @@ func (h *Handler) kinesisRoute(ctx context.Context, r *http.Request, action stri
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // handleError writes a Kinesis error response using the standard error details mapping.

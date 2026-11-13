@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -32,7 +33,7 @@ func TestRunTask_ContainersField_Populated(t *testing.T) {
 	require.Equal(t, http.StatusOK, tdRec.Code)
 
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	// Run a task.
@@ -43,7 +44,7 @@ func TestRunTask_ContainersField_Populated(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code, runRec.Body.String())
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 
 	tasks := runOut["tasks"].([]any)
 	require.Len(t, tasks, 1)
@@ -88,14 +89,14 @@ func TestRunTask_ContainersStatus_Synced_To_Running(t *testing.T) {
 	require.Equal(t, http.StatusOK, tdRec.Code)
 
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	runRec := doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn})
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	containers := task["containers"].([]any)
@@ -129,14 +130,14 @@ func TestRunTask_ContainersHealthStatus_WithHealthCheck(t *testing.T) {
 	require.Equal(t, http.StatusOK, tdRec.Code)
 
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	runRec := doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn})
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	containers := task["containers"].([]any)
@@ -163,7 +164,7 @@ func TestRunTask_PropagateTagsTaskDefinition(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	// Run a task with propagateTags=TASK_DEFINITION.
@@ -174,7 +175,7 @@ func TestRunTask_PropagateTagsTaskDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code, runRec.Body.String())
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	tags, ok := task["tags"].([]any)
@@ -205,7 +206,7 @@ func TestRunTask_PropagateTagsTaskDefinition_ExplicitTagWins(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	// Explicit tag overrides the propagated one.
@@ -217,7 +218,7 @@ func TestRunTask_PropagateTagsTaskDefinition_ExplicitTagWins(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	tags := task["tags"].([]any)
@@ -243,7 +244,7 @@ func TestRunTask_ECSManagedTags_Injected(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "mycluster"})
@@ -256,7 +257,7 @@ func TestRunTask_ECSManagedTags_Injected(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code, runRec.Body.String())
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	tags, ok := task["tags"].([]any)
@@ -285,7 +286,7 @@ func TestRunTask_Tags_InResponse(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	runRec := doECSRequest(t, h, "RunTask", map[string]any{
@@ -295,7 +296,7 @@ func TestRunTask_Tags_InResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	task := runOut["tasks"].([]any)[0].(map[string]any)
 
 	tags, ok := task["tags"].([]any)
@@ -318,14 +319,14 @@ func TestDescribeTasks_ContainersField_Present(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	runRec := doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn})
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	taskArn := runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 	// DescribeTasks must also return containers.
@@ -335,7 +336,7 @@ func TestDescribeTasks_ContainersField_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	tasks := descOut["tasks"].([]any)
 	require.Len(t, tasks, 1)
@@ -368,7 +369,7 @@ func TestECS_RunTask_StartedBy(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tasks, ok := resp["tasks"].([]any)
 	require.True(t, ok)

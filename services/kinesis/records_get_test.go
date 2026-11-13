@@ -3,7 +3,7 @@ package kinesis_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -48,7 +49,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 						} `json:"Shards"`
 					} `json:"StreamDescription"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				require.NotEmpty(t, descResp.StreamDescription.Shards)
 				shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -75,7 +76,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 				var putResp struct {
 					FailedRecordCount int `json:"FailedRecordCount"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 				assert.Equal(t, 0, putResp.FailedRecordCount)
 
 				rec = doRequest(t, h, "GetShardIterator", map[string]any{
@@ -88,7 +89,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 				var iterResp struct {
 					ShardIterator string `json:"ShardIterator"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp, jsonx.V1()))
 				require.NotEmpty(t, iterResp.ShardIterator)
 
 				rec = doRequest(t, h, "GetRecords", map[string]any{
@@ -101,7 +102,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 						PartitionKey string `json:"PartitionKey"`
 					} `json:"Records"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.Len(
 					t,
 					getResp.Records,
@@ -134,7 +135,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 						} `json:"Shards"`
 					} `json:"StreamDescription"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				require.NotEmpty(t, descResp.StreamDescription.Shards)
 				shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -166,7 +167,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 				var iterResp struct {
 					ShardIterator string `json:"ShardIterator"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp, jsonx.V1()))
 				require.NotEmpty(t, iterResp.ShardIterator)
 
 				rec = doRequest(t, h, "GetRecords", map[string]any{
@@ -179,7 +180,7 @@ func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 						Data []byte `json:"Data"`
 					} `json:"Records"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				assert.LessOrEqual(t, len(getResp.Records), 2,
 					"data cap (10 MiB) should stop GetRecords before the 3rd 4-MiB record")
 			},
@@ -367,7 +368,7 @@ func TestPutAndGetRecords(t *testing.T) {
 				} `json:"Shards"`
 			} `json:"StreamDescription"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.NotEmpty(t, descResp.StreamDescription.Shards)
 		shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -383,7 +384,7 @@ func TestPutAndGetRecords(t *testing.T) {
 			ShardID        string `json:"ShardId"`
 			SequenceNumber string `json:"SequenceNumber"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 		assert.NotEmpty(t, putResp.ShardID)
 		assert.NotEmpty(t, putResp.SequenceNumber)
 		firstSeq := putResp.SequenceNumber
@@ -405,7 +406,7 @@ func TestPutAndGetRecords(t *testing.T) {
 			} `json:"Records"`
 			FailedRecordCount int `json:"FailedRecordCount"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp, jsonx.V1()))
 		assert.Equal(t, 0, batchResp.FailedRecordCount)
 		assert.Len(t, batchResp.Records, 2)
 
@@ -420,7 +421,7 @@ func TestPutAndGetRecords(t *testing.T) {
 		var iterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp, jsonx.V1()))
 		assert.NotEmpty(t, iterResp.ShardIterator)
 
 		// GetRecords
@@ -438,7 +439,7 @@ func TestPutAndGetRecords(t *testing.T) {
 				Data           []byte `json:"Data"`
 			} `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 		assert.Len(t, getResp.Records, 3) // 1 + 2 batch
 		assert.NotEmpty(t, getResp.NextShardIterator)
 
@@ -454,7 +455,7 @@ func TestPutAndGetRecords(t *testing.T) {
 		var atSeqIterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &atSeqIterResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &atSeqIterResp, jsonx.V1()))
 
 		rec = doRequest(t, h, "GetRecords", map[string]any{
 			"ShardIterator": atSeqIterResp.ShardIterator,
@@ -467,7 +468,7 @@ func TestPutAndGetRecords(t *testing.T) {
 				SequenceNumber string `json:"SequenceNumber"`
 			} `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &atSeqResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &atSeqResp, jsonx.V1()))
 		// AT_SEQUENCE_NUMBER starts at the given record (inclusive)
 		require.NotEmpty(t, atSeqResp.Records)
 		assert.Equal(t, firstSeq, atSeqResp.Records[0].SequenceNumber)
@@ -484,7 +485,7 @@ func TestPutAndGetRecords(t *testing.T) {
 		var afterIterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterIterResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterIterResp, jsonx.V1()))
 
 		rec = doRequest(t, h, "GetRecords", map[string]any{
 			"ShardIterator": afterIterResp.ShardIterator,
@@ -497,7 +498,7 @@ func TestPutAndGetRecords(t *testing.T) {
 				SequenceNumber string `json:"SequenceNumber"`
 			} `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterSeqResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterSeqResp, jsonx.V1()))
 		// AFTER_SEQUENCE_NUMBER skips the given record
 		assert.Len(t, afterSeqResp.Records, 2)
 
@@ -512,7 +513,7 @@ func TestPutAndGetRecords(t *testing.T) {
 		var latestIterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &latestIterResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &latestIterResp, jsonx.V1()))
 
 		rec = doRequest(t, h, "GetRecords", map[string]any{
 			"ShardIterator": latestIterResp.ShardIterator,
@@ -522,7 +523,7 @@ func TestPutAndGetRecords(t *testing.T) {
 		var latestResp struct {
 			Records []any `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &latestResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &latestResp, jsonx.V1()))
 		assert.Empty(t, latestResp.Records) // No new records since iterator was created
 	})
 }
@@ -554,7 +555,7 @@ func TestSequenceNumberOrdering(t *testing.T) {
 				} `json:"Shards"`
 			} `json:"StreamDescription"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		shardID := descResp.StreamDescription.Shards[0].ShardID
 
 		// Put 5 records
@@ -570,7 +571,7 @@ func TestSequenceNumberOrdering(t *testing.T) {
 			var putResp struct {
 				SequenceNumber string `json:"SequenceNumber"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			seqNums[i] = putResp.SequenceNumber
 		}
 
@@ -591,7 +592,7 @@ func TestSequenceNumberOrdering(t *testing.T) {
 		var iterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp, jsonx.V1()))
 
 		rec = doRequest(t, h, "GetRecords", map[string]any{
 			"ShardIterator": iterResp.ShardIterator,
@@ -604,7 +605,7 @@ func TestSequenceNumberOrdering(t *testing.T) {
 				SequenceNumber string `json:"SequenceNumber"`
 			} `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 		require.Len(t, getResp.Records, 5)
 
 		for i, r := range getResp.Records {
@@ -1153,7 +1154,7 @@ func TestGetRecords_MillisBehindLatest_ViaHandler(t *testing.T) {
 		var iterResp struct {
 			ShardIterator string `json:"ShardIterator"`
 		}
-		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp))
+		require.NoError(t, json.Unmarshal(iterRec.Body.Bytes(), &iterResp, jsonx.V1()))
 
 		// Fetch 1 record (leaving 2 behind).
 		rec = doRequest(t, h, "GetRecords", map[string]any{
@@ -1166,7 +1167,7 @@ func TestGetRecords_MillisBehindLatest_ViaHandler(t *testing.T) {
 			Records            []any `json:"Records"`
 			MillisBehindLatest int64 `json:"MillisBehindLatest"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 		assert.Len(t, getResp.Records, 1)
 		// Should be behind the last record, not just the next one.
 		assert.GreaterOrEqual(t, getResp.MillisBehindLatest, int64(0))

@@ -2,7 +2,7 @@ package textract
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -117,7 +117,7 @@ func newDTORegistry() *dtoRegistry {
 // values are strings, not *T, so they do not fit store.Table's
 // keyed-by-identity-value shape and are unaffected by this conversion.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage   `json:"tables"`
+	Tables                    map[string]jsontext.Value    `json:"tables"`
 	ClientTokenToJobID        map[string]map[string]string `json:"clientTokenToJobId,omitempty"`
 	AdapterClientTokenToID    map[string]map[string]string `json:"adapterClientTokenToId,omitempty"`
 	ExpenseClientTokenToJobID map[string]map[string]string `json:"expenseClientTokenToJobId,omitempty"`

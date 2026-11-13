@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"strings"
 	"time"
@@ -33,7 +33,7 @@ type InMemoryBackend struct {
 	campaignVersions       map[string][]*Campaign
 	segmentVersions        map[string][]*Segment
 	templateVersionHistory map[string][]templateVersionItem
-	templateVersionData    map[string]map[string]json.RawMessage
+	templateVersionData    map[string]map[string]jsontext.Value
 	templateActiveVersion  map[string]string
 	campaignActivities     map[string][]campaignActivity
 	journeyRuns            map[string][]*journeyRun
@@ -58,7 +58,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		campaignVersions:       make(map[string][]*Campaign),
 		segmentVersions:        make(map[string][]*Segment),
 		templateVersionHistory: make(map[string][]templateVersionItem),
-		templateVersionData:    make(map[string]map[string]json.RawMessage),
+		templateVersionData:    make(map[string]map[string]jsontext.Value),
 		templateActiveVersion:  make(map[string]string),
 		campaignActivities:     make(map[string][]campaignActivity),
 		journeyRuns:            make(map[string][]*journeyRun),
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) Reset() {
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
 	b.templateVersionHistory = make(map[string][]templateVersionItem)
-	b.templateVersionData = make(map[string]map[string]json.RawMessage)
+	b.templateVersionData = make(map[string]map[string]jsontext.Value)
 	b.templateActiveVersion = make(map[string]string)
 	b.campaignActivities = make(map[string][]campaignActivity)
 	b.journeyRuns = make(map[string][]*journeyRun)

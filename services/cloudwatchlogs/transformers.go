@@ -2,10 +2,12 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutTransformer creates or updates a log transformer.
@@ -134,7 +136,7 @@ func applyProcessorsToMessage(message string, processors []map[string]any) strin
 		return message
 	}
 
-	out, err := json.Marshal(obj)
+	out, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
 		return message
 	}
@@ -149,7 +151,7 @@ func decodeJSONObject(message string) (map[string]any, bool) {
 	}
 
 	var obj map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &obj, jsonx.V1()); err != nil {
 		return nil, false
 	}
 

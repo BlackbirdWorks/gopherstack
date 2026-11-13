@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -16,8 +19,8 @@ type autoMLJobConfigRequest struct {
 	DataSplitConfig           *AutoMLDataSplitConfig `json:"DataSplitConfig,omitempty"`
 	SecurityConfig            *AutoMLSecurityConfig  `json:"SecurityConfig,omitempty"`
 	Mode                      string                 `json:"Mode,omitempty"`
-	CandidateGenerationConfig json.RawMessage        `json:"CandidateGenerationConfig,omitempty"`
-	CompletionCriteria        json.RawMessage        `json:"CompletionCriteria,omitempty"`
+	CandidateGenerationConfig jsontext.Value         `json:"CandidateGenerationConfig,omitempty"`
+	CompletionCriteria        jsontext.Value         `json:"CompletionCriteria,omitempty"`
 }
 
 type createAutoMLJobRequest struct {
@@ -37,7 +40,7 @@ type createAutoMLJobRequest struct {
 func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAutoMLJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -97,7 +100,7 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		return nil, optErr
 	}
 
-	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
+	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn}, jsonx.V1())
 }
 
 type describeAutoMLJobRequest struct {
@@ -107,7 +110,7 @@ type describeAutoMLJobRequest struct {
 func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAutoMLJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -154,7 +157,7 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 
 	describeAutoMLV1Config(resp, j)
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type stopAutoMLJobRequest struct {
@@ -164,7 +167,7 @@ type stopAutoMLJobRequest struct {
 func (h *Handler) handleStopAutoMLJob(ctx context.Context, body []byte) error {
 	var req stopAutoMLJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -191,7 +194,7 @@ type listAutoMLJobsRequest struct {
 func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAutoMLJobsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -228,7 +231,7 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]any{
 		"AutoMLJobSummaries": summaries,
 		keyNextToken:         next,
-	})
+	}, jsonx.V1())
 }
 
 func describeAutoMLV1Config(resp map[string]any, j *AutoMLJob) {

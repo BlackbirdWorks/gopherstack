@@ -1,7 +1,7 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -207,7 +208,7 @@ func TestGetAdmChannel_NoRawSecretInBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &body, jsonx.V1()))
 
 	assert.NotContains(t, body, "ClientId")
 	assert.NotContains(t, body, "ClientSecret")
@@ -231,7 +232,7 @@ func TestGetApnsChannel_NoRawSecretInBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &body, jsonx.V1()))
 
 	for _, k := range []string{"BundleId", "Certificate", "TeamId", "TokenKey", "TokenKeyId"} {
 		assert.NotContains(t, body, k)

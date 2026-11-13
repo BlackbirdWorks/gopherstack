@@ -1,12 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_DeploymentOps verifies CreateDeployment and StartDeployment via the HTTP handler.
@@ -34,7 +36,7 @@ func TestHandler_DeploymentOps(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			jobID := createResp["jobId"].(string)
 			assert.NotEmpty(t, jobID)
 			assert.NotNil(t, createResp["fileUploadUrls"])
@@ -45,7 +47,7 @@ func TestHandler_DeploymentOps(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			assert.NotNil(t, startResp["jobSummary"])
 		})
 	}

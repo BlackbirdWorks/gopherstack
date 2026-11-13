@@ -1,7 +1,7 @@
 package resourcegroups_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -182,7 +183,7 @@ func TestResourceGroupsHandler_GetTagSyncTask(t *testing.T) {
 				var out struct {
 					TaskArn string `json:"TaskArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.TaskArn
 			},
@@ -252,7 +253,7 @@ func TestResourceGroupsHandler_CancelTagSyncTask(t *testing.T) {
 				var out struct {
 					TaskArn string `json:"TaskArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.TaskArn
 			},
@@ -315,7 +316,7 @@ func TestCancelTagSyncTaskState(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	taskARN := startOut["TaskArn"].(string)
 
 	cancelRec := doResourceGroupsRequest(
@@ -441,7 +442,7 @@ func TestListTagSyncTasks_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	tasks1 := out1["TagSyncTasks"].([]any)
 	assert.Len(t, tasks1, 2)
 	tok1, _ := out1["NextToken"].(string)
@@ -454,7 +455,7 @@ func TestListTagSyncTasks_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	tasks2 := out2["TagSyncTasks"].([]any)
 	assert.Len(t, tasks2, 2)
 	assert.Empty(t, out2["NextToken"])
@@ -480,13 +481,13 @@ func TestResourceGroupsHandler_TagSyncTask_CreatedAtIsEpochSeconds(t *testing.T)
 	var startOut struct {
 		TaskArn string `json:"TaskArn"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 
 	getRec := doResourceGroupsRequest(t, h, "GetTagSyncTask", map[string]any{"TaskArn": startOut.TaskArn})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	_, isNumber := getOut["CreatedAt"].(float64)
 	assert.True(t, isNumber, "GetTagSyncTask CreatedAt must be a JSON number: %s", getRec.Body.String())
 
@@ -496,7 +497,7 @@ func TestResourceGroupsHandler_TagSyncTask_CreatedAtIsEpochSeconds(t *testing.T)
 	var listOut struct {
 		TagSyncTasks []map[string]any `json:"TagSyncTasks"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.TagSyncTasks, 1)
 	_, isNumber = listOut.TagSyncTasks[0]["CreatedAt"].(float64)
 	assert.True(t, isNumber, "ListTagSyncTasks CreatedAt must be a JSON number: %s", listRec.Body.String())

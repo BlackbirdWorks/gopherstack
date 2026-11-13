@@ -3,7 +3,8 @@ package appsync
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/validator/rules"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -59,9 +62,9 @@ type rtSub struct {
 }
 
 type rtMessage struct {
-	ID      string          `json:"id,omitempty"`
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	ID      string         `json:"id,omitempty"`
+	Type    string         `json:"type"`
+	Payload jsontext.Value `json:"payload,omitempty"`
 }
 
 type rtStartPayload struct {
@@ -95,7 +98,7 @@ func realtimeAuthFromQuery(r *http.Request) map[string]string {
 		}
 	}
 
-	_ = json.Unmarshal(dec, &out)
+	_ = json.Unmarshal(dec, &out, jsonx.V1())
 
 	return out
 }
@@ -153,14 +156,14 @@ func (b *InMemoryBackend) startSubscription(
 	ctx context.Context, apiID string, conn *rtConn, msg rtMessage, defaultAuth map[string]string, r *http.Request,
 ) {
 	var payload rtStartPayload
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+	if err := json.Unmarshal(msg.Payload, &payload, jsonx.V1()); err != nil {
 		_ = conn.send(rtError(msg.ID, rtErrBadRequest, "invalid start payload"))
 
 		return
 	}
 
 	var req graphqlRequest
-	if err := json.Unmarshal([]byte(payload.Data), &req); err != nil {
+	if err := json.Unmarshal([]byte(payload.Data), &req, jsonx.V1()); err != nil {
 		_ = conn.send(rtError(msg.ID, rtErrBadRequest, "payload.data must be a JSON string"))
 
 		return

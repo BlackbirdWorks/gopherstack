@@ -3,7 +3,8 @@ package sdkwire
 import (
 	"compress/gzip"
 	"embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/aws/smithy-go/traits"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire/ir"
 )
 
@@ -36,7 +38,7 @@ func legacyService(key, signing, userAgentAPI string, protocol protocolFor) *Ser
 	}
 
 	var m ir.Model
-	if derr := json.NewDecoder(zr).Decode(&m); derr != nil {
+	if derr := json.UnmarshalDecode(jsontext.NewDecoder(zr), &m, jsonx.V1()); derr != nil {
 		panic(fmt.Sprintf("sdkwire: model %s: %v", key, derr))
 	}
 

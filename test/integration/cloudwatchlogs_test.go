@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"testing"
 	"time"
@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // decompressGzip decompresses gzip-compressed bytes.
@@ -349,7 +351,7 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_KinesisDelivery(t *testin
 
 	// Verify the payload matches the CloudWatch Logs subscription format.
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal(decompressed, &payload))
+	require.NoError(t, json.Unmarshal(decompressed, &payload, jsonx.V1()))
 	assert.Equal(t, "DATA_MESSAGE", payload["messageType"])
 	assert.Equal(t, groupName, payload["logGroup"])
 	assert.Equal(t, logStreamName, payload["logStream"])

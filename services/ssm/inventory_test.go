@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -1050,7 +1051,7 @@ func TestComplianceSummaries_AggregateByCType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items := resp["ComplianceSummaryItems"].([]any)
 	assert.NotEmpty(t, items, "should have compliance summary items")
@@ -1087,7 +1088,7 @@ func TestResourceComplianceSummaries_PerResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items := resp["ResourceComplianceSummaryItems"].([]any)
 	assert.NotEmpty(t, items)
@@ -1125,7 +1126,7 @@ func TestResourceComplianceSummaries_NonCompliantStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, item := range resp["ResourceComplianceSummaryItems"].([]any) {
 		m := item.(map[string]any)
@@ -1143,7 +1144,7 @@ func TestGetInventorySchema_ReturnsBuiltInTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schemas := resp["Schemas"].([]any)
 	assert.NotEmpty(t, schemas, "GetInventorySchema should return built-in schema types")
@@ -1187,7 +1188,7 @@ func TestGetInventorySchema_FilterByTypeName(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 
-			body, _ := json.Marshal(map[string]any{"TypeName": tt.typeName})
+			body, _ := json.Marshal(map[string]any{"TypeName": tt.typeName}, jsonx.V1())
 			rec := doRequest(t, h, "GetInventorySchema", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContains)
@@ -1219,7 +1220,7 @@ func TestInventory_TypeMergeAndLookup(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"InstanceId": "i-inv001",
 		"TypeName":   "AWS:Application",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "ListInventoryEntries", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "aws-cli")
@@ -1257,7 +1258,7 @@ func TestInventory_TypeMergeAndLookup(t *testing.T) {
 	body, _ = json.Marshal(map[string]any{
 		"InstanceId": "i-inv001",
 		"TypeName":   "AWS:Application",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "ListInventoryEntries", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "2.1")

@@ -1,7 +1,8 @@
 package cloudwatch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
@@ -76,7 +78,7 @@ func TestSDK_AlarmStateTransitionRealism(t *testing.T) {
 			got := out.MetricAlarms[0]
 			assert.Equal(t, tt.wantState, got.StateValue)
 			assert.Contains(t, aws.ToString(got.StateReason), tt.wantReason)
-			assert.True(t, json.Valid([]byte(aws.ToString(got.StateReasonData))))
+			assert.True(t, jsontext.Value([]byte(aws.ToString(got.StateReasonData))).IsValid(jsonx.V1()))
 
 			putBreachAlarm(t, client, "a", 6)
 			out, err = client.DescribeAlarms(t.Context(), &cwsdk.DescribeAlarmsInput{})
@@ -96,7 +98,10 @@ func TestSDK_AlarmStateTransitionRealism(t *testing.T) {
 					StateValue string `json:"stateValue"`
 				} `json:"newState"`
 			}
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(hist.AlarmHistoryItems[0].HistoryData)), &data))
+			require.NoError(
+				t,
+				json.Unmarshal([]byte(aws.ToString(hist.AlarmHistoryItems[0].HistoryData)), &data, jsonx.V1()),
+			)
 			assert.Equal(t, string(tt.wantState), data.NewState.StateValue)
 		})
 	}

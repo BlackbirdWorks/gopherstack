@@ -1,7 +1,7 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -96,7 +97,7 @@ func TestCreateApplication_NoTopLevelSourceCodeURL_SDKRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rawBody, &raw))
+	require.NoError(t, json.Unmarshal(rawBody, &raw, jsonx.V1()))
 
 	_, hasTopLevelSourceCodeURL := raw["sourceCodeUrl"]
 	require.False(t, hasTopLevelSourceCodeURL,

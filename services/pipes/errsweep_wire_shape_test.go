@@ -1,7 +1,7 @@
 package pipes_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
@@ -58,7 +59,7 @@ func TestHandler_MalformedBodyCarriesTypedErrorCode(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(raw, &decoded))
+	require.NoError(t, json.Unmarshal(raw, &decoded, jsonx.V1()))
 	require.Equal(t, "ValidationException", decoded["__type"],
 		"raw response body must carry __type; got: %s", raw)
 	require.NotEmpty(t, decoded["message"])

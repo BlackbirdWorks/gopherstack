@@ -1,7 +1,7 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -239,7 +240,7 @@ func TestReceiveMessage_VisibilityTimeout_OutOfRange(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, errResp.Type)
 		})
 	}
@@ -282,7 +283,7 @@ func TestReceiveMessage_VisibilityTimeout_ValidBoundaries(t *testing.T) {
 					Body string `json:"Body"`
 				} `json:"Messages"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Messages, 1)
 		})
 	}

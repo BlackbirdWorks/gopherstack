@@ -1,7 +1,8 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -35,7 +37,7 @@ func TestGetCostAndUsageWithResources_ResourceIDs(t *testing.T) {
 		ResultsByTime            []any `json:"ResultsByTime"`
 		DimensionValueAttributes []any `json:"DimensionValueAttributes"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotNil(t, out.ResultsByTime)
 	assert.NotNil(t, out.DimensionValueAttributes)
 }
@@ -77,7 +79,7 @@ func TestGetApproximateUsageRecords_Shape(t *testing.T) {
 				Services     map[string]int64 `json:"Services"`
 				TotalRecords int64            `json:"TotalRecords"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotNil(t, out.Services)
 			assert.Positive(t, out.TotalRecords)
 		})
@@ -109,7 +111,7 @@ func TestGetCostAndUsageComparisons_Shape(t *testing.T) {
 			} `json:"Metrics"`
 		} `json:"CostAndUsageComparisons"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CostAndUsageComparisons)
 	assert.NotEmpty(t, out.TotalCostAndUsage["BlendedCost"])
 	assert.NotEmpty(t, out.CostAndUsageComparisons[0].Metrics["BlendedCost"].ComparisonTimePeriodAmount)
@@ -238,7 +240,7 @@ func TestGetCostComparisonDrivers(t *testing.T) {
 					} `json:"CostDrivers"`
 				} `json:"CostComparisonDrivers"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			require.NotNil(t, out.CostComparisonDrivers)
 			assert.GreaterOrEqual(t, len(out.CostComparisonDrivers), tt.minGroups)
 			assert.LessOrEqual(t, len(out.CostComparisonDrivers), tt.maxGroups)
@@ -274,8 +276,8 @@ func TestGetUsageForecast_MatchesCostForecast(t *testing.T) {
 	require.Equal(t, http.StatusOK, usageRec.Code)
 
 	var costOut, usageOut map[string]any
-	require.NoError(t, json.NewDecoder(costRec.Body).Decode(&costOut))
-	require.NoError(t, json.NewDecoder(usageRec.Body).Decode(&usageOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(costRec.Body), &costOut, jsonx.V1()))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(usageRec.Body), &usageOut, jsonx.V1()))
 
 	// Both should have Total and ForecastResultsByTime
 	assert.NotNil(t, costOut["Total"])
@@ -299,7 +301,7 @@ func TestGetTags_EmptyKeyReturnsAllKeys(t *testing.T) {
 		ReturnSize int      `json:"ReturnSize"`
 		TotalSize  int      `json:"TotalSize"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	// Ledger may have no tags seeded — assert shape is correct regardless
 	assert.NotNil(t, out.Tags)
 	assert.Equal(t, len(out.Tags), out.ReturnSize)
@@ -320,7 +322,7 @@ func TestGetTags_WithTagKey(t *testing.T) {
 	var out struct {
 		Tags []string `json:"Tags"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotNil(t, out.Tags)
 }
 
@@ -348,7 +350,7 @@ func TestGetCostAndUsage_GroupByDimensions(t *testing.T) {
 			var out struct {
 				ResultsByTime []map[string]any `json:"ResultsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotNil(t, out.ResultsByTime)
 		})
 	}
@@ -385,7 +387,7 @@ func TestGetCostAndUsage_AlternateMetrics(t *testing.T) {
 			var out struct {
 				ResultsByTime []map[string]any `json:"ResultsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.ResultsByTime)
 		})
 	}
@@ -467,7 +469,7 @@ func TestGetCostAndUsage_ReturnsResultsByTime(t *testing.T) {
 			var out struct {
 				ResultsByTime []any `json:"ResultsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			if tt.wantNonEmpty {
 				assert.NotEmpty(t, out.ResultsByTime)
@@ -497,7 +499,7 @@ func TestGetCostAndUsage_GroupByProducesGroups(t *testing.T) {
 			} `json:"Groups"`
 		} `json:"ResultsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.ResultsByTime)
 
 	first := out.ResultsByTime[0]
@@ -528,7 +530,7 @@ func TestGetCostAndUsage_TotalPresentWhenNoGroupBy(t *testing.T) {
 			Estimated bool `json:"Estimated"`
 		} `json:"ResultsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.ResultsByTime)
 
 	first := out.ResultsByTime[0]
@@ -569,7 +571,7 @@ func TestGetDimensionValues_ServiceDimension(t *testing.T) {
 				ReturnSize int `json:"ReturnSize"`
 				TotalSize  int `json:"TotalSize"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.DimensionValues)
 			assert.Positive(t, out.ReturnSize)
 			assert.Equal(t, out.ReturnSize, out.TotalSize)
@@ -594,7 +596,7 @@ func TestGetDimensionValues_SearchStringFilters(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"DimensionValues"`
 	}
-	require.NoError(t, json.NewDecoder(recAll.Body).Decode(&allOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(recAll.Body), &allOut, jsonx.V1()))
 	totalCount := len(allOut.DimensionValues)
 
 	// Filter by "Lambda"
@@ -610,7 +612,7 @@ func TestGetDimensionValues_SearchStringFilters(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"DimensionValues"`
 	}
-	require.NoError(t, json.NewDecoder(recFiltered.Body).Decode(&filteredOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(recFiltered.Body), &filteredOut, jsonx.V1()))
 	assert.Less(t, len(filteredOut.DimensionValues), totalCount)
 	for _, dv := range filteredOut.DimensionValues {
 		assert.Contains(t, dv.Value, "Lambda")
@@ -671,7 +673,7 @@ func TestGetCostForecast_ReturnsTimeSeries(t *testing.T) {
 					MeanValue  string            `json:"MeanValue"`
 				} `json:"ForecastResultsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.Total.Amount)
 			assert.NotEmpty(t, out.Total.Unit)
 			assert.NotEmpty(t, out.ForecastResultsByTime)
@@ -892,7 +894,7 @@ func TestHandler_Forecast_ReturnsOK(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotNil(t, out["Total"])
 			forecastResults, ok := out["ForecastResultsByTime"].([]any)
 			require.True(t, ok)
@@ -950,7 +952,7 @@ func TestHandler_GetApproximateUsageRecords(t *testing.T) {
 				LookbackPeriod map[string]string `json:"LookbackPeriod"`
 				TotalRecords   int64             `json:"TotalRecords"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Positive(t, out.TotalRecords)
 			assert.NotEmpty(t, out.LookbackPeriod["Start"])
 			assert.NotEmpty(t, out.LookbackPeriod["End"])
@@ -988,7 +990,7 @@ func TestHandler_GetCostAndUsageComparisons(t *testing.T) {
 			var out struct {
 				CostAndUsageComparisons []any `json:"CostAndUsageComparisons"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.CostAndUsageComparisons)
 		})
 	}
@@ -1057,7 +1059,7 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 			var out struct {
 				ResultsByTime []any `json:"ResultsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Empty(t, out.ResultsByTime)
 		})
 	}
@@ -1093,7 +1095,7 @@ func TestHandler_GetCostComparisonDrivers(t *testing.T) {
 			var out struct {
 				CostComparisonDrivers []any `json:"CostComparisonDrivers"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Empty(t, out.CostComparisonDrivers)
 		})
 	}

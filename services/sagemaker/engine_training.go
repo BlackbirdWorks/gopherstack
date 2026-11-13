@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -94,7 +95,7 @@ func (b *InMemoryBackend) trainingImage(region string, spec AlgorithmSpecificati
 		TrainingImage string `json:"TrainingImage"`
 	}
 
-	if err := json.Unmarshal(alg.TrainingSpecification, &ts); err != nil || ts.TrainingImage == "" {
+	if err := json.Unmarshal(alg.TrainingSpecification, &ts, jsonx.V1()); err != nil || ts.TrainingImage == "" {
 		return "", fmt.Errorf("%w: %s", errAlgorithmNoImage, spec.AlgorithmName)
 	}
 

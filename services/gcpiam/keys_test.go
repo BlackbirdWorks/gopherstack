@@ -6,7 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"testing"
@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type keyFile struct {
@@ -39,7 +41,7 @@ func createKey(t *testing.T, e *env, sa *adminpb.ServiceAccount) (*adminpb.Servi
 	require.NoError(t, err)
 
 	var kf keyFile
-	require.NoError(t, json.Unmarshal(key.GetPrivateKeyData(), &kf))
+	require.NoError(t, json.Unmarshal(key.GetPrivateKeyData(), &kf, jsonx.V1()))
 
 	return key, kf
 }
@@ -123,7 +125,11 @@ func TestKeyAlgorithmsAndFormats(t *testing.T) {
 	assert.Equal(t, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048, small.GetKeyAlgorithm())
 
 	var kf keyFile
-	require.NoError(t, json.Unmarshal(small.GetPrivateKeyData(), &kf), "default type is the credentials file")
+	require.NoError(
+		t,
+		json.Unmarshal(small.GetPrivateKeyData(), &kf, jsonx.V1()),
+		"default type is the credentials file",
+	)
 	assert.Equal(t, 2048, parsePrivate(t, kf.PrivateKey).N.BitLen())
 
 	p12, err := e.client.CreateServiceAccountKey(t.Context(), &adminpb.CreateServiceAccountKeyRequest{

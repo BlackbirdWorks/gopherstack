@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
@@ -645,7 +646,7 @@ func TestHandler_TagOperations_Via_Handler(t *testing.T) {
 
 	doHandlerReq := func(target string, payload any) *httptest.ResponseRecorder {
 		t.Helper()
-		body, marshalErr := json.Marshal(payload)
+		body, marshalErr := json.Marshal(payload, jsonx.V1())
 		require.NoError(t, marshalErr)
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", target)
@@ -689,7 +690,7 @@ func TestHandler_TableMutationOps_Via_Handler(t *testing.T) {
 
 	doHandlerReq := func(target string, payload any) *httptest.ResponseRecorder {
 		t.Helper()
-		body, marshalErr := json.Marshal(payload)
+		body, marshalErr := json.Marshal(payload, jsonx.V1())
 		require.NoError(t, marshalErr)
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", target)
@@ -732,7 +733,7 @@ func TestHandler_UpdateTable_Via_Handler(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"TableName":   "UpdateMe",
 		"BillingMode": "PAY_PER_REQUEST",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -783,7 +784,7 @@ func TestHandler_RestoreTableToPointInTime(t *testing.T) {
 					"PointInTimeRecoverySpecification": map[string]any{
 						"PointInTimeRecoveryEnabled": true,
 					},
-				})
+				}, jsonx.V1())
 				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 				req.Header.Set("X-Amz-Target", "DynamoDB_20120810.UpdateContinuousBackups")
 				req.Header.Set("Content-Type", "application/x-amz-json-1.0")
@@ -813,7 +814,7 @@ func TestHandler_RestoreTableToPointInTime(t *testing.T) {
 				tt.setup(t, db)
 			}
 
-			body, err := json.Marshal(tt.payload)
+			body, err := json.Marshal(tt.payload, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -892,7 +893,7 @@ func TestInMemoryDB_ListBackups_BackupTypeFilter(t *testing.T) {
 	body, marshalErr := json.Marshal(map[string]any{
 		"TableName":  "T",
 		"BackupType": "USER",
-	})
+	}, jsonx.V1())
 	require.NoError(t, marshalErr)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -908,7 +909,7 @@ func TestInMemoryDB_ListBackups_BackupTypeFilter(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["BackupSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 2)
@@ -931,7 +932,7 @@ func TestInMemoryDB_PutResourcePolicy_EmptyPolicy(t *testing.T) {
 	body, marshalErr := json.Marshal(map[string]any{
 		"ResourceArn": tableARN,
 		"Policy":      "",
-	})
+	}, jsonx.V1())
 	require.NoError(t, marshalErr)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -1324,7 +1325,7 @@ func TestInMemoryDB_DescribeBackup_ViaHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	backupArn := aws.ToString(out.BackupDetails.BackupArn)
-	reqBody, _ := json.Marshal(map[string]string{"BackupArn": backupArn})
+	reqBody, _ := json.Marshal(map[string]string{"BackupArn": backupArn}, jsonx.V1())
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
@@ -1336,7 +1337,7 @@ func TestInMemoryDB_DescribeBackup_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var respBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody, jsonx.V1()))
 	assert.Contains(t, respBody, "BackupDescription")
 }
 

@@ -3,7 +3,7 @@ package ssm
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // The ec2messages wire shapes below follow the open-source amazon-ssm-agent
@@ -244,7 +246,10 @@ func (b *InMemoryBackend) queueAgentCancelLocked(region string, inv CommandInvoc
 		return
 	}
 
-	raw, _ := json.Marshal(map[string]string{"CancelMessageId": sendMessageID(inv.CommandID, inv.InstanceID)})
+	raw, _ := json.Marshal(
+		map[string]string{"CancelMessageId": sendMessageID(inv.CommandID, inv.InstanceID)},
+		jsonx.V1(),
+	)
 	q.push(&agentEnvelope{msg: AgentMessage{
 		CreatedDate: messageNow(),
 		Destination: inv.InstanceID,
@@ -278,7 +283,7 @@ func (b *InMemoryBackend) sendCommandPayload(region string, input *SendCommandIn
 		payload["CloudWatchLogGroupName"] = cw.CloudWatchLogGroupName
 	}
 
-	raw, _ := json.Marshal(payload)
+	raw, _ := json.Marshal(payload, jsonx.V1())
 
 	return string(raw)
 }
@@ -290,7 +295,7 @@ func documentAsJSON(content, format string) any {
 	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
-		err = json.Unmarshal([]byte(content), &doc)
+		err = json.Unmarshal([]byte(content), &doc, jsonx.V1())
 	}
 
 	if err != nil {
@@ -496,7 +501,7 @@ func (b *InMemoryBackend) AgentSendReply(ctx context.Context, messageID, payload
 	}
 
 	var reply agentReply
-	if uerr := json.Unmarshal([]byte(payload), &reply); uerr != nil {
+	if uerr := json.Unmarshal([]byte(payload), &reply, jsonx.V1()); uerr != nil {
 		return fmt.Errorf("%w: Payload is not a valid reply document", ErrValidationException)
 	}
 

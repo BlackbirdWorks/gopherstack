@@ -1,7 +1,7 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
@@ -70,7 +71,7 @@ func decodeDocument(t *testing.T, doc interface{ UnmarshalSmithyDocument(v any) 
 
 	var v any
 	require.NoError(t, doc.UnmarshalSmithyDocument(&v))
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)

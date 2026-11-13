@@ -2,7 +2,7 @@ package gcpkms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -19,34 +19,34 @@ const snapshotVersion = 1
 
 // Key material is stored unencrypted in the snapshot: this is a local emulator, not a secure key store.
 type versionSnap struct {
-	Version  json.RawMessage `json:"version"`
-	Material []byte          `json:"material,omitempty"`
-	Deleted  bool            `json:"deleted,omitempty"`
+	Version  jsontext.Value `json:"version"`
+	Material []byte         `json:"material,omitempty"`
+	Deleted  bool           `json:"deleted,omitempty"`
 }
 
 type keySnap struct {
-	Key      json.RawMessage `json:"key"`
-	Versions []versionSnap   `json:"versions,omitempty"`
-	Primary  int64           `json:"primary"`
+	Key      jsontext.Value `json:"key"`
+	Versions []versionSnap  `json:"versions,omitempty"`
+	Primary  int64          `json:"primary"`
 }
 
 type jobSnap struct {
-	Job     json.RawMessage `json:"job"`
-	Private []byte          `json:"private,omitempty"`
+	Job     jsontext.Value `json:"job"`
+	Private []byte         `json:"private,omitempty"`
 }
 
 type backendSnapshot struct {
-	Rings    map[string]json.RawMessage `json:"rings"`
-	Keys     map[string]keySnap         `json:"keys"`
-	Jobs     map[string]jobSnap         `json:"jobs"`
-	Retired  map[string]json.RawMessage `json:"retired,omitempty"`
-	Ops      map[string]json.RawMessage `json:"operations,omitempty"`
-	Policies map[string]json.RawMessage `json:"policies"`
-	EtagSeq  uint64                     `json:"etagSeq"`
-	Version  int                        `json:"version"`
+	Rings    map[string]jsontext.Value `json:"rings"`
+	Keys     map[string]keySnap        `json:"keys"`
+	Jobs     map[string]jobSnap        `json:"jobs"`
+	Retired  map[string]jsontext.Value `json:"retired,omitempty"`
+	Ops      map[string]jsontext.Value `json:"operations,omitempty"`
+	Policies map[string]jsontext.Value `json:"policies"`
+	EtagSeq  uint64                    `json:"etagSeq"`
+	Version  int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -55,7 +55,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
@@ -67,11 +67,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:  snapshotVersion,
 		EtagSeq:  b.etagSeq,
-		Rings:    make(map[string]json.RawMessage, len(b.rings)),
+		Rings:    make(map[string]jsontext.Value, len(b.rings)),
 		Keys:     make(map[string]keySnap, len(b.keys)),
 		Jobs:     make(map[string]jobSnap, len(b.jobs)),
-		Retired:  make(map[string]json.RawMessage, len(b.retired)),
-		Policies: make(map[string]json.RawMessage, len(b.policies)),
+		Retired:  make(map[string]jsontext.Value, len(b.retired)),
+		Policies: make(map[string]jsontext.Value, len(b.policies)),
 	}
 
 	for name, r := range b.rings {

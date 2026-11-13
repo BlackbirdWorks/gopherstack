@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -41,7 +42,7 @@ func TestWireShape_Snapshot_NoTopLevelCreationTime_HasDataTiering(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	snap, _ := resp["Snapshot"].(map[string]any)
 	require.NotNil(t, snap)
@@ -146,7 +147,7 @@ func TestHandler_ExportSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "export snapshot: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	snap, _ := resp["Snapshot"].(map[string]any)
 	assert.Equal(t, "export-snap", snap["Name"], "Snapshot.Name must match")
 	assert.NotEmpty(t, snap["ARN"], "Snapshot.ARN must be present")
@@ -236,7 +237,7 @@ func TestHandler_CreateSnapshot(t *testing.T) {
 
 			if tt.wantSnapshot {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				snap, ok := resp["Snapshot"]
 				require.True(t, ok)
 				snapMap := snap.(map[string]any)
@@ -309,7 +310,7 @@ func TestHandler_CopySnapshot(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				snap := resp["Snapshot"].(map[string]any)
 				assert.Equal(t, tt.wantName, snap["Name"])
 			}
@@ -523,7 +524,7 @@ func TestHandler_Snapshot_FilterBySource(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			snaps, _ := resp["Snapshots"].([]any)
 			assert.GreaterOrEqual(t, len(snaps), tt.wantMinResults,
 				"filter=%q: expected >= %d snapshots", tt.filterSource, tt.wantMinResults)
@@ -627,7 +628,7 @@ func TestHandler_DescribeSnapshots_Filtered(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			snapshots := resp["Snapshots"].([]any)
 			assert.Len(t, snapshots, tt.wantCount)
@@ -711,7 +712,7 @@ func TestHandler_AutomatedSnapshot_OnCreate(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			snaps := resp["Snapshots"].([]any)
 
 			if tt.wantAutoSnap {
@@ -785,7 +786,7 @@ func TestHandler_DescribeSnapshots_SourceFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			snaps := resp["Snapshots"].([]any)
 			assert.GreaterOrEqual(t, len(snaps), tt.wantMinCount)
 
@@ -999,7 +1000,7 @@ func TestHandler_DescribeSnapshots_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	snaps := resp["Snapshots"].([]any)
 	assert.Len(t, snaps, 2)
 	assert.NotEmpty(t, resp["NextToken"])

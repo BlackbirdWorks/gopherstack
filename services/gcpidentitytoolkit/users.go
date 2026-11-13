@@ -2,7 +2,7 @@ package gcpidentitytoolkit
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/mail"
 	"regexp"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -286,7 +287,7 @@ func parseClaims(raw string) (string, error) {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+	if err := json.Unmarshal([]byte(raw), &m, jsonx.V1()); err != nil {
 		return "", idtk("INVALID_CLAIMS")
 	}
 

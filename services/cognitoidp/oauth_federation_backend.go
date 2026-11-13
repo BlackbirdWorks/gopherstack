@@ -3,7 +3,7 @@ package cognitoidp
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -308,7 +309,7 @@ func addIdentity(existing string, idp *IdentityProvider, subject, issuer string)
 func parseIdentities(raw string) []identityRecord {
 	records := make([]identityRecord, 0, 1)
 	if raw != "" {
-		_ = json.Unmarshal([]byte(raw), &records)
+		_ = json.Unmarshal([]byte(raw), &records, jsonx.V1())
 	}
 
 	return records
@@ -328,7 +329,7 @@ func appendIdentity(existing string, rec identityRecord) string {
 		rec.Primary = strconv.FormatBool(len(records) == 0)
 	}
 
-	out, err := json.Marshal(append(records, rec))
+	out, err := json.Marshal(append(records, rec), jsonx.V1())
 	if err != nil {
 		return existing
 	}
@@ -345,7 +346,7 @@ func removeIdentity(existing, providerName, userID string) string {
 		return ""
 	}
 
-	out, err := json.Marshal(records)
+	out, err := json.Marshal(records, jsonx.V1())
 	if err != nil {
 		return existing
 	}

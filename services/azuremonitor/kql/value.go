@@ -3,11 +3,13 @@
 package kql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Type is a KQL column type name as it appears in query results.
@@ -183,7 +185,7 @@ func groupKey(v any) string {
 		return "d" + strconv.FormatInt(int64(x), 10)
 	}
 
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonx.V1())
 
 	return "j" + string(raw)
 }
@@ -273,7 +275,7 @@ func formatReal(f float64) string {
 }
 
 func jsonString(v any) string {
-	raw, err := json.Marshal(jsonable(v))
+	raw, err := json.Marshal(jsonable(v), jsonx.V1())
 	if err != nil {
 		return ""
 	}
@@ -342,7 +344,7 @@ func NormalizeJSON(v any) any {
 		}
 
 		return x
-	case json.Number:
+	case jsonx.Number:
 		if i, err := x.Int64(); err == nil {
 			return i
 		}

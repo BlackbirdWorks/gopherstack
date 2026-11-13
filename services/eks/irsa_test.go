@@ -5,7 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -34,7 +35,7 @@ func jwtParts(t *testing.T, token string) (map[string]any, map[string]any, []byt
 	for i, dst := range []*map[string]any{&hdr, &claims} {
 		raw, err := base64.RawURLEncoding.DecodeString(parts[i])
 		require.NoError(t, err)
-		require.NoError(t, json.Unmarshal(raw, dst))
+		require.NoError(t, json.Unmarshal(raw, dst, jsonx.V1()))
 	}
 
 	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
@@ -301,7 +302,7 @@ func TestOIDCEndpoints(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var doc map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()))
 				assert.Contains(t, doc, tt.wantKey)
 			}
 		})

@@ -1,9 +1,11 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -69,7 +71,7 @@ func (h *Handler) handleListAnalyzedResources(body []byte) (any, int, error) {
 		MaxResults   int    `json:"maxResults"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	resources, nextToken, err := h.Backend.ListAnalyzedResources(
 		req.AnalyzerArn, req.ResourceType, req.MaxResults, req.NextToken,
@@ -106,7 +108,7 @@ func (h *Handler) handleStartResourceScan(body []byte) (int, error) {
 		ResourceArn string `json:"resourceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return 0, ErrValidation
 	}
 

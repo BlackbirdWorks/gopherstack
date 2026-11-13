@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -22,7 +23,7 @@ func TestHandler_Environment_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// Create env.
 	rec = doRequest(
@@ -35,7 +36,7 @@ func TestHandler_Environment_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 	assert.Equal(t, "production", env.Name)
 	assert.Equal(t, app.ID, env.ApplicationID)
 
@@ -62,7 +63,7 @@ func TestHandler_UpdateEnvironment_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(
 		t,
@@ -74,7 +75,7 @@ func TestHandler_UpdateEnvironment_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 	// Update env.
 	rec = doRequest(
@@ -87,7 +88,7 @@ func TestHandler_UpdateEnvironment_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "production", updated.Name)
 }
 
@@ -104,14 +105,14 @@ func TestHandler_UpdateEnvironment_OmittedFieldsPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"staging","Description":"keep-me","Monitors":[{"AlarmArn":"arn:aws:cloudwatch:alarm1"}]}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 	require.Len(t, env.Monitors, 1)
 
 	// Update only Name; Description and Monitors are omitted.
@@ -120,7 +121,7 @@ func TestHandler_UpdateEnvironment_OmittedFieldsPreserved(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "production", updated.Name)
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
 	require.Len(t, updated.Monitors, 1, "omitted Monitors must be preserved")
@@ -132,7 +133,7 @@ func TestHandler_UpdateEnvironment_OmittedFieldsPreserved(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var cleared appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cleared))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cleared, jsonx.V1()))
 	assert.Empty(t, cleared.Monitors, "an explicit empty Monitors list must replace the existing one")
 }
 
@@ -209,19 +210,19 @@ func TestHandler_CreateEnvironment_TagsAppliedInline(t *testing.T) {
 			require.Equal(t, http.StatusCreated, appRec.Code)
 
 			var app appconfig.Application
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 			body, err := json.Marshal(map[string]any{
 				"Name": "tagged-env-" + tt.name,
 				"Tags": tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var env appconfig.Environment
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" +
 				app.ID + "/environment/" + env.ID
@@ -231,7 +232,7 @@ func TestHandler_CreateEnvironment_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)
@@ -255,7 +256,7 @@ func TestHandler_EnvironmentStateIsReadyForDeployment(t *testing.T) {
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	tests := []struct {
 		name string
@@ -285,7 +286,7 @@ func TestHandler_EnvironmentStateIsReadyForDeployment(t *testing.T) {
 			var env struct {
 				State string `json:"State"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 			assert.Equal(t, tt.want, env.State,
 				"environment State must be READY_FOR_DEPLOYMENT (SCREAMING_SNAKE_CASE)")
 		})
@@ -305,7 +306,7 @@ func TestHandler_EnvironmentStateRoundTrip(t *testing.T) {
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"staging"}`))
@@ -315,7 +316,7 @@ func TestHandler_EnvironmentStateRoundTrip(t *testing.T) {
 		ID    string `json:"Id"`
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 	assert.Equal(t, "READY_FOR_DEPLOYMENT", env.State)
 	require.NotEmpty(t, env.ID)
 
@@ -327,7 +328,7 @@ func TestHandler_EnvironmentStateRoundTrip(t *testing.T) {
 	var getEnv struct {
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getEnv))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getEnv, jsonx.V1()))
 	assert.Equal(t, "READY_FOR_DEPLOYMENT", getEnv.State, "GetEnvironment must also return READY_FOR_DEPLOYMENT")
 
 	// ListEnvironments must also return correct state.
@@ -339,7 +340,7 @@ func TestHandler_EnvironmentStateRoundTrip(t *testing.T) {
 			State string `json:"State"`
 		} `json:"Items"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Items, 1)
 	assert.Equal(t, "READY_FOR_DEPLOYMENT", listResp.Items[0].State,
 		"ListEnvironments must also return READY_FOR_DEPLOYMENT")
@@ -381,14 +382,14 @@ func TestHandler_DeleteEnvironment_DeletionProtectionCheck(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var app appconfig.Application
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 			rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 				[]byte(`{"name":"dpc-env"}`))
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var env appconfig.Environment
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 			path := "/applications/" + app.ID + "/environments/" + env.ID
 

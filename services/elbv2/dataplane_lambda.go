@@ -2,7 +2,7 @@ package elbv2
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"mime"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxLambdaTargetBodyBytes is the 1 MB request body limit for ALB Lambda targets.
@@ -72,7 +73,7 @@ func (h *Handler) serveLambda(w http.ResponseWriter, req *dpRequest, tg *TargetG
 	setForwardHeaders(hdr, req)
 	hdr.Set("Host", req.host)
 
-	payload, err := json.Marshal(buildALBEvent(req, tg, hdr, body))
+	payload, err := json.Marshal(buildALBEvent(req, tg, hdr, body), jsonx.V1())
 	if err != nil {
 		writeDPError(w, http.StatusBadGateway, msgBadGateway)
 
@@ -169,7 +170,7 @@ func isTextContent(ct string) bool {
 
 func writeLambdaResponse(w http.ResponseWriter, payload []byte) {
 	var resp albResponse
-	if err := json.Unmarshal(payload, &resp); err != nil || resp.StatusCode == nil {
+	if err := json.Unmarshal(payload, &resp, jsonx.V1()); err != nil || resp.StatusCode == nil {
 		writeDPError(w, http.StatusBadGateway, msgBadGateway)
 
 		return

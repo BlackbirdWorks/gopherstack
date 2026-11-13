@@ -1,13 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_CreateApp(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				app := resp["app"].(map[string]any)
 				assert.Equal(t, tt.wantName, app["name"])
 			}
@@ -143,7 +144,7 @@ func TestHandler_ListApps(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			apps := resp["apps"].([]any)
 			assert.Len(t, apps, tt.wantCount)
 		})
@@ -197,7 +198,7 @@ func TestHandler_ListAppsPagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			apps := resp["apps"].([]any)
 			assert.Len(t, apps, tt.wantCount)
 
@@ -248,7 +249,7 @@ func TestHandler_DeleteApp(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				app, ok := resp["app"].(map[string]any)
 				require.True(t, ok, "expected an \"app\" key wrapping the deleted App, got body %s", rec.Body.String())
 				assert.Equal(t, appID, app["appId"])
@@ -313,7 +314,7 @@ func TestHandler_UpdateApp(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				app := resp["app"].(map[string]any)
 				assert.Equal(t, tt.wantName, app["name"])
 			}

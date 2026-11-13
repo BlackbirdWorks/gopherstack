@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type cancelReplayOutput struct {
@@ -85,7 +87,7 @@ func (h *Handler) replayActions() map[string]actionFn {
 			var input struct {
 				ReplayName string `json:"ReplayName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			replay, err := h.Backend.CancelReplay(ctx, input.ReplayName)
@@ -109,7 +111,7 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 			var input struct {
 				ReplayName string `json:"ReplayName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			replay, err := h.Backend.DescribeReplay(ctx, input.ReplayName)
@@ -127,7 +129,7 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 				NextToken      string `json:"NextToken"`
 				Limit          int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			replays, next, err := h.Backend.ListReplays(
@@ -149,7 +151,7 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 		},
 		"StartReplay": func(ctx context.Context, b []byte) (any, error) {
 			var input StartReplayInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			replay, err := h.Backend.StartReplay(ctx, input)

@@ -1,7 +1,7 @@
 package mediapackage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediapackage"
 )
 
@@ -29,7 +30,7 @@ func TestChannel_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:mediapackage:us-east-1:000000000000:channels/my-channel")
 				assert.Equal(t, "my-channel", resp["id"])
 				assert.Equal(t, "live stream", resp["description"])
@@ -76,7 +77,7 @@ func TestChannel_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/channels/"+channelID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, channelID, descResp["id"])
 
 	// Update
@@ -85,14 +86,14 @@ func TestChannel_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated description", updateResp["description"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/channels", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["channels"], 1)
 
 	// Delete
@@ -150,7 +151,7 @@ func TestChannel_RotateCredentials(t *testing.T) {
 	// Get original credentials
 	rec := doRequest(t, h, http.MethodGet, "/channels/"+channelID, nil)
 	var before map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before, jsonx.V1()))
 	hls := before["hlsIngest"].(map[string]any)
 	eps := hls["ingestEndpoints"].([]any)
 	originalPassword := eps[0].(map[string]any)["password"].(string)
@@ -160,7 +161,7 @@ func TestChannel_RotateCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var after map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after, jsonx.V1()))
 	hls = after["hlsIngest"].(map[string]any)
 	eps = hls["ingestEndpoints"].([]any)
 	newPassword := eps[0].(map[string]any)["password"].(string)
@@ -181,7 +182,7 @@ func TestChannel_ConfigureLogs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, channelID, resp["id"])
 }
 
@@ -193,7 +194,7 @@ func TestChannel_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["channels"])
 }
 
@@ -281,7 +282,7 @@ func TestHandler_RotateChannelCredentials_RealPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, channelID, resp["id"])
 
 	// The old (fictional) path must no longer be recognized as this operation.
@@ -309,7 +310,7 @@ func TestHandler_ConfigureLogs_ReflectsInDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	egress, ok := resp["egressAccessLogs"].(map[string]any)
 	require.True(t, ok, "egressAccessLogs should be present after ConfigureLogs")
@@ -333,7 +334,7 @@ func TestHandler_Channel_CreatedAtPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["createdAt"])
 }
 
@@ -354,7 +355,7 @@ func TestRotateIngestEndpointCredentials(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["id"])
 
 				hls := resp["hlsIngest"].(map[string]any)
@@ -401,7 +402,7 @@ func TestRotateIngestEndpointCredentials(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var chResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &chResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &chResp, jsonx.V1()))
 			hls := chResp["hlsIngest"].(map[string]any)
 			eps := hls["ingestEndpoints"].([]any)
 			require.NotEmpty(t, eps)

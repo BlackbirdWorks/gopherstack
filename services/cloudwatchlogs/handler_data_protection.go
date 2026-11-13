@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type deleteAccountPolicyInput struct {
@@ -48,7 +50,7 @@ func (h *Handler) handleDeleteAccountPolicy(
 	b []byte,
 ) (any, error) {
 	var input deleteAccountPolicyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +66,7 @@ func (h *Handler) handlePutAccountPolicy(
 	b []byte,
 ) (any, error) {
 	var input putAccountPolicyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	policy, err := h.Backend.PutAccountPolicy(
@@ -86,7 +88,7 @@ func (h *Handler) handleDescribeAccountPolicies(
 	b []byte,
 ) (any, error) {
 	var input describeAccountPoliciesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	policies, nextToken, err := h.Backend.DescribeAccountPolicies(
@@ -112,7 +114,7 @@ func (h *Handler) handleDeleteDataProtectionPolicy(
 	body []byte,
 ) (any, error) {
 	var in deleteDataProtectionPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -134,7 +136,7 @@ func (h *Handler) handleGetDataProtectionPolicy(
 	body []byte,
 ) (any, error) {
 	var in getDataProtectionPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -170,7 +172,7 @@ func (h *Handler) handlePutDataProtectionPolicy(
 	body []byte,
 ) (any, error) {
 	var in putDataProtectionPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

@@ -1,12 +1,13 @@
 package rum_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rum"
 )
 
@@ -42,14 +43,14 @@ func TestMatchPattern(t *testing.T) {
 	}
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(event), &doc))
+	require.NoError(t, json.Unmarshal([]byte(event), &doc, jsonx.V1()))
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			var pattern map[string]any
-			require.NoError(t, json.Unmarshal([]byte(tc.pattern), &pattern))
+			require.NoError(t, json.Unmarshal([]byte(tc.pattern), &pattern, jsonx.V1()))
 			assert.Equal(t, tc.want, rum.MatchPattern(pattern, doc))
 		})
 	}

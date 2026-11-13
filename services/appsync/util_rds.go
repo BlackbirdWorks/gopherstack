@@ -1,8 +1,10 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const rdsLongValue = "longValue"
@@ -21,7 +23,7 @@ func utilRDS() map[string]utilFn {
 				return nil, err
 			}
 
-			raw, err := json.Marshal(objs)
+			raw, err := json.Marshal(objs, jsonx.V1())
 
 			return string(raw), err
 		},
@@ -52,7 +54,7 @@ func rdsResultRoot(v any) (map[string]any, error) {
 		return t, nil
 	case string:
 		var m map[string]any
-		if err := json.Unmarshal([]byte(t), &m); err != nil {
+		if err := json.Unmarshal([]byte(t), &m, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid RDS result JSON", ErrValidation)
 		}
 

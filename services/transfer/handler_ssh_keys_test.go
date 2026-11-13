@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ImportSSHPublicKey(t *testing.T) {
@@ -53,7 +55,7 @@ func TestHandler_DeleteSSHPublicKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importResp map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp, jsonx.V1()))
 	sshKeyID := importResp["SshPublicKeyId"].(string)
 
 	rec := doTransferRequest(t, h, "DeleteSshPublicKey", map[string]any{
@@ -92,7 +94,7 @@ func TestHandler_ImportSshPublicKeyDuplicateBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, secondRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceExistsException", errResp["__type"])
 }
 
@@ -114,6 +116,6 @@ func TestHandler_ImportSshPublicKeyUnknownUserReturnsResourceNotFound(t *testing
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }

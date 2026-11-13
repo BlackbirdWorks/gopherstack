@@ -1,6 +1,10 @@
 package azurearm
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type containerServiceSnapshot struct {
 	Clusters map[string]*storedAKSCluster `json:"clusters"`
@@ -10,13 +14,13 @@ func (p *ContainerServiceProvider) snapshot() *containerServiceSnapshot {
 	p.mu.RLock("snapshot")
 	defer p.mu.RUnlock()
 
-	buf, err := json.Marshal(&containerServiceSnapshot{Clusters: p.clusters})
+	buf, err := json.Marshal(&containerServiceSnapshot{Clusters: p.clusters}, jsonx.V1())
 	if err != nil {
 		return &containerServiceSnapshot{}
 	}
 
 	var out containerServiceSnapshot
-	if err = json.Unmarshal(buf, &out); err != nil {
+	if err = json.Unmarshal(buf, &out, jsonx.V1()); err != nil {
 		return &containerServiceSnapshot{}
 	}
 

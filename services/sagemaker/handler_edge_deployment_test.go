@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -49,7 +50,7 @@ func TestHandler_EdgeDeploymentPlanLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Contains(t, createResp["EdgeDeploymentPlanArn"], "my-plan")
 
 	// Describe
@@ -59,7 +60,7 @@ func TestHandler_EdgeDeploymentPlanLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "my-plan", descResp["EdgeDeploymentPlanName"])
 	assert.Equal(t, "plan-fleet", descResp["DeviceFleetName"])
 
@@ -91,7 +92,7 @@ func TestHandler_EdgeDeploymentPlanLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["EdgeDeploymentPlanSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)
@@ -181,7 +182,7 @@ func TestHandler_EdgeDeploymentStageLifecycle(t *testing.T) {
 			"EdgeDeploymentPlanName": "stage-plan",
 		})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &resp, jsonx.V1()))
 
 		return resp
 	}
@@ -293,7 +294,7 @@ func TestHandler_GetDeviceFleetReport(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "report-fleet", resp["DeviceFleetName"])
 	assert.Contains(t, resp["DeviceFleetArn"], "report-fleet")
 	assert.Equal(t, "fleet for reports", resp["Description"])
@@ -353,7 +354,7 @@ func TestHandler_ListStageDevices(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["DeviceDeploymentSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, summaries, 2)
@@ -422,7 +423,7 @@ func TestHandler_UpdateDevices(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "updated", resp["Description"])
 	assert.Equal(t, "thing-1", resp["IotThingName"])
 }
@@ -478,7 +479,7 @@ func TestHandler_EdgeDeploymentPlan_SnapshotRestore(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			summaries, ok := listResp["EdgeDeploymentPlanSummaries"].([]any)
 			require.True(t, ok)
 			assert.Len(t, summaries, tt.wantCount)
@@ -493,7 +494,7 @@ func TestHandler_EdgeDeploymentPlan_SnapshotRestore(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, "persist-fleet", descResp["DeviceFleetName"])
 
 			stages, ok := descResp["Stages"].([]any)

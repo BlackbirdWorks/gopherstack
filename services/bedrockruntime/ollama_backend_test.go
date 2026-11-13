@@ -1,7 +1,8 @@
 package bedrockruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"maps"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
@@ -93,7 +95,7 @@ func newFakeOllama(t *testing.T, reply func(path string, req map[string]any) fak
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var req map[string]any
-		_ = json.Unmarshal(raw, &req)
+		_ = json.Unmarshal(raw, &req, jsonx.V1())
 		rec.mu.Lock()
 		rec.reqs = append(rec.reqs, req)
 		rec.path = append(rec.path, r.URL.Path)
@@ -102,20 +104,20 @@ func newFakeOllama(t *testing.T, reply func(path string, req map[string]any) fak
 		rp := reply(r.URL.Path, req)
 		if rp.status != 0 {
 			w.WriteHeader(rp.status)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": rp.errMsg})
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{"error": rp.errMsg})
 
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
-		enc := json.NewEncoder(w)
+		enc := jsontext.NewEncoder(w, jsonx.V1())
 		if stream, _ := req["stream"].(bool); !stream {
-			_ = enc.Encode(collapse(rp.lines))
+			_ = json.MarshalEncode(enc, collapse(rp.lines))
 
 			return
 		}
 		for _, l := range rp.lines {
-			_ = enc.Encode(l)
+			_ = json.MarshalEncode(enc, l)
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
@@ -734,7 +736,7 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			assert.Equal(t, tc.wantPath, path)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body, &out))
+			require.NoError(t, json.Unmarshal(resp.Body, &out, jsonx.V1()))
 			tc.check(t, req, out)
 		})
 	}
@@ -849,7 +851,7 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 				part, ok := ev.(*types.ResponseStreamMemberChunk)
 				require.True(t, ok, "unexpected event %T", ev)
 				var m map[string]any
-				require.NoError(t, json.Unmarshal(part.Value.Bytes, &m))
+				require.NoError(t, json.Unmarshal(part.Value.Bytes, &m, jsonx.V1()))
 				chunks = append(chunks, m)
 			}
 			require.NoError(t, stream.Err())

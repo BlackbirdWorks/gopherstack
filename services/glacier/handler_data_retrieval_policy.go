@@ -1,11 +1,13 @@
 package glacier
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleDataRetrievalPolicy handles GetDataRetrievalPolicy and SetDataRetrievalPolicy.
@@ -30,7 +32,7 @@ func (h *Handler) handleGetDataRetrievalPolicy(c *echo.Context) error {
 	}
 
 	var parsed any
-	if err := json.Unmarshal([]byte(policy), &parsed); err == nil {
+	if err := json.Unmarshal([]byte(policy), &parsed, jsonx.V1()); err == nil {
 		return c.JSON(http.StatusOK, parsed)
 	}
 
@@ -39,7 +41,7 @@ func (h *Handler) handleGetDataRetrievalPolicy(c *echo.Context) error {
 
 func (h *Handler) handleSetDataRetrievalPolicy(c *echo.Context, body []byte) error {
 	var req dataRetrievalPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			"invalid data retrieval policy: "+err.Error())
 	}

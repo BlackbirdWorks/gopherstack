@@ -11,12 +11,14 @@ package omics_test
 // way real AWS eventually does.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func Test_GetWorkflow_AdvancesCreatingToActiveOnPoll(t *testing.T) {
@@ -30,7 +32,7 @@ func Test_GetWorkflow_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 	require.Equal(t, "CREATING", created["status"])
 
@@ -38,7 +40,7 @@ func Test_GetWorkflow_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", got["status"], "waiter clients poll GetWorkflow until Status==ACTIVE")
 }
 
@@ -53,14 +55,14 @@ func Test_GetAnnotationStore_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	require.Equal(t, "CREATING", created["status"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/annotationStore/my-store", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", got["status"])
 }
 
@@ -74,14 +76,14 @@ func Test_GetVariantStore_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	require.Equal(t, "CREATING", created["status"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/variantStore/my-vstore", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", got["status"])
 }
 
@@ -96,7 +98,7 @@ func Test_GetWorkflowVersion_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusCreated, wfRec.Code)
 
 	var wf map[string]any
-	require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+	require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 	workflowID := wf["id"].(string)
 
 	verRec := doRequest(t, h, http.MethodPost, "/workflow/"+workflowID+"/version", map[string]any{
@@ -105,14 +107,14 @@ func Test_GetWorkflowVersion_AdvancesCreatingToActiveOnPoll(t *testing.T) {
 	require.Equal(t, http.StatusCreated, verRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &created, jsonx.V1()))
 	require.Equal(t, "CREATING", created["status"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/workflow/"+workflowID+"/version/v1", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", got["status"])
 }
 
@@ -131,7 +133,7 @@ func Test_GetRun_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T) {
 	require.Equal(t, http.StatusCreated, startRec.Code)
 
 	var started map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started, jsonx.V1()))
 	id := started["id"].(string)
 	require.Equal(t, "PENDING", started["status"])
 
@@ -139,7 +141,7 @@ func Test_GetRun_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T) {
 	require.Equal(t, http.StatusOK, poll1.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(poll1.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(poll1.Body.Bytes(), &p1, jsonx.V1()))
 	assert.Equal(t, "RUNNING", p1["status"], "RunRunningWaiter polls until Status==RUNNING")
 	assert.NotEmpty(t, p1["startTime"])
 
@@ -147,7 +149,7 @@ func Test_GetRun_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T) {
 	require.Equal(t, http.StatusOK, poll2.Code)
 
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(poll2.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(poll2.Body.Bytes(), &p2, jsonx.V1()))
 	assert.Equal(t, "COMPLETED", p2["status"], "RunCompletedWaiter polls until Status==COMPLETED")
 	assert.NotEmpty(t, p2["stopTime"])
 }
@@ -167,14 +169,14 @@ func Test_GetRunTask_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T
 	require.Equal(t, http.StatusCreated, startRec.Code)
 
 	var started map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started, jsonx.V1()))
 	runID := started["id"].(string)
 
 	tasksRec := doRequest(t, h, http.MethodGet, "/run/"+runID+"/task", nil)
 	require.Equal(t, http.StatusOK, tasksRec.Code)
 
 	var tasksResp map[string]any
-	require.NoError(t, json.Unmarshal(tasksRec.Body.Bytes(), &tasksResp))
+	require.NoError(t, json.Unmarshal(tasksRec.Body.Bytes(), &tasksResp, jsonx.V1()))
 	tasks := tasksResp["items"].([]any)
 	require.Len(t, tasks, 1)
 	taskID := tasks[0].(map[string]any)["taskId"].(string)
@@ -183,14 +185,14 @@ func Test_GetRunTask_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T
 	require.Equal(t, http.StatusOK, poll1.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(poll1.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(poll1.Body.Bytes(), &p1, jsonx.V1()))
 	assert.Equal(t, "RUNNING", p1["status"])
 
 	poll2 := doRequest(t, h, http.MethodGet, "/run/"+runID+"/task/"+taskID, nil)
 	require.Equal(t, http.StatusOK, poll2.Code)
 
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(poll2.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(poll2.Body.Bytes(), &p2, jsonx.V1()))
 	assert.Equal(t, "COMPLETED", p2["status"])
 }
 
@@ -209,7 +211,7 @@ func Test_CancelRun_TerminalStateIsNotAdvancedByFurtherPolls(t *testing.T) {
 	require.Equal(t, http.StatusCreated, startRec.Code)
 
 	var started map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started, jsonx.V1()))
 	id := started["id"].(string)
 
 	cancelRec := doRequest(t, h, http.MethodPost, "/run/"+id+"/cancel", nil)
@@ -220,7 +222,7 @@ func Test_CancelRun_TerminalStateIsNotAdvancedByFurtherPolls(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "CANCELLED", got["status"])
 	}
 }

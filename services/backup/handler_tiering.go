@@ -1,10 +1,12 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -103,7 +105,7 @@ func (h *Handler) dispatchTieringOps(
 
 func (h *Handler) handleCreateTieringConfiguration(c *echo.Context, body []byte) error {
 	var in createTieringConfigBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) handleListTieringConfigurations(c *echo.Context) error {
 
 func (h *Handler) handleUpdateTieringConfiguration(c *echo.Context, name string, body []byte) error {
 	var in updateTieringConfigBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 

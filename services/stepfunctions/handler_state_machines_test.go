@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -33,7 +34,7 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["stateMachineArn"].(string), "test-sm")
 			},
 		},
@@ -149,7 +150,7 @@ func TestHandler_StartExecution_StateMachineDeleting(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	smArn, ok := createResp["stateMachineArn"].(string)
 	require.True(t, ok)
 
@@ -165,7 +166,7 @@ func TestHandler_StartExecution_StateMachineDeleting(t *testing.T) {
 	require.Equal(t, http.StatusOK, runningRec.Code)
 
 	var runningDesc map[string]any
-	require.NoError(t, json.Unmarshal(runningRec.Body.Bytes(), &runningDesc))
+	require.NoError(t, json.Unmarshal(runningRec.Body.Bytes(), &runningDesc, jsonx.V1()))
 	require.Equal(t, "RUNNING", runningDesc["status"])
 
 	delRec := sfnPost(ctx, t, h, e, "DeleteStateMachine", `{"stateMachineArn":"`+smArn+`"}`)
@@ -175,7 +176,7 @@ func TestHandler_StartExecution_StateMachineDeleting(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, "DELETING state machine must still be describable")
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "DELETING", desc["status"])
 
 	startRec := sfnPost(ctx, t, h, e, "StartExecution",
@@ -183,7 +184,7 @@ func TestHandler_StartExecution_StateMachineDeleting(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, startRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "StateMachineDeleting", errResp["__type"])
 }
 
@@ -219,7 +220,7 @@ func TestHandler_ListStateMachines(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["stateMachines"].([]any), tt.wantCount)
 		})
 	}
@@ -245,7 +246,7 @@ func TestHandler_DescribeStateMachine(t *testing.T) {
 					makeSMBody("desc-sm", validPassDef, "EXPRESS"))
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["stateMachineArn"].(string)
 			},
@@ -255,7 +256,7 @@ func TestHandler_DescribeStateMachine(t *testing.T) {
 				t.Helper()
 
 				var sm map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sm))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sm, jsonx.V1()))
 				assert.Equal(t, "EXPRESS", sm["type"])
 			},
 		},
@@ -344,7 +345,7 @@ func TestStateMachineName_Validation(t *testing.T) {
 				"name":       tt.smName,
 				"definition": sfnPassDefinition,
 				"roleArn":    "arn:aws:iam::123456789012:role/role",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
@@ -352,7 +353,7 @@ func TestStateMachineName_Validation(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidName", resp["__type"])
 			}
 		})
@@ -405,24 +406,24 @@ func TestCreateStateMachine_InlineTags(t *testing.T) {
 				reqBody["tags"] = tt.tags
 			}
 
-			body, err := json.Marshal(reqBody)
+			body, err := json.Marshal(reqBody, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			smARN, _ := createResp["stateMachineArn"].(string)
 			require.NotEmpty(t, smARN)
 
 			// Verify tags were applied.
-			listBody, _ := json.Marshal(map[string]string{"resourceArn": smARN})
+			listBody, _ := json.Marshal(map[string]string{"resourceArn": smARN}, jsonx.V1())
 			listRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			rawTags, _ := tagsResp["tags"].([]any)
 			got := make(map[string]string, len(rawTags))
@@ -485,24 +486,24 @@ func TestCreateStateMachine_EncryptionConfiguration(t *testing.T) {
 				reqBody["encryptionConfiguration"] = tt.encCfg
 			}
 
-			body, err := json.Marshal(reqBody)
+			body, err := json.Marshal(reqBody, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			smARN, _ := createResp["stateMachineArn"].(string)
 			require.NotEmpty(t, smARN)
 
 			// Describe to verify encryption config is stored.
-			descBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
+			descBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 			descRec := sfnPost(ctx, t, h, e, "DescribeStateMachine", string(descBody))
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 
 			if tt.wantType == "" {
 				// No encryption config present in response or nil.
@@ -531,19 +532,19 @@ func TestUpdateStateMachine_EncryptionConfiguration(t *testing.T) {
 			"type":     "CUSTOMER_MANAGED_KMS_KEY",
 			"kmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/my-key",
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify via describe.
-	descBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
+	descBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 	descRec := sfnPost(ctx, t, h, e, "DescribeStateMachine", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	enc, ok := descResp["encryptionConfiguration"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "CUSTOMER_MANAGED_KMS_KEY", enc["type"])
@@ -583,14 +584,14 @@ func TestCreateStateMachine_WithPublish(t *testing.T) {
 				"definition": sfnPassDefinition,
 				"roleArn":    "arn:aws:iam::123456789012:role/role",
 				"publish":    tt.publish,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			smARN, _ := createResp["stateMachineArn"].(string)
 			require.NotEmpty(t, smARN)
 
@@ -606,12 +607,12 @@ func TestCreateStateMachine_WithPublish(t *testing.T) {
 			}
 
 			// Check versions.
-			versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
+			versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 			versRec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", string(versBody))
 			require.Equal(t, http.StatusOK, versRec.Code)
 
 			var versResp map[string]any
-			require.NoError(t, json.Unmarshal(versRec.Body.Bytes(), &versResp))
+			require.NoError(t, json.Unmarshal(versRec.Body.Bytes(), &versResp, jsonx.V1()))
 			versions, _ := versResp["stateMachineVersions"].([]any)
 
 			if tt.wantVersion {
@@ -636,23 +637,23 @@ func TestUpdateStateMachine_WithPublish(t *testing.T) {
 		"stateMachineArn": smARN,
 		"definition":      newDef,
 		"publish":         true,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["revisionId"], "expected a non-empty revisionId after update")
 	assert.NotEmpty(t, updateResp["stateMachineVersionArn"], "expected stateMachineVersionArn when publish=true")
 
-	versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN})
+	versBody, _ := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 	versRec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", string(versBody))
 	require.Equal(t, http.StatusOK, versRec.Code)
 
 	var versResp map[string]any
-	require.NoError(t, json.Unmarshal(versRec.Body.Bytes(), &versResp))
+	require.NoError(t, json.Unmarshal(versRec.Body.Bytes(), &versResp, jsonx.V1()))
 	versions, _ := versResp["stateMachineVersions"].([]any)
 	assert.Len(t, versions, 1, "expected one version after update with publish=true")
 }
@@ -671,14 +672,14 @@ func TestUpdateStateMachine_NoPublish_NoVersionArn(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"stateMachineArn": smARN,
 		"definition":      newDef,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["revisionId"])
 	_, hasVersionArn := updateResp["stateMachineVersionArn"]
 	assert.False(t, hasVersionArn, "expected no stateMachineVersionArn when publish=false")
@@ -699,7 +700,7 @@ func TestUpdateStateMachine_VersionDescriptionRequiresPublish(t *testing.T) {
 		"definition":         `{"StartAt":"S","States":{"S":{"Type":"Succeed"}}}`,
 		"versionDescription": "should be rejected",
 		"publish":            false,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
@@ -747,7 +748,7 @@ func TestCreateStateMachine_ResponseContainsARNAndDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.NotEmpty(t, out["stateMachineArn"])
 	assert.Greater(t, out["creationDate"].(float64), float64(0))
@@ -765,18 +766,18 @@ func TestCreateStateMachine_Idempotent_ViaHandler(t *testing.T) {
 		"name":       "idem-handler-sm",
 		"definition": sfnPassDefinition,
 		"roleArn":    "arn:aws:iam::123456789012:role/role",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec1 := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	rec2 := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	assert.Equal(t, resp1["stateMachineArn"], resp2["stateMachineArn"])
 }
@@ -831,7 +832,7 @@ func TestCreateStateMachineRequiresRoleArn(t *testing.T) {
 			h, e := newSFNHandler(t)
 			ctx := context.Background()
 
-			body, err := json.Marshal(tt.body)
+			body, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
@@ -840,7 +841,7 @@ func TestCreateStateMachineRequiresRoleArn(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"],
 					"error type for case %q", tt.name)
 			}
@@ -880,7 +881,7 @@ func TestCreateStateMachine_NameValidation(t *testing.T) {
 				"name":       tt.smName,
 				"definition": validPassDef,
 				"roleArn":    "arn:aws:iam::123456789012:role/role",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
@@ -888,7 +889,7 @@ func TestCreateStateMachine_NameValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -930,14 +931,14 @@ func TestUpdateStateMachine_ArnValidation(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"stateMachineArn": tt.arn,
 				"definition":      validPassDef,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, resp["__type"])
 		})
 	}
@@ -1025,14 +1026,14 @@ func TestHandler_UpdateStateMachine(t *testing.T) {
 				body, err = json.Marshal(map[string]any{
 					"stateMachineArn": smARN,
 					"roleArn":         "arn:aws:iam::123456789012:role/new-role",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				var err error
 				body, err = json.Marshal(map[string]any{
 					"stateMachineArn": smARN,
 					"definition":      sfnPassDefinition,
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 			}
 
@@ -1040,7 +1041,7 @@ func TestHandler_UpdateStateMachine(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "updateDate")
 		})
 	}

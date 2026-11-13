@@ -2,9 +2,11 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Trust Anchor handlers ----
@@ -18,7 +20,7 @@ func (h *Handler) handleCreateTrustAnchor(ctx context.Context, body []byte) (any
 		NotificationSettings []NotificationSetting `json:"notificationSettings"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -90,7 +92,7 @@ func (h *Handler) handleUpdateTrustAnchor(ctx context.Context, path string, body
 		Name   string             `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

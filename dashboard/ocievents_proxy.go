@@ -1,12 +1,14 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -161,7 +163,7 @@ func ociEventsCreateBody(c *echo.Context) ([]byte, bool) {
 		out["description"] = in.Description
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }
@@ -175,7 +177,7 @@ func ociEventsToggleBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(map[string]any{ociEventsEnabledKey: *in.IsEnabled})
+	b, err := json.Marshal(map[string]any{ociEventsEnabledKey: *in.IsEnabled}, jsonx.V1())
 
 	return b, err == nil
 }

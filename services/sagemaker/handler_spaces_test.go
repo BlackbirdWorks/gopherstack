@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateSpace(t *testing.T) {
@@ -21,7 +23,7 @@ func TestHandler_CreateSpace(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["SpaceArn"], "my-space")
 }
 
@@ -36,7 +38,7 @@ func TestHandler_DescribeSpace(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "space-1", resp["SpaceName"])
 	assert.Equal(t, "InService", resp["Status"])
 }
@@ -67,7 +69,7 @@ func TestHandler_ListSpaces(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["Spaces"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -91,7 +93,7 @@ func TestHandler_ListSpaces_NameContainsAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp["Spaces"].([]any), 2)
 	})
 
@@ -105,7 +107,7 @@ func TestHandler_ListSpaces_NameContainsAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp["Spaces"].([]any), 1, "MaxResults must cap the page, not just be parsed and ignored")
 		assert.NotEmpty(t, resp["NextToken"])
 	})
@@ -127,7 +129,7 @@ func TestHandler_CreateSpace_DisplayNameRoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "My Display Name", resp["SpaceDisplayName"])
 }
 
@@ -148,7 +150,7 @@ func TestHandler_UpdateSpace(t *testing.T) {
 
 	var domainResp map[string]any
 	rec := doSageMakerRequest(t, h, "ListDomains", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &domainResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &domainResp, jsonx.V1()))
 	domains := domainResp["Domains"].([]any)
 	require.Len(t, domains, 1)
 	domainID := domains[0].(map[string]any)["DomainId"].(string)
@@ -165,7 +167,7 @@ func TestHandler_UpdateSpace(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["SpaceArn"])
 }
 

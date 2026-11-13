@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -48,7 +49,7 @@ func TestEMR_ListInstanceGroups(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			rec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{
 				"ClusterId": createOut.JobFlowID,
@@ -63,7 +64,7 @@ func TestEMR_ListInstanceGroups(t *testing.T) {
 					} `json:"Status"`
 				} `json:"InstanceGroups"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.InstanceGroups, tt.wantCount)
 
 			for _, g := range out.InstanceGroups {
@@ -116,7 +117,7 @@ func TestEMR_AddInstanceGroups(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			jobFlowID := tt.jobFlowID
 			if jobFlowID == "" {
@@ -138,7 +139,7 @@ func TestEMR_AddInstanceGroups(t *testing.T) {
 					JobFlowID        string   `json:"JobFlowId"`
 					InstanceGroupIDs []string `json:"InstanceGroupIds"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.InstanceGroupIDs, 1)
 				assert.Equal(t, jobFlowID, out.JobFlowID)
 				assert.Contains(t, out.ClusterArn, "elasticmapreduce")
@@ -194,7 +195,7 @@ func TestModifyInstanceGroups(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{"ClusterId": create.JobFlowID})
 	var listOut struct {
@@ -202,7 +203,7 @@ func TestModifyInstanceGroups(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"InstanceGroups"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.InstanceGroups)
 
 	modRec := doEMRRequest(t, h, "ModifyInstanceGroups", map[string]any{
@@ -238,7 +239,7 @@ func TestInstanceGroup_BidPrice(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -249,7 +250,7 @@ func TestInstanceGroup_BidPrice(t *testing.T) {
 			BidPrice string `json:"BidPrice"`
 		} `json:"InstanceGroups"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.InstanceGroups, 1)
 	assert.Equal(t, "SPOT", out.InstanceGroups[0].Market)
 	assert.Equal(t, "0.05", out.InstanceGroups[0].BidPrice)
@@ -322,8 +323,8 @@ func TestBuildInstanceGroups_UniqueIDs(t *testing.T) {
 	var c1, c2 struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &c1))
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &c2))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &c1, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &c2, jsonx.V1()))
 
 	// Gather instance group IDs via ListInstanceGroups for each cluster
 	allIDs := make(map[string]bool)
@@ -336,7 +337,7 @@ func TestBuildInstanceGroups_UniqueIDs(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"InstanceGroups"`
 		}
-		require.NoError(t, json.Unmarshal(igRec.Body.Bytes(), &igOut))
+		require.NoError(t, json.Unmarshal(igRec.Body.Bytes(), &igOut, jsonx.V1()))
 
 		for _, ig := range igOut.InstanceGroups {
 			assert.False(t, allIDs[ig.ID], "duplicate instance group ID %s", ig.ID)

@@ -55,6 +55,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	// deleted the orphaned /dynamodb/table/[tableName] route in favor of it.
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=" + tableName)
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// 3. Verify initial TTL status (DISABLED)
 	ttlCard := page.Locator("#ttl-status-card")

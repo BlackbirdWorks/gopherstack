@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestChannel_APNS_CertificateAuth(t *testing.T) {
@@ -28,7 +30,7 @@ func TestChannel_APNS_CertificateAuth(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, true, ch["Enabled"])
 	assert.Equal(t, true, ch["HasCredential"], "certificate auth sets HasCredential")
@@ -56,7 +58,7 @@ func TestChannel_APNS_TokenAuth(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, true, ch["Enabled"])
 	// BundleId sets HasCredential; TokenKey sets HasTokenKey
@@ -83,7 +85,7 @@ func TestChannel_APNS_Sandbox(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "apns_sandbox", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -108,7 +110,7 @@ func TestChannel_ADM_HasCredential(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "adm", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -133,7 +135,7 @@ func TestChannel_Baidu_HasCredential(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "baidu", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -158,7 +160,7 @@ func TestChannel_GCM_ServiceJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "gcm", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -180,7 +182,7 @@ func TestChannel_Voice_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "voice", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -196,7 +198,7 @@ func TestChannel_Voice_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var ch2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &ch2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &ch2, jsonx.V1()))
 
 	assert.Equal(t, false, ch2["Enabled"])
 	assert.EqualValues(t, 2, ch2["Version"])
@@ -216,7 +218,7 @@ func TestChannel_InApp_EnableDisable(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, true, ch["Enabled"])
 }
@@ -239,7 +241,7 @@ func TestChannel_SMS_ShortCode(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ch map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ch, jsonx.V1()))
 
 	assert.Equal(t, "sms", ch["ChannelType"])
 	assert.Equal(t, true, ch["Enabled"])
@@ -304,7 +306,7 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantEnabled, putResp["Enabled"])
 			assert.NotContains(t, putResp, "PromotionalMessagesPerSecond")
@@ -324,7 +326,7 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantEnabled, getResp["Enabled"])
 
@@ -385,7 +387,7 @@ func TestGCMChannel_PerTypeFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantAuthMethod != "" {
 				assert.Equal(t, tc.wantAuthMethod, resp["DefaultAuthenticationMethod"])
@@ -427,7 +429,7 @@ func TestAPNSChannel_PerTypeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// APNSChannelResponse has no BundleId/Certificate/TeamId members -- only
 	// HasCredential/HasTokenKey booleans -- so raw request secrets must never
@@ -460,7 +462,7 @@ func TestEmailChannel_PerTypeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "noreply@example.com", resp["FromAddress"])
 	assert.Equal(t, "arn:aws:ses:us-east-1:123456789012:identity/example.com", resp["Identity"])
@@ -475,7 +477,7 @@ func TestEmailChannel_PerTypeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	assert.Equal(t, "noreply@example.com", getResp["FromAddress"])
 	assert.Equal(t, "my-config-set", getResp["ConfigurationSet"])
@@ -499,7 +501,7 @@ func TestBaiduChannel_PerTypeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// BaiduChannelResponse's credential member is "Credential" (the API key,
 	// required), not "ApiKey"; SecretKey has no response member at all.
@@ -525,7 +527,7 @@ func TestADMChannel_PerTypeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// ADMChannelResponse has no ClientId/ClientSecret members -- only
 	// HasCredential -- so neither must be echoed back on the wire.
@@ -546,7 +548,7 @@ func TestVoiceChannel_BasicResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, true, resp["Enabled"])
 	assert.NotEmpty(t, resp["ChannelType"])
@@ -573,6 +575,6 @@ func TestApnsChannel_DefaultAuthenticationMethod(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TOKEN", resp["DefaultAuthenticationMethod"])
 }

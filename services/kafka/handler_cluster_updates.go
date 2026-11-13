@@ -2,10 +2,12 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type rebootBrokerInput struct {
@@ -23,7 +25,7 @@ func (h *Handler) handleRebootBroker(
 	body []byte,
 ) error {
 	var in rebootBrokerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -116,7 +118,7 @@ func (h *Handler) handleUpdateBrokerCount(
 	body []byte,
 ) error {
 	var in updateBrokerCountInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -147,7 +149,7 @@ func (h *Handler) handleUpdateBrokerStorage(
 	body []byte,
 ) error {
 	var in updateBrokerStorageInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -183,7 +185,7 @@ func (h *Handler) handleUpdateBrokerType(
 	body []byte,
 ) error {
 	var in updateBrokerTypeInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -214,7 +216,7 @@ func (h *Handler) handleUpdateClusterConfiguration(
 	body []byte,
 ) error {
 	var in updateClusterConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -249,7 +251,7 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 	body []byte,
 ) error {
 	var in updateClusterKafkaVersionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -361,7 +363,7 @@ func (h *Handler) handleUpdateRebalancing(
 	body []byte,
 ) error {
 	var in updateRebalancingInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

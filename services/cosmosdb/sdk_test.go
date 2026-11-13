@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -132,7 +133,7 @@ func TestSDK_QueriesPagingTTLAndHierarchicalKeys(t *testing.T) {
 
 		body, mErr := json.Marshal(map[string]any{
 			"id": fmt.Sprintf("i%d", i), "tenant": tenant, "user": "u", "n": i, "tags": []string{"x", strconv.Itoa(i)},
-		})
+		}, jsonx.V1())
 		require.NoError(t, mErr)
 
 		_, err = c.CreateItem(ctx, azcosmos.NewPartitionKeyString(tenant).AppendString("u"), body, nil)

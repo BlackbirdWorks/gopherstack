@@ -1,7 +1,7 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -32,7 +33,7 @@ func TestOmics_ReferenceStore(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
 				assert.Equal(t, "test-store", resp["name"])
 			},
@@ -66,7 +67,7 @@ func TestOmics_ReferenceStore(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		rec2 := doRequest(t, h, http.MethodGet, "/referencestore/"+resp["id"].(string), nil)
 		assert.Equal(t, http.StatusOK, rec2.Code)
@@ -80,7 +81,7 @@ func TestOmics_ReferenceStore(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		rec2 := doRequest(t, h, http.MethodDelete, "/referencestore/"+resp["id"].(string), nil)
 		assert.Equal(t, http.StatusOK, rec2.Code)
@@ -98,7 +99,7 @@ func TestOmics_ReferenceStore(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		stores := resp["referenceStores"].([]any)
 		assert.Len(t, stores, 2)
 	})
@@ -144,7 +145,7 @@ func TestOmics_GetReference_Binary(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return fmt.Sprintf("/referencestore/%s/reference/doesnotexist", resp["id"])
 			},
@@ -157,7 +158,7 @@ func TestOmics_GetReference_Binary(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
 				var storeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 				storeID := storeResp["id"].(string)
 
 				rec2 := doRequest(t, h, http.MethodPost,
@@ -176,7 +177,7 @@ func TestOmics_GetReference_Binary(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec3.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 				refs := listResp["references"].([]any)
 				require.Len(t, refs, 1)
 				refID := refs[0].(map[string]any)["id"].(string)
@@ -210,14 +211,14 @@ func TestDeleteReferenceStoreReturnsID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	storeID := createResp["id"].(string)
 
 	delRec := doRequest(t, h, http.MethodDelete, "/referencestore/"+storeID, nil)
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp, jsonx.V1()))
 	assert.Equal(t, storeID, delResp["id"])
 }
 
@@ -233,7 +234,7 @@ func TestListReferenceImportJobs_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
@@ -247,7 +248,7 @@ func TestListReferenceImportJobs_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobs, ok := resp["importJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs, "no import job has failed")
@@ -257,7 +258,7 @@ func TestListReferenceImportJobs_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	jobs2, ok := resp2["importJobs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, jobs2, 1)
@@ -274,7 +275,7 @@ func TestGetReferenceMetadata_FilesField(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
@@ -287,7 +288,7 @@ func TestGetReferenceMetadata_FilesField(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	refs, ok := listResp["references"].([]any)
 	require.True(t, ok)
 	require.Len(t, refs, 1)
@@ -300,7 +301,7 @@ func TestGetReferenceMetadata_FilesField(t *testing.T) {
 	require.Equal(t, http.StatusOK, metaRec.Code)
 
 	var meta map[string]any
-	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
+	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta, jsonx.V1()))
 	files, ok := meta["files"].(map[string]any)
 	require.True(t, ok, "files sub-object must be present")
 	source, ok := files["source"].(map[string]any)

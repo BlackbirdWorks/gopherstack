@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
@@ -557,13 +558,13 @@ func TestDeleteParameter_RegionCleanup(t *testing.T) {
 func postJSON(t *testing.T, h *ssm.Handler, op string, body any) (int, map[string]any) {
 	t.Helper()
 
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, op, string(payload))
 
 	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 
 	return rec.Code, out
 }

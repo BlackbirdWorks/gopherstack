@@ -1,7 +1,7 @@
 package ssooidc
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -151,7 +152,7 @@ func decodeBody(c *echo.Context, v any) *APIError {
 		return nil
 	}
 
-	if json.Unmarshal(body, v) != nil {
+	if json.Unmarshal(body, v, jsonx.V1()) != nil {
 		return errInvalidRequest("the request body is not valid JSON")
 	}
 

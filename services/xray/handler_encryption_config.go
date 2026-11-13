@@ -2,11 +2,13 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putEncryptionConfigInput struct {
@@ -30,13 +32,13 @@ func (h *Handler) handleGetEncryptionConfigBody(_ context.Context, _ []byte) ([]
 
 	return json.Marshal(map[string]any{
 		keyEncryptionConfig: cfg,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]byte, error) {
 	var in putEncryptionConfigInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -65,5 +67,5 @@ func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		keyEncryptionConfig: cfg,
-	})
+	}, jsonx.V1())
 }

@@ -1,7 +1,7 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -205,10 +206,13 @@ func TestACMHandler(t *testing.T) {
 							CertificateArn string `json:"CertificateArn"`
 						} `json:"CertificateSummaryList"`
 					}
-					require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+					require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 					require.NotEmpty(t, listResp.CertificateSummaryList)
 					b, _ := json.Marshal(
-						map[string]string{"CertificateArn": listResp.CertificateSummaryList[0].CertificateArn},
+						map[string]string{
+							"CertificateArn": listResp.CertificateSummaryList[0].CertificateArn,
+						},
+						jsonx.V1(),
 					)
 					body = string(b)
 				}
@@ -235,7 +239,7 @@ func createTestAcmeEndpoint(t *testing.T, h *acm.Handler) string {
 	var out struct {
 		AcmeEndpointArn string `json:"AcmeEndpointArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.AcmeEndpointArn)
 
 	return out.AcmeEndpointArn
@@ -291,7 +295,7 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 				t.Helper()
 
 				epARN := createTestAcmeEndpoint(t, h)
-				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				rec := postACMJSON(t, h, "DescribeAcmeEndpoint", string(body))
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 				assert.Contains(t, rec.Body.String(), `"Status":"ACTIVE"`)
@@ -338,11 +342,14 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 				t.Helper()
 
 				epARN := createTestAcmeEndpoint(t, h)
-				updBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN, "Contact": "REQUIRED"})
+				updBody, _ := json.Marshal(
+					map[string]string{"AcmeEndpointArn": epARN, "Contact": "REQUIRED"},
+					jsonx.V1(),
+				)
 				updRec := postACMJSON(t, h, "UpdateAcmeEndpoint", string(updBody))
 				require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
 
-				descBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				descBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				descRec := postACMJSON(t, h, "DescribeAcmeEndpoint", string(descBody))
 				assert.Contains(t, descRec.Body.String(), `"Contact":"REQUIRED"`)
 			},
@@ -353,7 +360,7 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 				t.Helper()
 
 				epARN := createTestAcmeEndpoint(t, h)
-				delBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				delBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				delRec := postACMJSON(t, h, "DeleteAcmeEndpoint", string(delBody))
 				require.Equal(t, http.StatusOK, delRec.Code)
 
@@ -377,7 +384,7 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 				assert.Contains(t, delRec.Body.String(), "ValidationException")
 				assert.NotContains(t, delRec.Body.String(), "ResourceNotFoundException")
 
-				descBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				descBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				descRec := postACMJSON(t, h, "DescribeAcmeEndpoint", string(descBody))
 				assert.Equal(t, http.StatusOK, descRec.Code, "unrelated endpoint must be untouched")
 			},
@@ -395,7 +402,7 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 				eabBody, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				eabRec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(eabBody))
 				require.Equal(t, http.StatusOK, eabRec.Code, eabRec.Body.String())
 
@@ -404,7 +411,7 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 						AcmeExternalAccountBindingArn string `json:"AcmeExternalAccountBindingArn"`
 					} `json:"ExternalAccountBinding"`
 				}
-				require.NoError(t, json.Unmarshal(eabRec.Body.Bytes(), &eabOut))
+				require.NoError(t, json.Unmarshal(eabRec.Body.Bytes(), &eabOut, jsonx.V1()))
 				eabARN := eabOut.ExternalAccountBinding.AcmeExternalAccountBindingArn
 				require.NotEmpty(t, eabARN)
 
@@ -412,26 +419,26 @@ func TestACMHandler_AcmeEndpoints(t *testing.T) {
 					"AcmeEndpointArn":      epARN,
 					"DomainName":           "cascade.example.com",
 					"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-				})
+				}, jsonx.V1())
 				dvRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(dvBody))
 				require.Equal(t, http.StatusOK, dvRec.Code, dvRec.Body.String())
 
 				var dvOut struct {
 					AcmeDomainValidationArn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(dvRec.Body.Bytes(), &dvOut))
+				require.NoError(t, json.Unmarshal(dvRec.Body.Bytes(), &dvOut, jsonx.V1()))
 				require.NotEmpty(t, dvOut.AcmeDomainValidationArn)
 
-				delBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				delBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				delRec := postACMJSON(t, h, "DeleteAcmeEndpoint", string(delBody))
 				require.Equal(t, http.StatusOK, delRec.Code)
 
-				descEABBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN})
+				descEABBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN}, jsonx.V1())
 				descEABRec := postACMJSON(t, h, "DescribeAcmeExternalAccountBinding", string(descEABBody))
 				assert.Equal(t, http.StatusBadRequest, descEABRec.Code, "EAB must be cascade-deleted with its endpoint")
 
 				descDVBody, _ := json.Marshal(
-					map[string]string{"AcmeDomainValidationArn": dvOut.AcmeDomainValidationArn},
+					map[string]string{"AcmeDomainValidationArn": dvOut.AcmeDomainValidationArn}, jsonx.V1(),
 				)
 				descDVRec := postACMJSON(t, h, "DescribeAcmeDomainValidation", string(descDVBody))
 				assert.Equal(t, http.StatusBadRequest, descDVRec.Code,
@@ -473,7 +480,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
 					"Expiration":      map[string]any{"Type": "DAYS", "Value": 7},
-				})
+				}, jsonx.V1())
 				rec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(body))
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 				assert.Contains(t, rec.Body.String(), "acme-external-account-binding/")
@@ -486,7 +493,10 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				t.Helper()
 
 				epARN := createTestAcmeEndpoint(t, h)
-				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN, "RoleArn": "not-a-role-arn"})
+				body, _ := json.Marshal(
+					map[string]string{"AcmeEndpointArn": epARN, "RoleArn": "not-a-role-arn"},
+					jsonx.V1(),
+				)
 				rec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(body))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), "ValidationException")
@@ -500,7 +510,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				body, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": "arn:aws:acm:us-east-1:000000000000:acme-endpoint/nope",
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				rec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(body))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
@@ -515,7 +525,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				createBody, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(createBody))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -524,10 +534,10 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 						AcmeExternalAccountBindingArn string `json:"AcmeExternalAccountBindingArn"`
 					} `json:"ExternalAccountBinding"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				eabARN := createOut.ExternalAccountBinding.AcmeExternalAccountBindingArn
 
-				credBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN})
+				credBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN}, jsonx.V1())
 				credRec := postACMJSON(t, h, "GetAcmeExternalAccountBindingCredentials", string(credBody))
 				require.Equal(t, http.StatusOK, credRec.Code)
 
@@ -535,7 +545,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 					KeyID  string `json:"KeyId"`
 					MacKey string `json:"MacKey"`
 				}
-				require.NoError(t, json.Unmarshal(credRec.Body.Bytes(), &credOut))
+				require.NoError(t, json.Unmarshal(credRec.Body.Bytes(), &credOut, jsonx.V1()))
 				assert.NotEmpty(t, credOut.KeyID)
 				assert.NotEmpty(t, credOut.MacKey)
 
@@ -578,11 +588,11 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				createBody, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(createBody))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				listBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				listBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				listRec := postACMJSON(t, h, "ListAcmeExternalAccountBindings", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 				assert.Contains(t, listRec.Body.String(), "acme-external-account-binding/")
@@ -597,7 +607,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				createBody, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(createBody))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -606,11 +616,11 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 						AcmeExternalAccountBindingArn string `json:"AcmeExternalAccountBindingArn"`
 					} `json:"ExternalAccountBinding"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				delBody, _ := json.Marshal(map[string]string{
 					"AcmeExternalAccountBindingArn": createOut.ExternalAccountBinding.AcmeExternalAccountBindingArn,
-				})
+				}, jsonx.V1())
 				delRec := postACMJSON(t, h, "DeleteAcmeExternalAccountBinding", string(delBody))
 				assert.Equal(t, http.StatusOK, delRec.Code)
 			},
@@ -627,7 +637,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				createBody, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN,
 					"RoleArn":         "arn:aws:iam::000000000000:role/acme-role",
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeExternalAccountBinding", string(createBody))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -636,7 +646,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 						AcmeExternalAccountBindingArn string `json:"AcmeExternalAccountBindingArn"`
 					} `json:"ExternalAccountBinding"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				eabARN := createOut.ExternalAccountBinding.AcmeExternalAccountBindingArn
 
 				delBody := `{"AcmeExternalAccountBindingArn":"` + epARN +
@@ -646,7 +656,7 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 				assert.Contains(t, delRec.Body.String(), "ValidationException")
 				assert.NotContains(t, delRec.Body.String(), "ResourceNotFoundException")
 
-				descBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN})
+				descBody, _ := json.Marshal(map[string]string{"AcmeExternalAccountBindingArn": eabARN}, jsonx.V1())
 				descRec := postACMJSON(t, h, "DescribeAcmeExternalAccountBinding", string(descBody))
 				assert.Equal(t, http.StatusOK, descRec.Code, "unrelated EAB must be untouched")
 			},
@@ -688,17 +698,17 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 					"PrevalidationOptions": map[string]any{
 						"DnsPrevalidation": map[string]any{"HostedZoneId": "Z123456"},
 					},
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 				var createOut struct {
 					AcmeDomainValidationArn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				descBody, _ := json.Marshal(
-					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn},
+					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn}, jsonx.V1(),
 				)
 				descRec := postACMJSON(t, h, "DescribeAcmeDomainValidation", string(descBody))
 				require.Equal(t, http.StatusOK, descRec.Code)
@@ -714,7 +724,10 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 				t.Helper()
 
 				epARN := createTestAcmeEndpoint(t, h)
-				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN, "DomainName": "dv2.example.com"})
+				body, _ := json.Marshal(
+					map[string]string{"AcmeEndpointArn": epARN, "DomainName": "dv2.example.com"},
+					jsonx.V1(),
+				)
 				rec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), "ValidationException")
@@ -730,11 +743,11 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 					"AcmeEndpointArn":      epARN,
 					"DomainName":           "dv3.example.com",
 					"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				listBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				listBody, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				listRec := postACMJSON(t, h, "ListAcmeDomainValidations", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 				assert.Contains(t, listRec.Body.String(), "dv3.example.com")
@@ -750,26 +763,26 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 					"AcmeEndpointArn":      epARN,
 					"DomainName":           "dv4.example.com",
 					"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut struct {
 					AcmeDomainValidationArn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				updBody, _ := json.Marshal(map[string]any{
 					"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn,
 					"PrevalidationOptions": map[string]any{
 						"DnsPrevalidation": map[string]any{"HostedZoneId": "Znew"},
 					},
-				})
+				}, jsonx.V1())
 				updRec := postACMJSON(t, h, "UpdateAcmeDomainValidation", string(updBody))
 				require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
 
 				descBody, _ := json.Marshal(
-					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn},
+					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn}, jsonx.V1(),
 				)
 				descRec := postACMJSON(t, h, "DescribeAcmeDomainValidation", string(descBody))
 				assert.Contains(t, descRec.Body.String(), `"HostedZoneId":"Znew"`)
@@ -785,17 +798,17 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 					"AcmeEndpointArn":      epARN,
 					"DomainName":           "dv5.example.com",
 					"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut struct {
 					AcmeDomainValidationArn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				delBody, _ := json.Marshal(
-					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn},
+					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn}, jsonx.V1(),
 				)
 				delRec := postACMJSON(t, h, "DeleteAcmeDomainValidation", string(delBody))
 				assert.Equal(t, http.StatusOK, delRec.Code)
@@ -814,14 +827,14 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 					"AcmeEndpointArn":      epARN,
 					"DomainName":           "dv6.example.com",
 					"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-				})
+				}, jsonx.V1())
 				createRec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut struct {
 					AcmeDomainValidationArn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				delBody := `{"AcmeDomainValidationArn":"` + epARN + `/acme-domain-validation/nope"}`
 				delRec := postACMJSON(t, h, "DeleteAcmeDomainValidation", delBody)
@@ -830,7 +843,7 @@ func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 				assert.NotContains(t, delRec.Body.String(), "ResourceNotFoundException")
 
 				descBody, _ := json.Marshal(
-					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn},
+					map[string]string{"AcmeDomainValidationArn": createOut.AcmeDomainValidationArn}, jsonx.V1(),
 				)
 				descRec := postACMJSON(t, h, "DescribeAcmeDomainValidation", string(descBody))
 				assert.Equal(t, http.StatusOK, descRec.Code, "unrelated domain validation must be untouched")
@@ -869,7 +882,7 @@ func TestACMHandler_AcmeAccounts_HonestlyEmpty(t *testing.T) {
 
 				body, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN, "AccountUrl": "https://example/acct/1",
-				})
+				}, jsonx.V1())
 				rec := postACMJSON(t, h, "DescribeAcmeAccount", string(body))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
@@ -880,7 +893,7 @@ func TestACMHandler_AcmeAccounts_HonestlyEmpty(t *testing.T) {
 			run: func(t *testing.T, h *acm.Handler, epARN string) {
 				t.Helper()
 
-				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN})
+				body, _ := json.Marshal(map[string]string{"AcmeEndpointArn": epARN}, jsonx.V1())
 				rec := postACMJSON(t, h, "ListAcmeAccounts", string(body))
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Contains(t, rec.Body.String(), `"AcmeAccounts":[]`)
@@ -893,7 +906,7 @@ func TestACMHandler_AcmeAccounts_HonestlyEmpty(t *testing.T) {
 
 				body, _ := json.Marshal(map[string]string{
 					"AcmeEndpointArn": epARN, "AccountUrl": "https://example/acct/1",
-				})
+				}, jsonx.V1())
 				rec := postACMJSON(t, h, "RevokeAcmeAccount", string(body))
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")

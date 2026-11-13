@@ -1,12 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestKAV2_CreateApplication_ExtendedInlineConfiguration verifies that
@@ -57,7 +59,7 @@ func TestKAV2_CreateApplication_ExtendedInlineConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	detail := out["ApplicationDetail"].(map[string]any)
 	appConfig := detail["ApplicationConfigurationDescription"].(map[string]any)
 
@@ -110,7 +112,7 @@ func TestKAV2_UpdateApplication_ConditionalTokenWireRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	token, ok := createOut["ApplicationDetail"].(map[string]any)["ConditionalToken"].(string)
 	require.True(t, ok, "expected ConditionalToken in CreateApplication response")
 	require.NotEmpty(t, token)
@@ -123,7 +125,7 @@ func TestKAV2_UpdateApplication_ConditionalTokenWireRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	assert.Equal(t, "FLINK-1_19", updateOut["ApplicationDetail"].(map[string]any)["RuntimeEnvironment"])
 
 	// A second call reusing the now-stale token must fail.
@@ -159,14 +161,14 @@ func TestKAV2_StartApplication_RunConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut["OperationId"])
 
 	descRec := doKAV2Request(t, h, "DescribeApplication", map[string]any{"ApplicationName": "start-runcfg-wire-app"})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	appConfig := descOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any)
 	runConfig := appConfig["RunConfigurationDescription"].(map[string]any)
 	restoreConfig := runConfig["ApplicationRestoreConfigurationDescription"].(map[string]any)
@@ -236,7 +238,7 @@ func TestKAV2_AddDeleteVpcAndCWLOption_WireIncludesOperationID(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	detail := descOut["ApplicationDetail"].(map[string]any)
 	cwlOptions := detail["CloudWatchLoggingOptionDescriptions"].([]any)
 	cwlID := cwlOptions[0].(map[string]any)["CloudWatchLoggingOptionId"].(string)
@@ -262,7 +264,7 @@ func assertHasOperationID(t *testing.T, body []byte) {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 	opID, ok := out["OperationId"].(string)
 	require.True(t, ok, "expected OperationId in response")
 	assert.NotEmpty(t, opID)
@@ -298,7 +300,7 @@ func TestKAV2_StartApplication_SqlRunConfigurations(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	createAppConfig := createOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any) //nolint:lll // test readability
 	createSQLConfig := createAppConfig["SqlApplicationConfigurationDescription"].(map[string]any)
 	inputID := createSQLConfig["InputDescriptions"].([]any)[0].(map[string]any)["InputId"].(string)
@@ -322,7 +324,7 @@ func TestKAV2_StartApplication_SqlRunConfigurations(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	appConfig := descOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any)
 	sqlConfig := appConfig["SqlApplicationConfigurationDescription"].(map[string]any)
 	input := sqlConfig["InputDescriptions"].([]any)[0].(map[string]any)
@@ -452,7 +454,7 @@ func TestKAV2_DiscoverInputSchema(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			inputSchema := out["InputSchema"].(map[string]any)
 			assert.Len(t, inputSchema["RecordColumns"], 3)
 		})
@@ -510,7 +512,7 @@ func TestKAV2_CreateApplication_ZeppelinConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	detail := out["ApplicationDetail"].(map[string]any)
 	appConfig := detail["ApplicationConfigurationDescription"].(map[string]any)
 	zepDesc := appConfig["ZeppelinApplicationConfigurationDescription"].(map[string]any)
@@ -576,7 +578,7 @@ func TestKAV2_UpdateApplication_ZeppelinConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	appConfig := descOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any)
 	zepDesc := appConfig["ZeppelinApplicationConfigurationDescription"].(map[string]any)
 

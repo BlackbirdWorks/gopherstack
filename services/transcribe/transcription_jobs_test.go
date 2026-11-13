@@ -1,7 +1,7 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -898,7 +899,7 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, summariesOK := resp["TranscriptionJobSummaries"].([]any)
 			require.True(t, summariesOK)
@@ -919,7 +920,7 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 				summaries2, summaries2OK := resp2["TranscriptionJobSummaries"].([]any)
 				require.True(t, summaries2OK)
@@ -1069,7 +1070,7 @@ func TestMediaFileUri_JSONKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	job, _ := raw["TranscriptionJob"].(map[string]any)
 	require.NotNil(t, job, "TranscriptionJob must be present")
 
@@ -1102,7 +1103,7 @@ func TestTranscriptionJob_MediaInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	job, _ := raw["TranscriptionJob"].(map[string]any)
 	require.NotNil(t, job)
 
@@ -1131,7 +1132,7 @@ func TestTranscriptionJob_OutputBucketNotInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	job, _ := raw["TranscriptionJob"].(map[string]any)
 	require.NotNil(t, job)
 
@@ -1194,7 +1195,7 @@ func TestTranscriptionJob_LanguageIdSettings_Echoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	job, _ := raw["TranscriptionJob"].(map[string]any)
 	require.NotNil(t, job)
 

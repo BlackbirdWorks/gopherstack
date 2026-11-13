@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"path"
@@ -20,6 +21,7 @@ import (
 	shtypes "github.com/aws/aws-sdk-go-v2/service/securityhub/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -195,9 +197,9 @@ func (b *InMemoryBackend) renderExportLocked(job *ExportJobV2) ([]byte, string, 
 	if job.Format == exportFormatOCSFJSON {
 		var buf bytes.Buffer
 
-		enc := json.NewEncoder(&buf)
+		enc := jsontext.NewEncoder(&buf, jsonx.V1())
 		for _, f := range findings {
-			if err := enc.Encode(f); err != nil {
+			if err := json.MarshalEncode(enc, f); err != nil {
 				return nil, "", fmt.Errorf("encode finding: %w", err)
 			}
 		}

@@ -1,7 +1,8 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // updateTransitionDelay is the async delay before an InProgress Update reaches
@@ -81,7 +83,7 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	result := make([]EncryptionConfig, len(stored))
 	copy(result, stored)
 
-	encryptionConfigJSON, err := json.Marshal(result)
+	encryptionConfigJSON, err := json.Marshal(result, jsonx.V1())
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal encryption config: %w", err)
 	}
@@ -111,7 +113,7 @@ type ClusterConfigUpdate struct {
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
 	// ConfigBlocks are the opaque config members, keyed by wire name.
-	ConfigBlocks         map[string]json.RawMessage
+	ConfigBlocks         map[string]jsontext.Value
 	DeletionProtection   *bool
 	ElasticLoadBalancing *bool
 	UpgradeSupportType   string

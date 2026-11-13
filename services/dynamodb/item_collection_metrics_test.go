@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
@@ -67,7 +68,7 @@ func TestQuery_ConsistentRead_GSI_Rejected(t *testing.T) {
 			},
 		},
 		"BillingMode": "PAY_PER_REQUEST",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	putItemBody, err := json.Marshal(map[string]any{
@@ -76,7 +77,7 @@ func TestQuery_ConsistentRead_GSI_Rejected(t *testing.T) {
 			"pk":    map[string]any{"S": "user1"},
 			"email": map[string]any{"S": "test@example.com"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -144,7 +145,7 @@ func TestQuery_ConsistentRead_GSI_Rejected(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Code, "PutItem failed: %s", w.Body.String())
 
 			// Execute query.
-			queryRaw, marshalErr := json.Marshal(tc.query)
+			queryRaw, marshalErr := json.Marshal(tc.query, jsonx.V1())
 			require.NoError(t, marshalErr)
 			w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.Query", queryRaw)
 
@@ -159,7 +160,7 @@ func TestQuery_ConsistentRead_GSI_Rejected(t *testing.T) {
 // marshalJSONBody marshals v to JSON bytes for use with makeHandlerJSONRequest.
 func marshalJSONBody(t *testing.T, v any) []byte {
 	t.Helper()
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return b
@@ -223,7 +224,7 @@ func TestPutItem_ItemCollectionMetrics_PKOnly(t *testing.T) {
 			SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB"`
 		} `json:"ItemCollectionMetrics"`
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.ItemCollectionMetrics)
 
 	// ItemCollectionKey must contain only the partition key, not sk or non-key attrs.
@@ -309,7 +310,7 @@ func TestDeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var upd icmResult
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &upd))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &upd, jsonx.V1()))
 	require.NotNil(t, upd.ItemCollectionMetrics)
 	assert.Contains(t, upd.ItemCollectionMetrics.ItemCollectionKey, "pk")
 	assert.NotContains(t, upd.ItemCollectionMetrics.ItemCollectionKey, "sk")
@@ -325,7 +326,7 @@ func TestDeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var del icmResult
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &del))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &del, jsonx.V1()))
 	require.NotNil(t, del.ItemCollectionMetrics)
 	assert.Contains(t, del.ItemCollectionMetrics.ItemCollectionKey, "pk")
 	assert.NotContains(t, del.ItemCollectionMetrics.ItemCollectionKey, "sk")
@@ -374,7 +375,7 @@ func TestBatchWriteItem_ItemCollectionMetrics(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var withMetrics batchWriteICMResult
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics, jsonx.V1()))
 	require.Contains(t, withMetrics.ItemCollectionMetrics, "bw-icm-tbl")
 	metrics := withMetrics.ItemCollectionMetrics["bw-icm-tbl"]
 	require.Len(t, metrics, 2, "one metric per PutRequest")
@@ -430,7 +431,7 @@ func TestTransactWriteItems_ItemCollectionMetrics(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var withMetrics batchWriteICMResult
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics, jsonx.V1()))
 	require.Contains(t, withMetrics.ItemCollectionMetrics, "tw-icm-tbl")
 	metrics := withMetrics.ItemCollectionMetrics["tw-icm-tbl"]
 	require.Len(t, metrics, 2, "one metric per Put transact item")

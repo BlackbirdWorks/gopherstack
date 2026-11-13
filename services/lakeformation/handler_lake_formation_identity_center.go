@@ -2,10 +2,12 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
@@ -14,7 +16,7 @@ func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
 	body []byte,
 ) error {
 	var in createLakeFormationIdentityCenterConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -42,7 +44,7 @@ func (h *Handler) handleDeleteLakeFormationIdentityCenterConfiguration(
 ) error {
 	var in deleteLakeFormationIdentityCenterConfigurationInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -62,7 +64,7 @@ func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
 ) error {
 	var in describeLakeFormationIdentityCenterConfigurationInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -90,7 +92,7 @@ func (h *Handler) handleUpdateLakeFormationIdentityCenterConfiguration(
 ) error {
 	var in updateLakeFormationIdentityCenterConfigurationInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}

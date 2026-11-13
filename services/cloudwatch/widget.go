@@ -2,13 +2,16 @@ package cloudwatch
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"image/png"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Widget rendering constants.
@@ -40,14 +43,14 @@ const (
 
 // widgetSpec is the decoded MetricWidget JSON document.
 type widgetSpec struct {
-	Title   string              `json:"title"`
-	Start   string              `json:"start"`
-	End     string              `json:"end"`
-	Stat    string              `json:"stat"`
-	Metrics [][]json.RawMessage `json:"metrics"`
-	Width   int                 `json:"width"`
-	Height  int                 `json:"height"`
-	Period  int                 `json:"period"`
+	Title   string             `json:"title"`
+	Start   string             `json:"start"`
+	End     string             `json:"end"`
+	Stat    string             `json:"stat"`
+	Metrics [][]jsontext.Value `json:"metrics"`
+	Width   int                `json:"width"`
+	Height  int                `json:"height"`
+	Period  int                `json:"period"`
 }
 
 // widgetSeriesQuery describes a single metric line to plot.
@@ -108,7 +111,7 @@ func parseWidgetSpec(widgetJSON string) widgetSpec {
 	if strings.TrimSpace(widgetJSON) == "" {
 		return spec
 	}
-	_ = json.Unmarshal([]byte(widgetJSON), &spec)
+	_ = json.Unmarshal([]byte(widgetJSON), &spec, jsonx.V1())
 
 	return spec
 }
@@ -241,24 +244,24 @@ func scanDurationComponent(s string, unit byte, scale time.Duration) (time.Durat
 // namespace, metric name, then dimension name/value pairs, optionally followed by
 // an options object ({"stat":...,"period":...,"label":...}). Render-only entries
 // (leading object, e.g. metric-math expressions) are skipped.
-func parseWidgetSeries(elem []json.RawMessage, spec widgetSpec) (widgetSeriesQuery, bool) {
+func parseWidgetSeries(elem []jsontext.Value, spec widgetSpec) (widgetSeriesQuery, bool) {
 	q := widgetSeriesQuery{
 		stat:   firstNonEmpty(spec.Stat, widgetDefaultStat),
 		period: firstPositive(spec.Period, widgetDefaultPeriod),
 	}
 
 	var strs []string
-	var opts map[string]json.RawMessage
+	var opts map[string]jsontext.Value
 
 	for _, raw := range elem {
 		trimmed := strings.TrimSpace(string(raw))
 		if strings.HasPrefix(trimmed, "{") {
-			_ = json.Unmarshal(raw, &opts)
+			_ = json.Unmarshal(raw, &opts, jsonx.V1())
 
 			continue
 		}
 		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
+		if err := json.Unmarshal(raw, &s, jsonx.V1()); err == nil {
 			strs = append(strs, s)
 		}
 	}
@@ -284,25 +287,25 @@ func parseWidgetSeries(elem []json.RawMessage, spec widgetSpec) (widgetSeriesQue
 }
 
 // applyWidgetOptions overlays the trailing options object onto a series query.
-func applyWidgetOptions(q *widgetSeriesQuery, opts map[string]json.RawMessage) {
+func applyWidgetOptions(q *widgetSeriesQuery, opts map[string]jsontext.Value) {
 	if opts == nil {
 		return
 	}
 	if raw, ok := opts["stat"]; ok {
 		var s string
-		if json.Unmarshal(raw, &s) == nil && s != "" {
+		if json.Unmarshal(raw, &s, jsonx.V1()) == nil && s != "" {
 			q.stat = s
 		}
 	}
 	if raw, ok := opts["label"]; ok {
 		var s string
-		if json.Unmarshal(raw, &s) == nil && s != "" {
+		if json.Unmarshal(raw, &s, jsonx.V1()) == nil && s != "" {
 			q.label = s
 		}
 	}
 	if raw, ok := opts["period"]; ok {
 		var p int
-		if json.Unmarshal(raw, &p) == nil && p > 0 {
+		if json.Unmarshal(raw, &p, jsonx.V1()) == nil && p > 0 {
 			q.period = p
 		}
 	}

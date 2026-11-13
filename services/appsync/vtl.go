@@ -1,15 +1,17 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // renderVTL renders tmpl with the given arguments and result as the context.
 func renderVTL(tmpl string, args map[string]any, result any) (string, error) {
 	if tmpl == "" {
 		if result != nil {
-			b, err := json.Marshal(result)
+			b, err := json.Marshal(result, jsonx.V1())
 
 			return string(b), err
 		}
@@ -39,7 +41,7 @@ func returnedString(v any) string {
 		return s
 	}
 
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return string(b)
 }
@@ -59,7 +61,7 @@ func vtlOutputValue(out vtlOutcome) any {
 }
 
 func toDynamoDBJSON(val any) string {
-	b, _ := json.Marshal(ddbTyped(val))
+	b, _ := json.Marshal(ddbTyped(val), jsonx.V1())
 
 	return string(b)
 }

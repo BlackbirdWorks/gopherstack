@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,14 +22,14 @@ type createCompilationJobInput struct {
 	CompilationJobName     string                   `json:"CompilationJobName"`
 	RoleArn                string                   `json:"RoleArn"`
 	ModelPackageVersionArn string                   `json:"ModelPackageVersionArn"`
-	VpcConfig              json.RawMessage          `json:"VpcConfig"`
+	VpcConfig              jsontext.Value           `json:"VpcConfig"`
 	Tags                   []tagObject              `json:"Tags"`
 }
 
 func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createCompilationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -75,7 +78,7 @@ func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) (
 		return nil, extErr
 	}
 
-	return json.Marshal(map[string]any{"CompilationJobArn": result.CompilationJobArn})
+	return json.Marshal(map[string]any{"CompilationJobArn": result.CompilationJobArn}, jsonx.V1())
 }
 
 // describeCompilationJobInput mirrors DescribeCompilationJobInput
@@ -87,7 +90,7 @@ type describeCompilationJobInput struct {
 func (h *Handler) handleDescribeCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeCompilationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -100,7 +103,7 @@ func (h *Handler) handleDescribeCompilationJob(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteCompilationJobInput mirrors DeleteCompilationJobInput
@@ -112,7 +115,7 @@ type deleteCompilationJobInput struct {
 func (h *Handler) handleDeleteCompilationJob(ctx context.Context, body []byte) error {
 	var req deleteCompilationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -132,7 +135,7 @@ type stopCompilationJobInput struct {
 func (h *Handler) handleStopCompilationJob(ctx context.Context, body []byte) error {
 	var req stopCompilationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -161,7 +164,7 @@ type listCompilationJobsInput struct {
 func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listCompilationJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -214,7 +217,7 @@ func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]any{
 		"CompilationJobSummaries": summaries,
 		keyNextToken:              next,
-	})
+	}, jsonx.V1())
 }
 
 func compilationTargetPlatform(j *CompilationJob) *CompilationTargetPlatform {

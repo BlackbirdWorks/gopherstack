@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -78,7 +79,7 @@ func TestDescribeWorkflow_CustomStepTimeoutSecondsKey_RealClient(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	workflowID := createResp["WorkflowId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeWorkflow", map[string]any{
@@ -230,7 +231,7 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 	var listResp struct {
 		Executions []map[string]any `json:"Executions"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Executions, 1, "must exercise a non-empty collection")
 	require.Contains(t, listResp.Executions[0], "ExecutionId")
 
@@ -247,7 +248,7 @@ func TestListExecutionsAndDescribeExecution_NoFabricatedWorkflowId(t *testing.T)
 	var descResp struct {
 		Execution map[string]any `json:"Execution"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	require.Contains(t, descResp.Execution, "ExecutionId")
 
 	_, descHasWorkflowID := descResp.Execution["WorkflowId"]

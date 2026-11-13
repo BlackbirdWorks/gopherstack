@@ -3,9 +3,12 @@ package asl
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -150,7 +153,7 @@ func (e *Executor) invokeLambdaOptimized(ctx context.Context, input any) (any, e
 	var payload []byte
 
 	if raw, ok := params["Payload"]; ok {
-		b, err := json.Marshal(raw)
+		b, err := json.Marshal(raw, jsonx.V1())
 		if err != nil {
 			return nil, &FailError{ErrCode: errCodeStatesRuntime, Cause: err.Error()}
 		}
@@ -176,7 +179,7 @@ func (e *Executor) invokeLambdaOptimized(ctx context.Context, input any) (any, e
 
 	if len(bytes.TrimSpace(resp)) > 0 {
 		var parsed any
-		if json.Unmarshal(resp, &parsed) != nil {
+		if json.Unmarshal(resp, &parsed, jsonx.V1()) != nil {
 			parsed = string(resp)
 		}
 
@@ -222,11 +225,11 @@ func lambdaFunctionError(resp []byte) error {
 	}
 
 	var probe struct {
-		ErrorMessage *json.RawMessage `json:"errorMessage"`
-		ErrorType    *string          `json:"errorType"`
+		ErrorMessage *jsontext.Value `json:"errorMessage"`
+		ErrorType    *string         `json:"errorType"`
 	}
 
-	if json.Unmarshal(trimmed, &probe) == nil && (probe.ErrorMessage != nil || probe.ErrorType != nil) {
+	if json.Unmarshal(trimmed, &probe, jsonx.V1()) == nil && (probe.ErrorMessage != nil || probe.ErrorType != nil) {
 		code := lambdaErrUnknown
 		if probe.ErrorType != nil && *probe.ErrorType != "" {
 			code = *probe.ErrorType

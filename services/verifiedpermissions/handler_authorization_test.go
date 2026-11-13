@@ -2,7 +2,8 @@ package verifiedpermissions_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,13 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
 // makeTestJWT builds a minimal unsigned JWT whose payload contains the given claims.
 func makeTestJWT(claims map[string]any) string {
 	b64 := func(v any) string {
-		raw, _ := json.Marshal(v)
+		raw, _ := json.Marshal(v, jsonx.V1())
 
 		return base64.RawURLEncoding.EncodeToString(raw)
 	}
@@ -92,7 +94,7 @@ func TestVPHandler_BatchIsAuthorized(t *testing.T) {
 
 			if tt.wantLen > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				results := resp["results"].([]any)
 				assert.Len(t, results, tt.wantLen)
 
@@ -200,7 +202,7 @@ func TestVPHandler_IsAuthorized_DeterminingPolicies_ObjectShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, policyRec.Code)
 
 	var policyResp map[string]any
-	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp))
+	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp, jsonx.V1()))
 	policyID := policyResp["policyId"].(string)
 
 	rec := doVPRequest(t, h, "IsAuthorized", map[string]any{
@@ -212,7 +214,7 @@ func TestVPHandler_IsAuthorized_DeterminingPolicies_ObjectShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ALLOW", resp["decision"])
 
 	determining := resp["determiningPolicies"].([]any)
@@ -248,7 +250,7 @@ func TestVPHandler_BatchIsAuthorized_RequestEcho_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results := resp["results"].([]any)
 	require.Len(t, results, 1)
 
@@ -283,7 +285,7 @@ func TestVPHandler_IsAuthorizedWithToken_PrincipalFromJWT(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	// Create a permissive policy so we can verify ALLOW.
@@ -357,7 +359,7 @@ func TestVPHandler_IsAuthorizedWithToken_PrincipalFromJWT(t *testing.T) {
 
 			if tt.wantDec != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantDec, resp["decision"])
 			}
 		})
@@ -374,7 +376,7 @@ func TestVPHandler_IsAuthorizedWithToken_MissingToken(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	rec := doVPRequest(t, h, "IsAuthorizedWithToken", map[string]any{
@@ -393,7 +395,7 @@ func TestVPHandler_IsAuthorized_PolicySetCacheDirtyOnMutation(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	authReq := map[string]any{
@@ -416,7 +418,7 @@ func TestVPHandler_IsAuthorized_PolicySetCacheDirtyOnMutation(t *testing.T) {
 	rec := doVPRequest(t, h, "IsAuthorized", authReq)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DENY", resp["decision"], "no policies → DENY")
 
 	// Add a permissive policy.
@@ -430,14 +432,14 @@ func TestVPHandler_IsAuthorized_PolicySetCacheDirtyOnMutation(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, policyRec.Code)
 	var policyResp map[string]any
-	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp))
+	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp, jsonx.V1()))
 	policyID := policyResp["policyId"].(string)
 
 	// After adding policy: cache must invalidate, now ALLOW.
 	rec2 := doVPRequest(t, h, "IsAuthorized", authReq)
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Equal(t, "ALLOW", resp2["decision"], "after CreatePolicy → ALLOW (cache invalidated)")
 
 	// Delete the policy: cache must invalidate again, back to DENY.
@@ -450,7 +452,7 @@ func TestVPHandler_IsAuthorized_PolicySetCacheDirtyOnMutation(t *testing.T) {
 	rec3 := doVPRequest(t, h, "IsAuthorized", authReq)
 	require.Equal(t, http.StatusOK, rec3.Code)
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 	assert.Equal(t, "DENY", resp3["decision"], "after DeletePolicy → DENY (cache invalidated)")
 }
 
@@ -503,7 +505,7 @@ func TestVPHandler_IsAuthorized_RequestValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, ps.Code)
 
 			var psResp map[string]any
-			_ = json.NewDecoder(ps.Body).Decode(&psResp)
+			_ = json.UnmarshalDecode(jsontext.NewDecoder(ps.Body), &psResp, jsonx.V1())
 
 			if v, ok := tt.body["policyStoreId"]; ok && v == "__REPLACE__" {
 				tt.body["policyStoreId"] = psResp["policyStoreId"]
@@ -514,7 +516,7 @@ func TestVPHandler_IsAuthorized_RequestValidation(t *testing.T) {
 
 			if tt.wantField != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantField)
 			}
 		})
@@ -567,7 +569,7 @@ func TestVPHandler_IsAuthorizedWithToken_RequestValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, ps.Code)
 
 			var psResp map[string]any
-			_ = json.NewDecoder(ps.Body).Decode(&psResp)
+			_ = json.UnmarshalDecode(jsontext.NewDecoder(ps.Body), &psResp, jsonx.V1())
 
 			if v, ok := tt.body["policyStoreId"]; ok && v == "__REPLACE__" {
 				tt.body["policyStoreId"] = psResp["policyStoreId"]
@@ -645,7 +647,7 @@ func TestVPHandler_IsAuthorizedWithToken_MultipleIdentitySources_MatchByIssuer(t
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ALLOW", resp["decision"],
 		"token from issuer B must resolve to the Customer identity source, not the first-created Employee one")
 }
@@ -778,7 +780,7 @@ func TestVPHandler_IsAuthorizedWithToken_ClientIDValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantDec, resp["decision"])
 		})
 	}
@@ -821,7 +823,7 @@ func TestVPHandler_IsAuthorizedWithToken_ResponseIncludesPrincipal(t *testing.T)
 		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		principal, ok := resp["principal"].(map[string]any)
 		require.True(t, ok, "response must echo the resolved principal, got: %v", resp)
 		assert.Equal(t, "User", principal["entityType"])
@@ -849,7 +851,7 @@ func TestVPHandler_IsAuthorizedWithToken_ResponseIncludesPrincipal(t *testing.T)
 		)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "DENY", resp["decision"])
 		assert.NotContains(t, resp, "principal")
 	})
@@ -895,7 +897,7 @@ func TestVPHandler_BatchIsAuthorizedWithToken_RequestEcho_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	principal, ok := resp["principal"].(map[string]any)
 	require.True(t, ok, "top-level principal must be echoed, got: %v", resp)

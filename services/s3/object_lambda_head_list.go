@@ -2,7 +2,7 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -137,7 +138,7 @@ func (h *S3Handler) invokeObjectLambda(ctx context.Context, lambdaARN string, ev
 		return nil, ErrNoSuchKey
 	}
 
-	payload, err := json.Marshal(ev)
+	payload, err := json.Marshal(ev, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func (h *S3Handler) callObjectLambda(
 	var res objectLambdaResult
 
 	out, err := h.invokeObjectLambda(ctx, route.lambdaARN, ev)
-	if err != nil || json.Unmarshal(out, &res) != nil || res.StatusCode == 0 ||
+	if err != nil || json.Unmarshal(out, &res, jsonx.V1()) != nil || res.StatusCode == 0 ||
 		(res.ListResultXML != "" && res.ListBucketResult != nil) {
 		WriteError(ctx, w, r, errObjectLambdaFailed)
 

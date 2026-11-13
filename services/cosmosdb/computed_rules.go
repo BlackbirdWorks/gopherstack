@@ -1,7 +1,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 )
@@ -133,7 +133,7 @@ func (p indexingPolicy) isComputed(path string) bool {
 }
 
 // checkComputedIndexes rejects a spatial index on a computed property.
-func checkComputedIndexes(pol indexingPolicy, raw json.RawMessage) error {
+func checkComputedIndexes(pol indexingPolicy, raw jsontext.Value) error {
 	props, err := parseComputedProperties(raw)
 	if err != nil || len(props) == 0 {
 		return err

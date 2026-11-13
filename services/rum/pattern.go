@@ -1,13 +1,14 @@
 package rum
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // matchPattern reports whether doc satisfies an EventBridge-style event pattern.
@@ -176,7 +177,7 @@ func pathString(doc map[string]any, path string) (string, bool) {
 
 func parseObject(s string) (map[string]any, error) {
 	var out map[string]any
-	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
+	if err := json.Unmarshal([]byte(s), &out, jsonx.V1()); err != nil || out == nil {
 		return nil, fmt.Errorf("%w: %q", errNotObject, s)
 	}
 

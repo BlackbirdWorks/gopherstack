@@ -1,11 +1,12 @@
 package ecs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -206,7 +207,7 @@ func validateNextToken(body []byte) error {
 		NextToken string `json:"nextToken"`
 	}
 
-	if json.Unmarshal(body, &in) == nil && in.NextToken != "" && page.ValidateToken(in.NextToken) != nil {
+	if json.Unmarshal(body, &in, jsonx.V1()) == nil && in.NextToken != "" && page.ValidateToken(in.NextToken) != nil {
 		return fmt.Errorf("%w: Invalid token", ErrInvalidParameter)
 	}
 

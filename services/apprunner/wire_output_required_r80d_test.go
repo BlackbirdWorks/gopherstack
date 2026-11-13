@@ -1,7 +1,7 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apprunner"
 )
 
@@ -77,7 +78,7 @@ func Test_CodeRepository_SourceCodeVersion_Required(t *testing.T) {
 			ServiceArn string `json:"ServiceArn"`
 		} `json:"Service"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	rec = doRequest(t, h, "DescribeService", map[string]any{
 		"ServiceArn": createOut.Service.ServiceArn,
@@ -95,7 +96,7 @@ func Test_CodeRepository_SourceCodeVersion_Required(t *testing.T) {
 			} `json:"SourceConfiguration"`
 		} `json:"Service"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.Service.SourceConfiguration.CodeRepository.SourceCodeVersion)
 	assert.Equal(t, "main", descOut.Service.SourceConfiguration.CodeRepository.SourceCodeVersion.Value)
 }

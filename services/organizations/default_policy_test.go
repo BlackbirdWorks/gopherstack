@@ -1,12 +1,15 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDefaultFullAWSAccessPolicy_ViaHandler verifies that every organization
@@ -21,7 +24,7 @@ func TestDefaultFullAWSAccessPolicy_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp describePolicyResp
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	assert.Equal(t, "p-FullAWSAccess", resp.Policy.PolicySummary.ID)
 	assert.Equal(t, "FullAWSAccess", resp.Policy.PolicySummary.Name)
@@ -44,7 +47,7 @@ func TestDefaultFullAWSAccessPolicy_ARN_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp describePolicyResp
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	assert.Equal(t,
 		"arn:aws:organizations::aws:policy/SERVICE_CONTROL_POLICY/p-FullAWSAccess",
@@ -65,7 +68,7 @@ func TestDefaultFullAWSAccessPolicy_AttachedToRoot_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp listPoliciesForTargetResp
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	found := false
 
@@ -90,7 +93,7 @@ func TestDeleteFullAWSAccessPolicy_Rejected_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "AccessDeniedException", errResp["__type"])
 
 	// The survivor check: DescribePolicy must still find it afterward.
@@ -115,14 +118,14 @@ func TestUpdateFullAWSAccessPolicy_Rejected_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "AccessDeniedException", errResp["__type"])
 
 	describeRec := doRequest(t, h, "DescribePolicy", map[string]any{"PolicyId": "p-FullAWSAccess"})
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var resp describePolicyResp
-	require.NoError(t, json.NewDecoder(describeRec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(describeRec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "FullAWSAccess", resp.Policy.PolicySummary.Name, "name must not be hijacked")
 	assert.JSONEq(t,
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
@@ -149,7 +152,7 @@ func TestUserPolicy_AwsManagedFalse_StillDeletable_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp createPolicyResp
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 	assert.False(t, createResp.Policy.PolicySummary.AwsManaged, "user-created policy must not be AwsManaged")
 
 	policyID := createResp.Policy.PolicySummary.ID

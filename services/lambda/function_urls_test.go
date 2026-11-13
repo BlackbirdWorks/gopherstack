@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -78,7 +80,7 @@ func TestFunctionURL_CORS(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	require.NotNil(t, cfg.Cors)
 	assert.Equal(t, []string{"https://example.com"}, cfg.Cors.AllowOrigins)
 	assert.Equal(t, 300, cfg.Cors.MaxAge)
@@ -96,7 +98,7 @@ func TestFunctionURL_InvokeMode(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "RESPONSE_STREAM", cfg.InvokeMode)
 }
 
@@ -112,7 +114,7 @@ func TestFunctionURL_AWSIAMAuth(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "AWS_IAM", cfg.AuthType)
 }
 
@@ -128,7 +130,7 @@ func TestFunctionURL_FunctionURLIsSet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.NotEmpty(t, cfg.FunctionURL)
 }
 
@@ -177,7 +179,7 @@ func TestUpdateFunctionURLConfig_CORS(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var cfg lambda.FunctionURLConfig
-			require.NoError(t, json.NewDecoder(rec2.Body).Decode(&cfg))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &cfg, jsonx.V1()))
 
 			assert.Equal(t, tt.wantAuthType, cfg.AuthType)
 
@@ -213,7 +215,7 @@ func TestFunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 	cors, _ := out["Cors"].(map[string]any)
 	require.NotNil(t, cors)
 	origins, _ := cors["AllowOrigins"].([]any)
@@ -235,7 +237,7 @@ func TestFunctionURLConfig_2021(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "NONE", cfg.AuthType)
 
 	// Get via 2021 path
@@ -249,7 +251,7 @@ func TestFunctionURLConfig_2021(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionURLConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.FunctionURLConfigs, 1)
 
 	// Update via 2021 path
@@ -291,7 +293,7 @@ func TestFunctionURLConfig_2021_ListEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionURLConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut.FunctionURLConfigs)
 }
 
@@ -381,7 +383,7 @@ func TestLambda_FunctionURL_EventPayloadEnrichment(t *testing.T) {
 		Headers               map[string]string `json:"headers"`
 		Cookies               []string          `json:"cookies"`
 	}
-	require.NoError(t, json.Unmarshal(payload, &event))
+	require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 
 	assert.ElementsMatch(t, []string{"session=abc", "theme=dark"}, event.Cookies)
 	assert.Equal(t, "bar", event.QueryStringParameters["foo"])

@@ -1,7 +1,7 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -302,7 +303,7 @@ type createClusterBody struct {
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	var in createClusterBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -349,7 +350,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	netCfg = withNetworkDefaults(netCfg)
 
 	var blocksIn clusterConfigBlocksBody
-	_ = json.Unmarshal(body, &blocksIn)
+	_ = json.Unmarshal(body, &blocksIn, jsonx.V1())
 
 	opt := buildClusterOptConfig(in)
 	opt.CreatorARN = awsmeta.CallerArn(c.Request().Context())
@@ -476,7 +477,7 @@ type registerClusterBody struct {
 
 func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
 	var in registerClusterBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 

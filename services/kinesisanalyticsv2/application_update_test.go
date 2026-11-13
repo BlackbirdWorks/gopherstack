@@ -2,13 +2,14 @@ package kinesisanalyticsv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
@@ -520,7 +521,7 @@ func appCreateEpochSeconds(t *testing.T, b *kinesisanalyticsv2.InMemoryBackend, 
 		} `json:"ApplicationDetail"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out.ApplicationDetail.CreateTimestamp
 }

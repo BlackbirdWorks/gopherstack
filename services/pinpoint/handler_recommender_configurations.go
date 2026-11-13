@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractRecommendersCollectionOp returns the operation for the recommenders collection.
@@ -95,7 +96,7 @@ func (h *Handler) handleCreateRecommenderConfiguration(c *echo.Context) error {
 	}
 
 	var req createRecommenderConfigRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(
 			c,
 			http.StatusBadRequest,
@@ -236,7 +237,7 @@ func (h *Handler) handleUpdateRecommenderConfiguration(
 	}
 
 	var req createRecommenderConfigRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(
 			c,
 			http.StatusBadRequest,

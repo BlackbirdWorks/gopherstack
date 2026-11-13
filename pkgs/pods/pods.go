@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -156,7 +157,7 @@ func (s *Service) Save(ctx context.Context, name, message string, snaps map[stri
 
 	m.Size = int64(len(archive))
 
-	meta, err := json.Marshal(m)
+	meta, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return Manifest{}, fmt.Errorf("marshal manifest: %w", err)
 	}
@@ -179,7 +180,7 @@ func buildArchive(m *Manifest, snaps map[string][]byte) ([]byte, error) {
 
 	zw := zip.NewWriter(&buf)
 
-	meta, err := json.Marshal(m)
+	meta, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal manifest: %w", err)
 	}
@@ -262,7 +263,7 @@ func (s *Service) readManifest(ctx context.Context, name string, v int) (Manifes
 	}
 
 	var m Manifest
-	if err = json.Unmarshal(raw, &m); err != nil {
+	if err = json.Unmarshal(raw, &m, jsonx.V1()); err != nil {
 		return Manifest{}, fmt.Errorf("%w: manifest: %w", ErrCorrupt, err)
 	}
 

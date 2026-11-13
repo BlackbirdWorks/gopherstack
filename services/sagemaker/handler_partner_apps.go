@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,7 +26,7 @@ type createPartnerAppInput struct {
 	Tier                          string                       `json:"Tier,omitempty"`
 	KmsKeyID                      string                       `json:"KmsKeyId,omitempty"`
 	Tags                          []tagObject                  `json:"Tags"`
-	ApplicationConfig             json.RawMessage              `json:"ApplicationConfig,omitempty"`
+	ApplicationConfig             jsontext.Value               `json:"ApplicationConfig,omitempty"`
 	EnableAutoMinorVersionUpgrade bool                         `json:"EnableAutoMinorVersionUpgrade,omitempty"`
 	EnableIamSessionBasedIdentity bool                         `json:"EnableIamSessionBasedIdentity,omitempty"`
 }
@@ -31,7 +34,7 @@ type createPartnerAppInput struct {
 func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPartnerAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -72,7 +75,7 @@ func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn}, jsonx.V1())
 }
 
 // describePartnerAppResponse is the response body for DescribePartnerApp
@@ -94,7 +97,7 @@ type describePartnerAppResponse struct {
 	KmsKeyID                      string                       `json:"KmsKeyId,omitempty"`
 	Status                        string                       `json:"Status"`
 	Name                          string                       `json:"Name"`
-	ApplicationConfig             json.RawMessage              `json:"ApplicationConfig,omitempty"`
+	ApplicationConfig             jsontext.Value               `json:"ApplicationConfig,omitempty"`
 	CreationTime                  float64                      `json:"CreationTime"`
 	LastModifiedTime              float64                      `json:"LastModifiedTime"`
 	EnableAutoMinorVersionUpgrade bool                         `json:"EnableAutoMinorVersionUpgrade,omitempty"`
@@ -114,7 +117,7 @@ type describePartnerAppInput struct {
 func (h *Handler) handleDescribePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req describePartnerAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -143,7 +146,7 @@ func (h *Handler) handleDescribePartnerApp(ctx context.Context, body []byte) ([]
 		EnableIamSessionBasedIdentity: result.EnableIamSessionBasedIdentity,
 		CreationTime:                  epochSeconds(result.CreationTime),
 		LastModifiedTime:              epochSeconds(result.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // deletePartnerAppInput mirrors DeletePartnerAppInput
@@ -156,7 +159,7 @@ type deletePartnerAppInput struct {
 func (h *Handler) handleDeletePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req deletePartnerAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -168,7 +171,7 @@ func (h *Handler) handleDeletePartnerApp(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyGenericArn: req.Arn})
+	return json.Marshal(map[string]string{keyGenericArn: req.Arn}, jsonx.V1())
 }
 
 // updatePartnerAppInput mirrors UpdatePartnerAppInput
@@ -184,13 +187,13 @@ type updatePartnerAppInput struct {
 	AppVersion                    string                       `json:"AppVersion,omitempty"`
 	Tier                          string                       `json:"Tier,omitempty"`
 	Tags                          []tagObject                  `json:"Tags"`
-	ApplicationConfig             json.RawMessage              `json:"ApplicationConfig,omitempty"`
+	ApplicationConfig             jsontext.Value               `json:"ApplicationConfig,omitempty"`
 }
 
 func (h *Handler) handleUpdatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req updatePartnerAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -211,7 +214,7 @@ func (h *Handler) handleUpdatePartnerApp(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn}, jsonx.V1())
 }
 
 // listPartnerAppsInput mirrors ListPartnerAppsInput
@@ -224,7 +227,7 @@ type listPartnerAppsInput struct {
 func (h *Handler) handleListPartnerApps(ctx context.Context, body []byte) ([]byte, error) {
 	var req listPartnerAppsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -257,7 +260,7 @@ type createPartnerAppPresignedURLInput struct {
 func (h *Handler) handleCreatePartnerAppPresignedURL(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPartnerAppPresignedURLInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -274,5 +277,5 @@ func (h *Handler) handleCreatePartnerAppPresignedURL(ctx context.Context, body [
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyURL: url})
+	return json.Marshal(map[string]string{keyURL: url}, jsonx.V1())
 }

@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -21,7 +22,7 @@ import (
 func taggingAPIPost(t *testing.T, action string, body any) *http.Response {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
@@ -115,7 +116,7 @@ func TestIntegration_TaggingAPI_TagResources(t *testing.T) {
 
 	// Decode the response and assert no failures.
 	var tagOut map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &tagOut))
+	require.NoError(t, json.Unmarshal([]byte(body), &tagOut, jsonx.V1()))
 	assert.Empty(t, tagOut["FailedResourcesMap"], "expected no tag failures")
 
 	// Verify via GetResources that the tagged queue appears when filtering by tag.

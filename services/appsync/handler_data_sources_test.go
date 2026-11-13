@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -143,7 +145,7 @@ func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
 		IntrospectionID     string `json:"introspectionId"`
 		IntrospectionStatus string `json:"introspectionStatus"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut.IntrospectionID)
 	assert.Equal(t, "SUCCESS", startOut.IntrospectionStatus)
 
@@ -157,7 +159,7 @@ func TestHandler_DataSourceIntrospection_StartThenGet(t *testing.T) {
 			Models []any `json:"models"`
 		} `json:"introspectionResult"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, startOut.IntrospectionID, getOut.IntrospectionID)
 	assert.Equal(t, "SUCCESS", getOut.IntrospectionStatus)
 	assert.Empty(t, getOut.IntrospectionResult.Models)
@@ -202,7 +204,7 @@ func TestHandler_CreateAndGetDataSource(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				ds, ok := resp["dataSource"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, ds["name"])
@@ -233,7 +235,7 @@ func TestHandler_ListDataSources(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	dss, ok := resp["dataSources"].([]any)
 	require.True(t, ok)
 	assert.Len(t, dss, 1)
@@ -275,7 +277,7 @@ func TestHandler_UpdateDataSource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	ds := resp["dataSource"].(map[string]any)
 	assert.Equal(t, "updated", ds["description"])
 

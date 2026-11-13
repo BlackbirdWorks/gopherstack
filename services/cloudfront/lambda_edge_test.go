@@ -3,7 +3,7 @@ package cloudfront_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -48,7 +49,7 @@ func (f *fakeEdge) InvokeEdge(_ context.Context, name, version string, payload [
 		} `json:"Records"`
 	}
 
-	if err := json.Unmarshal(payload, &in); err != nil || len(in.Records) != 1 {
+	if err := json.Unmarshal(payload, &in, jsonx.V1()); err != nil || len(in.Records) != 1 {
 		return nil, "", fmt.Errorf("%w: bad event", errFakeEdge)
 	}
 
@@ -62,7 +63,7 @@ func (f *fakeEdge) InvokeEdge(_ context.Context, name, version string, payload [
 		} `json:"Records"`
 	}
 
-	_ = json.Unmarshal(payload, &snapshot)
+	_ = json.Unmarshal(payload, &snapshot, jsonx.V1())
 
 	f.mu.Lock()
 	f.calls[name]++
@@ -75,7 +76,7 @@ func (f *fakeEdge) InvokeEdge(_ context.Context, name, version string, payload [
 		return nil, fnErr, err
 	}
 
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return b, "", nil
 }

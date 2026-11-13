@@ -1,7 +1,7 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -62,7 +63,7 @@ func TestFunctionUrl_CRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var cfg lambda.FunctionURLConfig
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 			assert.NotEmpty(t, cfg.FunctionURL)
 			assert.Equal(t, "NONE", cfg.AuthType)
 			assert.NotEmpty(t, cfg.FunctionArn)
@@ -72,7 +73,7 @@ func TestFunctionUrl_CRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getCfg lambda.FunctionURLConfig
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfg))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfg, jsonx.V1()))
 			assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
 
 			rec = callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/"+tt.funcName+"/url", "", nil)

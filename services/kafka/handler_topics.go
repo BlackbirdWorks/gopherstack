@@ -2,11 +2,13 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createTopicInput mirrors aws-sdk-go-v2/service/kafka's CreateTopicInput
@@ -34,7 +36,7 @@ func (h *Handler) handleCreateTopic(
 	body []byte,
 ) error {
 	var in createTopicInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -275,7 +277,7 @@ func (h *Handler) handleUpdateTopic(
 	}
 
 	var in updateTopicInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

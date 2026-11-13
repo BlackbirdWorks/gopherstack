@@ -2,7 +2,7 @@ package codedeploy
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -176,7 +177,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	var input struct {
 		ApplicationName string `json:"applicationName"`
 	}
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return ""
 	}
 
@@ -263,7 +264,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // errorMapping maps sentinel errors to HTTP status and exception type.
@@ -341,7 +342,7 @@ func stripExceptionPrefixes(msg string) string {
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	makePayload := func(code, msg string) []byte {
-		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: stripExceptionPrefixes(msg)})
+		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: stripExceptionPrefixes(msg)}, jsonx.V1())
 
 		return b
 	}
@@ -352,10 +353,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		}
 	}
 
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
-	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+	if jsonx.IsSyntaxError(err) || jsonx.IsTypeError(err) {
 		return c.JSONBlob(http.StatusBadRequest,
 			makePayload("InvalidRequestException", err.Error()))
 	}

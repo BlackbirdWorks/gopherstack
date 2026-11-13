@@ -1,12 +1,13 @@
 package ses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -117,7 +118,7 @@ func parseTemplateData(templateData string) (map[string]string, error) {
 	}
 
 	raw := map[string]any{}
-	if err := json.Unmarshal([]byte(templateData), &raw); err != nil {
+	if err := json.Unmarshal([]byte(templateData), &raw, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidParameter)
 	}
 

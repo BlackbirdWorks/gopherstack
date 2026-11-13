@@ -1,11 +1,13 @@
 package chaos
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -83,7 +85,7 @@ func (h *apiHandler) getFaults(c *echo.Context) error {
 // postFaults replaces the entire fault configuration.
 func (h *apiHandler) postFaults(c *echo.Context) error {
 	var rules []FaultRule
-	if err := json.NewDecoder(c.Request().Body).Decode(&rules); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &rules, jsonx.V1()); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
@@ -99,7 +101,7 @@ func (h *apiHandler) postFaults(c *echo.Context) error {
 // patchFaults appends rules to the existing fault configuration.
 func (h *apiHandler) patchFaults(c *echo.Context) error {
 	var rules []FaultRule
-	if err := json.NewDecoder(c.Request().Body).Decode(&rules); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &rules, jsonx.V1()); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
@@ -115,7 +117,7 @@ func (h *apiHandler) patchFaults(c *echo.Context) error {
 // deleteFaults removes rules matching the provided list.
 func (h *apiHandler) deleteFaults(c *echo.Context) error {
 	var rules []FaultRule
-	if err := json.NewDecoder(c.Request().Body).Decode(&rules); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &rules, jsonx.V1()); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
@@ -132,7 +134,7 @@ func (h *apiHandler) getEffects(c *echo.Context) error {
 // postEffects updates the network effect configuration.
 func (h *apiHandler) postEffects(c *echo.Context) error {
 	var effects NetworkEffects
-	if err := json.NewDecoder(c.Request().Body).Decode(&effects); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &effects, jsonx.V1()); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
@@ -246,7 +248,7 @@ func (h *apiHandler) clearFaults(c *echo.Context) error {
 // deleteFaultByIndex removes the fault rule at the given index.
 func (h *apiHandler) deleteFaultByIndex(c *echo.Context) error {
 	var req deleteByIndexRequest
-	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 

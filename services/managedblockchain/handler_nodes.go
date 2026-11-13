@@ -1,10 +1,12 @@
 package managedblockchain
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleCreateNode handles POST /networks/{networkId}/nodes. Unlike member
@@ -17,7 +19,7 @@ func (h *Handler) handleCreateNode(c *echo.Context, networkID string, body []byt
 	}
 
 	var req createNodeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
@@ -141,7 +143,7 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte
 	var req updateNodeRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 		}
 	}

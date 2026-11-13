@@ -2,7 +2,7 @@ package polly
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -36,10 +36,10 @@ const pollySnapshotVersion = 2
 // The built-in voice catalogue (InMemoryBackend.voices) is static read-only
 // data, not a mutable resource collection, and is intentionally excluded.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountId"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountId"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements

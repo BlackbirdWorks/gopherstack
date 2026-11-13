@@ -2,7 +2,8 @@ package gcpapigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 )
@@ -169,7 +171,7 @@ func (e *env) do(t *testing.T, req *http.Request) reply {
 	require.NoError(t, err)
 
 	r := reply{status: resp.StatusCode, raw: string(raw)}
-	_ = json.Unmarshal(raw, &r.body)
+	_ = json.Unmarshal(raw, &r.body, jsonx.V1())
 
 	return r
 }
@@ -188,7 +190,7 @@ func echoBackend(t *testing.T) *httptest.Server {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Backend", "echo")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{
 			"method": r.Method, "path": r.URL.Path, "query": r.URL.RawQuery, "headers": hdr, "body": string(body),
 		})
 	}))

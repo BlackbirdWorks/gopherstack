@@ -2,7 +2,7 @@ package gcpcloudbuild
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
@@ -19,20 +19,20 @@ import (
 const snapshotVersion = 1
 
 type buildSnap struct {
-	OpName string          `json:"opName"`
-	Build  json.RawMessage `json:"build"`
-	Orig   json.RawMessage `json:"orig"`
+	OpName string         `json:"opName"`
+	Build  jsontext.Value `json:"build"`
+	Orig   jsontext.Value `json:"orig"`
 }
 
 type backendSnapshot struct {
-	Builds     map[string]buildSnap       `json:"builds"`
-	Triggers   map[string]json.RawMessage `json:"triggers"`
-	Pools      map[string]json.RawMessage `json:"workerPools"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	Version    int                        `json:"version"`
+	Builds     map[string]buildSnap      `json:"builds"`
+	Triggers   map[string]jsontext.Value `json:"triggers"`
+	Pools      map[string]jsontext.Value `json:"workerPools"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	Version    int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -41,7 +41,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
@@ -54,8 +54,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version: snapshotVersion, Operations: b.ops.Snapshot(),
 		Builds:   make(map[string]buildSnap, len(b.builds)),
-		Triggers: make(map[string]json.RawMessage, len(b.triggers)),
-		Pools:    make(map[string]json.RawMessage, len(b.pools)),
+		Triggers: make(map[string]jsontext.Value, len(b.triggers)),
+		Pools:    make(map[string]jsontext.Value, len(b.pools)),
 	}
 
 	for k, rec := range b.builds {
@@ -170,7 +170,7 @@ func restoreBuilds(in map[string]buildSnap) (map[string]*buildRec, error) {
 	return out, nil
 }
 
-func restoreMap[T proto.Message](in map[string]json.RawMessage, mk func() T) (map[string]T, error) {
+func restoreMap[T proto.Message](in map[string]jsontext.Value, mk func() T) (map[string]T, error) {
 	out := make(map[string]T, len(in))
 
 	for k, raw := range in {

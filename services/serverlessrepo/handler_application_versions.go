@@ -2,10 +2,11 @@ package serverlessrepo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -32,7 +33,7 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.
 	}
 
 	var createReq createApplicationVersionRequest
-	if jsonErr := json.Unmarshal(body, &createReq); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &createReq, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
@@ -66,7 +67,7 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, req *http.
 	log.InfoContext(ctx, "serverlessrepo: created application version",
 		"app", appName, "version", v.SemanticVersion)
 
-	b, marshalErr := json.Marshal(toVersionResponse(v))
+	b, marshalErr := json.Marshal(toVersionResponse(v), jsonx.V1())
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
@@ -154,7 +155,7 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		resp["nextToken"] = encodePageToken(versions[end-1].SemanticVersion)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // toVersionResponse converts an ApplicationVersion to a map matching the AWS SAR Version shape.

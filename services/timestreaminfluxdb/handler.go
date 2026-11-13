@@ -2,7 +2,7 @@ package timestreaminfluxdb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -39,7 +40,7 @@ func bind[I, O any](fn func(*Handler, context.Context, *I) (*O, error)) opFunc {
 		var in I
 
 		if len(body) > 0 {
-			if err := json.Unmarshal(body, &in); err != nil {
+			if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 				return nil, invalid("malformed request body: %v", err)
 			}
 		}

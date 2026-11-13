@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const helperTimeout = 15 * time.Second
@@ -63,7 +65,7 @@ func loadDockerConfig() *dockerConfig {
 	}
 
 	var cfg dockerConfig
-	if json.Unmarshal(data, &cfg) != nil {
+	if json.Unmarshal(data, &cfg, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -157,7 +159,7 @@ func runHelper(ctx context.Context, name, host string) (authConfig, bool) {
 	}
 
 	var rep helperReply
-	if json.Unmarshal(out.Bytes(), &rep) != nil || rep.Secret == "" {
+	if json.Unmarshal(out.Bytes(), &rep, jsonx.V1()) != nil || rep.Secret == "" {
 		return authConfig{}, false
 	}
 

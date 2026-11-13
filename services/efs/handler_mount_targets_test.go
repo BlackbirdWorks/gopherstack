@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -559,7 +560,7 @@ func TestMountTarget_SecurityGroupLimitEnforced(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rec := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
 		"FileSystemId": fsOut.FileSystemID,
@@ -589,7 +590,7 @@ func TestMountTarget_DuplicateSubnetRejected(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	firstRec := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
 		"FileSystemId": fsOut.FileSystemID,
@@ -633,7 +634,7 @@ func TestCreateMountTarget_PopulatesVpcAndAZ(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "CreateMountTarget: %s", rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			vpcID, _ := out["VpcId"].(string)
 			azName, _ := out["AvailabilityZoneName"].(string)
@@ -666,7 +667,7 @@ func TestCreateMountTarget_VpcIDStablePerSubnet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var mt1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &mt1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &mt1, jsonx.V1()))
 
 	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
 		"FileSystemId": fsID2,
@@ -675,7 +676,7 @@ func TestCreateMountTarget_VpcIDStablePerSubnet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var mt2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &mt2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &mt2, jsonx.V1()))
 
 	assert.Equal(t, mt1["VpcId"], mt2["VpcId"],
 		"same subnet should yield same VpcId across different file systems")
@@ -697,7 +698,7 @@ func TestCreateMountTarget_OneZone_InheritsAZ(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fsOut, jsonx.V1()))
 	fsID := fsOut["FileSystemId"].(string)
 
 	mtRec := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
@@ -707,7 +708,7 @@ func TestCreateMountTarget_OneZone_InheritsAZ(t *testing.T) {
 	require.Equal(t, http.StatusOK, mtRec.Code)
 
 	var mt map[string]any
-	require.NoError(t, json.Unmarshal(mtRec.Body.Bytes(), &mt))
+	require.NoError(t, json.Unmarshal(mtRec.Body.Bytes(), &mt, jsonx.V1()))
 
 	assert.Equal(t, az, mt["AvailabilityZoneName"],
 		"mount target should inherit FS AvailabilityZoneName for One Zone storage class")
@@ -770,7 +771,7 @@ func TestDescribeMountTargets_Pagination_HTTP(t *testing.T) {
 	}
 
 	var pg1 mtPage
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &pg1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &pg1, jsonx.V1()))
 	require.Len(t, pg1.MountTargets, 3)
 	require.NotEmpty(t, pg1.NextMarker)
 
@@ -779,7 +780,7 @@ func TestDescribeMountTargets_Pagination_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var pg2 mtPage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &pg2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &pg2, jsonx.V1()))
 	// 5 items, pageSize=3: page1=[0,1,2] marker=items[3], page2 resumes AT items[3] => [3,4].
 	assert.Len(t, pg2.MountTargets, 2)
 	assert.Empty(t, pg2.NextMarker)
@@ -815,7 +816,7 @@ func TestDeleteMountTarget_CleansSubnetIndex(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var mt1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &mt1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &mt1, jsonx.V1()))
 	mtID := mt1["MountTargetId"].(string)
 
 	delRec := doREST(t, h, http.MethodDelete, "/2015-02-01/mount-targets/"+mtID, nil)

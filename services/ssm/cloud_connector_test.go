@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -370,7 +371,7 @@ func Test_CloudConnector_HandlerDispatch(t *testing.T) {
 		},
 		"DisplayName": "my-connector",
 		"RoleArn":     "arn:aws:iam::123456789012:role/r",
-	})
+	}, jsonx.V1())
 
 	rec := doRequest(t, h, "CreateCloudConnector", string(createBody))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -378,15 +379,15 @@ func Test_CloudConnector_HandlerDispatch(t *testing.T) {
 	var createResp struct {
 		CloudConnectorID string `json:"CloudConnectorId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	require.NotEmpty(t, createResp.CloudConnectorID)
 
-	getBody, _ := json.Marshal(map[string]any{"CloudConnectorId": createResp.CloudConnectorID})
+	getBody, _ := json.Marshal(map[string]any{"CloudConnectorId": createResp.CloudConnectorID}, jsonx.V1())
 	rec = doRequest(t, h, "GetCloudConnector", string(getBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "my-connector", getResp["DisplayName"])
 	// CreatedAt/UpdatedAt must serialize as epoch-seconds numbers, not ISO8601 strings.
 	_, isNumber := getResp["CreatedAt"].(float64)
@@ -398,10 +399,10 @@ func Test_CloudConnector_HandlerDispatch(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp.Type)
 
-	deleteBody, _ := json.Marshal(map[string]any{"CloudConnectorId": createResp.CloudConnectorID})
+	deleteBody, _ := json.Marshal(map[string]any{"CloudConnectorId": createResp.CloudConnectorID}, jsonx.V1())
 	rec = doRequest(t, h, "DeleteCloudConnector", string(deleteBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 }

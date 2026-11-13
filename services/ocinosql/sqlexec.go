@@ -1,12 +1,12 @@
 package ocinosql
 
 import (
-	"encoding/json"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -373,7 +373,7 @@ func (pl *plan) sortEntries(es []entry) {
 func (pl *plan) project(es []entry) []map[string]any {
 	st := pl.stmt
 	if st.count {
-		return []map[string]any{{"Column_1": json.Number(strconv.Itoa(len(es)))}}
+		return []map[string]any{{"Column_1": jsonx.Number(strconv.Itoa(len(es)))}}
 	}
 
 	out := make([]map[string]any, 0, len(es))

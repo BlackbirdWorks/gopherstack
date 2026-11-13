@@ -2,11 +2,12 @@ package s3vectors
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -238,7 +239,7 @@ func (b *InMemoryBackend) putBucketPolicy(sc scope, in *putPolicyIn) (any, error
 		return nil, invalid("policy is required")
 	}
 
-	if err := json.Unmarshal([]byte(in.Policy), &doc); err != nil || doc.Statement == nil {
+	if err := json.Unmarshal([]byte(in.Policy), &doc, jsonx.V1()); err != nil || doc.Statement == nil {
 		return nil, invalid("policy must be a JSON policy document with a Statement")
 	}
 

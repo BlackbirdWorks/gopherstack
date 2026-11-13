@@ -3,7 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/internal/replicator"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func fakeReplicate(rep *replicator.Report, err error, seen *replicator.Config) replicateFunc {
@@ -86,7 +87,7 @@ func TestReplicateAPIJobLifecycle(t *testing.T) {
 			}
 
 			var started map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 
 			var job replicateJob
 
@@ -94,7 +95,7 @@ func TestReplicateAPIJobLifecycle(t *testing.T) {
 				r := replicateDo(e, http.MethodGet, replicateBasePath+"/"+started["id"], "")
 				job = replicateJob{}
 
-				return r.Code == http.StatusOK && json.Unmarshal(r.Body.Bytes(), &job) == nil &&
+				return r.Code == http.StatusOK && json.Unmarshal(r.Body.Bytes(), &job, jsonx.V1()) == nil &&
 					job.Status != replicateRunning
 			}, 5*time.Second, 5*time.Millisecond)
 
@@ -131,7 +132,7 @@ func TestReplicateAPIDoesNotEchoCredentials(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var started map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 
 	got := replicateDo(e, http.MethodGet, replicateBasePath+"/"+started["id"], "")
 	assert.NotContains(t, got.Body.String(), "topsecret")

@@ -3,7 +3,7 @@ package apigatewayv2_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -29,7 +30,7 @@ func doRequest(t *testing.T, h *apigatewayv2.Handler, method, path string, body 
 	var bodyReader *bytes.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyReader = bytes.NewReader(b)
 	} else {
@@ -77,7 +78,7 @@ func createAPI(t *testing.T, h *apigatewayv2.Handler, name string) string {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	return api.APIID
 }

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"io"
 	"maps"
@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
 )
 
@@ -241,7 +242,7 @@ func ociLBCreateBody(c *echo.Context) ([]byte, bool) {
 		}}
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }
@@ -311,7 +312,7 @@ func ociLBBackendBody(c *echo.Context, update bool) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }
@@ -320,7 +321,7 @@ func ociLBBackendBody(c *echo.Context, update bool) ([]byte, bool) {
 // subjects and validity; PEM text never reaches the browser.
 func ociLBScrubCerts(raw []byte) []byte {
 	var v any
-	if json.Unmarshal(raw, &v) != nil {
+	if json.Unmarshal(raw, &v, jsonx.V1()) != nil {
 		return raw
 	}
 
@@ -337,7 +338,7 @@ func ociLBScrubCerts(raw []byte) []byte {
 		}
 	}
 
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}

@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -71,7 +73,7 @@ func (e *airflowEngine) doWith(
 	}
 
 	if out != nil && len(res.body) > 0 {
-		_ = json.Unmarshal(res.body, out)
+		_ = json.Unmarshal(res.body, out, jsonx.V1())
 	}
 
 	return res.status, res.body, nil
@@ -127,7 +129,7 @@ func (e *airflowEngine) newToken(key, envName, kind string) string {
 	_, _ = rand.Read(sig)
 
 	enc := base64.RawURLEncoding
-	payload, _ := json.Marshal(map[string]any{"env": envName, "type": kind, "exp": exp.Unix()})
+	payload, _ := json.Marshal(map[string]any{"env": envName, "type": kind, "exp": exp.Unix()}, jsonx.V1())
 	tok := enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." + enc.EncodeToString(payload) + "." +
 		enc.EncodeToString(sig)
 
@@ -276,7 +278,7 @@ func (e *airflowEngine) proxyRest(
 
 	if req.Body != nil {
 		var err error
-		if body, err = json.Marshal(req.Body); err != nil {
+		if body, err = json.Marshal(req.Body, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: Body is not JSON: %w", ErrInvalidParameter, err)
 		}
 	}
@@ -297,7 +299,7 @@ func (e *airflowEngine) proxyRest(
 
 	doc := any(map[string]any{})
 	if len(raw) > 0 {
-		if jerr := json.Unmarshal(raw, &doc); jerr != nil {
+		if jerr := json.Unmarshal(raw, &doc, jsonx.V1()); jerr != nil {
 			doc = string(raw)
 		}
 	}

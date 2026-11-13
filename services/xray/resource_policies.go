@@ -1,11 +1,14 @@
 package xray
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
@@ -21,8 +24,8 @@ func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
 // Returns ErrMalformedPolicyDocument if policyDocument is not valid JSON.
 func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revisionID string) (*ResourcePolicy, error) {
 	// Validate JSON.
-	var js json.RawMessage
-	if err := json.Unmarshal([]byte(policyDocument), &js); err != nil {
+	var js jsontext.Value
+	if err := json.Unmarshal([]byte(policyDocument), &js, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: policy document is not valid JSON: %w", ErrMalformedPolicyDocument, err)
 	}
 

@@ -1,10 +1,11 @@
 package identitystore
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ----------------------------------------
@@ -23,13 +24,13 @@ type epochTime time.Time
 
 // MarshalJSON renders t as AWS JSON-protocol epoch seconds.
 func (t epochTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(awstime.Epoch(time.Time(t)))
+	return json.Marshal(awstime.Epoch(time.Time(t)), jsonx.V1())
 }
 
 // UnmarshalJSON parses AWS JSON-protocol epoch seconds back into t.
 func (t *epochTime) UnmarshalJSON(data []byte) error {
 	var seconds float64
-	if err := json.Unmarshal(data, &seconds); err != nil {
+	if err := json.Unmarshal(data, &seconds, jsonx.V1()); err != nil {
 		return err
 	}
 

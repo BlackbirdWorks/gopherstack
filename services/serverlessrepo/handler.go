@@ -3,7 +3,7 @@ package serverlessrepo
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -412,34 +413,31 @@ func (h *Handler) dispatchPolicyAndMiscOps(
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		// json.Marshal on map[string]string never returns an error; _ is intentional.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "NotFoundException",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err),
+		jsonx.IsTypeError(err):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "BadRequestException",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
@@ -452,7 +450,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalServerErrorException",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}

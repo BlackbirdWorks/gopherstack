@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -26,7 +27,7 @@ func assertResourceLimitExceeded(t *testing.T, h *glue.Handler, action string, b
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "ResourceNumberLimitExceededException", out["__type"])
 }
 
@@ -327,7 +328,7 @@ func TestResourceNumberLimitExceeded_PartitionsPerTable(t *testing.T) {
 		} `json:"Errors"`
 		Partitions []map[string]any `json:"Partitions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Len(t, out.Partitions, testResourceCap)
 	require.Len(t, out.Errors, 1)

@@ -2,7 +2,7 @@ package ocistreaming_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
@@ -95,7 +96,10 @@ func TestAdminKeyRegistration(t *testing.T) {
 	_, err := e.admin.ListStreamPools(t.Context(), req)
 	assert.Equal(t, http.StatusUnauthorized, svcErr(t, err).GetHTTPStatusCode())
 
-	payload, _ := json.Marshal(map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.kp.pubPEM})
+	payload, _ := json.Marshal(
+		map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.kp.pubPEM},
+		jsonx.V1(),
+	)
 	code, body := rawDo(t, http.MethodPost, e.base+"/_gopherstack/oci/keys", string(payload))
 	require.Equal(t, http.StatusCreated, code, body)
 

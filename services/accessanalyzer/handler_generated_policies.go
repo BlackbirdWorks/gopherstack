@@ -1,11 +1,13 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // errPolicyGenerationJobNotModeled translates ErrPolicyGenerationNotFound for
@@ -82,7 +84,7 @@ func (h *Handler) handleStartPolicyGeneration(body []byte) (any, int, error) {
 		} `json:"policyGenerationDetails"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

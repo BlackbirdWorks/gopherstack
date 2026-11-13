@@ -2,9 +2,11 @@ package route53resolver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -21,7 +23,7 @@ import (
 const route53resolverSnapshotVersion = 1
 
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage         `json:"tables"`
+	Tables                    map[string]jsontext.Value          `json:"tables"`
 	Tags                      map[string]map[string][]svcTags.KV `json:"tags"`
 	FirewallRuleGroupPolicies map[string]map[string]string       `json:"firewallRuleGroupPolicies"`
 	QueryLogConfigPolicies    map[string]map[string]string       `json:"queryLogConfigPolicies"`
@@ -59,7 +61,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                    b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "route53resolver: failed to snapshot backend", "error", err)
 

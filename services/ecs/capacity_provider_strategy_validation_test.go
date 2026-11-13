@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCapacityProviderStrategy_RejectsUnknownProvider proves that every
@@ -169,7 +171,7 @@ func TestCapacityProviderStrategy_AcceptsCreatedProvider(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	strategy := cluster["defaultCapacityProviderStrategy"].([]any)
 	require.Len(t, strategy, 1)
@@ -202,7 +204,7 @@ func TestRunTask_CapacityProviderStrategy_SetsCapacityProviderName(t *testing.T)
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)

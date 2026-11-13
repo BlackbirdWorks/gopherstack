@@ -2,8 +2,10 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonGetQueueAttributesReq struct {
@@ -26,7 +28,7 @@ func (h *Handler) handleGetQueueAttributes(
 	body []byte,
 ) (any, error) {
 	var req jsonGetQueueAttributesReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -53,7 +55,7 @@ func (h *Handler) handleSetQueueAttributes(
 	body []byte,
 ) (any, error) {
 	var req jsonSetQueueAttributesReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

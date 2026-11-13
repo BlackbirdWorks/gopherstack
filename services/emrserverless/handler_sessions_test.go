@@ -1,7 +1,7 @@
 package emrserverless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
 
@@ -280,7 +281,7 @@ func TestHandler_SessionFilteringAndPersistence(t *testing.T) {
 	var filtered struct {
 		Sessions []map[string]any `json:"sessions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtered))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtered, jsonx.V1()))
 	require.Len(t, filtered.Sessions, 1)
 	assert.Equal(t, emrserverless.SessionStateTerminated, filtered.Sessions[0]["state"])
 

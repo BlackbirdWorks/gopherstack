@@ -1,13 +1,14 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -32,7 +33,7 @@ func TestPlaybackConfiguration_PutAndGet(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "my-config", resp["Name"])
 				assert.Contains(
 					t,
@@ -83,7 +84,7 @@ func TestPlaybackConfiguration_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/test-config", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "test-config", getResp["Name"])
 	assert.Equal(t, "https://ads.example.com", getResp["AdDecisionServerUrl"])
 
@@ -91,7 +92,7 @@ func TestPlaybackConfiguration_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/playbackConfigurations", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Items"], 1)
 
 	// Delete
@@ -124,7 +125,7 @@ func TestPlaybackConfiguration_PutIdempotent(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg1", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "https://new-ads.example.com", resp["AdDecisionServerUrl"])
 }
 
@@ -165,7 +166,7 @@ func TestPlaybackConfiguration_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Items"])
 }
 
@@ -187,7 +188,7 @@ func TestListPlaybackConfigurations_WithNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 3)
 }
@@ -280,7 +281,7 @@ func TestPutPlaybackConfiguration_TagsReplacedOnUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tags, _ := resp["tags"].(map[string]any)
 
 	assert.Contains(t, tags, "new", "new tag must be present after update")
@@ -301,7 +302,7 @@ func TestPutPlaybackConfiguration_HlsConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	hlsCfg, ok := resp["HlsConfiguration"].(map[string]any)
 	require.True(t, ok, "HlsConfiguration must be present in response")
@@ -366,14 +367,14 @@ func TestPutPlaybackConfiguration_ExtraConfigRoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 	assertPlaybackConfigExtras(t, putResp)
 
 	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assertPlaybackConfigExtras(t, getResp)
 }
 
@@ -447,7 +448,7 @@ func TestPutPlaybackConfiguration_AdsPersonalization(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			tt.check(t, putResp)
 
 			name, _ := tt.body["Name"].(string)
@@ -455,7 +456,7 @@ func TestPutPlaybackConfiguration_AdsPersonalization(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			tt.check(t, getResp)
 		})
 	}
@@ -476,13 +477,13 @@ func TestPutPlaybackConfiguration_DualStackFieldsAbsent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg-dualstack", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	for _, resp := range []map[string]any{putResp, getResp} {
 		_, ok := resp["DualStackPlaybackEndpointPrefix"]

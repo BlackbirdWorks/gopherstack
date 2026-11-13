@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -70,7 +71,7 @@ func TestUpdateShardCount(t *testing.T) {
 					CurrentShardCount int    `json:"CurrentShardCount"`
 					TargetShardCount  int    `json:"TargetShardCount"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, streamName, resp.StreamName)
 				assert.Equal(t, tt.wantCurrentCount, resp.CurrentShardCount)
 				assert.Equal(t, tt.wantTargetCount, resp.TargetShardCount)
@@ -82,7 +83,7 @@ func TestUpdateShardCount(t *testing.T) {
 				var shardsResp struct {
 					Shards []any `json:"Shards"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shardsResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shardsResp, jsonx.V1()))
 				assert.Len(t, shardsResp.Shards, tt.targetShards)
 			})
 		})
@@ -296,7 +297,7 @@ func TestUpdateShardCount_ViaHandler_OpenShardsOnly(t *testing.T) {
 			CurrentShardCount int `json:"CurrentShardCount"`
 			TargetShardCount  int `json:"TargetShardCount"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 		assert.Equal(t, 2, updateResp.CurrentShardCount)
 		assert.Equal(t, 4, updateResp.TargetShardCount)
 
@@ -307,7 +308,7 @@ func TestUpdateShardCount_ViaHandler_OpenShardsOnly(t *testing.T) {
 		var listResp struct {
 			Shards []any `json:"Shards"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		assert.Len(t, listResp.Shards, 4)
 	})
 }

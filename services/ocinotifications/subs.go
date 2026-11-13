@@ -1,7 +1,7 @@
 package ocinotifications
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -104,7 +105,7 @@ func policyOf(s *Subscription) deliveryPolicyWire {
 }
 
 func subView(s *Subscription) SubWire {
-	pol, _ := json.Marshal(policyOf(s)) //nolint:errchkjson // static shape
+	pol, _ := json.Marshal(policyOf(s), jsonx.V1()) //nolint:errchkjson // static shape
 
 	return SubWire{
 		ID:             s.ID,

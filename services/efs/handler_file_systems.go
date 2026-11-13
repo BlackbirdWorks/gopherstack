@@ -1,12 +1,13 @@
 package efs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -24,7 +25,7 @@ type createFileSystemBody struct {
 
 func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 	var in createFileSystemBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
@@ -154,7 +155,7 @@ type updateFileSystemBody struct {
 
 func (h *Handler) handleUpdateFileSystem(c *echo.Context, fileSystemID string, body []byte) error {
 	var in updateFileSystemBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 

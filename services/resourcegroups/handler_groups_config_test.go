@@ -1,13 +1,14 @@
 package resourcegroups_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -102,7 +103,7 @@ func TestGetGroupQuery_ConfigVsQueryGroup(t *testing.T) {
 					} `json:"ResourceQuery"`
 				} `json:"GroupQuery"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotNil(t, out.GroupQuery.ResourceQuery)
 		})
 	}
@@ -141,7 +142,7 @@ func TestResourceGroupsHandler_GetGroupConfiguration_Status(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"GroupConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "UPDATE_COMPLETE", out.GroupConfiguration.Status)
 	assert.NotContains(t, rec.Body.String(), "GroupName")
 }
@@ -542,7 +543,7 @@ func TestCreateGroup_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	group, ok := out["Group"].(map[string]any)
 	require.True(t, ok)

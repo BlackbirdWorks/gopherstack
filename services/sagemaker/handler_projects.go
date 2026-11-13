@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -12,17 +15,17 @@ import (
 
 // createProjectInput mirrors CreateProjectInput (api_op_CreateProject.go:30-59).
 type createProjectInput struct {
-	ServiceCatalogProvisioningDetails json.RawMessage `json:"ServiceCatalogProvisioningDetails"`
-	TemplateProviders                 json.RawMessage `json:"TemplateProviders"`
-	ProjectName                       string          `json:"ProjectName"`
-	ProjectDescription                string          `json:"ProjectDescription"`
-	Tags                              []tagObject     `json:"Tags"`
+	ServiceCatalogProvisioningDetails jsontext.Value `json:"ServiceCatalogProvisioningDetails"`
+	TemplateProviders                 jsontext.Value `json:"TemplateProviders"`
+	ProjectName                       string         `json:"ProjectName"`
+	ProjectDescription                string         `json:"ProjectDescription"`
+	Tags                              []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req createProjectInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -44,7 +47,7 @@ func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]any{
 		keyProjectArn: result.ProjectArn,
 		keyProjectID:  result.ProjectID,
-	})
+	}, jsonx.V1())
 }
 
 // describeProjectInput mirrors DescribeProjectInput (api_op_DescribeProject.go:29-34).
@@ -100,7 +103,7 @@ func projectResponseMap(p *Project) map[string]any {
 func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeProjectInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -113,7 +116,7 @@ func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(projectResponseMap(result))
+	return json.Marshal(projectResponseMap(result), jsonx.V1())
 }
 
 // deleteProjectInput mirrors DeleteProjectInput (api_op_DeleteProject.go:27-32).
@@ -124,7 +127,7 @@ type deleteProjectInput struct {
 func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) error {
 	var req deleteProjectInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -149,7 +152,7 @@ type listProjectsInput struct {
 func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {
 	var req listProjectsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -183,7 +186,7 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +205,7 @@ type updateProjectInput struct {
 func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateProjectInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -228,5 +231,5 @@ func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyProjectArn: p.ProjectArn})
+	return json.Marshal(map[string]string{keyProjectArn: p.ProjectArn}, jsonx.V1())
 }

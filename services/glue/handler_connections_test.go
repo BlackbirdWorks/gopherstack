@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -41,7 +42,7 @@ func TestDescribeEntity_ValidConnection(t *testing.T) {
 	var out struct {
 		Fields []any `json:"Fields"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out.Fields)
 }
 
@@ -77,7 +78,7 @@ func TestGetEntityRecords_ValidConnection(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Records   []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Records)
 	// Each record must conform to the Account schema.
 	for _, r := range out.Records {
@@ -286,7 +287,7 @@ func TestConnection_NetworkType(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetConnection", map[string]any{"Name": "network-conn"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	conn := out["Connection"].(map[string]any)
 	assert.Equal(t, "NETWORK", conn["ConnectionType"])
 	props := conn["ConnectionProperties"].(map[string]any)
@@ -323,7 +324,7 @@ func TestConnection_CredentialsPersistAfterUpdate(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetConnection", map[string]any{"Name": "cred-conn"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	conn := out["Connection"].(map[string]any)
 	props := conn["ConnectionProperties"].(map[string]any)
 	assert.Equal(t, "user2", props["USERNAME"])
@@ -405,7 +406,7 @@ func TestConnectionCRUD(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 		})
@@ -455,7 +456,7 @@ func TestConnectionGetFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			conn := out["Connection"].(map[string]any)
 			assert.Equal(t, tt.wantConnType, conn["ConnectionType"])
 			if tt.wantCreation {
@@ -500,7 +501,7 @@ func TestGetConnections(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			list, _ := out["ConnectionList"].([]any)
 			assert.Len(t, list, tt.wantLen)
 		})
@@ -553,7 +554,7 @@ func TestConnectionTagging(t *testing.T) {
 				rec := doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": connARN})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 
@@ -567,7 +568,7 @@ func TestConnectionTagging(t *testing.T) {
 				rec2 := doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": connARN})
 				require.Equal(t, http.StatusOK, rec2.Code)
 				var out2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 				tags, _ := out2["Tags"].(map[string]any)
 				_, hasFoo := tags["foo"]
 				assert.False(t, hasFoo)
@@ -684,7 +685,7 @@ func TestUpdateConnection_Updates(t *testing.T) {
 			ConnectionProperties map[string]string `json:"ConnectionProperties"`
 		} `json:"Connection"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "jdbc:mysql://newhost:3306/db", out.Connection.ConnectionProperties["JDBC_CONNECTION_URL"])
 }
 

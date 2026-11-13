@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"net/http"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
 )
 
@@ -63,7 +64,7 @@ func newGatewayDashboard(t *testing.T) (*dashboard.DashboardHandler, string, str
 	e.Any("/*", ops.Trusted())
 
 	post := func(path string, body map[string]any) []byte {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := httptest.NewRecorder()
@@ -79,7 +80,7 @@ func newGatewayDashboard(t *testing.T) (*dashboard.DashboardHandler, string, str
 
 	require.NoError(t, json.Unmarshal(post("/20190501/gateways", map[string]any{
 		"compartmentId": gwComp, "endpointType": "PUBLIC", "displayName": "edge", "subnetId": "ocid1.subnet.oc1..s",
-	}), &gw))
+	}), &gw, jsonx.V1()))
 
 	var dep struct {
 		ID string `json:"id"`
@@ -91,7 +92,7 @@ func newGatewayDashboard(t *testing.T) (*dashboard.DashboardHandler, string, str
 			"path": "/hello", "methods": []string{"GET"},
 			"backend": map[string]any{"type": "STOCK_RESPONSE_BACKEND", "status": 200, "body": "hi there"},
 		}}},
-	}), &dep))
+	}), &dep, jsonx.V1()))
 
 	certPEM, keyPEM := gwCert(t)
 	post("/20190501/certificates", map[string]any{
@@ -166,7 +167,7 @@ func TestOCIAPIGatewayProxy(t *testing.T) {
 			Status   int               `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, 200, out.Status)
 		assert.Equal(t, "hi there", out.Body)
 		assert.Equal(t, "utf8", out.Encoding)

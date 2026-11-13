@@ -1,13 +1,15 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestShadow_NestedUpdatesMergeAndDeltaIsMinimal(t *testing.T) {
@@ -66,7 +68,7 @@ func TestShadow_NestedUpdatesMergeAndDeltaIsMinimal(t *testing.T) {
 			var doc struct {
 				State map[string]any `json:"state"`
 			}
-			require.NoError(t, json.Unmarshal(got.Payload, &doc))
+			require.NoError(t, json.Unmarshal(got.Payload, &doc, jsonx.V1()))
 
 			if tt.wantDesired != "" {
 				assert.JSONEq(t, tt.wantDesired, mustJSON(t, doc.State["desired"]))
@@ -86,7 +88,7 @@ func TestShadow_NestedUpdatesMergeAndDeltaIsMinimal(t *testing.T) {
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)

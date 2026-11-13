@@ -2,11 +2,13 @@ package codebuild
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errEnvResolve = errors.New("cannot resolve environment variable")
@@ -65,7 +67,7 @@ func (r *buildRunner) resolveSecret(ctx context.Context, ref string) (string, er
 	}
 
 	var obj map[string]any
-	if jerr := json.Unmarshal([]byte(val), &obj); jerr != nil {
+	if jerr := json.Unmarshal([]byte(val), &obj, jsonx.V1()); jerr != nil {
 		return "", fmt.Errorf("%w: secret %s is not JSON: %w", errEnvResolve, id, jerr)
 	}
 
