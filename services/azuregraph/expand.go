@@ -2,6 +2,7 @@ package azuregraph
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -11,7 +12,13 @@ const maxExpanded = 20
 type expandSpec struct {
 	name    string
 	selects []string
+	levels  int
 }
+
+const (
+	maxLevels = 1000
+	levelsMax = -1
+)
 
 // parseExpand reads $expand=owners,members($select=id,displayName).
 func parseExpand(spec string) ([]expandSpec, error) {
@@ -50,18 +57,42 @@ func parseExpand(spec string) ([]expandSpec, error) {
 		if nested {
 			opts = strings.TrimSuffix(opts, ")")
 
-			sel, ok := strings.CutPrefix(opts, "$select=")
-			if !ok {
-				return nil, unsupported("Only $select is supported inside $expand.")
+			if err := e.parseOptions(opts); err != nil {
+				return nil, err
 			}
-
-			e.selects = strings.Split(sel, ",")
 		}
 
 		out = append(out, e)
 	}
 
 	return out, nil
+}
+
+func (e *expandSpec) parseOptions(opts string) error {
+	for opt := range strings.SplitSeq(opts, ";") {
+		switch {
+		case strings.HasPrefix(opt, "$select="):
+			e.selects = strings.Split(strings.TrimPrefix(opt, "$select="), ",")
+		case strings.HasPrefix(opt, "$levels="):
+			v := strings.TrimPrefix(opt, "$levels=")
+
+			n, err := strconv.Atoi(v)
+
+			switch {
+			case v == "max":
+				e.levels = levelsMax
+			case err != nil || n < 1 || n > maxLevels:
+				return badRequest("Invalid value '%s' for the $levels option; use max or a number between 1 and %d.",
+					v, maxLevels)
+			default:
+				e.levels = n
+			}
+		default:
+			return unsupported("Only $select and $levels are supported inside $expand.")
+		}
+	}
+
+	return nil
 }
 
 func kindOfResource(resource string) string {
@@ -95,6 +126,12 @@ func (b *Backend) expandRelation(name, id, kind string) ([]Object, bool, error) 
 
 			return objs, true, err
 		}
+	case "directreports":
+		if allowed(kindUser) {
+			objs, err := b.DirectReports(id)
+
+			return objs, true, err
+		}
 	case "transitivemembers":
 		if allowed(kindGroup) {
 			objs, err := b.TransitiveMembers(id)
@@ -124,32 +161,48 @@ func (h *Handler) expandAll(q *listQuery, resource string, items ...map[string]a
 	}
 
 	for _, e := range q.expand {
-		for _, it := range items {
-			id, _ := it["id"].(string)
-
-			objs, ok, err := h.Backend.expandRelation(e.name, id, kind)
-			if !ok {
-				return badRequest("Property '%s' on entity type 'microsoft.graph.%s' is not a valid expandable "+
-					"navigation property.", e.name, kind)
-			}
-
-			if err != nil {
+		if strings.EqualFold(e.name, propManager) {
+			if err := h.expandManager(q, e, kind, items); err != nil {
 				return err
 			}
 
-			objs = objs[:min(len(objs), maxExpanded)]
-			rendered := typedObjects(objs)
+			continue
+		}
 
-			if len(e.selects) > 0 {
-				sub := &listQuery{selects: e.selects}
-				for i := range rendered {
-					rendered[i] = sub.project(rendered[i])
-				}
+		for _, it := range items {
+			if err := h.expandRelationOn(e, kind, it); err != nil {
+				return err
 			}
-
-			it[e.name] = rendered
 		}
 	}
+
+	return nil
+}
+
+func (h *Handler) expandRelationOn(e expandSpec, kind string, it map[string]any) error {
+	id, _ := it["id"].(string)
+
+	objs, ok, err := h.Backend.expandRelation(e.name, id, kind)
+	if !ok {
+		return badRequest("Property '%s' on entity type 'microsoft.graph.%s' is not a valid expandable "+
+			"navigation property.", e.name, kind)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	objs = objs[:min(len(objs), maxExpanded)]
+	rendered := typedObjects(objs)
+
+	if len(e.selects) > 0 {
+		sub := &listQuery{selects: e.selects}
+		for i := range rendered {
+			rendered[i] = sub.project(rendered[i])
+		}
+	}
+
+	it[e.name] = rendered
 
 	return nil
 }

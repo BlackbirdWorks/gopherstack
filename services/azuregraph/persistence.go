@@ -10,20 +10,22 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Owners       map[string][]string              `json:"owners"`
-	Members      map[string][]string              `json:"members"`
-	Secrets      map[string]string                `json:"secrets"`
-	KeyMaterial  map[string]string                `json:"keyMaterial"`
-	Federated    map[string][]FederatedCredential `json:"federatedIdentityCredentials"`
-	Deleted      []deletedItem                    `json:"deletedItems"`
-	RoleAssigns  []RoleAssignment                 `json:"roleAssignments"`
-	Applications []Application                    `json:"applications"`
-	Principals   []ServicePrincipal               `json:"servicePrincipals"`
-	Users        []User                           `json:"users"`
-	Groups       []Group                          `json:"groups"`
-	Assignments  []AppRoleAssignment              `json:"appRoleAssignments"`
-	Grants       []OAuth2PermissionGrant          `json:"oauth2PermissionGrants"`
-	Version      int                              `json:"version"`
+	Owners         map[string][]string              `json:"owners"`
+	Members        map[string][]string              `json:"members"`
+	Managers       map[string]string                `json:"managers"`
+	DirectoryRoles map[string]string                `json:"directoryRoles"`
+	Secrets        map[string]string                `json:"secrets"`
+	KeyMaterial    map[string]string                `json:"keyMaterial"`
+	Federated      map[string][]FederatedCredential `json:"federatedIdentityCredentials"`
+	Deleted        []deletedItem                    `json:"deletedItems"`
+	RoleAssigns    []RoleAssignment                 `json:"roleAssignments"`
+	Applications   []Application                    `json:"applications"`
+	Principals     []ServicePrincipal               `json:"servicePrincipals"`
+	Users          []User                           `json:"users"`
+	Groups         []Group                          `json:"groups"`
+	Assignments    []AppRoleAssignment              `json:"appRoleAssignments"`
+	Grants         []OAuth2PermissionGrant          `json:"oauth2PermissionGrants"`
+	Version        int                              `json:"version"`
 }
 
 // Snapshot implements persistence.Persistable. Secrets are salted PBKDF2 hashes; plaintext is never stored.
@@ -32,7 +34,8 @@ func (b *Backend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "azuregraph", backendSnapshot{
-		Version: snapshotVersion, Owners: b.owners, Members: b.members, Secrets: b.secrets,
+		Version: snapshotVersion, Owners: b.owners, Members: b.members, Managers: b.managers,
+		DirectoryRoles: b.dirRoles, Secrets: b.secrets,
 		KeyMaterial: b.keyMaterial, Federated: b.fics, Deleted: b.deleted.slice(), RoleAssigns: b.roleAssigns.slice(),
 		Applications: b.apps.slice(), Principals: b.sps.slice(), Users: b.users.slice(), Groups: b.groups.slice(),
 		Assignments: b.assigns.slice(), Grants: b.grants.slice(),
@@ -77,6 +80,7 @@ func (b *Backend) Restore(ctx context.Context, data []byte) error {
 	fill(&b.roleAssigns, snap.RoleAssigns, func(a *RoleAssignment) string { return a.ID })
 
 	b.owners, b.members, b.secrets = orEmpty(snap.Owners), orEmpty(snap.Members), orEmpty(snap.Secrets)
+	b.managers, b.dirRoles = orEmpty(snap.Managers), orEmpty(snap.DirectoryRoles)
 	b.keyMaterial, b.fics = orEmpty(snap.KeyMaterial), orEmpty(snap.Federated)
 	b.purgeExpired()
 

@@ -5,6 +5,7 @@ type RedisSpec struct {
 	SKU               string
 	MinTLS            string
 	Firewall          []RedisIPRange
+	Assignments       []RedisAccessAssignment
 	EnableNonSSLPort  bool
 	Persistence       bool
 	AuthNotRequired   bool
@@ -16,6 +17,13 @@ type RedisSpec struct {
 type RedisIPRange struct {
 	Start string
 	End   string
+}
+
+// RedisAccessAssignment grants a principal the permissions string of a data access policy.
+type RedisAccessAssignment struct {
+	ObjectID    string
+	Alias       string
+	Permissions string
 }
 
 // RedisEndpoint is where a cache's servers listen; Port is 0 while the plaintext port is disabled.

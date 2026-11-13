@@ -342,6 +342,10 @@ func (p *EventHubProvider) listGroups(id ResourceID) []map[string]any {
 // ruleScope returns the hub a rule id is scoped to ("" for namespace rules)
 // after checking the parents exist.
 func (p *EventHubProvider) ruleScope(id ResourceID) (string, error) {
+	if classifyEventHubPath(id) == ehKindDRRule {
+		return "", p.drOfAlias(id)
+	}
+
 	if classifyEventHubPath(id) == ehKindHubRule {
 		h, err := p.requireHub(id)
 		if err != nil {
@@ -441,7 +445,7 @@ func networkRuleSetBody(id ResourceID, props map[string]any) map[string]any {
 // ListKeys implements ResourceProvider for .../authorizationRules/{rule}/listKeys.
 func (p *EventHubProvider) ListKeys(_ context.Context, id ResourceID) (map[string]any, error) {
 	kind := classifyEventHubPath(id)
-	if kind != ehKindNSRule && kind != ehKindHubRule {
+	if kind != ehKindNSRule && kind != ehKindHubRule && kind != ehKindDRRule {
 		return nil, errUnsupportedEventHubType(id)
 	}
 

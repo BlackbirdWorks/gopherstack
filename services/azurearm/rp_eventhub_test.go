@@ -7,7 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +131,21 @@ func (f *fakeEventHubs) RegenerateRuleKey(ns, hub, name, keyType, key string) (a
 	f.rules[ns+"/"+hub+"/"+name] = r
 
 	return r, nil
+}
+
+func (f *fakeEventHubs) ListRules(ns string) ([]azurearm.EventHubRuleEntry, error) {
+	var out []azurearm.EventHubRuleEntry
+
+	for k, r := range f.rules {
+		parts := strings.SplitN(k, "/", 3)
+		if parts[0] == ns {
+			out = append(out, azurearm.EventHubRuleEntry{Hub: parts[1], Name: parts[2], EventHubRule: r})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	return out, nil
 }
 
 func (f *fakeEventHubs) DeleteRule(ns, hub, name string) error {

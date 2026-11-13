@@ -32,12 +32,23 @@ type eventHubGroupRecord struct {
 	UserMetadata  string `json:"userMetadata,omitempty"`
 }
 
+type eventHubDRRecord struct {
+	Alias         string `json:"alias"`
+	Namespace     string `json:"namespace"`
+	ResourceGroup string `json:"resourceGroup"`
+	Partner       string `json:"partner"`
+	PartnerRG     string `json:"partnerResourceGroup"`
+	AlternateName string `json:"alternateName,omitempty"`
+	Role          string `json:"role"`
+}
+
 // eventHubSnapshot is the Microsoft.EventHub provider's persisted ARM-side state.
 type eventHubSnapshot struct {
-	Namespaces      map[string]eventHubNamespaceRecord `json:"namespaces,omitempty"`
-	Hubs            map[string]eventHubRecord          `json:"hubs,omitempty"`
-	Groups          map[string]eventHubGroupRecord     `json:"groups,omitempty"`
-	NetworkRuleSets map[string]map[string]any          `json:"networkRuleSets,omitempty"`
+	Namespaces       map[string]eventHubNamespaceRecord `json:"namespaces,omitempty"`
+	Hubs             map[string]eventHubRecord          `json:"hubs,omitempty"`
+	Groups           map[string]eventHubGroupRecord     `json:"groups,omitempty"`
+	NetworkRuleSets  map[string]map[string]any          `json:"networkRuleSets,omitempty"`
+	DisasterRecovery map[string]eventHubDRRecord        `json:"disasterRecoveryConfigs,omitempty"`
 }
 
 func (p *EventHubProvider) snapshot() *eventHubSnapshot {
@@ -45,10 +56,18 @@ func (p *EventHubProvider) snapshot() *eventHubSnapshot {
 	defer p.mu.RUnlock()
 
 	snap := &eventHubSnapshot{
-		Namespaces:      make(map[string]eventHubNamespaceRecord, len(p.namespaces)),
-		Hubs:            make(map[string]eventHubRecord, len(p.hubs)),
-		Groups:          make(map[string]eventHubGroupRecord, len(p.groups)),
-		NetworkRuleSets: p.networkRuleSets,
+		Namespaces:       make(map[string]eventHubNamespaceRecord, len(p.namespaces)),
+		Hubs:             make(map[string]eventHubRecord, len(p.hubs)),
+		Groups:           make(map[string]eventHubGroupRecord, len(p.groups)),
+		NetworkRuleSets:  p.networkRuleSets,
+		DisasterRecovery: make(map[string]eventHubDRRecord, len(p.drConfigs)),
+	}
+
+	for k, c := range p.drConfigs {
+		snap.DisasterRecovery[k] = eventHubDRRecord{
+			Alias: c.alias, Namespace: c.namespace, ResourceGroup: c.resourceGroup, Partner: c.partner,
+			PartnerRG: c.partnerRG, AlternateName: c.alternateName, Role: c.role,
+		}
 	}
 
 	for k, n := range p.namespaces {
@@ -89,6 +108,7 @@ func (p *EventHubProvider) restore(snap *eventHubSnapshot) {
 	p.hubs = make(map[string]*storedEHHub)
 	p.groups = make(map[string]*storedEHGroup)
 	p.networkRuleSets = make(map[string]map[string]any)
+	p.drConfigs = make(map[string]*storedEHDR)
 
 	if snap == nil {
 		return
@@ -116,6 +136,13 @@ func (p *EventHubProvider) restore(snap *eventHubSnapshot) {
 	}
 
 	maps.Copy(p.networkRuleSets, snap.NetworkRuleSets)
+
+	for k, c := range snap.DisasterRecovery {
+		p.drConfigs[k] = &storedEHDR{
+			alias: c.Alias, namespace: c.Namespace, resourceGroup: c.ResourceGroup, partner: c.Partner,
+			partnerRG: c.PartnerRG, alternateName: c.AlternateName, role: c.Role,
+		}
+	}
 }
 
 func (h *Handler) eventHubProvider() (*EventHubProvider, bool) {

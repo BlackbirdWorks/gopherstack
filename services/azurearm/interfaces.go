@@ -106,6 +106,13 @@ type EventHubRule struct {
 	Rights       []string
 }
 
+// EventHubRuleEntry is a rule with its name and the hub it is scoped to ("" for the namespace).
+type EventHubRuleEntry struct {
+	Hub  string
+	Name string
+	EventHubRule
+}
+
 // EventHubs is the seam the Microsoft.EventHub resource provider uses to keep
 // the Event Hubs data plane in step with ARM. Primitive types only, so this
 // package never imports services/azureeventhubs. hub is empty for
@@ -123,6 +130,8 @@ type EventHubs interface {
 	DeleteRule(ns, hub, name string) error
 	// RegenerateRuleKey replaces a rule's PrimaryKey or SecondaryKey with key, or a random key when key is empty.
 	RegenerateRuleKey(ns, hub, name, keyType, key string) (EventHubRule, error)
+	// ListRules returns the authorization rules of a namespace and its hubs.
+	ListRules(ns string) ([]EventHubRuleEntry, error)
 }
 
 type noopEventHubs struct{}
@@ -148,6 +157,8 @@ func (noopEventHubs) DeleteRule(string, string, string) error { return nil }
 func (noopEventHubs) RegenerateRuleKey(string, string, string, string, string) (EventHubRule, error) {
 	return EventHubRule{}, ErrEventHubRuleNotFound
 }
+
+func (noopEventHubs) ListRules(string) ([]EventHubRuleEntry, error) { return nil, nil }
 
 var _ EventHubs = noopEventHubs{}
 

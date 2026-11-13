@@ -26,6 +26,8 @@ type Backend struct {
 	issuerKeys  KeyResolver
 	owners      map[string][]string
 	members     map[string][]string
+	managers    map[string]string
+	dirRoles    map[string]string
 	secrets     map[string]string
 	keyMaterial map[string]string
 	fics        map[string][]FederatedCredential
@@ -85,6 +87,7 @@ func (b *Backend) reset() {
 	b.assigns, b.grants = newStore[AppRoleAssignment](), newStore[OAuth2PermissionGrant]()
 	b.deleted, b.roleAssigns = newStore[deletedItem](), newStore[RoleAssignment]()
 	b.owners, b.members, b.secrets = map[string][]string{}, map[string][]string{}, map[string]string{}
+	b.managers, b.dirRoles = map[string]string{}, map[string]string{}
 	b.keyMaterial, b.fics = map[string]string{}, map[string][]FederatedCredential{}
 	b.seed()
 }

@@ -603,8 +603,13 @@ func dialTLSUser(t *testing.T, ep azureredis.Endpoint, user, password string) *g
 	return c
 }
 
+const entraTestOID = "11111111-2222-3333-4444-555555555555"
+
 func entraOn(s azureredis.Spec) azureredis.Spec {
 	s.EntraEnabled = true
+	s.Assignments = []azureredis.AccessAssignment{
+		{ObjectID: entraTestOID, Alias: "app", Permissions: "+@all allkeys"},
+	}
 
 	return s
 }
@@ -631,6 +636,12 @@ func TestEntraAuthentication(t *testing.T) {
 	}{
 		{name: "entra token", spec: entraOn,
 			user: oid, pass: "token-for-" + oid, wantSuccess: true},
+		{name: "entra token by alias", spec: entraOn, user: "app", pass: "token-for-" + oid, wantSuccess: true},
+		{name: "entra token without assignment", spec: func(s azureredis.Spec) azureredis.Spec {
+			s.EntraEnabled = true
+
+			return s
+		}, user: oid, pass: "token-for-" + oid},
 		{name: "entra token for another principal", spec: entraOn, user: oid, pass: "token-for-someone-else"},
 		{name: "entra token rejected when not enabled", spec: func(s azureredis.Spec) azureredis.Spec { return s },
 			user: oid, pass: "token-for-" + oid},
@@ -644,14 +655,14 @@ func TestEntraAuthentication(t *testing.T) {
 			return s
 		}, useKey: "primary"},
 		{name: "secondary key refused when keys are disabled", spec: func(s azureredis.Spec) azureredis.Spec {
-			s.DisableAccessKeys, s.EntraEnabled = true, true
+			s.DisableAccessKeys = true
 
-			return s
+			return entraOn(s)
 		}, useKey: "secondary"},
 		{name: "entra token with keys disabled", spec: func(s azureredis.Spec) azureredis.Spec {
-			s.DisableAccessKeys, s.EntraEnabled = true, true
+			s.DisableAccessKeys = true
 
-			return s
+			return entraOn(s)
 		}, user: oid, pass: "token-for-" + oid, wantSuccess: true},
 	}
 

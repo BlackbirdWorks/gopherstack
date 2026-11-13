@@ -51,7 +51,7 @@ func (h *Handler) json(c *echo.Context, status int, v any) error {
 
 func (h *Handler) entity(c *echo.Context, status int, context string, m map[string]any) error {
 	out := make(map[string]any, len(m))
-	out["@odata.context"] = odataBase(c.Request()) + "/$metadata#" + context + "/$entity"
+	out[keyODataContext] = odataBase(c.Request()) + "/$metadata#" + context + "/$entity"
 	maps.Copy(out, m)
 
 	return h.json(c, status, out)
@@ -76,7 +76,7 @@ func (h *Handler) list(
 		return h.writeErr(c, err)
 	}
 
-	out := map[string]any{"@odata.context": odataBase(r) + "/$metadata#" + context, propValue: res.items}
+	out := map[string]any{keyODataContext: odataBase(r) + "/$metadata#" + context, propValue: res.items}
 
 	if q.count {
 		out["@odata.count"] = res.total
@@ -103,6 +103,10 @@ func (h *Handler) dispatch(c *echo.Context, segs []string, claims jwt.MapClaims)
 		return h.handleDirectoryObjects(c, segs)
 	case "oauth2PermissionGrants":
 		return h.handleGrants(c, segs)
+	case collDirectoryRoleTemplates:
+		return h.handleDirectoryRoleTemplates(c, segs)
+	case collDirectoryRoles:
+		return h.handleDirectoryRoles(c, segs)
 	case "directory":
 		return h.handleDirectory(c, segs)
 	case "roleManagement":
@@ -172,6 +176,7 @@ func (h *Handler) entityOp(c *echo.Context, coll *collection, ref Ref) error {
 			return h.writeErr(c, qerr)
 		}
 
+		q.single = true
 		out := q.project(m)
 		if err = h.expandAll(q, coll.resource, out); err != nil {
 			return h.writeErr(c, err)
@@ -345,8 +350,8 @@ func (h *Handler) getByIDs(c *echo.Context) error {
 	}
 
 	return h.json(c, http.StatusOK, map[string]any{
-		"@odata.context": odataBase(r) + "/$metadata#Collection(microsoft.graph.directoryObject)",
-		propValue:        typedObjects(objs),
+		keyODataContext: odataBase(r) + "/$metadata#Collection(microsoft.graph.directoryObject)",
+		propValue:       typedObjects(objs),
 	})
 }
 

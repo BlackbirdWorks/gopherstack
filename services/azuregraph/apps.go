@@ -245,6 +245,7 @@ func (b *Backend) removeObject(id string) {
 	b.groups.del(id)
 	delete(b.owners, id)
 	delete(b.members, id)
+	b.dropManagerRefs(id)
 
 	for k, v := range b.owners {
 		b.owners[k] = without(v, id)

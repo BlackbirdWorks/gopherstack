@@ -248,6 +248,10 @@ func (p *RedisProvider) deleteChild(id ResourceID, kind redisKind) error {
 		}
 
 		delete(rec.Linked, key)
+	case redisKindPolicy:
+		return p.deletePolicy(id, rec)
+	case redisKindAssignment:
+		return p.deleteAssignment(id, rec)
 	case redisKindCache, redisKindUnsupported:
 	}
 
@@ -275,6 +279,10 @@ func (p *RedisProvider) ListChildren(parent ResourceID, childType string) ([]map
 		for _, ls := range sortedLinked(rec) {
 			out = append(out, linkedBody(childID(parent, redisLinkedType, ls.Name), rec, ls))
 		}
+	case strings.ToLower(redisPolicyType):
+		out = listPolicies(parent, rec)
+	case strings.ToLower(redisAssignmentType):
+		out = listAssignments(parent, rec)
 	case strings.ToLower(redisPatchType):
 		if body, perr := p.patchBody(childID(parent, redisPatchType, redisPatchDefault), rec); perr == nil {
 			out = append(out, body)

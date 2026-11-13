@@ -65,6 +65,8 @@ func (h *Handler) subRoutes() map[string]subRoute {
 				return h.refs(c, id, tail, refOps{add: b.AddMember, remove: b.RemoveMember, load: b.Members})
 			},
 		},
+		propManager:         {kinds: []string{kindUser}, serve: (*Handler).serveManager},
+		"directreports":     {kinds: []string{kindUser}, serve: leaf(h.relationLoader(b.DirectReports))},
 		"transitivemembers": {kinds: []string{kindGroup}, serve: leaf(h.relationLoader(b.TransitiveMembers))},
 		"memberof": {kinds: memberOfKinds(), serve: leaf(h.relationLoader(func(id string) ([]Object, error) {
 			return b.MemberOf(id, false)
@@ -131,7 +133,7 @@ func (h *Handler) addPassword(c *echo.Context, id string) error {
 }
 
 func withContext(c *echo.Context, typeName string, m map[string]any) map[string]any {
-	m["@odata.context"] = odataBase(c.Request()) + "/$metadata#" + typeName
+	m[keyODataContext] = odataBase(c.Request()) + "/$metadata#" + typeName
 
 	return m
 }

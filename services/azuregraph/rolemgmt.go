@@ -76,7 +76,7 @@ func roleDefinitionMaps() []map[string]any {
 
 	for _, r := range roles {
 		out = append(out, map[string]any{
-			"id": r.id, "templateId": r.id, propDisplayName: r.name, "description": r.description,
+			"id": r.id, "templateId": r.id, propDisplayName: r.name, propDescription: r.description,
 			"isBuiltIn": true, "isEnabled": true, "resourceScopes": []string{"/"}, "version": "1",
 			"rolePermissions": []map[string]any{{"allowedResourceActions": r.actions}},
 		})
@@ -116,6 +116,7 @@ func (b *Backend) CreateRoleAssignment(body map[string]jsontext.Value) (RoleAssi
 
 	a.PrincipalID, a.RoleDefinitionID = lc(a.PrincipalID), lc(a.RoleDefinitionID)
 	b.roleAssigns.put(lc(a.ID), a)
+	b.activateRole(a.RoleDefinitionID)
 
 	return *a, nil
 }

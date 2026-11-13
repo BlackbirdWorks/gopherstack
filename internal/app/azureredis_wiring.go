@@ -95,10 +95,17 @@ func (a *azureRedisAdapter) Ensure(id string, spec azurearm.RedisSpec) (azurearm
 		fw = append(fw, azureredis.IPRange{Start: r.Start, End: r.End})
 	}
 
+	assignments := make([]azureredis.AccessAssignment, 0, len(spec.Assignments))
+	for _, g := range spec.Assignments {
+		assignments = append(assignments, azureredis.AccessAssignment{
+			ObjectID: g.ObjectID, Alias: g.Alias, Permissions: g.Permissions,
+		})
+	}
+
 	ep, err := a.b.Ensure(id, azureredis.Spec{
 		SKU: spec.SKU, MinTLS: spec.MinTLS, EnableNonSSLPort: spec.EnableNonSSLPort,
 		Persistence: spec.Persistence, AuthNotRequired: spec.AuthNotRequired, Firewall: fw,
-		DisableAccessKeys: spec.DisableAccessKeys, EntraEnabled: spec.EntraEnabled,
+		DisableAccessKeys: spec.DisableAccessKeys, EntraEnabled: spec.EntraEnabled, Assignments: assignments,
 	})
 
 	return redisEndpointOf(ep), err

@@ -161,6 +161,7 @@ type AuthorizationProvider struct {
 	policyDefs         map[string]*storedPolicy
 	policySets         map[string]*storedPolicy
 	policyAssigns      map[string]*storedPolicyAssign
+	policyExempts      map[string]*storedPolicyExempt
 	builtinRoles       map[string]*builtinRole
 	builtinPols        map[string]*builtinPolicy
 	builtinSets        map[string]*builtinPolicy
@@ -215,6 +216,7 @@ func (p *AuthorizationProvider) resetMaps() {
 	p.policyDefs = map[string]*storedPolicy{}
 	p.policySets = map[string]*storedPolicy{}
 	p.policyAssigns = map[string]*storedPolicyAssign{}
+	p.policyExempts = map[string]*storedPolicyExempt{}
 }
 
 // Namespace implements ResourceProvider.
@@ -231,6 +233,7 @@ func (p *AuthorizationProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: authPolicyDefinitions, APIVersions: v},
 		{Type: authPolicySets, APIVersions: v},
 		{Type: authPolicyAssignments, APIVersions: v},
+		{Type: authPolicyExemptions, APIVersions: v},
 	}
 }
 
@@ -302,6 +305,12 @@ func (p *AuthorizationProvider) removeWhere(match func(scope string) bool) {
 			delete(p.policyAssigns, k)
 		}
 	}
+
+	for k, e := range p.policyExempts {
+		if match(e.Scope) {
+			delete(p.policyExempts, k)
+		}
+	}
 }
 
 // authReq is one Microsoft.Authorization request at a scope.
@@ -335,6 +344,8 @@ func (p *AuthorizationProvider) Do(req authReq) (authResp, error) {
 		return p.doPolicy(req, authPolKindSet)
 	case authPolicyAssignments:
 		return p.doPolicyAssignment(req)
+	case authPolicyExemptions:
+		return p.doPolicyExemption(req)
 	}
 
 	return authResp{}, ErrResourceNotFound

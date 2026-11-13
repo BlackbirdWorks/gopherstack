@@ -224,3 +224,6 @@ func NewTestHandlerWithEventHubs(dataPlane EventHubs) *Handler {
 
 	return NewHandler(backend, registry, nil, DefaultSettings())
 }
+
+// EventHubProviderOf returns the handler's Microsoft.EventHub provider.
+func EventHubProviderOf(h *Handler) (*EventHubProvider, bool) { return h.eventHubProvider() }

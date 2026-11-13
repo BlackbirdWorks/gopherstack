@@ -19,15 +19,17 @@ const (
 
 // listQuery is the parsed OData query of a collection request.
 type listQuery struct {
-	filter  *compiledFilter
-	search  func(map[string]any) bool
-	order   string
-	token   string
-	selects []string
-	expand  []expandSpec
-	top     int
-	desc    bool
-	count   bool
+	filter   *compiledFilter
+	search   func(map[string]any) bool
+	order    string
+	token    string
+	selects  []string
+	expand   []expandSpec
+	top      int
+	desc     bool
+	count    bool
+	eventual bool
+	single   bool
 }
 
 func eventual(r *http.Request) bool {
@@ -37,8 +39,8 @@ func eventual(r *http.Request) bool {
 // parseListQuery validates the OData system query options. fields is the set of declared properties of the
 // resource (nil skips property validation); resource names it in error messages.
 func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*listQuery, error) {
-	vals := r.URL.Query()
-	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken")}
+	vals := parseQueryValues(r.URL.RawQuery)
+	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken"), eventual: eventual(r)}
 
 	if err := q.parseCount(r, vals); err != nil {
 		return nil, err
@@ -68,6 +70,13 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 	}
 
 	return q, q.parseSearch(r, vals.Get("$search"))
+}
+
+// parseQueryValues keeps ';' inside values; Go's parser would drop $expand=manager($levels=max;$select=id).
+func parseQueryValues(raw string) url.Values {
+	vals, _ := url.ParseQuery(strings.ReplaceAll(raw, ";", "%3B"))
+
+	return vals
 }
 
 func (q *listQuery) parsePaging(top string) error {

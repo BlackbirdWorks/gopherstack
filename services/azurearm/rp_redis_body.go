@@ -70,6 +70,7 @@ func redisSpecOf(rec *redisRecord) RedisSpec {
 		Persistence:       rec.SKU == redisSKUPremium && persist,
 		AuthNotRequired:   strings.EqualFold(cfg["authnotrequired"], "true"),
 		Firewall:          redisRanges(rec),
+		Assignments:       redisAccessAssignments(rec),
 		DisableAccessKeys: rec.DisableKeys,
 		EntraEnabled:      strings.EqualFold(cfg["aad-enabled"], "true"),
 	}

@@ -2,14 +2,23 @@ package azureredis
 
 // Spec is the part of a cache's ARM configuration the Redis servers act on.
 type Spec struct {
-	SKU               string    `json:"sku"`
-	MinTLS            string    `json:"minTls"`
-	Firewall          []IPRange `json:"firewall,omitempty"`
-	EnableNonSSLPort  bool      `json:"enableNonSslPort"`
-	Persistence       bool      `json:"persistence"`
-	AuthNotRequired   bool      `json:"authNotRequired,omitempty"`
-	DisableAccessKeys bool      `json:"disableAccessKeys,omitempty"`
-	EntraEnabled      bool      `json:"entraEnabled,omitempty"`
+	SKU               string             `json:"sku"`
+	MinTLS            string             `json:"minTls"`
+	Firewall          []IPRange          `json:"firewall,omitempty"`
+	Assignments       []AccessAssignment `json:"accessAssignments,omitempty"`
+	EnableNonSSLPort  bool               `json:"enableNonSslPort"`
+	Persistence       bool               `json:"persistence"`
+	AuthNotRequired   bool               `json:"authNotRequired,omitempty"`
+	DisableAccessKeys bool               `json:"disableAccessKeys,omitempty"`
+	EntraEnabled      bool               `json:"entraEnabled,omitempty"`
+}
+
+// AccessAssignment grants a principal the permissions of a data access policy; Alias is also the user name
+// accepted for token authentication.
+type AccessAssignment struct {
+	ObjectID    string `json:"objectId"`
+	Alias       string `json:"alias"`
+	Permissions string `json:"permissions"`
 }
 
 // Endpoint is where a cache's servers listen. Port is 0 while the non-TLS port is disabled.

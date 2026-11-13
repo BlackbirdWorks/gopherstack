@@ -1352,6 +1352,7 @@ func TestAuthorizationSDK_ProviderRegistered(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{
 		"roleDefinitions", "roleAssignments", "locks", "policyDefinitions", "policySetDefinitions", "policyAssignments",
+		"policyExemptions",
 	}, got)
 }
 
