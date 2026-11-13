@@ -1173,3 +1173,7 @@ NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 decla
 - Batch jobs advance by elapsed time instead of staying `New` forever: New (2s) -> Preparing (2s) -> Suspended (ConfirmationRequired) or Ready. UpdateJobStatus on Cancelled/Complete/Failed jobs returns `JobStatusException` (409). No task executor exists, so jobs never reach Active/Complete (structural). `TestJobLifecycle_StatusAdvancesWithTime`.
 - Shared fix: `pkgs/awserr` XML errors were written with a doubled `<?xml ...?>` declaration (echo's XMLBlob prepends one); botocore/AWS CLI could not parse them. Now written via `c.Blob`.
 - Left lenient: CreateAccessPoint does not check the bucket exists (cross-service); MRAP creation reports READY immediately; ListAccessPoints ignores bad NextToken.
+
+## 2026-11-13 open-item re-check
+
+API_control_ListAccessPoints, API_control_GetAccessPoint, API_control_AccessPoint (DataSourceId: "unique identifier for the data source", max 191, no bucket-backed value) and API_control_CreateMultiRegionAccessPoint (ClientToken: "idempotency token ... guarantee that requests are unique", max 64, `\S+`, no replay or mismatch behaviour) were re-read; none states the missing facts, so those items stay open.

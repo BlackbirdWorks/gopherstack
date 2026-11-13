@@ -294,7 +294,6 @@ gaps: []
 items_still_open:
   - "WebSocket data plane serves AWS_PROXY (Lambda) and MOCK integrations only: AWS/HTTP/HTTP_PROXY WebSocket integrations, request/response templates, route-response/integration-response selection beyond $default, and a non-JSON $disconnect-time context are not implemented (gopherstack-49qct.58)."
   - "Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the \"Invalid <X> identifier specified\" convention but is not pinned by the SDK; only the API form is certain."
-  - "DeleteRoute/DeleteStage on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): the SDK says only that the $default route key and $default stage can't be modified (both enforced); unlike integrations ('you can't delete it', enforced), it is silent on deleting them."
   - "ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0)."
   - "A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1)."
   - "GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example."
@@ -1120,3 +1119,9 @@ Verified end to end with gorilla/websocket and the apigatewayv2/apigatewaymanage
 Before: the route key was hardcoded to the body's `action` (routeSelectionExpression ignored); no $connect authorizer; every event carried eventType MESSAGE and lacked domainName/stage/messageId; a $default fallback and the "Forbidden" frame for unmatched keys were missing; Lambda output was never returned to the client; `routeResponseSelectionExpression` was dropped on CreateRoute/UpdateRoute; `/{stage}/@connections/{id}` (the endpoint form the SDK produces for `https://{domainName}/{stage}`) never reached the Management API.
 
 Now: `$request.body.<path>` / `${request.body.<path>}` / `\$default` expressions select the route, falling back to `$default`, else a `{"message":"Forbidden","connectionId","requestId"}` frame; $connect CUSTOM authorizers use `route.request.querystring.*`/`header.*` identity sources (missing -> 401, deny -> 403, IAM policy evaluated against `arn:...:api/stage/$connect`, context exposed as `requestContext.authorizer`); $connect integration status codes other than 200 reject the upgrade; CONNECT/MESSAGE/DISCONNECT events carry the documented requestContext (connectionId, routeKey, eventType, domainName, stage, apiId, messageId, connectedAt, identity, disconnectStatusCode/Reason); the Lambda payload is sent back only when the route has a `routeResponseSelectionExpression` and a `$default` route response.
+
+
+## 2026-11-13 open-item verification
+
+- DeleteRoute/DeleteStage on quick-create resources: API reference apis-apiid-routes-routeid and apis-apiid-stages-stagename list only 204/404/429 for DELETE, so deletion is not rejected (matches code).
+- ProductRestEndpointPage RawDisplayContent: apis-apiid-productrestendpointpage page re-fetched 2026-11-13; it carries no display-content format, so the item stays open.
