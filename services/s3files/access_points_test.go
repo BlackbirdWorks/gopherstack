@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const accessPointARNPattern = `^arn:aws:s3files:[0-9a-z-]+:\d{12}:file-system/fs-[0-9a-f]{17,40}/` +
+	`access-point/fsap-[0-9a-f]{17,40}$`
+
 func TestCreateAccessPointValidation(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +57,7 @@ func TestCreateAccessPointValidation(t *testing.T) {
 			require.NoError(t, err)
 			assert.Regexp(t, `^fsap-[0-9a-f]{17}$`, aws.ToString(out.AccessPointId))
 			assert.Equal(t, "app", aws.ToString(out.Name))
+			assert.Regexp(t, accessPointARNPattern, aws.ToString(out.AccessPointArn))
 			assert.Equal(t, types.LifeCycleStateAvailable, out.Status)
 
 			got, err := f.client.GetAccessPoint(

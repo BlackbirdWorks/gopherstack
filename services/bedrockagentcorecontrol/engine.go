@@ -291,6 +291,10 @@ func (b *InMemoryBackend) createLocked(sc scope, k *kindSpec, in args) (*Resourc
 		}
 	}
 
+	if err = b.checkQuotaLocked(sc, k, pid); err != nil {
+		return nil, err
+	}
+
 	now := b.now()
 	r := &Resource{
 		Kind: k.Name, Account: sc.account, Region: sc.region, Parent: pid, ID: id,

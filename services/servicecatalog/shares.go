@@ -548,6 +548,10 @@ type AcceptPortfolioShareInput struct {
 }
 
 func (b *InMemoryBackend) shareToLocked(portfolioID, account, shareType string) (*Share, error) {
+	if shareType == shareViaSC {
+		return nil, notFound("portfolio share", portfolioID)
+	}
+
 	typ := shareAccount
 	if shareType == shareViaOrgs {
 		typ = shareMember

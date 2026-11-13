@@ -109,7 +109,6 @@ items_still_open:
   - UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
   - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
   - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
-  - AcceptPortfolioShare: AWS_SERVICECATALOG shares do not exist, so only IMPORTED and AWS_ORGANIZATIONS are acceptable
   - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
   - CreateProduct MARKETPLACE: rejected with InvalidParametersException
   - TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
@@ -140,3 +139,7 @@ Emulator choices the SDK does not document:
 
 - STACKSET constraints launch a CloudFormation StackSet named `SC-<account>-<id>` with an instance per constraint account and Region; ProvisioningPreferences become the StackSet operation preferences.
 - Error classes were checked against the pinned SDK operation error sets: ResourceInUse for DisassociateProductFromPortfolio, InvalidParameters for UpdateProvisionedProduct, DuplicateResource for ImportAsProvisionedProduct are all modeled. InvalidState is not modeled for UpdateProvisionedProduct, so under-change stays InvalidParameters.
+
+### 2026-11-13
+
+Accept/RejectPortfolioShare with PortfolioShareType AWS_SERVICECATALOG return ResourceNotFoundException (API_AcceptPortfolioShare.html, API_RejectPortfolioShare.html: "Not supported. (Throws ResourceNotFoundException.)").

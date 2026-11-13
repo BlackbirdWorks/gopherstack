@@ -64,6 +64,8 @@ func newFixtureWith(t *testing.T, backend *s3files.InMemoryBackend, region strin
 	backend.SetSubnetResolver(fakeSubnets{
 		testSubnet:    {VPCID: "vpc-1", AvailabilityZoneID: "use1-az1", CIDR: "10.0.1.0/24"},
 		"subnet-bbbb": {VPCID: "vpc-1", AvailabilityZoneID: "use1-az2", CIDR: "10.0.2.0/24"},
+		"subnet-cccc": {VPCID: "vpc-1", AvailabilityZoneID: "use1-az1", CIDR: "10.0.3.0/24"},
+		"subnet-dddd": {VPCID: "vpc-2", AvailabilityZoneID: "use1-az3", CIDR: "10.1.1.0/24"},
 	})
 
 	url := sdktest.Serve(t, s3files.NewHandler(backend))

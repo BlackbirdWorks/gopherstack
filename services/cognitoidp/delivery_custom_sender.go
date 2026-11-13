@@ -75,7 +75,7 @@ func (b *InMemoryBackend) customSenderFor(
 	call := b.prepareTrigger(pool, key, prefix+req.Flow, "", user.Username,
 		map[string]any{
 			customSenderTypeKey:    reqType,
-			"clientMetadata":       map[string]any{},
+			"clientMetadata":       stringMapToAny(req.ClientMetadata),
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
 		}, map[string]any{})
 	if call == nil {

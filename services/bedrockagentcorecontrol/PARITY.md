@@ -203,7 +203,7 @@ items_still_open:
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes
   - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
-  - Quotas: no per-account resource limits are enforced
+  - Quotas: resource-count limits are enforced as listed on bedrock-agentcore-limits.html, but request-rate limits (TPS throttling), the per-memory strategy count, memory/gateway payload sizes and the "active" concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned.
 structural_gaps:
   - StartPolicyGeneration: deriving Cedar from natural language needs a generative model, so every generation ends GENERATE_FAILED with no assets
   - Evaluators and online evaluation configs: evaluation needs a model and live agent traces, so configurations are validated and stored but never run
@@ -233,3 +233,7 @@ The generated `gatewayUrl` (`https://<id>.gateway.bedrock-agentcore.<region>.ama
 ## Success and error statuses
 
 Success statuses come from the HTTP/1.1 line of each operation's Response Syntax in the AgentCore Control Plane API Reference (docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_<Operation>.html, table in status.go): 201 for most Create operations of non-asynchronous resources, 202 for asynchronous creates and the dataset, registry and gateway-synchronization operations, 204 (no body) for the credential-provider, workload-identity and resource-policy deletes and for tagging. Error statuses on the same pages: ValidationException 400, AccessDeniedException 403, ResourceNotFoundException 404, ConflictException 409, ServiceQuotaExceededException 402, ThrottlingException 429, InternalServerException 500.
+
+### 2026-11-13
+
+Creates return ServiceQuotaExceededException (402) at the documented resource-count limits per account and Region: runtimes 1,000, endpoints 10 per runtime (the DEFAULT endpoint is not counted), gateways 1,000, targets 100 per gateway, memories 150, code interpreters 1,000, browsers 1,000, browser profiles 100, capacity providers 1,000, configuration bundles 1,000, evaluators 10,000, online evaluation configurations 1,000, policy engines 1,000, policies 1,000 per engine, registries 10, API key / OAuth2 / payment credential providers 50 each, workload identities 11,000.

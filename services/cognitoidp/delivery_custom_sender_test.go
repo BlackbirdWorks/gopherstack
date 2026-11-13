@@ -168,3 +168,53 @@ func TestEmailRoleAccessPolicyError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "InvalidEmailRoleAccessPolicyException")
 }
+
+func TestCustomSenderClientMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantSource string
+		forgot     bool
+	}{
+		{name: "sign up", wantSource: "CustomEmailSender_SignUp"},
+		{name: "forgot password", wantSource: "CustomEmailSender_ForgotPassword", forgot: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newDeliveryEnv(t, map[string]any{
+				"LambdaConfig":           senderCfg("CustomEmailSender", true),
+				"AutoVerifiedAttributes": []string{"email"},
+			})
+			inv := &fakeInvoker{}
+			e.h.Backend.SetLambdaTriggerInvoker(inv)
+			e.h.Backend.SetDataKeyGenerator(fixedKeys{})
+
+			meta := map[string]string{"tenant": "acme"}
+			attrs := []map[string]string{{"Name": "email", "Value": "bob@corp.example"}}
+
+			e.call(t, "SignUp", map[string]any{
+				"ClientId": e.clientID, "Username": "bob", "Password": "Pass1234!",
+				"UserAttributes": attrs, "ClientMetadata": meta,
+			})
+
+			if tt.forgot {
+				e.call(t, "AdminConfirmSignUp", map[string]any{"UserPoolId": e.poolID, "Username": "bob"})
+				e.call(t, "ForgotPassword", map[string]any{
+					"ClientId": e.clientID, "Username": "bob", "ClientMetadata": meta,
+				})
+			}
+
+			require.NotEmpty(t, inv.calls)
+
+			ev := inv.calls[len(inv.calls)-1].event
+			assert.Equal(t, tt.wantSource, ev["triggerSource"])
+
+			req := ev["request"].(map[string]any)
+			assert.Equal(t, map[string]any{"tenant": "acme"}, req["clientMetadata"])
+		})
+	}
+}

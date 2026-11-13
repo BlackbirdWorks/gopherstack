@@ -160,7 +160,7 @@ func (h *Handler) handleAdminResetUserPassword(
 
 	if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
 		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
-		CustomMessage: message, CustomSubject: subject,
+		CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 	}, nil); err != nil {
 		return nil, err
 	}
@@ -377,7 +377,7 @@ func (h *Handler) handleSignUpAccurate(
 
 		if err = h.deliverCode(ctx, user.UserPoolID, &MessageRequest{
 			Username: user.Username, Code: user.ConfirmCode, Kind: MessageVerification, Flow: FlowSignUp,
-			CustomMessage: message, CustomSubject: subject,
+			CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 		}, out.CodeDeliveryDetails); err != nil {
 			return nil, err
 		}
@@ -572,7 +572,7 @@ func (h *Handler) handleForgotPasswordAccurate(
 
 	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
 		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
-		CustomMessage: message, CustomSubject: subject,
+		CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 	}, details); err != nil {
 		return nil, err
 	}
