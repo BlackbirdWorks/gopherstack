@@ -6,9 +6,11 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -61,7 +63,7 @@ func sealEnvelope(
 		return nil, nil, fmt.Errorf("iv: %w", err)
 	}
 
-	matdesc, err := json.Marshal(encCtx)
+	matdesc, err := json.Marshal(encCtx, jsonx.V1())
 	if err != nil {
 		return nil, nil, fmt.Errorf("matdesc: %w", err)
 	}

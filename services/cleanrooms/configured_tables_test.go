@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func createConfiguredTable(t *testing.T, e *echo.Echo) string {
@@ -22,7 +24,7 @@ func createConfiguredTable(t *testing.T, e *echo.Echo) string {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["configuredTable"].(map[string]any)["id"].(string)
 }
@@ -67,7 +69,7 @@ func TestConfiguredTables_Create(t *testing.T) {
 			require.Equal(t, tt.wants.status, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			ct := resp["configuredTable"].(map[string]any)
 
 			id, hasID := ct["id"]
@@ -117,7 +119,7 @@ func TestConfiguredTableAnalysisRules_Create(t *testing.T) {
 			require.Equal(t, tt.wants.status, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			ar := resp["analysisRule"].(map[string]any)
 
 			assert.Contains(t, ar, "configuredTableId", "analysisRule must have canonical 'configuredTableId' key")

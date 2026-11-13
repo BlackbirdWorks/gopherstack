@@ -1,12 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCWAlarmTemplateGroup_CRUD(t *testing.T) {
@@ -25,7 +27,7 @@ func TestCWAlarmTemplateGroup_CRUD(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["id"])
 				assert.Equal(t, "test-cw-group", resp["name"])
 				assert.NotEmpty(t, resp["createdAt"])
@@ -73,7 +75,7 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 
 	// Get
@@ -92,14 +94,14 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "cw-group-updated", updated["name"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-template-groups", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items := listResp["cloudWatchAlarmTemplateGroups"].([]any)
 	assert.Len(t, items, 1)
 
@@ -169,7 +171,7 @@ func TestCWAlarmTemplate_CRUD(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["id"])
 				assert.Equal(t, "InputLossSeconds", resp["metricName"])
 				assert.NotEmpty(t, resp["createdAt"])
@@ -202,7 +204,7 @@ func TestCWAlarmTemplate_GetUpdateListDelete(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 
 	// Get by ID
@@ -219,14 +221,14 @@ func TestCWAlarmTemplate_GetUpdateListDelete(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "ActiveAlerts", updated["metricName"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-templates", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items := listResp["cloudWatchAlarmTemplates"].([]any)
 	assert.Len(t, items, 1)
 

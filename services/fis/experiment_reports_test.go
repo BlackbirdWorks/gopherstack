@@ -1,7 +1,8 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -228,7 +230,7 @@ func startExperimentAndPollTerminal(t *testing.T, h *fis.Handler, templateID str
 			Experiment experimentReportPollResult `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &full); err != nil {
+		if err := json.Unmarshal(r.Body.Bytes(), &full, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -321,13 +323,13 @@ func TestGetExperiment_NoReportConfig_OmitsReportFields(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 
 	mustJSON(t, rec, &raw)
 
-	var exp map[string]json.RawMessage
+	var exp map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(raw["experiment"], &exp))
+	require.NoError(t, json.Unmarshal(raw["experiment"], &exp, jsonx.V1()))
 
 	_, hasReportConfig := exp["experimentReportConfiguration"]
 	_, hasReport := exp["experimentReport"]

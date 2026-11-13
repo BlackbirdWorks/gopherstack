@@ -1,13 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -147,7 +148,7 @@ func TestSNSToSQSDelivery(t *testing.T) {
 
 				if tt.wantEnvType != "" {
 					var env map[string]string
-					require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env))
+					require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env, jsonx.V1()))
 					assert.Equal(t, tt.wantEnvType, env["Type"])
 					assert.Equal(t, topic.TopicArn, env["TopicArn"])
 					assert.Equal(t, tt.wantEnvMessage, env["Message"])
@@ -224,7 +225,7 @@ func TestSNSToSQSRawMessageDelivery(t *testing.T) {
 
 			// Ensure the body is NOT an SNS envelope (no "Type": "Notification" wrapper).
 			var env map[string]any
-			if jsonErr := json.Unmarshal([]byte(out.Messages[0].Body), &env); jsonErr == nil {
+			if jsonErr := json.Unmarshal([]byte(out.Messages[0].Body), &env, jsonx.V1()); jsonErr == nil {
 				assert.NotEqual(t, "Notification", env["Type"], "raw delivery body must not be SNS envelope")
 			}
 
@@ -313,7 +314,7 @@ func TestSNSToSQSDLQ(t *testing.T) {
 				// DLQ receives the same body that was attempted to the failed queue.
 				// Without RawMessageDelivery, that is the SNS envelope JSON.
 				var env map[string]string
-				require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env))
+				require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env, jsonx.V1()))
 				assert.Equal(t, "Notification", env["Type"])
 				assert.Equal(t, tt.publishMessage, env["Message"])
 			} else {

@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // trainingPlanExtOpsSupported returns the real stateful operations implemented
@@ -150,7 +152,7 @@ type listTrainingPlansInput struct {
 func (h *Handler) handleListTrainingPlans(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTrainingPlansInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -207,7 +209,7 @@ type searchTrainingPlanOfferingsInput struct {
 func (h *Handler) handleSearchTrainingPlanOfferings(ctx context.Context, body []byte) ([]byte, error) {
 	var req searchTrainingPlanOfferingsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -241,7 +243,7 @@ func (h *Handler) handleSearchTrainingPlanOfferings(ctx context.Context, body []
 	return json.Marshal(map[string]any{
 		"TrainingPlanOfferings":          items,
 		"TrainingPlanExtensionOfferings": extOfferings,
-	})
+	}, jsonx.V1())
 }
 
 // extendTrainingPlanInput mirrors ExtendTrainingPlanInput
@@ -254,7 +256,7 @@ type extendTrainingPlanInput struct {
 func (h *Handler) handleExtendTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req extendTrainingPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -267,7 +269,7 @@ func (h *Handler) handleExtendTrainingPlan(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions})
+	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions}, jsonx.V1())
 }
 
 // describeTrainingPlanExtensionHistoryInput mirrors
@@ -283,7 +285,7 @@ type describeTrainingPlanExtensionHistoryInput struct {
 func (h *Handler) handleDescribeTrainingPlanExtensionHistory(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTrainingPlanExtensionHistoryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -298,7 +300,7 @@ func (h *Handler) handleDescribeTrainingPlanExtensionHistory(ctx context.Context
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions, keyNextToken: next})
+	return json.Marshal(map[string]any{"TrainingPlanExtensions": extensions, keyNextToken: next}, jsonx.V1())
 }
 
 // describeReservedCapacityInput mirrors DescribeReservedCapacityInput
@@ -311,7 +313,7 @@ type describeReservedCapacityInput struct {
 func (h *Handler) handleDescribeReservedCapacity(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeReservedCapacityInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -324,7 +326,7 @@ func (h *Handler) handleDescribeReservedCapacity(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(rc)
+	return json.Marshal(rc, jsonx.V1())
 }
 
 // listUltraServersByReservedCapacityInput mirrors
@@ -340,7 +342,7 @@ type listUltraServersByReservedCapacityInput struct {
 func (h *Handler) handleListUltraServersByReservedCapacity(ctx context.Context, body []byte) ([]byte, error) {
 	var req listUltraServersByReservedCapacityInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -355,5 +357,5 @@ func (h *Handler) handleListUltraServersByReservedCapacity(ctx context.Context, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"UltraServers": servers, keyNextToken: next})
+	return json.Marshal(map[string]any{"UltraServers": servers, keyNextToken: next}, jsonx.V1())
 }

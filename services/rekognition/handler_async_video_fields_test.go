@@ -1,13 +1,15 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -80,7 +82,7 @@ func TestAsyncVideoJob_JobTagAndVideoRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, tc.startAction)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID, ok := startResp["JobId"].(string)
 			require.True(t, ok)
 
@@ -88,7 +90,7 @@ func TestAsyncVideoJob_JobTagAndVideoRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, tc.getAction)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, "my-job-tag", getResp["JobTag"])
 
 			video, _ := getResp["Video"].(map[string]any)
@@ -111,7 +113,7 @@ func TestAsyncVideoJob_NoVideoOmitsVideoField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 
@@ -119,7 +121,7 @@ func TestAsyncVideoJob_NoVideoOmitsVideoField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotContains(t, getResp, "Video")
 	assert.NotContains(t, getResp, "JobTag")
 }
@@ -142,7 +144,7 @@ func TestGetSegmentDetection_SelectedSegmentTypesEchoesRequest(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 
@@ -150,7 +152,7 @@ func TestGetSegmentDetection_SelectedSegmentTypesEchoesRequest(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	selected, ok := getResp["SelectedSegmentTypes"].([]any)
 	require.True(t, ok)
 	require.Len(t, selected, 2)
@@ -199,7 +201,7 @@ func TestGetLabelDetection_GetRequestMetadata(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID, ok := startResp["JobId"].(string)
 			require.True(t, ok)
 
@@ -210,7 +212,7 @@ func TestGetLabelDetection_GetRequestMetadata(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			metadata, _ := getResp["GetRequestMetadata"].(map[string]any)
 			require.NotNil(t, metadata)
 			assert.Equal(t, tc.wantSortBy, metadata["SortBy"])
@@ -233,7 +235,7 @@ func TestGetContentModeration_GetRequestMetadataDefaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 
@@ -241,7 +243,7 @@ func TestGetContentModeration_GetRequestMetadataDefaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	metadata, _ := getResp["GetRequestMetadata"].(map[string]any)
 	require.NotNil(t, metadata)
 	assert.Equal(t, "TIMESTAMP", metadata["SortBy"])

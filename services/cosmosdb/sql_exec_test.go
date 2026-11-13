@@ -1,7 +1,6 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -60,7 +60,7 @@ func TestExecuteQuery_ProjectionWithAlias(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "alice", rowObj(t, rows[0])["n"])
-	assert.Equal(t, json.Number("30"), rowObj(t, rows[0])["age"])
+	assert.Equal(t, jsonx.Number("30"), rowObj(t, rows[0])["age"])
 }
 
 func TestExecuteQuery_WhereComparisons(t *testing.T) {

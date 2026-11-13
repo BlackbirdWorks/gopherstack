@@ -1,7 +1,7 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,7 @@ import (
 	cfntypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -84,7 +85,7 @@ func stackTemplate(t *testing.T, resources map[string]any, outputs map[string]an
 		outs[k] = map[string]any{"Value": v}
 	}
 
-	doc, err := json.Marshal(map[string]any{"Resources": resources, "Outputs": outs})
+	doc, err := json.Marshal(map[string]any{"Resources": resources, "Outputs": outs}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(doc)

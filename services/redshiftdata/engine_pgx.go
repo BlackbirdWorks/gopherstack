@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -17,6 +17,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -314,7 +316,7 @@ func bytesField(dbType string, b []byte) Field {
 func compositeString(v any) string {
 	switch reflect.ValueOf(v).Kind() {
 	case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct:
-		if raw, err := json.Marshal(v); err == nil {
+		if raw, err := json.Marshal(v, jsonx.V1()); err == nil {
 			return string(raw)
 		}
 	default:

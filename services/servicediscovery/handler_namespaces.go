@@ -2,10 +2,11 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type dnsPropertiesRequest struct {
@@ -23,7 +24,7 @@ type createHTTPNamespaceRequest struct {
 
 func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req createHTTPNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -44,7 +45,7 @@ func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type createPrivateDNSNamespaceRequest struct {
@@ -60,7 +61,7 @@ type createPrivateDNSNamespaceRequest struct {
 
 func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req createPrivateDNSNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -86,7 +87,7 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type createPublicDNSNamespaceRequest struct {
@@ -101,7 +102,7 @@ type createPublicDNSNamespaceRequest struct {
 
 func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req createPublicDNSNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -127,7 +128,7 @@ func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type deleteNamespaceRequest struct {
@@ -136,7 +137,7 @@ type deleteNamespaceRequest struct {
 
 func (h *Handler) handleDeleteNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req deleteNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -149,7 +150,7 @@ func (h *Handler) handleDeleteNamespace(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type getNamespaceRequest struct {
@@ -158,7 +159,7 @@ type getNamespaceRequest struct {
 
 func (h *Handler) handleGetNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req getNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -173,7 +174,7 @@ func (h *Handler) handleGetNamespace(_ context.Context, body []byte) ([]byte, er
 
 	return json.Marshal(map[string]any{
 		"Namespace": namespaceToMap(ns, h.Backend.AccountID()),
-	})
+	}, jsonx.V1())
 }
 
 type namespaceFilter struct {
@@ -218,7 +219,7 @@ func buildNamespacesFilter(filters []namespaceFilter) ListNamespacesFilter {
 
 func (h *Handler) handleListNamespaces(_ context.Context, body []byte) ([]byte, error) {
 	var req listNamespacesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -306,7 +307,7 @@ type updateHTTPNamespaceRequest struct {
 
 func (h *Handler) handleUpdateHTTPNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req updateHTTPNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -319,7 +320,7 @@ func (h *Handler) handleUpdateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 // dnsNamespacePropertiesChangeRequest mirrors types.PrivateDnsNamespacePropertiesChange
@@ -355,7 +356,7 @@ type updatePrivateDNSNamespaceRequest struct {
 
 func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req updatePrivateDNSNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -370,7 +371,7 @@ func (h *Handler) handleUpdatePrivateDNSNamespace(_ context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type updatePublicDNSNamespaceRequest struct {
@@ -381,7 +382,7 @@ type updatePublicDNSNamespaceRequest struct {
 
 func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte) ([]byte, error) {
 	var req updatePublicDNSNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -396,7 +397,7 @@ func (h *Handler) handleUpdatePublicDNSNamespace(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 func applyPaginationNamespaces(items []Namespace, nextToken string, maxResults int) ([]Namespace, string) {

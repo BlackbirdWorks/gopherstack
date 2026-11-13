@@ -1,12 +1,15 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestApplicationSettings_BodyPersistence(t *testing.T) {
@@ -82,7 +85,7 @@ func TestApplicationSettings_BodyPersistence(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			// Update settings.
@@ -90,14 +93,14 @@ func TestApplicationSettings_BodyPersistence(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 
 			// GET settings back.
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			if tc.wantCampaignHook {
 				hook, ok := getResp["CampaignHook"].(map[string]any)
@@ -169,7 +172,7 @@ func TestApplicationSettings_CloudWatchMetrics(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotContains(t, resp, "CloudWatchMetricsEnabled")
 		})
 	}
@@ -229,14 +232,14 @@ func TestApplicationSettings_EventTaggingCases(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.NotContains(t, putResp, "EventTaggingEnabled")
 
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.NotContains(t, getResp, "EventTaggingEnabled")
 		})
 	}
@@ -307,7 +310,7 @@ func TestApplicationSettings_LimitsCases(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 			limits, ok := resp["Limits"].(map[string]any)
 			require.True(t, ok, "Limits must be an object")
 			assert.InDelta(t, tc.checkVal, limits[tc.checkKey], 0.001)
@@ -345,7 +348,7 @@ func TestApplicationDateRangeKpi(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, appID, resp["ApplicationId"])
 			assert.Equal(t, tc.kpiName, resp["KpiName"])
 			assert.NotNil(t, resp["KpiResult"])
@@ -464,7 +467,7 @@ func TestApplicationSettings_FullRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.NotContains(t, putResp, "CloudWatchMetricsEnabled")
 			assert.NotContains(t, putResp, "EventTaggingEnabled")
 			assert.NotNil(t, putResp["CampaignHook"])
@@ -476,7 +479,7 @@ func TestApplicationSettings_FullRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.NotContains(t, getResp, "CloudWatchMetricsEnabled")
 			assert.NotContains(t, getResp, "EventTaggingEnabled")
 		})
@@ -505,7 +508,7 @@ func TestApplicationSettings_CampaignHook(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var settings map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings, jsonx.V1()))
 
 	gotHook := settings["CampaignHook"].(map[string]any)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:SegmentHook", gotHook["LambdaFunctionName"])
@@ -547,7 +550,7 @@ func TestApplicationSettings_QuietTime(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var settings map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings, jsonx.V1()))
 
 			qt := settings["QuietTime"].(map[string]any)
 			assert.Equal(t, tc.wantStart, qt["Start"])
@@ -577,7 +580,7 @@ func TestApplicationSettings_Limits(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var settings map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings, jsonx.V1()))
 
 	got := settings["Limits"].(map[string]any)
 	assert.EqualValues(t, 500, got["Daily"])
@@ -620,7 +623,7 @@ func TestApplicationSettings_MultipleUpdates(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var settings map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings, jsonx.V1()))
 
 	assert.NotContains(t, settings, "CloudWatchMetricsEnabled")
 
@@ -648,7 +651,7 @@ func TestApplicationSettings_EventTagging(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var settings map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &settings, jsonx.V1()))
 
 	assert.NotContains(t, settings, "EventTaggingEnabled")
 	assert.NotContains(t, settings, "CloudWatchMetricsEnabled")
@@ -690,7 +693,7 @@ func TestHandler_ApplicationSettings(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var appResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&appResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &appResp, jsonx.V1()))
 
 			appID, _ := appResp["Id"].(string)
 			require.NotEmpty(t, appID)
@@ -706,7 +709,7 @@ func TestHandler_ApplicationSettings(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 
 			var settingsResp map[string]any
-			require.NoError(t, json.NewDecoder(rec2.Body).Decode(&settingsResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &settingsResp, jsonx.V1()))
 			assert.Equal(t, appID, settingsResp["ApplicationId"])
 			// CampaignHook, Limits, and QuietTime must be non-nil empty objects so
 			// the Terraform provider flatten helpers don't panic on nil dereferences.
@@ -753,19 +756,19 @@ func TestAppSettings_LastModifiedDate_ConsistentAfterUpdate(t *testing.T) {
 			require.Equal(t, http.StatusOK, putRec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 			putDate, _ := putResp["LastModifiedDate"].(string)
 			require.NotEmpty(t, putDate, "PUT must return non-empty LastModifiedDate")
 
 			getRec1 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec1.Code)
 			var getResp1 map[string]any
-			require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
+			require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1, jsonx.V1()))
 
 			getRec2 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 			require.Equal(t, http.StatusOK, getRec2.Code)
 			var getResp2 map[string]any
-			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2, jsonx.V1()))
 
 			date1, _ := getResp1["LastModifiedDate"].(string)
 			date2, _ := getResp2["LastModifiedDate"].(string)
@@ -786,7 +789,7 @@ func TestAppSettings_LastModifiedDate_UpdatesOnSecondPut(t *testing.T) {
 		map[string]any{"CloudWatchMetricsEnabled": true})
 	require.Equal(t, http.StatusOK, put1.Code)
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(put1.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(put1.Body.Bytes(), &r1, jsonx.V1()))
 	date1, _ := r1["LastModifiedDate"].(string)
 	require.NotEmpty(t, date1)
 
@@ -795,7 +798,7 @@ func TestAppSettings_LastModifiedDate_UpdatesOnSecondPut(t *testing.T) {
 		map[string]any{"EventTaggingEnabled": true})
 	require.Equal(t, http.StatusOK, put2.Code)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(put2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(put2.Body.Bytes(), &r2, jsonx.V1()))
 	date2, _ := r2["LastModifiedDate"].(string)
 	require.NotEmpty(t, date2)
 
@@ -803,7 +806,7 @@ func TestAppSettings_LastModifiedDate_UpdatesOnSecondPut(t *testing.T) {
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/settings", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	getDate, _ := getResp["LastModifiedDate"].(string)
 
 	assert.Equal(t, date2, getDate, "GET must return the most recent PUT's LastModifiedDate")

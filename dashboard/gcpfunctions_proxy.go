@@ -3,7 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 )
 
@@ -139,7 +140,7 @@ type invokeInput struct {
 
 func (a *gcpFunctionsAPI) invoke(ctx context.Context, name string, raw []byte) (proto.Message, error) {
 	var in invokeInput
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request body: "+err.Error())
 	}
 

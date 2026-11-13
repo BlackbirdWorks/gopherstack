@@ -2,11 +2,13 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -59,7 +61,7 @@ const eventbridgeSnapshotVersion = 1
 // no reason to leave bus policies unpersisted the way the genuinely
 // unkeyable maps above are.
 type backendSnapshot struct {
-	Tables      map[string]json.RawMessage            `json:"tables"`
+	Tables      map[string]jsontext.Value             `json:"tables"`
 	BusPolicies map[string]map[string]*EventBusPolicy `json:"busPolicies,omitempty"`
 	AccountID   string                                `json:"accountID"`
 	Region      string                                `json:"region"`
@@ -93,7 +95,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:      b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).
 			WarnContext(ctx, "persistence: snapshot marshal failed", "service", "eventbridge", "error", err)
@@ -116,7 +118,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // first "/" recovers the prefix, and tableAccessorsByPrefix's rules/targets
 // entries split the remainder again themselves (region never contains "/",
 // but bus/rule names may).
-func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]json.RawMessage) {
+func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]jsontext.Value) {
 	for key := range tables {
 		name, rest, found := strings.Cut(key, "/")
 		if !found {
@@ -168,7 +170,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if snap.Tables == nil {
-		snap.Tables = make(map[string]json.RawMessage)
+		snap.Tables = make(map[string]jsontext.Value)
 	}
 
 	b.preRegisterSnapshotTables(snap.Tables)

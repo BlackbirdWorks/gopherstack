@@ -1,13 +1,15 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -83,7 +85,7 @@ func TestBackend_ShadowVersioning(t *testing.T) {
 			require.NoError(t, err)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(resp, &result))
+			require.NoError(t, json.Unmarshal(resp, &result, jsonx.V1()))
 
 			gotVersion, ok := result["version"].(float64)
 			require.True(t, ok, "response should contain numeric version field")
@@ -247,7 +249,7 @@ func Test_ShadowVersion_OverflowProtection(t *testing.T) {
 	require.NoError(t, err)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(resp, &result))
+	require.NoError(t, json.Unmarshal(resp, &result, jsonx.V1()))
 
 	versionFloat, ok := result["version"].(float64)
 	require.True(t, ok, "version must be a number")
@@ -270,7 +272,7 @@ func Test_ShadowMerge_DesiredPartialUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
@@ -292,7 +294,7 @@ func Test_ShadowMerge_NullDeletion(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev2/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
@@ -315,7 +317,7 @@ func Test_ShadowMerge_ReportedIndependent(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev3/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
@@ -331,12 +333,12 @@ func Test_ShadowMerge_VersionIncrements(t *testing.T) {
 	rec1 := doRequest(t, h, http.MethodPost, "/things/dev-ver/shadow",
 		[]byte(`{"state":{"desired":{"k":"v1"}}}`))
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 
 	rec2 := doRequest(t, h, http.MethodPost, "/things/dev-ver/shadow",
 		[]byte(`{"state":{"desired":{"k":"v2"}}}`))
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 
 	v1 := r1["version"].(float64)
 	v2 := r2["version"].(float64)
@@ -355,7 +357,7 @@ func Test_ShadowDelta_ComputedOnGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	delta, hasDelta := state["delta"]
@@ -377,7 +379,7 @@ func Test_ShadowDelta_AbsentWhenEqual(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev-nodelta/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	_, hasDelta := state["delta"]
@@ -400,7 +402,7 @@ func Test_ShadowDelta_UpdatedAfterReported(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev-delta2/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	_, hasDelta := state["delta"]
@@ -417,7 +419,7 @@ func Test_ShadowMetadata_PresentAfterUpdate(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev-meta/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	meta, hasMeta := resp["metadata"]
 	require.True(t, hasMeta, "metadata must be present after update")
@@ -440,7 +442,7 @@ func Test_ShadowMetadata_UnchangedFieldTimestampPreserved(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/things/dev-meta2/shadow", nil)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1, jsonx.V1()))
 	ts1 := resp1["metadata"].(map[string]any)["desired"].(map[string]any)["a"].(map[string]any)["timestamp"].(float64)
 
 	// Update only b.
@@ -450,7 +452,7 @@ func Test_ShadowMetadata_UnchangedFieldTimestampPreserved(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/things/dev-meta2/shadow", nil)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2, jsonx.V1()))
 	ts2 := resp2["metadata"].(map[string]any)["desired"].(map[string]any)["a"].(map[string]any)["timestamp"].(float64)
 
 	assert.InDelta(t, ts1, ts2, 0, "timestamp for unmodified field must not change")
@@ -486,7 +488,7 @@ func Test_ClientToken_Echoed(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			token, hasToken := resp["clientToken"]
 			if tt.wantPresent {
@@ -545,9 +547,9 @@ func Test_MergeStateFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var base, patch map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal([]byte(tt.base), &base))
-			require.NoError(t, json.Unmarshal([]byte(tt.patch), &patch))
+			var base, patch map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal([]byte(tt.base), &base, jsonx.V1()))
+			require.NoError(t, json.Unmarshal([]byte(tt.patch), &patch, jsonx.V1()))
 
 			result := iotdataplane.MergeStateFields(base, patch)
 

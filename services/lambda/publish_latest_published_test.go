@@ -1,7 +1,7 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPublishVersion_PublishTo(t *testing.T) {
@@ -44,13 +46,13 @@ func TestPublishVersion_PublishTo(t *testing.T) {
 			}
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tt.wantVer, got["Version"])
 			assert.Contains(t, got["FunctionArn"], ":"+tt.wantVer)
 
 			rec = callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/pub-fn/versions", tt.body)
 			require.Equal(t, http.StatusCreated, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 
 			if tt.wantVer == "$LATEST.PUBLISHED" {
 				assert.Equal(t, tt.wantVer, got["Version"], "republish keeps the single version")

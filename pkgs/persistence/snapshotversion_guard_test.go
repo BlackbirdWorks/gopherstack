@@ -2,7 +2,8 @@ package persistence_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errNoVersionStruct = errors.New("no struct with an int-typed Version field")
@@ -480,7 +483,7 @@ func loadGolden(t *testing.T) map[string]snapshotInfo {
 
 	var golden map[string]snapshotInfo
 
-	require.NoError(t, json.Unmarshal(data, &golden))
+	require.NoError(t, json.Unmarshal(data, &golden, jsonx.V1()))
 
 	return golden
 }
@@ -488,7 +491,7 @@ func loadGolden(t *testing.T) map[string]snapshotInfo {
 func writeGolden(t *testing.T, live map[string]snapshotInfo) {
 	t.Helper()
 
-	data, err := json.MarshalIndent(live, "", "  ")
+	data, err := json.Marshal(live, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(goldenFile, append(data, '\n'), 0o644))

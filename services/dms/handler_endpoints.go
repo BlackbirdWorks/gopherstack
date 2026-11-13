@@ -2,13 +2,15 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -17,25 +19,25 @@ import (
 // CreateEndpoint/ModifyEndpoint (api_op_CreateEndpoint.go, databasemigrationservice@v1.66.4).
 // Blocks are stored as raw JSON and echoed back; no engine consumes them.
 type engineSettingsFields struct {
-	DmsTransferSettings        json.RawMessage `json:"DmsTransferSettings,omitempty"`
-	DocDBSettings              json.RawMessage `json:"DocDbSettings,omitempty"`
-	DynamoDBSettings           json.RawMessage `json:"DynamoDbSettings,omitempty"`
-	ElasticsearchSettings      json.RawMessage `json:"ElasticsearchSettings,omitempty"`
-	GcpMySQLSettings           json.RawMessage `json:"GcpMySQLSettings,omitempty"`
-	IBMDb2Settings             json.RawMessage `json:"IBMDb2Settings,omitempty"`
-	KafkaSettings              json.RawMessage `json:"KafkaSettings,omitempty"`
-	KinesisSettings            json.RawMessage `json:"KinesisSettings,omitempty"`
-	MicrosoftSQLServerSettings json.RawMessage `json:"MicrosoftSQLServerSettings,omitempty"`
-	MongoDBSettings            json.RawMessage `json:"MongoDbSettings,omitempty"`
-	MySQLSettings              json.RawMessage `json:"MySQLSettings,omitempty"`
-	NeptuneSettings            json.RawMessage `json:"NeptuneSettings,omitempty"`
-	OracleSettings             json.RawMessage `json:"OracleSettings,omitempty"`
-	PostgreSQLSettings         json.RawMessage `json:"PostgreSQLSettings,omitempty"`
-	RedisSettings              json.RawMessage `json:"RedisSettings,omitempty"`
-	RedshiftSettings           json.RawMessage `json:"RedshiftSettings,omitempty"`
-	S3Settings                 json.RawMessage `json:"S3Settings,omitempty"`
-	SybaseSettings             json.RawMessage `json:"SybaseSettings,omitempty"`
-	TimestreamSettings         json.RawMessage `json:"TimestreamSettings,omitempty"`
+	DmsTransferSettings        jsontext.Value `json:"DmsTransferSettings,omitempty"`
+	DocDBSettings              jsontext.Value `json:"DocDbSettings,omitempty"`
+	DynamoDBSettings           jsontext.Value `json:"DynamoDbSettings,omitempty"`
+	ElasticsearchSettings      jsontext.Value `json:"ElasticsearchSettings,omitempty"`
+	GcpMySQLSettings           jsontext.Value `json:"GcpMySQLSettings,omitempty"`
+	IBMDb2Settings             jsontext.Value `json:"IBMDb2Settings,omitempty"`
+	KafkaSettings              jsontext.Value `json:"KafkaSettings,omitempty"`
+	KinesisSettings            jsontext.Value `json:"KinesisSettings,omitempty"`
+	MicrosoftSQLServerSettings jsontext.Value `json:"MicrosoftSQLServerSettings,omitempty"`
+	MongoDBSettings            jsontext.Value `json:"MongoDbSettings,omitempty"`
+	MySQLSettings              jsontext.Value `json:"MySQLSettings,omitempty"`
+	NeptuneSettings            jsontext.Value `json:"NeptuneSettings,omitempty"`
+	OracleSettings             jsontext.Value `json:"OracleSettings,omitempty"`
+	PostgreSQLSettings         jsontext.Value `json:"PostgreSQLSettings,omitempty"`
+	RedisSettings              jsontext.Value `json:"RedisSettings,omitempty"`
+	RedshiftSettings           jsontext.Value `json:"RedshiftSettings,omitempty"`
+	S3Settings                 jsontext.Value `json:"S3Settings,omitempty"`
+	SybaseSettings             jsontext.Value `json:"SybaseSettings,omitempty"`
+	TimestreamSettings         jsontext.Value `json:"TimestreamSettings,omitempty"`
 }
 
 // endpointSecretKeys are the credential members inside the engine settings
@@ -46,16 +48,16 @@ var endpointSecretKeys = []string{ //nolint:gochecknoglobals // immutable lookup
 
 // rawIsSet reports whether a json.RawMessage field was present in the request
 // body with a non-null value.
-func rawIsSet(raw json.RawMessage) bool {
+func rawIsSet(raw jsontext.Value) bool {
 	return len(raw) > 0 && string(raw) != "null"
 }
 
 func (f *engineSettingsFields) entries() []struct {
-	raw  *json.RawMessage
+	raw  *jsontext.Value
 	name string
 } {
 	return []struct {
-		raw  *json.RawMessage
+		raw  *jsontext.Value
 		name string
 	}{
 		{&f.DmsTransferSettings, "DmsTransferSettings"},
@@ -89,8 +91,8 @@ func (f *engineSettingsFields) otherSettings() (map[string]string, error) {
 			continue
 		}
 
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(*e.raw, &obj); err != nil {
+		var obj map[string]jsontext.Value
+		if err := json.Unmarshal(*e.raw, &obj, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %s must be an object", ErrValidation, e.name)
 		}
 
@@ -113,19 +115,19 @@ func (f *engineSettingsFields) apply(stored map[string]string) {
 	}
 }
 
-func redactEndpointSecrets(raw string) json.RawMessage {
-	var obj map[string]json.RawMessage
-	if json.Unmarshal([]byte(raw), &obj) != nil {
-		return json.RawMessage(raw)
+func redactEndpointSecrets(raw string) jsontext.Value {
+	var obj map[string]jsontext.Value
+	if json.Unmarshal([]byte(raw), &obj, jsonx.V1()) != nil {
+		return jsontext.Value(raw)
 	}
 
 	for _, k := range endpointSecretKeys {
 		delete(obj, k)
 	}
 
-	out, err := json.Marshal(obj)
+	out, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
-		return json.RawMessage(raw)
+		return jsontext.Value(raw)
 	}
 
 	return out
@@ -376,7 +378,7 @@ func epToJSON(ep *Endpoint) endpointJSON {
 	}
 
 	if ep.S3Settings != "" {
-		out.S3Settings = json.RawMessage(ep.S3Settings)
+		out.S3Settings = jsontext.Value(ep.S3Settings)
 	}
 
 	out.apply(ep.EngineSettings)

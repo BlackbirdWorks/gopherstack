@@ -2,13 +2,14 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrFlowDefinitionNotFound is returned when a flow definition does not exist.
@@ -128,7 +129,7 @@ func (f *FlowDefinition) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(aux)
+	return json.Marshal(aux, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [FlowDefinition.MarshalJSON], read by
@@ -145,7 +146,7 @@ func (f *FlowDefinition) UnmarshalJSON(data []byte) error {
 		CreationTime              float64                                  `json:"CreationTime"`
 	}{alias: (*alias)(f)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

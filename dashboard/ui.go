@@ -3,7 +3,8 @@ package dashboard
 import (
 	"context"
 	"embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"io"
@@ -29,6 +30,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
@@ -846,7 +848,7 @@ func (h *DashboardHandler) logEmbeddedSPABuildStamp() {
 	}
 
 	var stamp spaBuildStamp
-	if jsonErr := json.Unmarshal(data, &stamp); jsonErr != nil {
+	if jsonErr := json.Unmarshal(data, &stamp, jsonx.V1()); jsonErr != nil {
 		h.Logger.Warn("embedded dashboard SPA build-stamp.json is malformed", "error", jsonErr)
 
 		return
@@ -1087,7 +1089,7 @@ func (h *DashboardHandler) registerCodeStarConnectionsMutationRoutes() {
 			ProviderType   string `json:"providerType"`
 			HostArn        string `json:"hostArn"`
 		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
@@ -1130,7 +1132,7 @@ func (h *DashboardHandler) registerCodeStarConnectionsMutationRoutes() {
 			ProviderType     string `json:"providerType"`
 			ProviderEndpoint string `json:"providerEndpoint"`
 		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
@@ -1178,7 +1180,7 @@ func (h *DashboardHandler) registerCognitoUserPoolRoutes() {
 		var req struct {
 			Name string `json:"name"`
 		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
@@ -1239,7 +1241,7 @@ func (h *DashboardHandler) registerCognitoUserPoolClientRoutes() {
 			var req struct {
 				ClientName string `json:"clientName"`
 			}
-			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 			}
 
@@ -1304,7 +1306,7 @@ func (h *DashboardHandler) registerCognitoUserRoutes() {
 			Username     string `json:"username"`
 			TempPassword string `json:"tempPassword"`
 		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
@@ -1356,7 +1358,7 @@ func (h *DashboardHandler) registerCognitoUserLifecycleRoutes() {
 			var req struct {
 				Enabled bool `json:"enabled"`
 			}
-			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 			}
 
@@ -1409,7 +1411,7 @@ func (h *DashboardHandler) registerCognitoGroupRoutes() {
 				GroupName   string `json:"groupName"`
 				Description string `json:"description"`
 			}
-			if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+			if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 			}
 
@@ -1461,7 +1463,7 @@ func (h *DashboardHandler) registerCognitoUserPoolConfigRoutes() {
 		var req struct {
 			MfaConfiguration string `json:"mfaConfiguration"`
 		}
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
 		}
 
@@ -1677,7 +1679,7 @@ func (h *DashboardHandler) registerAppConfigDataProfileRoutes() {
 		}
 
 		var req setProfileRequest
-		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &req, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				map[string]string{keyMessage: "invalid request body"},

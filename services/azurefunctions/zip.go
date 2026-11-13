@@ -3,7 +3,7 @@ package azurefunctions
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -143,7 +145,7 @@ func scanFunctions(data []byte) []FunctionDef {
 		_ = rc.Close()
 
 		var cfg map[string]any
-		if readErr != nil || json.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &cfg) != nil {
+		if readErr != nil || json.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &cfg, jsonx.V1()) != nil {
 			continue
 		}
 

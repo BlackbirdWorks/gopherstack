@@ -1,7 +1,7 @@
 package ram
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // policyShareNamePrefix names every CREATED_FROM_POLICY share this backend creates via
@@ -227,7 +228,7 @@ func policyTemplateFromActions(actions []string) string {
 		"Effect":   "Allow",
 		"Action":   actions,
 		"Resource": "*",
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return `{"Effect":"Allow","Action":[],"Resource":"*"}`
 	}

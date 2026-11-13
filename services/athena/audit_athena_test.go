@@ -1,13 +1,15 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAuditAthena_ResultReuseConfiguration_StoredAndReturned verifies that
@@ -254,7 +256,7 @@ func TestAuditAthena_EnforceWorkGroupConfiguration_OverridesOutputLocation(t *te
 			wgCfgJSON, _ := json.Marshal(map[string]any{
 				"EnforceWorkGroupConfiguration": tc.enforceWGConfig,
 				"ResultConfiguration":           map[string]any{"OutputLocation": tc.wgOutputLocation},
-			})
+			}, jsonx.V1())
 			rec := a1Do(t, h, "CreateWorkGroup",
 				fmt.Sprintf(`{"Name":"enforce-wg","Configuration":%s}`, string(wgCfgJSON)))
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -266,7 +268,7 @@ func TestAuditAthena_EnforceWorkGroupConfiguration_OverridesOutputLocation(t *te
 				"ResultConfiguration": map[string]any{
 					"OutputLocation": tc.perQueryLocation,
 				},
-			})
+			}, jsonx.V1())
 			rec2 := a1Do(t, h, "StartQueryExecution", string(startBody))
 			require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -400,7 +402,7 @@ func TestAuditAthena_BatchGetQueryExecution_Shape(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			idsJSON, _ := json.Marshal(tc.ids)
+			idsJSON, _ := json.Marshal(tc.ids, jsonx.V1())
 			batchRec := a1Do(t, h, "BatchGetQueryExecution",
 				fmt.Sprintf(`{"QueryExecutionIds":%s}`, string(idsJSON)))
 			require.Equal(t, http.StatusOK, batchRec.Code)
@@ -471,7 +473,7 @@ func TestAuditAthena_WorkGroup_EnforceEncryption(t *testing.T) {
 				"EncryptionOption": "SSE_S3",
 			},
 		},
-	})
+	}, jsonx.V1())
 
 	rec := a1Do(t, h, "CreateWorkGroup",
 		fmt.Sprintf(`{"Name":"enc-wg","Configuration":%s}`, string(wgCfg)))

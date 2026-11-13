@@ -7,10 +7,12 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resourcePolicyInput is the wire format shared by Get and PutResourcePolicy.
@@ -45,7 +47,7 @@ func (h *DynamoDBHandler) handleDeleteResourcePolicy(
 	body []byte,
 ) (any, error) {
 	var req deleteResourcePolicyInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +69,7 @@ func (h *DynamoDBHandler) handleDeleteResourcePolicy(
 
 func (h *DynamoDBHandler) handleGetResourcePolicy(ctx context.Context, body []byte) (any, error) {
 	var req resourcePolicyInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -89,7 +91,7 @@ func (h *DynamoDBHandler) handleGetResourcePolicy(ctx context.Context, body []by
 
 func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []byte) (any, error) {
 	var req resourcePolicyInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

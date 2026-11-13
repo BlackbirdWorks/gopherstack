@@ -3,10 +3,12 @@ package appsync
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -190,7 +192,7 @@ func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceCo
 		raw, err := base64.RawURLEncoding.DecodeString(tok)
 
 		var st syncToken
-		if err != nil || json.Unmarshal(raw, &st) != nil || len(st.Key) == 0 {
+		if err != nil || json.Unmarshal(raw, &st, jsonx.V1()) != nil || len(st.Key) == 0 {
 			return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 		}
 
@@ -210,7 +212,7 @@ func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceCo
 	var next any
 
 	if len(page.LastKey) > 0 {
-		b, _ := json.Marshal(syncToken{Key: page.LastKey, StartedAt: startedAt})
+		b, _ := json.Marshal(syncToken{Key: page.LastKey, StartedAt: startedAt}, jsonx.V1())
 		next = base64.RawURLEncoding.EncodeToString(b)
 	}
 

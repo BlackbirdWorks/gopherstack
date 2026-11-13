@@ -35,6 +35,7 @@ func TestDocsDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -79,6 +80,7 @@ func TestDocsDashboard_ServiceLinks(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -122,6 +124,7 @@ func TestDocsDashboard_StatsCards(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/docs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -158,6 +161,7 @@ func TestDocsDashboard_NavDocsLink(t *testing.T) {
 	// Start from the home page.
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	waitForSPA(t, page)
 

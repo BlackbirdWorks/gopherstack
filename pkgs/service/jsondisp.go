@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // JSONErrorResponse is the standard JSON error envelope for AWS JSON-protocol services.
@@ -34,7 +35,7 @@ func (r JSONErrorResponse) MarshalJSON() ([]byte, error) {
 		Type       string `json:"__type"`
 		Message    string `json:"message"`
 		MessageCap string `json:"Message"`
-	}{r.Type, r.Message, r.Message})
+	}{r.Type, r.Message, r.Message}, jsonx.V1())
 }
 
 // DispatchFunc is the signature for service-specific action dispatch functions.
@@ -57,7 +58,7 @@ func HandleJSON[In, Out any](
 	var input In
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -146,7 +147,7 @@ func HandleTarget(
 func writeDispatchError(c *echo.Context, contentType string, status int, errType, message string) error {
 	c.Response().Header().Set("Content-Type", contentType)
 
-	payload, err := json.Marshal(JSONErrorResponse{Type: errType, Message: message})
+	payload, err := json.Marshal(JSONErrorResponse{Type: errType, Message: message}, jsonx.V1())
 	if err != nil {
 		return err
 	}

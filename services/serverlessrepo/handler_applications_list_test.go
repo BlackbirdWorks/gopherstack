@@ -1,13 +1,14 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_ListApplications(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			apps, ok := resp["applications"].([]any)
 			require.True(t, ok)
@@ -70,7 +71,7 @@ func TestListApplications_IncludesLabels(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	apps, ok := resp["applications"].([]any)
 	require.True(t, ok)
 	require.Len(t, apps, 1)
@@ -96,7 +97,7 @@ func TestListApplications_PageBoundaryExact(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1, jsonx.V1()))
 	apps1 := r1["applications"].([]any)
 	assert.Len(t, apps1, 2)
 	nt := r1["nextToken"].(string)
@@ -106,7 +107,7 @@ func TestListApplications_PageBoundaryExact(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2, jsonx.V1()))
 	apps2 := r2["applications"].([]any)
 	assert.Len(t, apps2, 2)
 	assert.Nil(t, r2["nextToken"], "no more pages when exactly on boundary")
@@ -126,7 +127,7 @@ func TestListApplications_Pagination_MaxItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	apps, ok := resp["applications"].([]any)
 	require.True(t, ok)
 	assert.Len(t, apps, 2, "maxItems=2 should return 2 items")
@@ -148,7 +149,7 @@ func TestListApplications_Pagination_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	nextToken, ok := resp1["nextToken"].(string)
 	require.True(t, ok, "nextToken should be a string")
 
@@ -157,7 +158,7 @@ func TestListApplications_Pagination_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	apps, ok := resp2["applications"].([]any)
 	require.True(t, ok)
 	assert.Len(t, apps, 1, "second page should have 1 remaining item")

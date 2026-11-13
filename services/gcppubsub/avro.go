@@ -2,13 +2,15 @@ package gcppubsub
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errAvro = errors.New("avro")
@@ -71,7 +73,7 @@ func primitiveKind(s string) (avroKind, bool) {
 func parseAvroSchema(def string) (*avroType, error) {
 	var raw any
 
-	if err := json.Unmarshal([]byte(def), &raw); err != nil {
+	if err := json.Unmarshal([]byte(def), &raw, jsonx.V1()); err != nil {
 		return nil, avroErr("schema is not valid JSON: %v", err)
 	}
 

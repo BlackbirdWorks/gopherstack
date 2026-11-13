@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TrialLifecycle(t *testing.T) {
@@ -44,7 +46,7 @@ func TestHandler_TrialLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["TrialSummaries"].([]any), 1)
 
 	// Delete trial.
@@ -70,13 +72,13 @@ func TestHandler_UpdateTrial(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["TrialArn"])
 
 	// Describe returns updated DisplayName
 	rec = doSageMakerRequest(t, h, "DescribeTrial", map[string]any{"TrialName": "my-trial"})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Trial Display", descResp["DisplayName"])
 }
 
@@ -98,14 +100,14 @@ func TestHandler_CreateTrial_DisplayName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "My Trial", descResp["DisplayName"])
 
 	rec = doSageMakerRequest(t, h, "ListTrials", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["TrialSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "My Trial", summaries[0].(map[string]any)["DisplayName"])
@@ -264,7 +266,7 @@ func TestHandler_ListTrials_TrialComponentName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["TrialSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "trial-with-tc", summaries[0].(map[string]any)["TrialName"])

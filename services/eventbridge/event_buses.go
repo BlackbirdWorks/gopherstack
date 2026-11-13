@@ -2,12 +2,14 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // CreateEventBusParams holds the input for CreateEventBus.
@@ -250,7 +252,7 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 	// If a raw Policy JSON is provided it replaces the whole policy.
 	if input.Policy != "" {
 		var doc eventBusPolicyDocument
-		if err := json.Unmarshal([]byte(input.Policy), &doc); err == nil {
+		if err := json.Unmarshal([]byte(input.Policy), &doc, jsonx.V1()); err == nil {
 			policy.Statements = make(map[string]*EventBusPolicyStatement, len(doc.Statement))
 			for _, s := range doc.Statement {
 				policy.Statements[s.Sid] = s
@@ -342,7 +344,7 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 
 	sort.Slice(stmts, func(i, j int) bool { return stmts[i].Sid < stmts[j].Sid })
 
-	data, err := json.Marshal(eventBusPolicyDocument{Version: policyDocumentVersion, Statement: stmts})
+	data, err := json.Marshal(eventBusPolicyDocument{Version: policyDocumentVersion, Statement: stmts}, jsonx.V1())
 	if err != nil {
 		return "", err
 	}
@@ -386,7 +388,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 	}
 
 	var doc eventBusPolicyDocument
-	if err := json.Unmarshal([]byte(input.Policy), &doc); err != nil {
+	if err := json.Unmarshal([]byte(input.Policy), &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: policy must be valid JSON: %w", ErrInvalidParameter, err)
 	}
 

@@ -2,10 +2,11 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -20,7 +21,7 @@ type getServiceGraphInput struct {
 func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte, error) {
 	var in getServiceGraphInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -49,7 +50,7 @@ func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte,
 		"ContainsOldGroupVersions": false,
 		keyStartTime:               in.StartTime,
 		keyEndTime:                 in.EndTime,
-	})
+	}, jsonx.V1())
 }
 
 type getTimeSeriesServiceStatisticsInput struct {
@@ -66,7 +67,7 @@ type getTimeSeriesServiceStatisticsInput struct {
 func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body []byte) ([]byte, error) {
 	var in getTimeSeriesServiceStatisticsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -104,7 +105,7 @@ func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body [
 		"TimeSeriesServiceStatistics": pg.Data,
 		"ContainsOldGroupVersions":    false,
 		keyNextToken:                  pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 type getTraceGraphInput struct {
@@ -115,7 +116,7 @@ type getTraceGraphInput struct {
 func (h *Handler) handleGetTraceGraph(_ context.Context, body []byte) ([]byte, error) {
 	var in getTraceGraphInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -135,7 +136,7 @@ func (h *Handler) handleGetTraceGraph(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]any{
 		keyServices:  pg.Data,
 		keyNextToken: pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 // resolveGroupFilterExpression resolves an optional GroupName/GroupARN (both

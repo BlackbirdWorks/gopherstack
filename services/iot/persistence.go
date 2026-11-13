@@ -2,11 +2,13 @@ package iot
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -35,7 +37,7 @@ import (
 const iotSnapshotVersion = 3
 
 type backendSnapshot struct {
-	Tables                          map[string]json.RawMessage                    `json:"tables"`
+	Tables                          map[string]jsontext.Value                     `json:"tables"`
 	AuditTasks                      map[string]string                             `json:"auditTasks"`
 	ClientRequestTokens             map[string]string                             `json:"clientRequestTokens,omitempty"`
 	OpReplay                        []string                                      `json:"opReplay,omitempty"`
@@ -175,7 +177,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DefaultAuthorizer:   cfgSnap.DefaultAuthorizer,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "iot: failed to snapshot backend state", "error", err)
 
@@ -456,7 +458,7 @@ func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
 // out-of-band), so registry.SnapshotAll's generic encoding would drop it;
 // the topicRuleDestSnap DTO carries it through instead. Must be called with
 // b.mu held (read or write).
-func (b *InMemoryBackend) snapshotTopicRuleDestinationsTable() (map[string]json.RawMessage, error) {
+func (b *InMemoryBackend) snapshotTopicRuleDestinationsTable() (map[string]jsontext.Value, error) {
 	destDTOReg := store.NewRegistry()
 	destDTOs := store.Register(destDTOReg, topicRuleDestinationsTableName, store.New(topicRuleDestSnapKey))
 
@@ -476,7 +478,7 @@ func (b *InMemoryBackend) snapshotTopicRuleDestinationsTable() (map[string]json.
 // DTO entry in tables (the inverse of snapshotTopicRuleDestinationsTable).
 // Extracted from Restore to keep it within the repo's funlen limit. Must be
 // called with b.mu held (write).
-func (b *InMemoryBackend) restoreTopicRuleDestinationsTable(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreTopicRuleDestinationsTable(tables map[string]jsontext.Value) error {
 	destDTOReg := store.NewRegistry()
 	destDTOs := store.Register(destDTOReg, topicRuleDestinationsTableName, store.New(topicRuleDestSnapKey))
 

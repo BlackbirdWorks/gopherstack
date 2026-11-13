@@ -1,10 +1,12 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *ServerlessHandler) handleRestoreFromSnapshot(c *echo.Context, body []byte) error {
@@ -19,7 +21,7 @@ func (h *ServerlessHandler) handleRestoreFromSnapshot(c *echo.Context, body []by
 		ManageAdminPassword         bool   `json:"manageAdminPassword"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -64,7 +66,7 @@ func (h *ServerlessHandler) handleConvertRecoveryPointToSnapshot(c *echo.Context
 		RetentionPeriod int         `json:"retentionPeriod"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 

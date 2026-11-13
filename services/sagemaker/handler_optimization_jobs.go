@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -15,10 +18,10 @@ import (
 // OutputConfig/VpcConfig are decoded as json.RawMessage — see
 // OptimizationJob's doc comment in optimization_jobs.go for why.
 type createOptimizationJobInput struct {
-	ModelSource             json.RawMessage    `json:"ModelSource"`
-	OptimizationConfigs     json.RawMessage    `json:"OptimizationConfigs"`
-	OutputConfig            json.RawMessage    `json:"OutputConfig"`
-	VpcConfig               json.RawMessage    `json:"VpcConfig"`
+	ModelSource             jsontext.Value     `json:"ModelSource"`
+	OptimizationConfigs     jsontext.Value     `json:"OptimizationConfigs"`
+	OutputConfig            jsontext.Value     `json:"OutputConfig"`
+	VpcConfig               jsontext.Value     `json:"VpcConfig"`
 	StoppingCondition       *StoppingCondition `json:"StoppingCondition"`
 	OptimizationEnvironment map[string]string  `json:"OptimizationEnvironment"`
 	OptimizationJobName     string             `json:"OptimizationJobName"`
@@ -32,7 +35,7 @@ type createOptimizationJobInput struct {
 func (h *Handler) handleCreateOptimizationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createOptimizationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -58,7 +61,7 @@ func (h *Handler) handleCreateOptimizationJob(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyOptimizationJobArn: result.OptimizationJobArn})
+	return json.Marshal(map[string]any{keyOptimizationJobArn: result.OptimizationJobArn}, jsonx.V1())
 }
 
 // describeOptimizationJobInput mirrors DescribeOptimizationJobInput
@@ -126,7 +129,7 @@ func optimizationJobResponseMap(j *OptimizationJob) map[string]any {
 func (h *Handler) handleDescribeOptimizationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeOptimizationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -139,7 +142,7 @@ func (h *Handler) handleDescribeOptimizationJob(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(optimizationJobResponseMap(result))
+	return json.Marshal(optimizationJobResponseMap(result), jsonx.V1())
 }
 
 // deleteOptimizationJobInput mirrors DeleteOptimizationJobInput
@@ -151,7 +154,7 @@ type deleteOptimizationJobInput struct {
 func (h *Handler) handleDeleteOptimizationJob(ctx context.Context, body []byte) error {
 	var req deleteOptimizationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -171,7 +174,7 @@ type stopOptimizationJobInput struct {
 func (h *Handler) handleStopOptimizationJob(ctx context.Context, body []byte) error {
 	var req stopOptimizationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +204,7 @@ type listOptimizationJobsInput struct {
 func (h *Handler) handleListOptimizationJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listOptimizationJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

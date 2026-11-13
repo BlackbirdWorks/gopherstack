@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,7 +26,7 @@ import (
 // enforced.
 type createAutoMLJobV2Input struct {
 	Tags                     []tagObject             `json:"Tags"`
-	AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig"`
+	AutoMLProblemTypeConfig  jsontext.Value          `json:"AutoMLProblemTypeConfig"`
 	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig"`
 	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective"`
 	AutoMLComputeConfig      *AutoMLComputeConfig    `json:"AutoMLComputeConfig"`
@@ -38,7 +41,7 @@ type createAutoMLJobV2Input struct {
 func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAutoMLJobV2Input
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -85,7 +88,7 @@ func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]b
 		return nil, extErr
 	}
 
-	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
+	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn}, jsonx.V1())
 }
 
 // describeAutoMLJobV2Input mirrors DescribeAutoMLJobV2Input
@@ -98,7 +101,7 @@ type describeAutoMLJobV2Input struct {
 func (h *Handler) handleDescribeAutoMLJobV2(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAutoMLJobV2Input
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -163,5 +166,5 @@ func (h *Handler) handleDescribeAutoMLJobV2(ctx context.Context, body []byte) ([
 		resp["ModelDeployConfig"] = j.ModelDeployConfig
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

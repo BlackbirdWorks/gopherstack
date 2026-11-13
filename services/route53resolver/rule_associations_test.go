@@ -1,7 +1,7 @@
 package route53resolver_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -174,7 +175,7 @@ func TestAssociateResolverRule(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ResolverRule"].(map[string]any)["Id"].(string)
 			},
@@ -226,7 +227,7 @@ func TestAssociateResolverRule(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assoc, ok := resp["ResolverRuleAssociation"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantStatus, assoc["Status"])
@@ -254,7 +255,7 @@ func TestListResolverRuleAssociations_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 	var ruleOut map[string]any
-	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleOut))
+	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleOut, jsonx.V1()))
 	ruleID := ruleOut["ResolverRule"].(map[string]any)["Id"].(string)
 
 	for i := range 3 {
@@ -292,7 +293,7 @@ func TestListResolverRuleAssociations_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListResolverRuleAssociations", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			assocs, _ := out["ResolverRuleAssociations"].([]any)
 			assert.Len(t, assocs, tt.wantLen)
 			if tt.wantNextToken {
@@ -318,7 +319,7 @@ func TestListResolverRuleAssociations_Filters(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			return out["ResolverRule"].(map[string]any)["Id"].(string)
 		}
@@ -390,7 +391,7 @@ func TestListResolverRuleAssociations_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assocs, _ := resp["ResolverRuleAssociations"].([]any)
 			gotNames := make([]string, len(assocs))
 			for i, a := range assocs {
@@ -413,6 +414,6 @@ func TestListResolverRuleAssociations_UnknownFilterNameRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }

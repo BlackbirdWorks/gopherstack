@@ -1,10 +1,12 @@
 package stepfunctions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
@@ -39,7 +41,7 @@ func (h *Handler) utilActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ValidateStateMachineDefinition": func(b []byte) (any, error) {
 			var input validateStateMachineDefinitionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -132,11 +134,11 @@ func testStateMockRun(m *testStateMock, stateName string) (*asl.MockRun, error) 
 	var step map[string]any
 
 	if m.Result != nil {
-		if !json.Valid([]byte(*m.Result)) {
+		if !jsontext.Value([]byte(*m.Result)).IsValid(jsonx.V1()) {
 			return nil, fmt.Errorf("%w: mock result is not valid JSON", ErrValidation)
 		}
 
-		step = map[string]any{"Return": json.RawMessage(*m.Result)}
+		step = map[string]any{"Return": jsontext.Value(*m.Result)}
 	} else {
 		if m.ErrorOutput.Error == nil || *m.ErrorOutput.Error == "" {
 			return nil, fmt.Errorf("%w: mock errorOutput.error is required", ErrValidation)
@@ -152,7 +154,7 @@ func testStateMockRun(m *testStateMock, stateName string) (*asl.MockRun, error) 
 		"StateMachines": map[string]any{
 			"s": map[string]any{"TestCases": map[string]any{"t": map[string]string{stateName: "m"}}},
 		},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +196,7 @@ func inspectionDataFor(level string, executor *asl.Executor, trace *httpTrace) m
 	}
 
 	for key, value := range executor.Inspection() {
-		if raw, err := json.Marshal(value); err == nil {
+		if raw, err := json.Marshal(value, jsonx.V1()); err == nil {
 			out[key] = string(raw)
 		}
 	}
@@ -208,23 +210,23 @@ func validInspectionLevel(level string) bool {
 
 // detachNext swaps Next for End:true so TestState can run a non-terminal
 // state without a synthetic next state, returning the new definition and Next.
-func detachNext(definition, stateName string, raw json.RawMessage) (string, string) {
+func detachNext(definition, stateName string, raw jsontext.Value) (string, string) {
 	var (
 		next     string
-		rawState map[string]json.RawMessage
+		rawState map[string]jsontext.Value
 	)
 
-	if json.Unmarshal(raw, &rawState) != nil {
+	if json.Unmarshal(raw, &rawState, jsonx.V1()) != nil {
 		return definition, next
 	}
 
 	if nextRaw, hasNext := rawState["Next"]; hasNext {
-		_ = json.Unmarshal(nextRaw, &next)
+		_ = json.Unmarshal(nextRaw, &next, jsonx.V1())
 		delete(rawState, "Next")
-		rawState["End"] = json.RawMessage(`true`)
+		rawState["End"] = jsontext.Value(`true`)
 	}
 
-	if modified, err := json.Marshal(map[string]any{stateName: rawState}); err == nil {
+	if modified, err := json.Marshal(map[string]any{stateName: rawState}, jsonx.V1()); err == nil {
 		definition = string(modified)
 	}
 
@@ -234,7 +236,7 @@ func detachNext(definition, stateName string, raw json.RawMessage) (string, stri
 // handleTestState executes a single state definition in isolation and returns its output.
 func (h *Handler) handleTestState(body []byte) (any, error) {
 	var input testStateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -243,13 +245,13 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	}
 
 	// Wrap the state definition in a minimal state machine.
-	var states map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(input.Definition), &states); err != nil {
+	var states map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(input.Definition), &states, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid state definition JSON: %w", ErrInvalidDefinition, err)
 	}
 
 	if _, bare := states["Type"]; bare {
-		states = map[string]json.RawMessage{bareStateName: json.RawMessage(input.Definition)}
+		states = map[string]jsontext.Value{bareStateName: jsontext.Value(input.Definition)}
 		input.Definition = fmt.Sprintf(`{%q:%s}`, bareStateName, input.Definition)
 	}
 
@@ -326,7 +328,7 @@ func testStateResult(
 		}
 	}
 
-	outputBytes, _ := json.Marshal(result.Output)
+	outputBytes, _ := json.Marshal(result.Output, jsonx.V1())
 
 	out := &testStateOutput{
 		Status: "SUCCEEDED", Output: string(outputBytes), NextState: nextState, InspectionData: inspection,
@@ -342,7 +344,7 @@ func testStateResult(
 // configureTestStateExecutor applies the request's mock, context and
 // stateConfiguration to executor, rejecting combinations AWS rejects.
 func configureTestStateExecutor(
-	executor *asl.Executor, input *testStateInput, stateName string, rawState json.RawMessage,
+	executor *asl.Executor, input *testStateInput, stateName string, rawState jsontext.Value,
 ) error {
 	if input.Context != nil && input.Mock == nil {
 		return fmt.Errorf("%w: context may only be specified together with a mock", ErrValidation)
@@ -350,7 +352,7 @@ func configureTestStateExecutor(
 
 	if input.Context != nil {
 		var ctxObj map[string]any
-		if err := json.Unmarshal([]byte(*input.Context), &ctxObj); err != nil {
+		if err := json.Unmarshal([]byte(*input.Context), &ctxObj, jsonx.V1()); err != nil {
 			return fmt.Errorf("%w: context must be a JSON object", ErrValidation)
 		}
 
@@ -369,7 +371,7 @@ func configureTestStateExecutor(
 		Type string `json:"Type"`
 	}
 
-	_ = json.Unmarshal(rawState, &typed)
+	_ = json.Unmarshal(rawState, &typed, jsonx.V1())
 
 	if typed.Type != stateTypeTask && typed.Type != stateTypeMap && typed.Type != stateTypeParallel {
 		return fmt.Errorf("%w: mock is supported for Task, Map and Parallel states only", ErrValidation)
@@ -386,20 +388,20 @@ func configureTestStateExecutor(
 }
 
 // isHTTPTaskState reports whether raw is a Task state calling http:invoke.
-func isHTTPTaskState(raw json.RawMessage) bool {
+func isHTTPTaskState(raw jsontext.Value) bool {
 	var st struct {
 		Type     string `json:"Type"`
 		Resource string `json:"Resource"`
 	}
 
-	_ = json.Unmarshal(raw, &st)
+	_ = json.Unmarshal(raw, &st, jsonx.V1())
 
 	return st.Type == stateTypeTask && strings.HasSuffix(st.Resource, ":::http:invoke")
 }
 
 // validateTestStateTrace rejects the TRACE and revealSecrets combinations AWS
 // rejects (test-state-isolation.html, "TRACE inspectionLevel").
-func validateTestStateTrace(input *testStateInput, raw json.RawMessage) error {
+func validateTestStateTrace(input *testStateInput, raw jsontext.Value) error {
 	if input.InspectionLevel == inspectionTrace && !isHTTPTaskState(raw) {
 		return fmt.Errorf("%w: inspectionLevel TRACE is only applicable to an HTTP Task state", ErrValidation)
 	}

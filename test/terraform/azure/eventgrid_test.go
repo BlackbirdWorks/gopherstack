@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -146,7 +147,7 @@ func armCallAPI(ctx context.Context, t *testing.T, c *http.Client, method, path,
 
 	var out map[string]any
 
-	require.NoError(t, json.Unmarshal(raw, &out))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 	return out
 }
@@ -209,7 +210,7 @@ func verifyEventGridRoundTrip(t *testing.T) {
 
 	var got map[string]any
 
-	require.NoError(t, json.Unmarshal([]byte(text), &got))
+	require.NoError(t, json.Unmarshal([]byte(text), &got, jsonx.V1()))
 	assert.Equal(t, "from-terraform", got["id"])
 	assert.Equal(t, "App.Thing", got["eventType"])
 	assert.Contains(t, got["topic"], "Microsoft.EventGrid/topics/"+azureEventGridTopicName)

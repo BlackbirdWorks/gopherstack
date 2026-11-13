@@ -1,12 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // =============================================================================
@@ -36,7 +38,7 @@ func TestMediaAnalysisJob_Lifecycle(t *testing.T) { //nolint:paralleltest // sta
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 	assert.NotEmpty(t, jobID)
@@ -46,7 +48,7 @@ func TestMediaAnalysisJob_Lifecycle(t *testing.T) { //nolint:paralleltest // sta
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, jobID, getResp["JobId"])
 	assert.NotEmpty(t, getResp["Status"])
 
@@ -73,7 +75,7 @@ func TestMediaAnalysisJob_Lifecycle(t *testing.T) { //nolint:paralleltest // sta
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	jobs, ok := listResp["MediaAnalysisJobs"].([]any)
 	require.True(t, ok)
 	require.GreaterOrEqual(t, len(jobs), 1)
@@ -168,7 +170,7 @@ func TestAsyncVideoJobs_PersonTrackingAndSegmentDetection(t *testing.T) { //noli
 			checkGet: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "SUCCEEDED", resp["JobStatus"])
 				assert.NotNil(t, resp["Persons"])
 			},
@@ -180,7 +182,7 @@ func TestAsyncVideoJobs_PersonTrackingAndSegmentDetection(t *testing.T) { //noli
 			checkGet: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "SUCCEEDED", resp["JobStatus"])
 				assert.NotNil(t, resp["Segments"])
 			},
@@ -194,7 +196,7 @@ func TestAsyncVideoJobs_PersonTrackingAndSegmentDetection(t *testing.T) { //noli
 			require.Equal(t, http.StatusOK, rec.Code, flow.startAction)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID, ok := startResp["JobId"].(string)
 			require.True(t, ok)
 			assert.NotEmpty(t, jobID)
@@ -204,7 +206,7 @@ func TestAsyncVideoJobs_PersonTrackingAndSegmentDetection(t *testing.T) { //noli
 			require.Equal(t, http.StatusOK, rec.Code, flow.getAction)
 
 			var firstResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 			assert.Equal(t, "IN_PROGRESS", firstResp["JobStatus"])
 
 			// Second poll returns SUCCEEDED
@@ -265,7 +267,7 @@ func TestMediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // existing iss
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"].(string)
 	assert.NotEmpty(t, jobID)
 
@@ -275,7 +277,7 @@ func TestMediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // existing iss
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, jobID, resp["JobId"])
 		assert.Equal(t, "my-analysis", resp["JobName"])
 		assert.Equal(t, "SUCCEEDED", resp["Status"])
@@ -287,7 +289,7 @@ func TestMediaAnalysisJobs(t *testing.T) { //nolint:paralleltest // existing iss
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		jobs, ok := resp["MediaAnalysisJobs"].([]any)
 		require.True(t, ok)
 		assert.Len(t, jobs, 1)

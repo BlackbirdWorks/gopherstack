@@ -1,11 +1,13 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -122,7 +124,7 @@ func (p cachePolicy) keyParts(ctxMap map[string]any) map[string]any {
 }
 
 func encodeKey(typeName, fieldName string, parts map[string]any) string {
-	raw, _ := json.Marshal(parts)
+	raw, _ := json.Marshal(parts, jsonx.V1())
 
 	return typeName + "." + fieldName + "|" + string(raw)
 }
@@ -246,7 +248,7 @@ func (b *InMemoryBackend) evictMatching(apiID, prefix string, want map[string]an
 		}
 
 		var have map[string]any
-		if json.Unmarshal([]byte(rest), &have) != nil {
+		if json.Unmarshal([]byte(rest), &have, jsonx.V1()) != nil {
 			continue
 		}
 

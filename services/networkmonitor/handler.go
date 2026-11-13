@@ -2,7 +2,7 @@ package networkmonitor
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -293,9 +294,6 @@ func (h *Handler) dispatch(
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	var code string
 	var status int
 
@@ -313,8 +311,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		status = http.StatusBadRequest
 		code = "ValidationException"
 	case errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err),
+		jsonx.IsTypeError(err):
 		status = http.StatusBadRequest
 		code = "ValidationException"
 	default:
@@ -402,7 +400,7 @@ func extractTagResourceARN(path string) string {
 
 func (h *Handler) handleCreateMonitor(ctx context.Context, body []byte) ([]byte, error) {
 	var req createMonitorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -430,7 +428,7 @@ func (h *Handler) handleCreateMonitor(ctx context.Context, body []byte) ([]byte,
 		Tags:              m.Tags,
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteMonitor(ctx context.Context, path string) ([]byte, error) {
@@ -473,7 +471,7 @@ func (h *Handler) handleGetMonitor(ctx context.Context, path string) ([]byte, er
 		ModifiedAt:        epochSeconds(m.ModifiedAt),
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleUpdateMonitor(
@@ -487,7 +485,7 @@ func (h *Handler) handleUpdateMonitor(
 	}
 
 	var req updateMonitorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -505,7 +503,7 @@ func (h *Handler) handleUpdateMonitor(
 		Tags:              m.Tags,
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleListMonitors(ctx context.Context, query url.Values) ([]byte, error) {
@@ -529,7 +527,7 @@ func (h *Handler) handleListMonitors(ctx context.Context, query url.Values) ([]b
 		NextToken: outToken,
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleCreateProbe(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -539,7 +537,7 @@ func (h *Handler) handleCreateProbe(ctx context.Context, path string, body []byt
 	}
 
 	var req createProbeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -552,7 +550,7 @@ func (h *Handler) handleCreateProbe(ctx context.Context, path string, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(toProbeWire(probe))
+	return json.Marshal(toProbeWire(probe), jsonx.V1())
 }
 
 func (h *Handler) handleDeleteProbe(ctx context.Context, path string) ([]byte, error) {
@@ -591,7 +589,7 @@ func (h *Handler) handleGetProbe(ctx context.Context, path string) ([]byte, erro
 		return nil, err
 	}
 
-	return json.Marshal(toProbeWire(probe))
+	return json.Marshal(toProbeWire(probe), jsonx.V1())
 }
 
 func (h *Handler) handleUpdateProbe(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -607,7 +605,7 @@ func (h *Handler) handleUpdateProbe(ctx context.Context, path string, body []byt
 	}
 
 	var req updateProbeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -616,7 +614,7 @@ func (h *Handler) handleUpdateProbe(ctx context.Context, path string, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(toProbeWire(probe))
+	return json.Marshal(toProbeWire(probe), jsonx.V1())
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([]byte, error) {
@@ -634,7 +632,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([
 		tags = map[string]string{}
 	}
 
-	return json.Marshal(listTagsForResourceResponse{Tags: tags})
+	return json.Marshal(listTagsForResourceResponse{Tags: tags}, jsonx.V1())
 }
 
 func (h *Handler) handleTagResource(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -644,7 +642,7 @@ func (h *Handler) handleTagResource(ctx context.Context, path string, body []byt
 	}
 
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

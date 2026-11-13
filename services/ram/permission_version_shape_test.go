@@ -1,7 +1,7 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
@@ -104,7 +105,7 @@ func Test_ListPermissionVersions_OmitsPolicyDocumentField(t *testing.T) {
 	var raw struct {
 		Permissions []map[string]any `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.Permissions, 2)
 
 	for _, item := range raw.Permissions {

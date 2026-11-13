@@ -3,7 +3,8 @@ package ocinotifications
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -116,7 +119,7 @@ func (b *InMemoryBackend) queueConfirmation(s *Subscription, t *Topic) {
 		"SubscriptionId": s.ID, "ConfirmationURL": d.ConfirmationURL,
 		"Message": "You have chosen to subscribe to the topic " + t.Name +
 			". To confirm the subscription, visit the ConfirmationURL included in this message.",
-	})
+	}, jsonx.V1())
 	d.Body = string(body)
 	d.Title = "Confirm your subscription to " + t.Name
 	b.route(d)
@@ -154,7 +157,7 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 		return PublishWire{}, errParam("a message is limited to 64 KB")
 	}
 
-	if messageType == msgJSON && !json.Valid([]byte(*in.Body)) {
+	if messageType == msgJSON && !jsontext.Value([]byte(*in.Body)).IsValid(jsonx.V1()) {
 		return PublishWire{}, errParam("body must be valid JSON when messageType is JSON")
 	}
 

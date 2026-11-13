@@ -2,13 +2,14 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
@@ -322,7 +323,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, epRec.Code)
 
 	var epResp map[string]any
-	require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp))
+	require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp, jsonx.V1()))
 	ep := epResp["ResolverEndpoint"].(map[string]any)
 	epARN := ep["Arn"].(string)
 
@@ -347,7 +348,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags := listResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
 }

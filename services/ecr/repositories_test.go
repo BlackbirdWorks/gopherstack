@@ -8,13 +8,14 @@ package ecr_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
 
@@ -53,7 +54,7 @@ func TestECR_CreateRepository(t *testing.T) {
 
 			if tt.wantARN || tt.wantURI {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				repo, ok := resp["repository"].(map[string]any)
 				require.True(t, ok)
@@ -141,7 +142,7 @@ func TestECR_DescribeRepositories(t *testing.T) {
 
 			if tt.wantLen > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				repos, ok := resp["repositories"].([]any)
 				require.True(t, ok)
@@ -200,7 +201,7 @@ func TestECR_DeleteRepository(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				repo, ok := resp["repository"].(map[string]any)
 				require.True(t, ok)

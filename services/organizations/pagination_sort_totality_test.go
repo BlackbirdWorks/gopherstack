@@ -1,12 +1,13 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -94,7 +95,7 @@ func TestListPoliciesSortIsTotal(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"Policies"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		ids := make([]string, len(resp.Policies))
 		for i, p := range resp.Policies {

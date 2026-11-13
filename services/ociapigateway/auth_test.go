@@ -5,7 +5,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 )
 
@@ -51,7 +53,7 @@ func pemOf(t *testing.T, k *rsa.PrivateKey, kid string) string {
 
 	b, err := json.Marshal(map[string]string{
 		"format": "PEM", "kid": kid, "key": string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)
@@ -262,9 +264,9 @@ func TestJWTRemoteJWKS(t *testing.T) {
 		fetches.Add(1)
 
 		var key map[string]any
-		_ = json.Unmarshal([]byte(jwkOf(k, "r1")), &key)
+		_ = json.Unmarshal([]byte(jwkOf(k, "r1")), &key, jsonx.V1())
 
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{key}})
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"keys": []any{key}})
 	}))
 	t.Cleanup(jwks.Close)
 
@@ -356,7 +358,7 @@ func TestCustomAuthenticator(t *testing.T) {
 			Token string            `json:"token"`
 		}
 
-		_ = json.Unmarshal(in.Body, &p)
+		_ = json.Unmarshal(in.Body, &p, jsonx.V1())
 
 		verdict := map[string]any{"active": false, "wwwAuthenticate": `Bearer realm="orders"`}
 
@@ -367,7 +369,7 @@ func TestCustomAuthenticator(t *testing.T) {
 			verdict = map[string]any{"active": true, "scope": []string{"orders.write"}}
 		}
 
-		out, _ := json.Marshal(verdict)
+		out, _ := json.Marshal(verdict, jsonx.V1())
 
 		return ociapigateway.FunctionResponse{Status: 200, Body: out}, nil
 	}}

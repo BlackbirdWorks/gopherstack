@@ -2,10 +2,11 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- wire types (field names verified against kinesis@v1.53.0 serializers.go/deserializers.go) ---
@@ -419,7 +420,7 @@ func channelSummaryToJSON(c *Channel) jsonChannelSummary {
 
 func (h *Handler) handleCreateChannel(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req jsonCreateChannelReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -447,7 +448,7 @@ func (h *Handler) handleCreateChannel(ctx context.Context, _ *http.Request, body
 
 func (h *Handler) handleDeleteChannel(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req jsonChannelARNReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -460,7 +461,7 @@ func (h *Handler) handleDeleteChannel(ctx context.Context, _ *http.Request, body
 
 func (h *Handler) handleDescribeChannel(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req jsonChannelARNReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -483,7 +484,7 @@ func channelStreamFiltersFromJSON(filters []jsonStreamFilter) []ChannelStreamFil
 
 func (h *Handler) handleListChannels(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req jsonListChannelsReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -511,7 +512,7 @@ func (h *Handler) handleListChannels(ctx context.Context, _ *http.Request, body 
 
 func (h *Handler) handleUpdateChannel(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req jsonUpdateChannelReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

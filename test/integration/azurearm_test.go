@@ -20,7 +20,8 @@ package integration_test
 
 import (
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -79,7 +81,7 @@ func armDecodeJSON(t *testing.T, resp *http.Response) map[string]any {
 	t.Helper()
 
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()))
 
 	return body
 }
@@ -96,7 +98,7 @@ func TestIntegration_AzureARM_MetadataAndToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var doc map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&doc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &doc, jsonx.V1()))
 	assert.Equal(t, "gopherstack", doc["name"])
 	assert.NotEmpty(t, doc["resourceManagerEndpoint"])
 

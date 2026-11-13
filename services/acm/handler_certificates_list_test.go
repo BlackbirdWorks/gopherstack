@@ -3,7 +3,7 @@ package acm_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -46,7 +47,7 @@ func TestACMHandler_ListCertificates_StatusFilter(t *testing.T) {
 				Status     string `json:"Status"`
 			} `json:"CertificateSummaryList"`
 		}
-		require.NoError(t, json.Unmarshal(filterRec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(filterRec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.CertificateSummaryList, 1, "only the immediately-issued cert should match")
 
 		for _, s := range out.CertificateSummaryList {
@@ -75,7 +76,7 @@ func TestACMHandler_ListCertificates_EnrichedSummary(t *testing.T) {
 			DomainName   string `json:"DomainName"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CertificateSummaryList)
 
 	summary := out.CertificateSummaryList[0]
@@ -91,7 +92,7 @@ func TestACMHandler_ListCertificates_SortByCreatedAt(t *testing.T) {
 
 	// Create three certs in sequence
 	for _, domain := range []string{"sort-a.example.com", "sort-b.example.com", "sort-c.example.com"} {
-		body, _ := json.Marshal(map[string]string{"DomainName": domain})
+		body, _ := json.Marshal(map[string]string{"DomainName": domain}, jsonx.V1())
 		rec := postACMJSON(t, h, "RequestCertificate", string(body))
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -106,7 +107,7 @@ func TestACMHandler_ListCertificates_SortByCreatedAt(t *testing.T) {
 			DomainName string `json:"DomainName"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.CertificateSummaryList, 3)
 
 	// Descending means newest first: sort-c, sort-b, sort-a
@@ -133,7 +134,7 @@ func TestACMHandler_ListCertificates_KeyTypesFilter(t *testing.T) {
 			DomainName string `json:"DomainName"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(matchRec.Body.Bytes(), &matchOut))
+	require.NoError(t, json.Unmarshal(matchRec.Body.Bytes(), &matchOut, jsonx.V1()))
 	require.NotEmpty(t, matchOut.CertificateSummaryList, "EC_prime256v1 filter should return results")
 
 	// Filter that does not match
@@ -144,7 +145,7 @@ func TestACMHandler_ListCertificates_KeyTypesFilter(t *testing.T) {
 	var noMatchOut struct {
 		CertificateSummaryList []struct{} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(noMatchRec.Body.Bytes(), &noMatchOut))
+	require.NoError(t, json.Unmarshal(noMatchRec.Body.Bytes(), &noMatchOut, jsonx.V1()))
 	assert.Empty(t, noMatchOut.CertificateSummaryList, "RSA_2048 filter should return no results")
 }
 
@@ -167,7 +168,7 @@ func TestACMHandler_ListCertificates_SubjectAlternativeNameSummaries(t *testing.
 			SubjectAlternativeNameSummaries []string `json:"SubjectAlternativeNameSummaries"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CertificateSummaryList)
 	assert.Contains(t, out.CertificateSummaryList[0].SubjectAlternativeNameSummaries, "www.san.example.com")
 	assert.Contains(t, out.CertificateSummaryList[0].SubjectAlternativeNameSummaries, "api.san.example.com")
@@ -231,7 +232,7 @@ func TestACMHandler_ListCertificates_IncludesFilters(t *testing.T) {
 				var out struct {
 					CertificateSummaryList []struct{} `json:"CertificateSummaryList"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantNonEmpty {
 					assert.NotEmpty(t, out.CertificateSummaryList)
 				} else {
@@ -357,7 +358,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 
 			filterBody, _ := json.Marshal(map[string][]string{
 				"CertificateStatuses": {tt.filterStatus},
-			})
+			}, jsonx.V1())
 			rec := postACMJSON(t, h, "ListCertificates", string(filterBody))
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -366,7 +367,7 @@ func TestACMHandler_ListCertificates_StatusFilter_AllStatuses(t *testing.T) {
 					Status string `json:"Status"`
 				} `json:"CertificateSummaryList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.CertificateSummaryList, tt.wantCount)
 
 			if tt.wantCount > 0 {
@@ -398,7 +399,7 @@ func TestACMHandler_ListCertificates_SubjectAlternativeNameSummaries_IncludesPri
 			SubjectAlternativeNameSummaries []string `json:"SubjectAlternativeNameSummaries"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.CertificateSummaryList)
 
 	summaries := listOut.CertificateSummaryList[0].SubjectAlternativeNameSummaries
@@ -480,13 +481,13 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out, jsonx.V1()))
 
 				body, _ := json.Marshal(map[string]any{
 					"FilterStatement": map[string]any{
 						"Filter": map[string]any{"CertificateArn": out.CertificateArn},
 					},
-				})
+				}, jsonx.V1())
 				rec := postACMJSON(t, h, "SearchCertificates", string(body))
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Contains(t, rec.Body.String(), "search-arn-1.example.com")
@@ -566,7 +567,7 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 						} `json:"X509Attributes"`
 					} `json:"Results"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.Len(t, out.Results, 1)
 				assert.Equal(t, "commonname.example.com", out.Results[0].X509Attributes.Subject.CommonName)
 			},
@@ -587,7 +588,7 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 				importBody, marshalErr := json.Marshal(map[string]any{
 					"Certificate": base64.StdEncoding.EncodeToString([]byte(certPEM)),
 					"PrivateKey":  base64.StdEncoding.EncodeToString([]byte(keyPEM)),
-				})
+				}, jsonx.V1())
 				require.NoError(t, marshalErr)
 
 				importRec := postACMJSON(t, h, "ImportCertificate", string(importBody))
@@ -604,7 +605,7 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 						CertificateArn string `json:"CertificateArn"`
 					} `json:"Results"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.Len(t, out.Results, 1)
 			},
 		},
@@ -631,7 +632,7 @@ func TestACMHandler_SearchCertificates(t *testing.T) {
 							} `json:"CertificateMetadata"`
 						} `json:"Results"`
 					}
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 					require.Len(t, out.Results, 2)
 					assert.GreaterOrEqual(t,
 						out.Results[0].CertificateMetadata.AcmCertificateMetadata.CreatedAt,

@@ -1,13 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -27,7 +28,7 @@ func TestCreateInsightPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, _ := resp["InsightArn"].(string)
 	assert.NotEmpty(t, arn)
@@ -47,7 +48,7 @@ func TestGetInsightsIsPOSTInsightsGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "Insights")
 }
@@ -67,7 +68,7 @@ func TestGetInsightResultsIsGETInsightsResults(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	insightArn, _ := createResp["InsightArn"].(string)
 	require.NotEmpty(t, insightArn)
@@ -76,7 +77,7 @@ func TestGetInsightResultsIsGETInsightsResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Response is wrapped in InsightResults key
 	insightResults, hasWrapper := resp["InsightResults"]
@@ -103,7 +104,7 @@ func TestUpdateInsightIsPATCHInsightsArn(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	insightArn, _ := createResp["InsightArn"].(string)
 	require.NotEmpty(t, insightArn)
@@ -129,7 +130,7 @@ func TestDeleteInsightIsDELETEInsightsArn(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	insightArn, _ := createResp["InsightArn"].(string)
 	require.NotEmpty(t, insightArn)
@@ -138,7 +139,7 @@ func TestDeleteInsightIsDELETEInsightsArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	deletedArn, _ := resp["InsightArn"].(string)
 	assert.Equal(t, insightArn, deletedArn, "DeleteInsight must return the deleted InsightArn")

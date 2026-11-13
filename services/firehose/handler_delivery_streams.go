@@ -2,7 +2,7 @@ package firehose
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 
@@ -328,7 +328,7 @@ type createDeliveryStreamInput struct {
 	// not a typed struct) so handleCreateDeliveryStream can reject it explicitly instead
 	// of silently dropping it and creating a stream with zero destinations -- see
 	// validateSingleDestination.
-	AmazonOpenSearchServerlessDestinationConfiguration json.RawMessage                    `json:"AmazonOpenSearchServerlessDestinationConfiguration,omitempty"` //nolint:lll // AWS field name
+	AmazonOpenSearchServerlessDestinationConfiguration jsontext.Value                     `json:"AmazonOpenSearchServerlessDestinationConfiguration,omitempty"` //nolint:lll // AWS field name
 	DatabaseSourceConfiguration                        *databaseSourceConfigurationInput  `json:"DatabaseSourceConfiguration"`                                  //nolint:lll // AWS field name
 	DirectPutSourceConfiguration                       *directPutSourceConfigurationInput `json:"DirectPutSourceConfiguration"`                                 //nolint:lll // AWS field name
 	DeliveryStreamEncryptionConfigurationInput         *EncryptionConfigInput             `json:"DeliveryStreamEncryptionConfigurationInput"`                   //nolint:lll // AWS field name

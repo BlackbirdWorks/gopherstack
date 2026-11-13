@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -25,7 +26,7 @@ func TestGetFindingsIsPOSTFindings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasFindings := resp["Findings"]
 	assert.True(t, hasFindings, "GetFindings must return 'Findings' key")
@@ -59,7 +60,7 @@ func TestBatchImportFindingsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "SuccessCount")
 	assert.Contains(t, resp, "FailedCount")
@@ -108,7 +109,7 @@ func TestBatchUpdateFindingsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "ProcessedFindings")
 	assert.Contains(t, resp, "UnprocessedFindings")
@@ -145,7 +146,7 @@ func TestGetFindingHistoryPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "Records")
 }
@@ -274,7 +275,7 @@ func TestBatchImportFindings_RequiredFields(t *testing.T) {
 				SuccessCount   int              `json:"SuccessCount"`
 				FailedCount    int              `json:"FailedCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantSuccess, resp.SuccessCount, "SuccessCount")
 			assert.Equal(t, tc.wantFailed, resp.FailedCount, "FailedCount")
 
@@ -308,7 +309,7 @@ func TestBatchImportFindings_MixedValidity(t *testing.T) {
 		SuccessCount   int              `json:"SuccessCount"`
 		FailedCount    int              `json:"FailedCount"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, 2, resp.SuccessCount)
 	assert.Equal(t, 1, resp.FailedCount)
 	assert.Len(t, resp.FailedFindings, 1)
@@ -329,7 +330,7 @@ func TestBatchImportFindings_EmptyFindingsList(t *testing.T) {
 		SuccessCount int `json:"SuccessCount"`
 		FailedCount  int `json:"FailedCount"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, 0, resp.SuccessCount)
 	assert.Equal(t, 0, resp.FailedCount)
 }
@@ -452,7 +453,7 @@ func TestGetFindings_FiltersApplied(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			findings, _ := resp["Findings"].([]any)
 			assert.Len(t, findings, tt.wantCount)
 		})
@@ -497,7 +498,7 @@ func TestGetFindings_MultipleFilterCombinations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	findings, _ := resp["Findings"].([]any)
 	assert.Len(t, findings, 1)
 
@@ -546,7 +547,7 @@ func TestGetFindings_MultiValueSameFieldCombination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		findings, _ := resp["Findings"].([]any)
 
 		gotIDs := make([]string, 0, len(findings))
@@ -589,7 +590,7 @@ func TestGetFindings_MultiValueSameFieldCombination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		findings, _ := resp["Findings"].([]any)
 
 		gotIDs := make([]string, 0, len(findings))
@@ -875,7 +876,7 @@ func TestGetFindingHistory_RecordsChanges(t *testing.T) {
 	var resp struct {
 		Records []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	require.Len(t, resp.Records, 3, "creation + 2 field-change events")
 
@@ -914,6 +915,6 @@ func TestGetFindingHistory_UnknownFinding(t *testing.T) {
 	var resp struct {
 		Records []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.Records)
 }

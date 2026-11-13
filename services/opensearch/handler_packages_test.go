@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -98,7 +100,7 @@ func TestOpenSearchHandler_DeletePackage_RejectedWhileAssociated(t *testing.T) {
 		map[string]any{"PackageName": "delpkg-pkg", "PackageType": "TXT-DICTIONARY"})
 
 	var pkgOut map[string]any
-	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pkgResp.Body), &pkgOut, jsonx.V1()))
 	pkgResp.Body.Close()
 
 	pkgDetails, ok := pkgOut["PackageDetails"].(map[string]any)
@@ -138,7 +140,7 @@ func TestOpenSearchHandler_DissociatePackage(t *testing.T) {
 		map[string]any{"PackageName": "my-pkg", "PackageType": "TXT-DICTIONARY"})
 
 	var pkgOut map[string]any
-	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pkgResp.Body), &pkgOut, jsonx.V1()))
 	pkgResp.Body.Close()
 
 	pkgDetails, ok := pkgOut["PackageDetails"].(map[string]any)
@@ -160,7 +162,7 @@ func TestOpenSearchHandler_DissociatePackage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, dissocResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(dissocResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dissocResp.Body), &out, jsonx.V1()))
 
 	details2, ok := out["DomainPackageDetails"].(map[string]any)
 	require.True(t, ok)
@@ -184,7 +186,7 @@ func TestOpenSearchHandler_DissociatePackages(t *testing.T) {
 		pkgResp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages",
 			map[string]any{"PackageName": name, "PackageType": "TXT-DICTIONARY"})
 		var pkgOut map[string]any
-		require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pkgResp.Body), &pkgOut, jsonx.V1()))
 		pkgResp.Body.Close()
 
 		id := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
@@ -211,7 +213,7 @@ func TestOpenSearchHandler_DissociatePackages(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	list, ok := out["DomainPackageDetailsList"].([]any)
 	require.True(t, ok)
@@ -233,7 +235,7 @@ func TestListPackagesForDomain_ReturnsDomainPackageDetailsShape(t *testing.T) {
 	pkgResp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages",
 		map[string]any{"PackageName": "list-pkg", "PackageType": "TXT-DICTIONARY"})
 	var pkgOut map[string]any
-	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pkgResp.Body), &pkgOut, jsonx.V1()))
 	pkgResp.Body.Close()
 	pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
 
@@ -250,7 +252,7 @@ func TestListPackagesForDomain_ReturnsDomainPackageDetailsShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	list, ok := lOut["DomainPackageDetailsList"].([]any)
 	require.True(t, ok)
 	require.Len(t, list, 1)
@@ -272,7 +274,7 @@ func TestListDomainsForPackage_ReturnsDomainPackageDetailsShape(t *testing.T) {
 	pkgResp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages",
 		map[string]any{"PackageName": "shared-pkg", "PackageType": "TXT-DICTIONARY"})
 	var pkgOut map[string]any
-	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pkgResp.Body), &pkgOut, jsonx.V1()))
 	pkgResp.Body.Close()
 	pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
 
@@ -287,7 +289,7 @@ func TestListDomainsForPackage_ReturnsDomainPackageDetailsShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	list, ok := lOut["DomainPackageDetailsList"].([]any)
 	require.True(t, ok)
 	require.Len(t, list, 1)

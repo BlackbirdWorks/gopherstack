@@ -2,7 +2,7 @@ package resourceexplorer2
 
 import (
 	_ "embed" // documented resource type list
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"sync"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -93,7 +94,7 @@ var supportedTypes = sync.OnceValue(func() []SupportedType { //nolint:gochecknog
 		Types []string `json:"types"`
 	}
 
-	if err := json.Unmarshal(documentedTypesJSON, &documented); err != nil {
+	if err := json.Unmarshal(documentedTypesJSON, &documented, jsonx.V1()); err != nil {
 		panic("resourceexplorer2: embedded supported types are invalid: " + err.Error())
 	}
 

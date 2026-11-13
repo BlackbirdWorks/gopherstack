@@ -2,7 +2,8 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -198,7 +200,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				require.Equal(t, "SUCCEEDED", d.Status, "cause=%s error=%s", d.Cause, d.Error)
 
 				var out mapExportOutput
-				require.NoError(t, json.Unmarshal([]byte(d.Output), &out))
+				require.NoError(t, json.Unmarshal([]byte(d.Output), &out, jsonx.V1()))
 				assert.Equal(t, bucket, out.ResultWriterDetails.Bucket)
 				assert.True(t, strings.HasPrefix(out.ResultWriterDetails.Key, "jobs/"))
 				assert.True(t, strings.HasSuffix(out.ResultWriterDetails.Key, "manifest.json"))
@@ -207,7 +209,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
 
 				var manifest resultManifest
-				require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+				require.NoError(t, json.Unmarshal(manifestBytes, &manifest, jsonx.V1()))
 				assert.Equal(t, bucket, manifest.DestinationBucket)
 				assert.Equal(t, out.MapRunArn, manifest.MapRunArn)
 				require.Len(t, manifest.ResultFiles.Succeeded, 1)
@@ -219,7 +221,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
 
 				var records []map[string]any
-				require.NoError(t, json.Unmarshal(succeededBytes, &records))
+				require.NoError(t, json.Unmarshal(succeededBytes, &records, jsonx.V1()))
 				require.Len(t, records, 3)
 				assert.Equal(t, "SUCCEEDED", records[0]["Status"])
 				// Default Transformation (NONE, since ResultWriter exports without a
@@ -255,7 +257,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				require.Equal(t, "SUCCEEDED", d.Status, "cause=%s error=%s", d.Cause, d.Error)
 
 				var arr []float64
-				require.NoError(t, json.Unmarshal([]byte(d.Output), &arr))
+				require.NoError(t, json.Unmarshal([]byte(d.Output), &arr, jsonx.V1()))
 				assert.Equal(t, []float64{1, 2, 3}, arr)
 
 				runs, _, err := b.ListMapRuns(exec.ExecutionArn, "", 0)
@@ -292,7 +294,7 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				// NONE, same as the writes-to-S3 case -- the missing S3 writer only
 				// changes whether the formatted result is exported, not its shape.
 				var records []map[string]any
-				require.NoError(t, json.Unmarshal([]byte(d.Output), &records))
+				require.NoError(t, json.Unmarshal([]byte(d.Output), &records, jsonx.V1()))
 				require.Len(t, records, 3)
 				assert.Equal(t, "SUCCEEDED", records[0]["Status"])
 				assert.Equal(t, "1", records[0]["Input"])
@@ -401,7 +403,7 @@ func startWriterConfigExecution(
 // assertTransformationEntries checks succeeded-file/preview entries against
 // what each Transformation must produce for three items whose child output
 // is always [10, 20] (AWS docs: input-output-resultwriter.html).
-func assertTransformationEntries(t *testing.T, transformation string, raw []json.RawMessage) {
+func assertTransformationEntries(t *testing.T, transformation string, raw []jsontext.Value) {
 	t.Helper()
 
 	switch transformation {
@@ -411,7 +413,7 @@ func assertTransformationEntries(t *testing.T, transformation string, raw []json
 		want := []float64{10, 20, 10, 20, 10, 20}
 		for i, r := range raw {
 			var v float64
-			require.NoError(t, json.Unmarshal(r, &v))
+			require.NoError(t, json.Unmarshal(r, &v, jsonx.V1()))
 			assert.InDelta(t, want[i], v, 0)
 		}
 	case "COMPACT":
@@ -419,7 +421,7 @@ func assertTransformationEntries(t *testing.T, transformation string, raw []json
 
 		for _, r := range raw {
 			var v []float64
-			require.NoError(t, json.Unmarshal(r, &v))
+			require.NoError(t, json.Unmarshal(r, &v, jsonx.V1()))
 			assert.Equal(t, []float64{10, 20}, v)
 		}
 	default: // NONE
@@ -427,7 +429,7 @@ func assertTransformationEntries(t *testing.T, transformation string, raw []json
 
 		for _, r := range raw {
 			var rec map[string]any
-			require.NoError(t, json.Unmarshal(r, &rec))
+			require.NoError(t, json.Unmarshal(r, &rec, jsonx.V1()))
 			assert.Equal(t, "SUCCEEDED", rec["Status"])
 			assert.Equal(t, "[10,20]", rec["Output"], "NONE stringifies Output like a real DescribeExecution")
 			assert.Equal(t, true, rec["InputDetails"].(map[string]any)["Included"])
@@ -438,21 +440,21 @@ func assertTransformationEntries(t *testing.T, transformation string, raw []json
 // decodeResultEntries parses a SUCCEEDED_0.json/FAILED_0.json file's bytes
 // into individual JSON values, per OutputType: JSON is one array, JSONL is
 // one value per newline.
-func decodeResultEntries(t *testing.T, data []byte, outputType string) []json.RawMessage {
+func decodeResultEntries(t *testing.T, data []byte, outputType string) []jsontext.Value {
 	t.Helper()
 
 	if outputType != "JSONL" {
-		var arr []json.RawMessage
-		require.NoError(t, json.Unmarshal(data, &arr))
+		var arr []jsontext.Value
+		require.NoError(t, json.Unmarshal(data, &arr, jsonx.V1()))
 
 		return arr
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	raw := make([]json.RawMessage, len(lines))
+	raw := make([]jsontext.Value, len(lines))
 
 	for i, l := range lines {
-		raw[i] = json.RawMessage(l)
+		raw[i] = jsontext.Value(l)
 	}
 
 	return raw
@@ -488,7 +490,7 @@ func TestDistributedMapResultWriter_TransformationOutputType(t *testing.T) {
 					"cause=%s error=%s", aws.ToString(desc.Cause), aws.ToString(desc.Error))
 
 				var out mapExportOutput
-				require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+				require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out, jsonx.V1()))
 				require.Equal(t, bucket, out.ResultWriterDetails.Bucket)
 				assert.True(t, strings.HasPrefix(out.ResultWriterDetails.Key, "jobs/"))
 				assert.True(t, strings.HasSuffix(out.ResultWriterDetails.Key, "manifest.json"))
@@ -496,7 +498,7 @@ func TestDistributedMapResultWriter_TransformationOutputType(t *testing.T) {
 				manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
 
 				var manifest resultManifest
-				require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+				require.NoError(t, json.Unmarshal(manifestBytes, &manifest, jsonx.V1()))
 				require.Len(t, manifest.ResultFiles.Succeeded, 1)
 				assert.Empty(t, manifest.ResultFiles.Failed)
 				assert.True(t, strings.HasSuffix(manifest.ResultFiles.Succeeded[0].Key, "SUCCEEDED_0.json"))
@@ -566,26 +568,26 @@ func TestDistributedMapResultWriter_FailedItemsKeepFullRecord(t *testing.T) {
 	)
 
 	var out mapExportOutput
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out, jsonx.V1()))
 
 	manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
 
 	var manifest resultManifest
-	require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+	require.NoError(t, json.Unmarshal(manifestBytes, &manifest, jsonx.V1()))
 	require.Len(t, manifest.ResultFiles.Succeeded, 1)
 	require.Len(t, manifest.ResultFiles.Failed, 1)
 
 	succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
 
 	var succeeded [][]float64
-	require.NoError(t, json.Unmarshal(succeededBytes, &succeeded))
+	require.NoError(t, json.Unmarshal(succeededBytes, &succeeded, jsonx.V1()))
 	require.Len(t, succeeded, 2, "2 of 3 items succeed")
 	assert.Equal(t, []float64{10, 20}, succeeded[0])
 
 	failedBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Failed[0].Key)
 
 	var failed []map[string]any
-	require.NoError(t, json.Unmarshal(failedBytes, &failed))
+	require.NoError(t, json.Unmarshal(failedBytes, &failed, jsonx.V1()))
 	require.Len(t, failed, 1)
 	assert.Equal(t, "FAILED", failed[0]["Status"])
 	assert.Equal(t, "2", failed[0]["Input"])
@@ -636,18 +638,18 @@ func TestDistributedMapResultWriter_DistributedChildIdentity(t *testing.T) {
 		"cause=%s error=%s", aws.ToString(desc.Cause), aws.ToString(desc.Error))
 
 	var out mapExportOutput
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(desc.Output)), &out, jsonx.V1()))
 
 	manifestBytes := getS3ObjectBytes(t, s3Bk, bucket, out.ResultWriterDetails.Key)
 
 	var manifest resultManifest
-	require.NoError(t, json.Unmarshal(manifestBytes, &manifest))
+	require.NoError(t, json.Unmarshal(manifestBytes, &manifest, jsonx.V1()))
 	require.Len(t, manifest.ResultFiles.Succeeded, 1)
 
 	succeededBytes := getS3ObjectBytes(t, s3Bk, bucket, manifest.ResultFiles.Succeeded[0].Key)
 
 	var records []map[string]any
-	require.NoError(t, json.Unmarshal(succeededBytes, &records))
+	require.NoError(t, json.Unmarshal(succeededBytes, &records, jsonx.V1()))
 	require.Len(t, records, 3)
 
 	seen := map[string]bool{}
@@ -694,20 +696,20 @@ func TestDistributedMapResultWriter_PreviewWithoutExport(t *testing.T) {
 
 			if tt.outputType == "JSONL" {
 				var jsonl string
-				require.NoError(t, json.Unmarshal([]byte(output), &jsonl))
+				require.NoError(t, json.Unmarshal([]byte(output), &jsonl, jsonx.V1()))
 
 				lines := strings.Split(jsonl, "\n")
 				require.Len(t, lines, 6)
 
 				var v float64
-				require.NoError(t, json.Unmarshal([]byte(lines[0]), &v))
+				require.NoError(t, json.Unmarshal([]byte(lines[0]), &v, jsonx.V1()))
 				assert.InDelta(t, 10, v, 0)
 
 				return
 			}
 
 			var arr []float64
-			require.NoError(t, json.Unmarshal([]byte(output), &arr))
+			require.NoError(t, json.Unmarshal([]byte(output), &arr, jsonx.V1()))
 			assert.Equal(t, []float64{10, 20, 10, 20, 10, 20}, arr)
 		})
 	}

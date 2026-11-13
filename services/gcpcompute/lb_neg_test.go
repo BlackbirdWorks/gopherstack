@@ -1,7 +1,7 @@
 package gcpcompute_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type globalAttach = computepb.GlobalNetworkEndpointGroupsAttachEndpointsRequest
@@ -416,7 +418,7 @@ func TestNEGAsBackend(t *testing.T) {
 		} `json:"items"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &listed))
+	require.NoError(t, json.Unmarshal([]byte(body), &listed, jsonx.V1()))
 	require.Len(t, listed.Items, 1)
 	require.Len(t, listed.Items[0].Healths, 1)
 	assert.Equal(t, "HEALTHY", listed.Items[0].Healths[0].HealthState)

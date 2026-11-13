@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -127,7 +128,7 @@ func jsonRank(t *testing.T, doc string) float64 {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(doc), &m))
+	require.NoError(t, json.Unmarshal([]byte(doc), &m, jsonx.V1()))
 
 	r, _ := m["rank"].(float64)
 

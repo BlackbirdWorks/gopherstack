@@ -1,7 +1,7 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,7 +40,7 @@ func TestDeleteDomain_Cascade(t *testing.T) {
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddDomainInternal("my-domain", "")
 
-	_, err := b.AddDataSource("my-domain", "ds1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err := b.AddDataSource("my-domain", "ds1", "desc", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
 	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")

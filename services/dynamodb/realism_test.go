@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -57,7 +58,7 @@ func TestHandler_Realism(t *testing.T) {
 			Items            []map[string]any `json:"Items"`
 			ScannedCount     int              `json:"ScannedCount"`
 		}
-		err := json.Unmarshal(w.Body.Bytes(), &output)
+		err := json.Unmarshal(w.Body.Bytes(), &output, jsonx.V1())
 		require.NoError(t, err)
 
 		assert.Less(t, len(output.Items), 20, "Scan should have truncated results")
@@ -117,7 +118,7 @@ func TestHandler_Realism(t *testing.T) {
 			LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey"`
 			Items            []map[string]any `json:"Items"`
 		}
-		err := json.Unmarshal(w.Body.Bytes(), &output)
+		err := json.Unmarshal(w.Body.Bytes(), &output, jsonx.V1())
 		require.NoError(t, err)
 
 		assert.Less(t, len(output.Items), 20, "Query should have truncated results")
@@ -170,7 +171,7 @@ func TestHandler_Realism(t *testing.T) {
 				},
 			},
 		}
-		body, _ := json.Marshal(batchInput)
+		body, _ := json.Marshal(batchInput, jsonx.V1())
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", "DynamoDB_20120810.BatchGetItem")
 		w := httptest.NewRecorder()
@@ -185,7 +186,7 @@ func TestHandler_Realism(t *testing.T) {
 			Responses       map[string][]map[string]any `json:"Responses"`
 			UnprocessedKeys map[string]any              `json:"UnprocessedKeys"`
 		}
-		err := json.Unmarshal(w.Body.Bytes(), &output)
+		err := json.Unmarshal(w.Body.Bytes(), &output, jsonx.V1())
 		require.NoError(t, err)
 
 		totalReturned := len(output.Responses[tableName])

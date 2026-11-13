@@ -6,12 +6,13 @@ package pipes_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -297,7 +298,7 @@ func TestEnrichment_LambdaInvocation(t *testing.T) {
 			} else {
 				// Nil response: original records payload forwarded.
 				var event map[string]any
-				require.NoError(t, json.Unmarshal(targetPayloads[0], &event))
+				require.NoError(t, json.Unmarshal(targetPayloads[0], &event, jsonx.V1()))
 				_, hasRecords := event["Records"]
 				assert.True(t, hasRecords, "original Records payload should be forwarded when enricher returns nil")
 			}

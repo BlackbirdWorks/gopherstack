@@ -1,13 +1,14 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -58,7 +59,7 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 		SecurityLevel string            `json:"securityLevel"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -89,7 +90,7 @@ func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
 		ScanConfigurationArn string `json:"scanConfigurationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -114,7 +115,7 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 		SecurityLevel        string         `json:"securityLevel"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -171,7 +172,7 @@ func (h *Handler) handleStartCisSession(c *echo.Context) error {
 		ScanJobID string         `json:"scanJobId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -199,7 +200,7 @@ func (h *Handler) handleStopCisSession(c *echo.Context) error {
 		ScanJobID string `json:"scanJobId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -221,7 +222,7 @@ func (h *Handler) handleSendCisSessionHealth(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -255,7 +256,7 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -281,7 +282,7 @@ func (h *Handler) handleGetCisScanReport(c *echo.Context) error {
 		ReportFormat string `json:"reportFormat"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -314,7 +315,7 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 		MaxResults       int32       `json:"maxResults"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -415,7 +416,7 @@ func (h *Handler) listCisAggregation(c *echo.Context, l cisAggregationListing) e
 		MaxResults     int32       `json:"maxResults"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

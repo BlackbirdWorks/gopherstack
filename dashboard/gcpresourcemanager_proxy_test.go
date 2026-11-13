@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 )
 
@@ -106,7 +107,7 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 			Etag string `json:"etag"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pol))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pol, jsonx.V1()))
 
 		add := `{"role":"roles/viewer","member":"user:a@example.com","etag":"` + pol.Etag + `"}`
 
@@ -122,7 +123,7 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 			Etag string `json:"etag"`
 		}
 
-		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &cur))
+		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &cur, jsonx.V1()))
 
 		del := `{"role":"roles/viewer","member":"user:a@example.com","etag":"` + cur.Etag + `"}`
 		runGCPSteps(t, h, []gcpStep{

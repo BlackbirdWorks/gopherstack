@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
@@ -58,20 +59,20 @@ func newDeletionProtectionFixture(t *testing.T) *deletionProtectionFixture {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments", []byte(`{"name":"dp-env"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"name":"dp-profile","locationUri":"hosted","type":"AWS.Freeform"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	return &deletionProtectionFixture{h: h, acd: acd, appID: app.ID, envID: env.ID, profileID: profile.ID}
 }

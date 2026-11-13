@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -112,7 +113,7 @@ func TestPaginatedListing(t *testing.T) {
 			rec2 := postWithHandler(t, handler, e, tt.action, `{}`)
 			assert.Equal(t, tt.wantCode, rec2.Code)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			items, _ := resp["item"].([]any)
 			assert.GreaterOrEqual(t, len(items), tt.wantMinItems)
 		})

@@ -1,8 +1,10 @@
 package athena
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createNamedQueryInput struct {
@@ -44,7 +46,7 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"CreateNamedQuery": func(b []byte) (any, error) {
 			var input createNamedQueryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -65,7 +67,7 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 		},
 		"GetNamedQuery": func(b []byte) (any, error) {
 			var input getNamedQueryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -78,7 +80,7 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 		},
 		"ListNamedQueries": func(b []byte) (any, error) {
 			var input listNamedQueriesInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -100,7 +102,7 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 		},
 		"BatchGetNamedQuery": func(b []byte) (any, error) {
 			var input batchGetNamedQueryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -121,7 +123,7 @@ func (h *Handler) namedQueryOps() map[string]athenaActionFn {
 		},
 		"DeleteNamedQuery": func(b []byte) (any, error) {
 			var input deleteNamedQueryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -136,7 +138,7 @@ func (h *Handler) namedQueryUpdateOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"UpdateNamedQuery": func(b []byte) (any, error) {
 			var input updateNamedQueryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

@@ -1,10 +1,14 @@
 package docker
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrImagePull wraps failures the daemon reports in an image pull stream.
@@ -20,12 +24,12 @@ type pullMessage struct {
 // ConsumePullStream reads an ImagePull response to EOF (closing early cancels
 // the pull) and returns the first error the daemon reports in the stream.
 func ConsumePullStream(r io.Reader) error {
-	dec := json.NewDecoder(r)
+	dec := jsontext.NewDecoder(r)
 
 	for {
 		var msg pullMessage
 
-		err := dec.Decode(&msg)
+		err := json.UnmarshalDecode(dec, &msg, jsonx.V1())
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -37,13 +41,13 @@ func ConsumePullStream(r io.Reader) error {
 		}
 
 		if msg.ErrorDetail != nil && msg.ErrorDetail.Message != "" {
-			_, _ = io.Copy(io.Discard, io.MultiReader(dec.Buffered(), r))
+			_, _ = io.Copy(io.Discard, io.MultiReader(bytes.NewReader(dec.UnreadBuffer()), r))
 
 			return fmt.Errorf("%w: %s", ErrImagePull, msg.ErrorDetail.Message)
 		}
 
 		if msg.Error != "" {
-			_, _ = io.Copy(io.Discard, io.MultiReader(dec.Buffered(), r))
+			_, _ = io.Copy(io.Discard, io.MultiReader(bytes.NewReader(dec.UnreadBuffer()), r))
 
 			return fmt.Errorf("%w: %s", ErrImagePull, msg.Error)
 		}

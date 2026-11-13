@@ -1,7 +1,7 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -31,7 +32,7 @@ func TestProjectVersions(t *testing.T) { //nolint:paralleltest // existing issue
 				rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "ver-proj"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ProjectArn"].(string)
 			},
@@ -39,7 +40,7 @@ func TestProjectVersions(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["ProjectVersionArn"], "arn:aws:rekognition:")
 			},
 		},
@@ -55,7 +56,7 @@ func TestProjectVersions(t *testing.T) { //nolint:paralleltest // existing issue
 				rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "no-output-config-proj"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ProjectArn"].(string)
 			},
@@ -97,7 +98,7 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	// Create version
@@ -109,7 +110,7 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp, jsonx.V1()))
 	versionARN := verResp["ProjectVersionArn"].(string)
 
 	// DescribeProjectVersions
@@ -117,7 +118,7 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	assert.Len(t, versions, 1)
 
@@ -129,7 +130,7 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.Equal(t, "RUNNING", startResp["Status"])
 
 	// StopProjectVersion
@@ -139,7 +140,7 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.Equal(t, "STOPPED", stopResp["Status"])
 
 	// DeleteProjectVersion
@@ -167,7 +168,7 @@ func TestProjectVersion_StateTransitions(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var projResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 		projectARN := projResp["ProjectArn"].(string)
 
 		rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -178,13 +179,13 @@ func TestProjectVersion_StateTransitions(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var verResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp, jsonx.V1()))
 		versionARN := verResp["ProjectVersionArn"].(string)
 
 		status := func() string {
 			out := doRequest(t, h, "DescribeProjectVersions", map[string]any{"ProjectArn": projectARN})
 			var m map[string]any
-			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m))
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m, jsonx.V1()))
 
 			return m["ProjectVersionDescriptions"].([]any)[0].(map[string]any)["Status"].(string)
 		}
@@ -192,7 +193,7 @@ func TestProjectVersion_StateTransitions(t *testing.T) {
 			out := doRequest(t, h, action, body)
 			require.Equal(t, http.StatusBadRequest, out.Code)
 			var m map[string]any
-			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m))
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m, jsonx.V1()))
 
 			return m["__type"].(string)
 		}
@@ -239,7 +240,7 @@ func TestCreateProjectVersion_FullFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -256,14 +257,14 @@ func TestCreateProjectVersion_FullFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp, jsonx.V1()))
 	versionARN := verResp["ProjectVersionArn"].(string)
 
 	rec = doRequest(t, h, "DescribeProjectVersions", map[string]any{"ProjectArn": projectARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
 
@@ -282,7 +283,7 @@ func TestCreateProjectVersion_FullFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags, _ := tagsResp["Tags"].(map[string]any)
 	assert.Equal(t, "vision", tags["team"])
 }
@@ -295,7 +296,7 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var srcProjResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &srcProjResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &srcProjResp, jsonx.V1()))
 	srcProjectARN := srcProjResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -306,7 +307,7 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var srcVerResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &srcVerResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &srcVerResp, jsonx.V1()))
 	sourceVersionARN := srcVerResp["ProjectVersionArn"].(string)
 
 	// Create destination project
@@ -314,7 +315,7 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var dstProjResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp, jsonx.V1()))
 	dstProjectARN := dstProjResp["ProjectArn"].(string)
 
 	// Copy version fails when SourceProjectArn doesn't match the project
@@ -339,7 +340,7 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var copyResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &copyResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &copyResp, jsonx.V1()))
 	assert.Contains(t, copyResp["ProjectVersionArn"], "dst-proj")
 
 	// SourceProjectVersionArn and OutputConfig are echoed back on the
@@ -348,7 +349,7 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
 	copied := versions[0].(map[string]any)
@@ -421,7 +422,7 @@ func TestCreateProjectVersion_FeatureConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -438,7 +439,7 @@ func TestCreateProjectVersion_FeatureConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
 
@@ -507,7 +508,7 @@ func TestCreateProjectVersion_TrainingTestingDataMustBothBeSpecified(t *testing.
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var projResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 			projectARN := projResp["ProjectArn"].(string)
 
 			body := map[string]any{
@@ -536,7 +537,7 @@ func TestStartProjectVersion_MaxInferenceUnitsRoundTrip(t *testing.T) { //nolint
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -547,7 +548,7 @@ func TestStartProjectVersion_MaxInferenceUnitsRoundTrip(t *testing.T) { //nolint
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp, jsonx.V1()))
 	versionARN := verResp["ProjectVersionArn"].(string)
 
 	rec = doRequest(t, h, "StartProjectVersion", map[string]any{
@@ -561,7 +562,7 @@ func TestStartProjectVersion_MaxInferenceUnitsRoundTrip(t *testing.T) { //nolint
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
 	desc := versions[0].(map[string]any)

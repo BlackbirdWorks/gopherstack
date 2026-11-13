@@ -1,7 +1,7 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -128,7 +129,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createNetResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createNetResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createNetResp, jsonx.V1()))
 			networkID := createNetResp["NetworkId"].(string)
 
 			// Create member
@@ -142,7 +143,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createMemResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createMemResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createMemResp, jsonx.V1()))
 			memberID := createMemResp["MemberId"].(string)
 			assert.NotEmpty(t, memberID)
 
@@ -155,7 +156,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			members, ok := listResp["Members"].([]any)
 			require.True(t, ok)
 			assert.Len(t, members, 2)
@@ -430,7 +431,7 @@ func TestHandler_ListMembersFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			members := resp["Members"].([]any)
 			assert.Len(t, members, tt.wantCount)
@@ -523,7 +524,7 @@ func TestHandler_MemberSummaryIsOwned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			members := resp["Members"].([]any)
 			require.Len(t, members, 1)
@@ -552,7 +553,7 @@ func TestHandler_MemberObjectIsOwned(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	member := resp["Member"].(map[string]any)
 	isOwned, ok := member["IsOwned"]
@@ -610,7 +611,7 @@ func TestHandler_UpdateMemberLogPublishingConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			member := getResp["Member"].(map[string]any)
 			logConfig, ok := member["LogPublishingConfiguration"]
@@ -708,7 +709,7 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	memberID, _ := resp["MemberId"].(string)
 	require.NotEmpty(t, memberID)
@@ -718,7 +719,7 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1()))
 
 	member := memResp["Member"].(map[string]any)
 	tags := member["Tags"].(map[string]any)

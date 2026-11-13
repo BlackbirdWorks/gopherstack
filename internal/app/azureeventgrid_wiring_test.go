@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
@@ -129,7 +130,7 @@ func jsonField(t *testing.T, raw []byte, key string) string {
 
 	var m map[string]any
 
-	require.NoError(t, json.Unmarshal(raw, &m))
+	require.NoError(t, json.Unmarshal(raw, &m, jsonx.V1()))
 
 	s, _ := m[key].(string)
 

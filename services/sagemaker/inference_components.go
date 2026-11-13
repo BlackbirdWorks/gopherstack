@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -35,7 +35,7 @@ type InferenceComponentContainerSpec struct {
 	Environment            map[string]string `json:"Environment,omitempty"`
 	ArtifactURL            string            `json:"ArtifactUrl,omitempty"`
 	Image                  string            `json:"Image,omitempty"`
-	ContainerMetricsConfig json.RawMessage   `json:"ContainerMetricsConfig,omitempty"`
+	ContainerMetricsConfig jsontext.Value    `json:"ContainerMetricsConfig,omitempty"`
 }
 
 // InferenceComponentSpecification mirrors types.InferenceComponentSpecification
@@ -52,10 +52,10 @@ type InferenceComponentSpecification struct {
 	BaseInferenceComponentName  string                           `json:"BaseInferenceComponentName,omitempty"`
 	InstanceType                string                           `json:"InstanceType,omitempty"`
 	ModelName                   string                           `json:"ModelName,omitempty"`
-	ComputeResourceRequirements json.RawMessage                  `json:"ComputeResourceRequirements,omitempty"`
-	DataCacheConfig             json.RawMessage                  `json:"DataCacheConfig,omitempty"`
-	SchedulingConfig            json.RawMessage                  `json:"SchedulingConfig,omitempty"`
-	StartupParameters           json.RawMessage                  `json:"StartupParameters,omitempty"`
+	ComputeResourceRequirements jsontext.Value                   `json:"ComputeResourceRequirements,omitempty"`
+	DataCacheConfig             jsontext.Value                   `json:"DataCacheConfig,omitempty"`
+	SchedulingConfig            jsontext.Value                   `json:"SchedulingConfig,omitempty"`
+	StartupParameters           jsontext.Value                   `json:"StartupParameters,omitempty"`
 }
 
 // inferenceComponentSpecificationSummary builds the InferenceComponentSpecificationSummary
@@ -129,7 +129,7 @@ type InferenceComponent struct {
 	VariantName              string
 	InferenceComponentStatus string
 	FailureReason            string
-	DeploymentConfig         json.RawMessage
+	DeploymentConfig         jsontext.Value
 	Specifications           []InferenceComponentSpecification
 	CopyCount                int32
 	CurrentCopyCount         int32
@@ -369,7 +369,7 @@ func (b *InMemoryBackend) ListInferenceComponents(
 // VariantName member on the real input — a production variant is fixed at
 // Create time and cannot be moved via Update.
 type UpdateInferenceComponentOptions struct {
-	DeploymentConfig json.RawMessage
+	DeploymentConfig jsontext.Value
 	RuntimeConfig    *InferenceComponentRuntimeConfigInput
 	Specification    *InferenceComponentSpecification
 	Specifications   []InferenceComponentSpecification

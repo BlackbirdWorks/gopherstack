@@ -2,12 +2,13 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"sync"
 	"time"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
@@ -598,7 +599,7 @@ func buildSchedulerPayload(s *Schedule) []byte {
 		ScheduleName: s.Name,
 	}
 
-	b, _ := json.Marshal(p)
+	b, _ := json.Marshal(p, jsonx.V1())
 
 	return b
 }

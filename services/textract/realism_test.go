@@ -1,13 +1,15 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRealism_RequestValidation(t *testing.T) {
@@ -92,7 +94,7 @@ func TestRealism_RequestValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, resp["__type"])
 			assert.Contains(t, resp["message"], tt.wantMsg)
 			assert.NotContains(t, resp["message"], "Exception: ")

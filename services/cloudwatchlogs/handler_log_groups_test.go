@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -131,7 +132,7 @@ func TestHandler_LogGroupDeletionProtection(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -168,7 +169,7 @@ func TestHandler_PutLogGroupDeletionProtection_WireName(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"logGroupIdentifier":        lg,
 				"deletionProtectionEnabled": tt.enabled,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, handler, e, "PutLogGroupDeletionProtection", string(body))
@@ -217,7 +218,7 @@ func TestHandler_PutRetentionPolicy_ZeroDays_ReturnsInvalidParameter(t *testing.
 			body, _ := json.Marshal(map[string]any{
 				"logGroupName":    "ret-grp",
 				"retentionInDays": tt.retentionInDays,
-			})
+			}, jsonx.V1())
 			rec := doLogsRequest(t, h, e, "PutRetentionPolicy", string(body))
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code,
@@ -226,7 +227,7 @@ func TestHandler_PutRetentionPolicy_ZeroDays_ReturnsInvalidParameter(t *testing.
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", errResp.Type,
 				"retentionInDays=%d must return InvalidParameterException", tt.retentionInDays)
 		})
@@ -317,7 +318,7 @@ func TestHandler_LogGroupOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -325,13 +326,13 @@ func TestHandler_LogGroupOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})
@@ -386,7 +387,7 @@ func TestHandler_RetentionPolicyOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -394,13 +395,13 @@ func TestHandler_RetentionPolicyOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})
@@ -458,7 +459,7 @@ func TestHandler_AssociateKmsKeyOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -466,7 +467,7 @@ func TestHandler_AssociateKmsKeyOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {
@@ -500,7 +501,7 @@ func TestHandler_AggregateLogGroupSummariesEmpty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeLogsRequest(t, tt.action, string(bodyBytes))
@@ -508,7 +509,7 @@ func TestHandler_AggregateLogGroupSummariesEmpty(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				list, ok := resp[tt.wantListField].([]any)
 				require.True(t, ok, "expected list field %q in response", tt.wantListField)
 				assert.Empty(t, list)

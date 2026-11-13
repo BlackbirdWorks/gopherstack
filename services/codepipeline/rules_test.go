@@ -2,13 +2,15 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -110,7 +112,7 @@ func TestHandler_ListExecutionsAndRules(t *testing.T) {
 			ActionExecutionID string `json:"actionExecutionId"`
 		} `json:"actionExecutionDetails"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&actionExecs))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &actionExecs, jsonx.V1()))
 	require.NotEmpty(t, actionExecs.ActionExecutionDetails)
 	actionExecutionID := actionExecs.ActionExecutionDetails[0].ActionExecutionID
 	require.NotEmpty(t, actionExecutionID)

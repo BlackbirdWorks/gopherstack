@@ -2,9 +2,10 @@ package elb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -217,7 +218,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:       snapshotVersion,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "elb: Snapshot marshal failure", "error", err)
 

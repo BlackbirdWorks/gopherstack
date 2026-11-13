@@ -2,10 +2,12 @@ package ce
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -36,12 +38,12 @@ const ceSnapshotVersion = 1
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage `json:"tables"`
-	AccountID    string                     `json:"accountID"`
-	Region       string                     `json:"region"`
-	BackfillJobs []*BackfillJob             `json:"backfillJobs"`
-	AnomalyTTL   time.Duration              `json:"anomalyTTL"`
-	Version      int                        `json:"version"`
+	Tables       map[string]jsontext.Value `json:"tables"`
+	AccountID    string                    `json:"accountID"`
+	Region       string                    `json:"region"`
+	BackfillJobs []*BackfillJob            `json:"backfillJobs"`
+	AnomalyTTL   time.Duration             `json:"anomalyTTL"`
+	Version      int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -66,7 +68,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AnomalyTTL:   b.anomalyTTL,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "ce: failed to marshal snapshot", "error", err)
 

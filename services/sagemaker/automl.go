@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -100,17 +102,17 @@ type AutoMLJob struct {
 	AutoMLJobName            string                  `json:"AutoMLJobName"`
 	InputDataConfig          []AutoMLChannel         `json:"InputDataConfig"`
 	AutoMLJobInputDataConfig []AutoMLJobChannel      `json:"AutoMLJobInputDataConfig,omitempty"`
-	AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig,omitempty"`
+	AutoMLProblemTypeConfig  jsontext.Value          `json:"AutoMLProblemTypeConfig,omitempty"`
 }
 
 // AutoMLV1Options holds the V1 CreateAutoMLJob members that only round-trip
 // through DescribeAutoMLJob; none of them drives a simulated training run.
 type AutoMLV1Options struct {
-	ProblemType                      string          `json:"ProblemType,omitempty"`
-	Mode                             string          `json:"Mode,omitempty"`
-	CandidateGenerationConfig        json.RawMessage `json:"CandidateGenerationConfig,omitempty"`
-	CompletionCriteria               json.RawMessage `json:"CompletionCriteria,omitempty"`
-	GenerateCandidateDefinitionsOnly bool            `json:"GenerateCandidateDefinitionsOnly,omitempty"`
+	ProblemType                      string         `json:"ProblemType,omitempty"`
+	Mode                             string         `json:"Mode,omitempty"`
+	CandidateGenerationConfig        jsontext.Value `json:"CandidateGenerationConfig,omitempty"`
+	CompletionCriteria               jsontext.Value `json:"CompletionCriteria,omitempty"`
+	GenerateCandidateDefinitionsOnly bool           `json:"GenerateCandidateDefinitionsOnly,omitempty"`
 }
 
 // SetAutoMLJobV1Options stores the V1-only round-trip members on a created job.
@@ -157,13 +159,13 @@ func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 
 	if j.V1Options != nil {
 		v1 := *j.V1Options
-		v1.CandidateGenerationConfig = append(json.RawMessage(nil), v1.CandidateGenerationConfig...)
-		v1.CompletionCriteria = append(json.RawMessage(nil), v1.CompletionCriteria...)
+		v1.CandidateGenerationConfig = append(jsontext.Value(nil), v1.CandidateGenerationConfig...)
+		v1.CompletionCriteria = append(jsontext.Value(nil), v1.CompletionCriteria...)
 		cp.V1Options = &v1
 	}
 
 	if j.AutoMLProblemTypeConfig != nil {
-		cp.AutoMLProblemTypeConfig = append(json.RawMessage{}, j.AutoMLProblemTypeConfig...)
+		cp.AutoMLProblemTypeConfig = append(jsontext.Value{}, j.AutoMLProblemTypeConfig...)
 	}
 
 	if j.AutoMLComputeConfig != nil {
@@ -205,7 +207,7 @@ func (j *AutoMLJob) MarshalJSON() ([]byte, error) {
 		EndTime:          epochSecondsPtr(j.EndTime),
 		CreationTime:     epochSeconds(j.CreationTime),
 		LastModifiedTime: epochSeconds(j.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [AutoMLJob.MarshalJSON], read by
@@ -220,7 +222,7 @@ func (j *AutoMLJob) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -105,7 +106,7 @@ func TestHandler_GetService(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				svcData := createResp["Service"].(map[string]any)
 				svcID := svcData["Id"].(string)
 
@@ -161,7 +162,7 @@ func TestHandler_DeleteService(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				svcData := createResp["Service"].(map[string]any)
 				svcID := svcData["Id"].(string)
 
@@ -270,7 +271,7 @@ func TestHandler_ServiceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	svc := createResp["Service"].(map[string]any)
 	assert.NotContains(t, svc, "Tags", "real CreateService never returns a Tags field")
@@ -282,7 +283,7 @@ func TestHandler_ServiceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	svcGet := getResp["Service"].(map[string]any)
 	assert.NotContains(t, svcGet, "Tags", "real GetService never returns a Tags field")
@@ -291,7 +292,7 @@ func TestHandler_ServiceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, tagsRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 	tags := tagsResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
@@ -316,7 +317,7 @@ func TestHandler_ListServicesNamespaceFilter(t *testing.T) {
 	// List without filter - should return all 3.
 	recAll := doSDRequest(t, h, "ListServices", map[string]any{})
 	var respAll map[string]any
-	require.NoError(t, json.Unmarshal(recAll.Body.Bytes(), &respAll))
+	require.NoError(t, json.Unmarshal(recAll.Body.Bytes(), &respAll, jsonx.V1()))
 	assert.Len(t, respAll["Services"].([]any), 3)
 
 	// List with NAMESPACE_ID filter - should return only 2.
@@ -328,7 +329,7 @@ func TestHandler_ListServicesNamespaceFilter(t *testing.T) {
 	require.Equal(t, 200, recFiltered.Code)
 
 	var respFiltered map[string]any
-	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &respFiltered))
+	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &respFiltered, jsonx.V1()))
 	assert.Len(t, respFiltered["Services"].([]any), 2)
 }
 
@@ -450,7 +451,7 @@ func TestHandler_ListServicesResourceOwnerFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out["Services"].([]any), tt.wantLen)
 		})
 	}
@@ -464,13 +465,13 @@ func createPrivateDNSNamespaceHelper(t *testing.T, h *servicediscovery.Handler, 
 	require.Equal(t, http.StatusOK, nsRec.Code)
 
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 
 	opID := nsResp["OperationId"].(string)
 	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 
 	return opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 }
@@ -555,7 +556,7 @@ func TestUpdateService_ReturnsOperationId(t *testing.T) {
 				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-parity"})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				svcID := created["Service"].(map[string]any)["Id"].(string)
 
 				rec := doSDRequest(t, h, "UpdateService", map[string]any{
@@ -565,7 +566,7 @@ func TestUpdateService_ReturnsOperationId(t *testing.T) {
 				require.Equal(t, tt.wantCode, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantOpID {
 					assert.NotEmpty(t, out["OperationId"], "should contain OperationId")
 				}
@@ -606,7 +607,7 @@ func TestService_InstanceCount(t *testing.T) {
 			createSvcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-count"})
 			require.Equal(t, http.StatusOK, createSvcRec.Code)
 			var svcOut map[string]any
-			require.NoError(t, json.Unmarshal(createSvcRec.Body.Bytes(), &svcOut))
+			require.NoError(t, json.Unmarshal(createSvcRec.Body.Bytes(), &svcOut, jsonx.V1()))
 			svcID := svcOut["Service"].(map[string]any)["Id"].(string)
 
 			for i := range tt.instancesBefore {
@@ -622,7 +623,7 @@ func TestService_InstanceCount(t *testing.T) {
 			getRec := doSDRequest(t, h, "GetService", map[string]any{"Id": svcID})
 			require.Equal(t, http.StatusOK, getRec.Code)
 			var getOut map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 			svc := getOut["Service"].(map[string]any)
 			assert.Equal(t, tt.wantCount, int(svc["InstanceCount"].(float64)), "GetService InstanceCount")
 
@@ -630,7 +631,7 @@ func TestService_InstanceCount(t *testing.T) {
 			listRec := doSDRequest(t, h, "ListServices", map[string]any{})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listOut map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 			svcs := listOut["Services"].([]any)
 			require.Len(t, svcs, 1)
 			gotListCount := int(svcs[0].(map[string]any)["InstanceCount"].(float64))
@@ -682,7 +683,7 @@ func TestListServices_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			svcs := out["Services"].([]any)
 			assert.Len(t, svcs, tt.wantLen)
 			if tt.wantNextToken {
@@ -703,7 +704,7 @@ func TestUpdateService_CreatesOperation(t *testing.T) {
 	createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-op-check"})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	svcID := created["Service"].(map[string]any)["Id"].(string)
 
 	updateRec := doSDRequest(t, h, "UpdateService", map[string]any{
@@ -713,14 +714,14 @@ func TestUpdateService_CreatesOperation(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]string
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	opID := updateOut["OperationId"]
 	require.NotEmpty(t, opID)
 
 	getOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 	require.Equal(t, http.StatusOK, getOpRec.Code)
 	var opOut map[string]any
-	require.NoError(t, json.Unmarshal(getOpRec.Body.Bytes(), &opOut))
+	require.NoError(t, json.Unmarshal(getOpRec.Body.Bytes(), &opOut, jsonx.V1()))
 	op := opOut["Operation"].(map[string]any)
 	assert.Equal(t, "UPDATE_SERVICE", op["Type"])
 	assert.Equal(t, "SUCCESS", op["Status"])
@@ -774,7 +775,7 @@ func TestUpdateService_OmittedConfigDeletesIt(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			svcID := created["Service"].(map[string]any)["Id"].(string)
 
 			updateRec := doSDRequest(t, h, "UpdateService", map[string]any{
@@ -786,7 +787,7 @@ func TestUpdateService_OmittedConfigDeletesIt(t *testing.T) {
 			getRec := doSDRequest(t, h, "GetService", map[string]any{"Id": svcID})
 			require.Equal(t, http.StatusOK, getRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 			svc := out["Service"].(map[string]any)
 
 			if tt.wantDNS {
@@ -835,7 +836,7 @@ func TestHandler_UpdateService(t *testing.T) {
 			case "success":
 				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "my-svc"})
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				svcID := out["Service"].(map[string]any)["Id"].(string)
 				rec := doSDRequest(t, h, "UpdateService", map[string]any{
 					"Id":      svcID,
@@ -898,7 +899,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				rec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "attrs-svc"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				svc := out["Service"].(map[string]any)
 
 				return svc["Id"].(string), svc["Arn"].(string)
@@ -917,7 +918,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				assert.Equal(t, http.StatusOK, getRec.Code)
 
 				var getOut map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 				sa := getOut["ServiceAttributes"].(map[string]any)
 				attrs := sa["Attributes"].(map[string]any)
 				assert.Equal(t, "prod", attrs["env"])
@@ -973,7 +974,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				require.Equal(t, http.StatusOK, getRec.Code)
 
 				var getOut map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 				attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"].(map[string]any)
 				assert.NotContains(t, attrs, "env")
 				assert.Equal(t, "yes", attrs["keep"])
@@ -1003,7 +1004,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				assert.Equal(t, tt.wantCode, getRec.Code, "body: %s", getRec.Body.String())
 
 				var getOut map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 				attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"]
 				assert.Empty(t, attrs)
 
@@ -1026,7 +1027,7 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				assert.Equal(t, tt.wantCode, getRec.Code, "body: %s", getRec.Body.String())
 
 				var getOut map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 				attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"]
 				assert.Empty(t, attrs)
 			}
@@ -1096,7 +1097,7 @@ func TestHandler_UpdateServiceAttributesQuota(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			svcID := createResp["Service"].(map[string]any)["Id"].(string)
 
 			if tt.presetTo > 0 {
@@ -1120,7 +1121,7 @@ func TestHandler_UpdateServiceAttributesQuota(t *testing.T) {
 
 			if tt.wantType != "" {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, errResp["__type"])
 			}
 		})

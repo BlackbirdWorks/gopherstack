@@ -1,9 +1,11 @@
 package networkmonitor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerTags(t *testing.T) {
@@ -21,7 +23,7 @@ func TestHandlerTags(t *testing.T) {
 	}
 
 	var mon map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &mon); err != nil {
+	if err := json.Unmarshal(rr.Body.Bytes(), &mon, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -36,7 +38,7 @@ func TestHandlerTags(t *testing.T) {
 	}
 
 	var tagResp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp); err != nil {
+	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal tags: %v", err)
 	}
 
@@ -58,7 +60,7 @@ func TestHandlerTags(t *testing.T) {
 	}
 
 	rr = doNMRequest(t, h, http.MethodGet, "/tags/"+monARN, nil)
-	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp); err != nil {
+	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 

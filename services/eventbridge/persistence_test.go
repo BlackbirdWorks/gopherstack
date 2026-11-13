@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -309,7 +310,7 @@ func TestHandler_Snapshot_IncludesTags(t *testing.T) {
 				tagBody, err := json.Marshal(map[string]any{
 					"ResourceARN": tt.resourceARN,
 					"Tags":        []map[string]string{{"Key": k, "Value": v}},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 				rec := makeRequestWithHandler(t, h, e, "TagResource", string(tagBody))
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -322,7 +323,7 @@ func TestHandler_Snapshot_IncludesTags(t *testing.T) {
 			fresh := eventbridge.NewHandler(eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
-			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN})
+			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN}, jsonx.V1())
 			require.NoError(t, err)
 			rec := makeRequestWithFreshHandler(t, fresh, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -333,7 +334,7 @@ func TestHandler_Snapshot_IncludesTags(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Tags, tt.wantTagCount)
 
 			if tt.wantTagCount > 0 {
@@ -387,7 +388,7 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 				tagBody, err := json.Marshal(map[string]any{
 					"ResourceARN": tt.resourceARN,
 					"Tags":        []map[string]string{{"Key": k, "Value": v}},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 				rec := makeRequestWithHandler(t, h, e, "TagResource", string(tagBody))
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -400,7 +401,7 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 				`{"Name":"bleed-rule","EventPattern":"{\"source\":[\"test\"]}"}`)
 			require.Equal(t, http.StatusOK, put.Code)
 
-			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN})
+			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN}, jsonx.V1())
 			require.NoError(t, err)
 			rec := makeRequestWithHandler(t, h, e, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -411,7 +412,7 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Empty(t, resp.Tags, "tags should be cleared after Reset()")
 		})
 	}
@@ -558,7 +559,7 @@ func TestHandlerReset(t *testing.T) {
 	var resp struct {
 		Tags []map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.Tags)
 }
 

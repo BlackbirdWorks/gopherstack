@@ -2,7 +2,8 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -80,7 +82,7 @@ func TestHandler_CreateCustomActionType(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				at, ok := out["actionType"].(map[string]any)
 				require.True(t, ok)
 				id, ok := at["id"].(map[string]any)
@@ -130,7 +132,7 @@ func TestCreateCustomActionType_ActionConfigurationProperties_EmptyNotAbsent(t *
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			actionType, ok := raw["actionType"].(map[string]any)
 			require.True(t, ok, "actionType must be an object")
@@ -164,7 +166,7 @@ func TestCreateCustomActionType_ActionConfigurationProperties_RoundTrip(t *testi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	actionType, ok := raw["actionType"].(map[string]any)
 	require.True(t, ok)
@@ -294,7 +296,7 @@ func TestHandler_DeleteCustomActionType_InUse(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["__type"])
 			}
 		})
@@ -358,7 +360,7 @@ func TestHandler_GetActionType(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				at, ok := out["actionType"].(map[string]any)
 				require.True(t, ok)
 				id, ok := at["id"].(map[string]any)
@@ -402,7 +404,7 @@ func TestGetActionType_ActionTypeDeclarationShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	actionType, ok := raw["actionType"].(map[string]any)
 	require.True(t, ok, "actionType must be an object")
@@ -484,7 +486,7 @@ func TestGetActionType_AfterUpdateActionType_ReturnsDeclarationData(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	actionType, ok := raw["actionType"].(map[string]any)
 	require.True(t, ok)
 
@@ -507,7 +509,7 @@ func TestGetActionType_AfterUpdateActionType_ReturnsDeclarationData(t *testing.T
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	items, _ := listOut["actionTypes"].([]any)
 	require.Len(t, items, 1)
 	item0, _ := items[0].(map[string]any)
@@ -627,7 +629,7 @@ func TestHandler_ListActionTypes_FullShape(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			items, _ := out["actionTypes"].([]any)
 			assert.Len(t, items, tt.wantCount)
 
@@ -667,7 +669,7 @@ func TestCPPagination_ListActionTypes(t *testing.T) {
 		NextToken   string           `json:"nextToken"`
 		ActionTypes []map[string]any `json:"actionTypes"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	assert.Len(t, out.ActionTypes, 5)
 	assert.Empty(t, out.NextToken, "5 items fit within the 25-cap default page")
@@ -707,7 +709,7 @@ func TestCPPagination_ListActionTypes_MultiPage(t *testing.T) {
 			NextToken   string           `json:"nextToken"`
 			ActionTypes []map[string]any `json:"actionTypes"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 		total += len(out.ActionTypes)
 		pages++
@@ -771,7 +773,7 @@ func TestHandler_UpdateActionType_FullFields(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				at, _ := out["actionType"].(map[string]any)
 
 				inArt, _ := at["inputArtifactDetails"].(map[string]any)

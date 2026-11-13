@@ -1,7 +1,7 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateDatabase(t *testing.T) {
@@ -41,7 +43,7 @@ func TestHandler_CreateDatabase(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				db, ok := resp["Database"].(map[string]any)
 				assert.True(t, ok)
 				assert.Equal(t, "my-db", db["DatabaseName"])
@@ -65,7 +67,7 @@ func TestHandler_CreateDatabase_Conflict(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errBody["__type"])
 }
 
@@ -122,7 +124,7 @@ func TestHandler_ListDatabases(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dbs, ok := resp["Databases"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, dbs, 2)
@@ -141,7 +143,7 @@ func TestHandler_ListDatabases_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	dbs := out["Databases"].([]any)
 	require.Len(t, dbs, 3)
@@ -165,7 +167,7 @@ func TestHandler_ListDatabases_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	dbs1 := out1["Databases"].([]any)
 	assert.Len(t, dbs1, 2)
@@ -178,7 +180,7 @@ func TestHandler_ListDatabases_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	dbs2 := out2["Databases"].([]any)
 	assert.Len(t, dbs2, 2)
@@ -189,7 +191,7 @@ func TestHandler_ListDatabases_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var out3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &out3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &out3, jsonx.V1()))
 
 	dbs3 := out3["Databases"].([]any)
 	assert.Len(t, dbs3, 1)
@@ -209,7 +211,7 @@ func TestHandler_ListDatabases_NoNextTokenWhenFits(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Empty(t, out["NextToken"])
 }
@@ -302,7 +304,7 @@ func TestHandler_DeleteDatabase_RequiresEmpty(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -417,7 +419,7 @@ func TestHandler_CreateDatabase_MinimumNameLength(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -489,7 +491,7 @@ func TestHandler_CreateDatabase_NameFormatValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -510,7 +512,7 @@ func TestHandler_CreateDatabase_NameValidationErrorBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 	assert.NotEmpty(t, body["message"])
 }
@@ -577,7 +579,7 @@ func TestHandler_CreateDatabase_TagKeyValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -599,7 +601,7 @@ func TestHandler_CreateDatabase_WithKmsKeyID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	db := createOut["Database"].(map[string]any)
 	assert.Equal(t, kmsKey, db["KmsKeyId"])
@@ -622,7 +624,7 @@ func TestHandler_CreateDatabase_KmsKeyRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	db := out["Database"].(map[string]any)
 	assert.Equal(t, kmsKey, db["KmsKeyId"], "KmsKeyId should survive DescribeDatabase")
@@ -645,7 +647,7 @@ func TestHandler_ListDatabases_IncludesKmsKeyID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	dbs := out["Databases"].([]any)
 	require.Len(t, dbs, 1)
@@ -684,7 +686,7 @@ func TestHandler_CreateDatabase_ConflictException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ConflictException", body["__type"])
 	assert.NotEmpty(t, body["message"])
 }
@@ -703,7 +705,7 @@ func TestHandler_DescribeDatabase_TableCountTracking(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		db := out["Database"].(map[string]any)
 
@@ -735,7 +737,7 @@ func TestHandler_CreateDatabase_ARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	db := out["Database"].(map[string]any)
 	arn := db["Arn"].(string)
@@ -759,7 +761,7 @@ func TestHandler_CreateDatabase_TimestampsAreFloats(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	db := raw["Database"].(map[string]any)
 	ct, ok := db["CreationTime"].(float64)
@@ -786,7 +788,7 @@ func TestHandler_CreateDatabase_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Fetch the ARN then list tags
 	db := out["Database"].(map[string]any)
@@ -798,7 +800,7 @@ func TestHandler_CreateDatabase_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	tags := tagsOut["Tags"].([]any)
 	assert.Len(t, tags, 2)

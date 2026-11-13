@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAutoMLJobV2_RoundTrip(t *testing.T) {
@@ -61,7 +63,7 @@ func TestHandler_CreateAutoMLJobV2_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 			channels, ok := out["AutoMLJobInputDataConfig"].([]any)
 			require.True(t, ok, "DescribeAutoMLJobV2 must always emit AutoMLJobInputDataConfig")
@@ -170,7 +172,7 @@ func TestHandler_DescribeAutoMLJobV1_OmitsV2Fields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	_, hasV2Field := out["AutoMLJobInputDataConfig"]
 	assert.False(t, hasV2Field, "DescribeAutoMLJob (V1) must not emit the V2-only AutoMLJobInputDataConfig field")

@@ -1,7 +1,7 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strconv"
 	"time"
@@ -23,8 +23,8 @@ type CreateScheduledActionParams struct {
 	NamespaceName              string
 	RoleArn                    string
 	ScheduledActionDescription string
-	Schedule                   json.RawMessage
-	TargetAction               json.RawMessage
+	Schedule                   jsontext.Value
+	TargetAction               jsontext.Value
 }
 
 // UpdateScheduledActionParams holds the mutable fields accepted by
@@ -35,8 +35,8 @@ type UpdateScheduledActionParams struct {
 	ScheduledActionDescription *string
 	Enabled                    *bool
 	RoleArn                    string
-	Schedule                   json.RawMessage
-	TargetAction               json.RawMessage
+	Schedule                   jsontext.Value
+	TargetAction               jsontext.Value
 }
 
 // CreateServerlessScheduledAction creates a serverless scheduled action.
@@ -220,11 +220,11 @@ func (b *InMemoryBackend) DeleteServerlessScheduledAction(
 func cloneServerlessScheduledAction(sa *ServerlessScheduledAction) *ServerlessScheduledAction {
 	cp := *sa
 	if sa.Schedule != nil {
-		cp.Schedule = append(json.RawMessage(nil), sa.Schedule...)
+		cp.Schedule = append(jsontext.Value(nil), sa.Schedule...)
 	}
 
 	if sa.TargetAction != nil {
-		cp.TargetAction = append(json.RawMessage(nil), sa.TargetAction...)
+		cp.TargetAction = append(jsontext.Value(nil), sa.TargetAction...)
 	}
 
 	return &cp

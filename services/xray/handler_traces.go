@@ -2,10 +2,11 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -222,7 +223,7 @@ func validateSamplingStrategy(ss *samplingStrategyInput) error {
 func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byte, error) {
 	var in getTraceSummariesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -280,7 +281,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		// per-TraceSummary field.
 		"ApproximateTime": float64(time.Now().Unix()),
 		keyNextToken:      pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 type batchGetTracesInput struct {
@@ -302,7 +303,7 @@ type traceOutput struct {
 func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, error) {
 	var in batchGetTracesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -341,7 +342,7 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 					ID string `json:"id"`
 				}
 
-				if err := json.Unmarshal([]byte(rawDoc), &hdr); err == nil {
+				if err := json.Unmarshal([]byte(rawDoc), &hdr, jsonx.V1()); err == nil {
 					segViews = append(segViews, batchSegmentOutput{
 						ID:       hdr.ID,
 						Document: rawDoc,
@@ -360,5 +361,5 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 	return json.Marshal(map[string]any{
 		"Traces":              traces,
 		"UnprocessedTraceIds": unprocessed,
-	})
+	}, jsonx.V1())
 }

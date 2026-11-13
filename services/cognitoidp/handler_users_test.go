@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -36,7 +37,7 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 		Session             *string           `json:"Session,omitempty"`
 		ChallengeParameters map[string]string `json:"ChallengeParameters,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
+	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp, jsonx.V1()))
 	require.NotNil(t, initResp.ChallengeName)
 	assert.Equal(t, "PASSWORD_VERIFIER", *initResp.ChallengeName)
 
@@ -55,7 +56,7 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(respRec.Body.Bytes(), &tokenResp))
+	require.NoError(t, json.Unmarshal(respRec.Body.Bytes(), &tokenResp, jsonx.V1()))
 	require.NotNil(t, tokenResp.AuthenticationResult)
 	assert.NotEmpty(t, tokenResp.AuthenticationResult.AccessToken)
 }
@@ -81,7 +82,7 @@ func TestHandler_AdminCreateUser_PolicyEnforced(t *testing.T) {
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp.UserPool.ID
 
 	rec := doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -144,7 +145,7 @@ func TestAuthFlow_UserPasswordAuth(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				authResult, ok := resp["AuthenticationResult"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, authResult["AccessToken"])
@@ -173,7 +174,7 @@ func TestAdminCreateUser(t *testing.T) {
 			Username string `json:"Username"`
 		} `json:"User"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "adminuser", resp.User.Username)
 }
 
@@ -200,7 +201,7 @@ func TestAdminCreateUser_Suppress(t *testing.T) {
 			UserStatus string `json:"UserStatus,omitempty"`
 		} `json:"User"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.User)
 	assert.Equal(t, "suppressed-user", out.User.Username)
 	assert.Equal(t, "FORCE_CHANGE_PASSWORD", out.User.UserStatus)
@@ -234,7 +235,7 @@ func TestAdminCreateUser_Resend(t *testing.T) {
 			UserStatus string `json:"UserStatus,omitempty"`
 		} `json:"User"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.User)
 	assert.Equal(t, "resend-user", out.User.Username)
 }
@@ -261,7 +262,7 @@ func TestAdminCreateUser_DeliveryMediums(t *testing.T) {
 			Username string `json:"Username,omitempty"`
 		} `json:"User"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.User)
 	assert.Equal(t, "delivery-user", out.User.Username)
 }
@@ -299,7 +300,7 @@ func TestAdminSetUserPassword_Permanent(t *testing.T) {
 	var out struct {
 		UserStatus string `json:"UserStatus,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "CONFIRMED", out.UserStatus)
 }
 
@@ -335,7 +336,7 @@ func TestAdminSetUserPassword_Temporary(t *testing.T) {
 	var out struct {
 		UserStatus string `json:"UserStatus,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "FORCE_CHANGE_PASSWORD", out.UserStatus)
 }
 
@@ -355,7 +356,7 @@ func TestUserSettings_And_AuthFactors(t *testing.T) {
 		Username                  string   `json:"Username,omitempty"`
 		ConfiguredUserAuthFactors []string `json:"ConfiguredUserAuthFactors,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp, jsonx.V1()))
 	assert.Equal(t, "settings-user", factorsResp.Username)
 	assert.Contains(t, factorsResp.ConfiguredUserAuthFactors, "PASSWORD")
 	assert.NotContains(t, factorsResp.ConfiguredUserAuthFactors, "SMS_OTP")
@@ -372,7 +373,7 @@ func TestUserSettings_And_AuthFactors(t *testing.T) {
 
 	rec = doCognitoRequest(t, h, "GetUserAuthFactors", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp, jsonx.V1()))
 	assert.Contains(t, factorsResp.ConfiguredUserAuthFactors, "SMS_OTP")
 
 	// Register a WebAuthn credential -> WEB_AUTHN factor appears too.
@@ -384,7 +385,7 @@ func TestUserSettings_And_AuthFactors(t *testing.T) {
 
 	rec = doCognitoRequest(t, h, "GetUserAuthFactors", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &factorsResp, jsonx.V1()))
 	assert.Contains(t, factorsResp.ConfiguredUserAuthFactors, "WEB_AUTHN")
 
 	// AdminSetUserSettings — admin variant, same persisted state.
@@ -486,7 +487,7 @@ func TestHandler_AdminGetUserAuthFactors(t *testing.T) {
 				PreferredMfaSetting       string   `json:"PreferredMfaSetting,omitempty"`
 				UserMFASettingList        []string `json:"UserMFASettingList,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, username, resp.Username)
 			assert.Contains(t, resp.ConfiguredUserAuthFactors, "PASSWORD")
 			assert.Contains(t, resp.ConfiguredUserAuthFactors, "SMS_OTP")
@@ -570,7 +571,7 @@ func TestHandler_AdminCreateUser(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -622,7 +623,7 @@ func TestHandler_AdminSetUserPassword(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 				poolID := resp["UserPool"]["Id"].(string)
 
 				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{

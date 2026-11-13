@@ -1,10 +1,12 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // controlInputParameterJSON is ControlInputParameter's wire shape: a single
@@ -98,7 +100,7 @@ type createFrameworkBody struct {
 
 func (h *Handler) handleCreateFramework(c *echo.Context, body []byte) error {
 	var in createFrameworkBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -193,7 +195,7 @@ func (h *Handler) handleUpdateFramework(c *echo.Context, name string, body []byt
 
 	var in updateFrameworkBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),

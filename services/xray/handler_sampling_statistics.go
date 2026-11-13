@@ -2,9 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -23,7 +24,7 @@ type getSamplingStatisticSummariesInput struct {
 func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, body []byte) ([]byte, error) {
 	var in getSamplingStatisticSummariesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -50,7 +51,7 @@ func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, body []
 	return json.Marshal(map[string]any{
 		"SamplingStatisticSummaries": pg.Data,
 		keyNextToken:                 pg.Next,
-	})
+	}, jsonx.V1())
 }
 
 type samplingStatisticsDocumentInput struct {
@@ -104,7 +105,7 @@ type unprocessedStatisticsView struct {
 func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]byte, error) {
 	var in getSamplingTargetsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -156,5 +157,5 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 		"UnprocessedStatistics":      unprocessedViews,
 		"UnprocessedBoostStatistics": unprocessedBoostViews,
 		"LastRuleModification":       lastModTS,
-	})
+	}, jsonx.V1())
 }

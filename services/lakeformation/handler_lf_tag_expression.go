@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
 	var in createLFTagExpressionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -32,7 +34,7 @@ func (h *Handler) handleCreateLFTagExpression(_ context.Context, c *echo.Context
 
 func (h *Handler) handleDeleteLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
 	var in deleteLFTagExpressionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -50,7 +52,7 @@ func (h *Handler) handleDeleteLFTagExpression(_ context.Context, c *echo.Context
 func (h *Handler) handleListLFTagExpressions(_ context.Context, c *echo.Context, body []byte) error {
 	var in listLFTagExpressionsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -65,7 +67,7 @@ func (h *Handler) handleListLFTagExpressions(_ context.Context, c *echo.Context,
 
 func (h *Handler) handleGetLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
 	var in getLFTagExpressionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	expr, err := h.Backend.GetLFTagExpression(in.Name, in.CatalogID)
@@ -83,7 +85,7 @@ func (h *Handler) handleGetLFTagExpression(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleUpdateLFTagExpression(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateLFTagExpressionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	if strings.TrimSpace(in.Name) == "" {

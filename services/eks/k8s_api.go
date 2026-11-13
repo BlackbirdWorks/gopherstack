@@ -5,13 +5,15 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -111,7 +113,7 @@ func (a *k8sAPI) getJSON(ctx context.Context, path string, out any) error {
 		return err
 	}
 
-	if err = json.Unmarshal(raw, out); err != nil {
+	if err = json.Unmarshal(raw, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 
@@ -120,7 +122,7 @@ func (a *k8sAPI) getJSON(ctx context.Context, path string, out any) error {
 
 // apply server-side-applies obj (JSON is valid YAML) at path, forcing field ownership.
 func (a *k8sAPI) apply(ctx context.Context, path string, obj any) error {
-	raw, err := json.Marshal(obj)
+	raw, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
@@ -132,7 +134,7 @@ func (a *k8sAPI) apply(ctx context.Context, path string, obj any) error {
 }
 
 func (a *k8sAPI) mergePatch(ctx context.Context, path string, patch any) error {
-	raw, err := json.Marshal(patch)
+	raw, err := json.Marshal(patch, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}

@@ -2,7 +2,7 @@ package rum_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/rum"
 )
@@ -250,7 +251,7 @@ func mustJSON(t *testing.T, s string) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(s), &m))
+	require.NoError(t, json.Unmarshal([]byte(s), &m, jsonx.V1()))
 
 	return m
 }

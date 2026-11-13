@@ -2,8 +2,10 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // invokeRDSDataSource runs the mapped statements through the RDS Data API and
@@ -51,7 +53,7 @@ func invokeRDSDataSource(
 		results = append(results, out)
 	}
 
-	raw, err := json.Marshal(map[string]any{"sqlStatementResults": results})
+	raw, err := json.Marshal(map[string]any{"sqlStatementResults": results}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("rds result is not JSON-serializable: %w", err)
 	}

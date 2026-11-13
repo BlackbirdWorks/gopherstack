@@ -40,6 +40,7 @@ func TestSQSDashboard(t *testing.T) {
 	// Navigate to the Dashboard SQS page
 	_, err = page.Goto(server.URL + "/dashboard/sqs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the SQS Queues heading
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

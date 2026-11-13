@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path"
 	"sort"
@@ -14,6 +14,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -89,7 +91,7 @@ func renderReport(format string, t reportTable) ([]byte, string, error) {
 			recs = append(recs, rec)
 		}
 
-		body, err := json.Marshal(recs)
+		body, err := json.Marshal(recs, jsonx.V1())
 		if err != nil {
 			return nil, "", fmt.Errorf("encode JSON report: %w", err)
 		}

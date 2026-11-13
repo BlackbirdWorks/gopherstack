@@ -2,7 +2,7 @@ package appconfig_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
@@ -26,7 +27,7 @@ func TestHandler_GetConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(
 		t,
@@ -38,14 +39,14 @@ func TestHandler_GetConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"conf-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	tests := []struct {
 		name       string
@@ -94,7 +95,7 @@ func TestHandler_GetConfiguration_WithContent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(
 		t,
@@ -106,14 +107,14 @@ func TestHandler_GetConfiguration_WithContent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var env appconfig.Environment
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"content-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	// Create a hosted configuration version.
 	e := echo.New()
@@ -143,7 +144,7 @@ func TestHandler_GetConfiguration_WithContent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var strat appconfig.DeploymentStrategy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat, jsonx.V1()))
 
 	depBody := []byte(
 		`{"ConfigurationProfileId":"` + profile.ID +
@@ -171,14 +172,14 @@ func TestHandler_ValidateConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"validate-profile","LocationUri":"hosted","Type":"AWS.Freeform"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	validatorBase := "/applications/" + app.ID + "/configurationprofiles/" + profile.ID + "/validators"
 

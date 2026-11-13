@@ -2,14 +2,16 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDescribeAccountSettings(ctx context.Context) ([]byte, error) {
 	settings := h.Backend.DescribeAccountSettings(ctx)
 
-	return json.Marshal(buildAccountSettingsResponse(settings))
+	return json.Marshal(buildAccountSettingsResponse(settings), jsonx.V1())
 }
 
 func buildAccountSettingsResponse(settings AccountSettings) map[string]any {
@@ -32,7 +34,7 @@ func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, 
 		ValidateOnly bool   `json:"ValidateOnly"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -49,7 +51,7 @@ func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, 
 		"QueryString": result.QueryString,
 		"Columns":     marshalSelectColumns(result.Selected),
 		"Parameters":  marshalColumnInfos(result.Parameters),
-	})
+	}, jsonx.V1())
 }
 
 // updateAccountSettingsRequest is the parsed request body for
@@ -119,7 +121,7 @@ func (nc *accountSettingsNotificationConfigWire) toModel() *AccountSettingsNotif
 func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateAccountSettingsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -130,7 +132,7 @@ func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
-	return json.Marshal(buildAccountSettingsResponse(settings))
+	return json.Marshal(buildAccountSettingsResponse(settings), jsonx.V1())
 }
 
 func marshalSelectColumns(cols []SelectColumn) []map[string]any {

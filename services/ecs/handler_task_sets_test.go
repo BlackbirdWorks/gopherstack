@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -70,7 +71,7 @@ func TestTaskSet_ExternalController_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	taskSet := createOut["taskSet"].(map[string]any)
 	taskSetArn := taskSet["taskSetArn"].(string)
 	require.NotEmpty(t, taskSetArn)
@@ -85,7 +86,7 @@ func TestTaskSet_ExternalController_CreateDescribeDelete(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, describeResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &descOut, jsonx.V1()))
 	taskSets := descOut["taskSets"].([]any)
 	require.Len(t, taskSets, 1)
 
@@ -131,7 +132,7 @@ func TestTaskSet_DescribeUpdateDeleteByShortID(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	taskSet := createOut["taskSet"].(map[string]any)
 	shortID := taskSet["id"].(string)
 	require.NotEmpty(t, shortID)
@@ -145,7 +146,7 @@ func TestTaskSet_DescribeUpdateDeleteByShortID(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeResp.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &descOut, jsonx.V1()))
 	require.Len(t, descOut["taskSets"].([]any), 1)
 	require.Empty(t, descOut["failures"])
 
@@ -191,7 +192,7 @@ func TestTaskSet_UpdateScale(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createResp.Code)
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	taskSetArn := createOut["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 	// Update scale to 100%
@@ -203,7 +204,7 @@ func TestTaskSet_UpdateScale(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, updateResp.Code)
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updateOut, jsonx.V1()))
 	updatedScale := updateOut["taskSet"].(map[string]any)["scale"].(map[string]any)
 	assert.InDelta(t, float64(100), updatedScale["value"], 0.001)
 }
@@ -235,7 +236,7 @@ func TestTaskSet_UpdateServicePrimaryTaskSet_Switch(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp1.Code)
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(resp1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(resp1.Body.Bytes(), &out1, jsonx.V1()))
 	taskSet1Arn := out1["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 	resp2 := doECSRequest(t, h, "CreateTaskSet", map[string]any{
@@ -246,7 +247,7 @@ func TestTaskSet_UpdateServicePrimaryTaskSet_Switch(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp2.Code)
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(resp2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(resp2.Body.Bytes(), &out2, jsonx.V1()))
 	taskSet2Arn := out2["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 	// Update primary task set to ts1
@@ -265,7 +266,7 @@ func TestTaskSet_UpdateServicePrimaryTaskSet_Switch(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	ts := descOut["taskSets"].([]any)[0].(map[string]any)
 	assert.Equal(t, "PRIMARY", ts["status"])
 
@@ -285,7 +286,7 @@ func TestTaskSet_UpdateServicePrimaryTaskSet_Switch(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp2.Code)
 	var descOut2 map[string]any
-	require.NoError(t, json.Unmarshal(descResp2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(descResp2.Body.Bytes(), &descOut2, jsonx.V1()))
 	ts1After := descOut2["taskSets"].([]any)[0].(map[string]any)
 	assert.NotEqual(t, "PRIMARY", ts1After["status"])
 }
@@ -325,7 +326,7 @@ func TestTaskSet_DescribeAll_NoFilter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out["taskSets"].([]any), 3)
 }
 
@@ -398,7 +399,7 @@ func TestECS_CreateTaskSet(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				ts := resp["taskSet"].(map[string]any)
 				assert.NotEmpty(t, ts["taskSetArn"])
@@ -447,7 +448,7 @@ func TestECS_DescribeTaskSets(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				tsArn := createResp["taskSet"].(map[string]any)["taskSetArn"].(string)
 
@@ -486,7 +487,7 @@ func TestECS_DescribeTaskSets(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				sets := resp["taskSets"].([]any)
 				assert.Len(t, sets, tt.wantLen)
@@ -517,7 +518,7 @@ func TestECS_UpdateTaskSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				tsArn := createResp["taskSet"].(map[string]any)["taskSetArn"].(string)
 
@@ -558,7 +559,7 @@ func TestECS_UpdateTaskSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				tsArn := createResp["taskSet"].(map[string]any)["taskSetArn"].(string)
 
@@ -585,7 +586,7 @@ func TestECS_UpdateTaskSet(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				ts := resp["taskSet"].(map[string]any)
 				scale := ts["scale"].(map[string]any)
@@ -616,7 +617,7 @@ func TestECS_DeleteTaskSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				tsArn := createResp["taskSet"].(map[string]any)["taskSetArn"].(string)
 
@@ -670,7 +671,7 @@ func TestECS_DeleteTaskSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 				sets, _ := resp["taskSets"].([]any)
 				assert.Empty(t, sets)
@@ -704,7 +705,7 @@ func TestECS_UpdateServicePrimaryTaskSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec1.Code)
 
 				var ts1Resp map[string]any
-				require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &ts1Resp))
+				require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &ts1Resp, jsonx.V1()))
 
 				ts1Arn := ts1Resp["taskSet"].(map[string]any)["taskSetArn"].(string)
 
@@ -763,7 +764,7 @@ func TestECS_UpdateServicePrimaryTaskSet(t *testing.T) {
 
 			if tt.wantPrimary {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				ts := resp["taskSet"].(map[string]any)
 				assert.Equal(t, input["_ts1Arn"], ts["taskSetArn"])
@@ -816,7 +817,7 @@ func TestTaskSet_LoadBalancers_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	ts := out["taskSet"].(map[string]any)
 
 	lbs := ts["loadBalancers"].([]any)
@@ -867,7 +868,7 @@ func TestTaskSet_ServiceRegistries_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	ts := out["taskSet"].(map[string]any)
 	srs := ts["serviceRegistries"].([]any)
 	require.Len(t, srs, 1)
@@ -907,7 +908,7 @@ func TestTaskSet_DescribePreservesLBAndNC(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createResp.Code)
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	tsArn := createOut["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 	descResp := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
@@ -917,7 +918,7 @@ func TestTaskSet_DescribePreservesLBAndNC(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	sets := descOut["taskSets"].([]any)
 	require.Len(t, sets, 1)
 	ts := sets[0].(map[string]any)
@@ -945,7 +946,7 @@ func TestDescribeTaskSets_TagsRequireInclude(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	taskSetArn := createOut["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 	// CreateTaskSet echoes tags unconditionally (no Include gating on Create).
@@ -963,7 +964,7 @@ func TestDescribeTaskSets_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ts := resp["taskSets"].([]any)[0].(map[string]any)
 		assert.Nil(t, ts["tags"])
 	})
@@ -980,7 +981,7 @@ func TestDescribeTaskSets_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ts := resp["taskSets"].([]any)[0].(map[string]any)
 		tags := ts["tags"].([]any)
 		require.Len(t, tags, 1)
@@ -1010,7 +1011,7 @@ func TestCreateTaskSet_CapacityProviderStrategy_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	strategy := out["taskSet"].(map[string]any)["capacityProviderStrategy"].([]any)
 	require.Len(t, strategy, 2)
 }
@@ -1039,7 +1040,7 @@ func TestDescribeTaskSets_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		sets, _ := resp["taskSets"].([]any)
 		assert.Empty(t, sets)
@@ -1066,7 +1067,7 @@ func TestDescribeTaskSets_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, createResp.Code)
 
 		var created map[string]any
-		require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+		require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 		realArn := created["taskSet"].(map[string]any)["taskSetArn"].(string)
 
 		rec := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
@@ -1077,7 +1078,7 @@ func TestDescribeTaskSets_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		sets, _ := resp["taskSets"].([]any)
 		require.Len(t, sets, 1)

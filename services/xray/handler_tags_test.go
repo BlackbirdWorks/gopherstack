@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -23,7 +24,7 @@ func createTaggableGroup(t *testing.T, h *xray.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	group, ok := resp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -83,7 +84,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tags, _ := resp["Tags"].([]any)
 				assert.Len(t, tags, tt.wantTags)
 				assert.Contains(t, resp, "NextToken")
@@ -111,7 +112,7 @@ func TestHandler_ListTagsForResource_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tagsList, _ := resp["Tags"].([]any)
 	assert.Len(t, tagsList, len(tags))
@@ -173,7 +174,7 @@ func TestTags_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			tags, ok := resp["Tags"].([]any)
 			require.True(t, ok)
@@ -204,7 +205,7 @@ func TestTags_UntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, _ := resp["Tags"].([]any)
 	assert.Len(t, tags, 1, "only key2 should remain after untagging key1")
@@ -222,7 +223,7 @@ func TestTags_TagResource_UnknownResourceReturns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -238,7 +239,7 @@ func TestTags_UntagResource_UnknownResourceReturns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -260,6 +261,6 @@ func TestTags_TagResource_ExceedsMaxTagsReturns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TooManyTagsException", resp["__type"])
 }

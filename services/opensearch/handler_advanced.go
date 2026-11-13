@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -159,7 +160,7 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 		PerformCheckOnly bool   `json:"PerformCheckOnly"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	upgradeErr := h.Backend.CheckUpgradeDomain(req.DomainName, req.TargetVersion)

@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -48,7 +50,7 @@ type createFlowDefinitionInput struct {
 func (h *Handler) handleCreateFlowDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req createFlowDefinitionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) handleCreateFlowDefinition(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyFlowDefinitionArn: result.FlowDefinitionArn})
+	return json.Marshal(map[string]any{keyFlowDefinitionArn: result.FlowDefinitionArn}, jsonx.V1())
 }
 
 // describeFlowDefinitionInput mirrors DescribeFlowDefinitionInput
@@ -109,7 +111,7 @@ type describeFlowDefinitionInput struct {
 func (h *Handler) handleDescribeFlowDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeFlowDefinitionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -122,7 +124,7 @@ func (h *Handler) handleDescribeFlowDefinition(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteFlowDefinitionInput mirrors DeleteFlowDefinitionInput
@@ -134,7 +136,7 @@ type deleteFlowDefinitionInput struct {
 func (h *Handler) handleDeleteFlowDefinition(ctx context.Context, body []byte) error {
 	var req deleteFlowDefinitionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -163,7 +165,7 @@ type listFlowDefinitionsInput struct {
 func (h *Handler) handleListFlowDefinitions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listFlowDefinitionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

@@ -46,6 +46,7 @@ func TestTranscribeDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -81,6 +82,7 @@ func TestTranscribeDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -124,6 +126,7 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/transcribe")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

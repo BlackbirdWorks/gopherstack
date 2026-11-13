@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -698,7 +699,7 @@ func TestInputTransformer_ProducesValidJSON(t *testing.T) {
 				assert.JSONEq(t, tt.wantJSONEq, got)
 			}
 			if tt.wantValid {
-				assert.True(t, json.Valid([]byte(got)), "expected valid JSON, got %q", got)
+				assert.True(t, jsontext.Value([]byte(got)).IsValid(jsonx.V1()), "expected valid JSON, got %q", got)
 			}
 		})
 	}
@@ -744,7 +745,7 @@ func TestInputTransformer_ValueContextEndToEnd(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	msg := sqsMock.MessagesFor(queueARN)[0]
-	assert.True(t, json.Valid([]byte(msg)), "delivered payload must be valid JSON: %q", msg)
+	assert.True(t, jsontext.Value([]byte(msg)).IsValid(jsonx.V1()), "delivered payload must be valid JSON: %q", msg)
 	assert.JSONEq(t, `{"wrapped":"it.svc"}`, msg)
 }
 

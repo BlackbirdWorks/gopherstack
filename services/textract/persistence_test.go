@@ -2,11 +2,14 @@ package textract //nolint:testpackage // needs access to the unexported region c
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Test_PersistenceRoundTrip proves that every store.Table-backed resource
@@ -201,11 +204,11 @@ func Test_PersistenceVersionMismatch(t *testing.T) {
 			rewrite: func(t *testing.T, snap []byte) []byte {
 				t.Helper()
 
-				var m map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(snap, &m))
+				var m map[string]jsontext.Value
+				require.NoError(t, json.Unmarshal(snap, &m, jsonx.V1()))
 				delete(m, "version")
 
-				out, err := json.Marshal(m)
+				out, err := json.Marshal(m, jsonx.V1())
 				require.NoError(t, err)
 
 				return out
@@ -264,16 +267,16 @@ func Test_PersistenceVersionMismatch(t *testing.T) {
 func rewriteSnapshotVersion(t *testing.T, snap []byte, version int) []byte {
 	t.Helper()
 
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(snap, &m))
+	require.NoError(t, json.Unmarshal(snap, &m, jsonx.V1()))
 
-	versionJSON, err := json.Marshal(version)
+	versionJSON, err := json.Marshal(version, jsonx.V1())
 	require.NoError(t, err)
 
 	m["version"] = versionJSON
 
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(m, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

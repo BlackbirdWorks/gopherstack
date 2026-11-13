@@ -3,11 +3,13 @@ package ecs
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type fakeEnvStore struct {
@@ -122,7 +124,7 @@ func TestRepositoryCredentials(t *testing.T) {
 
 			var ac map[string]string
 
-			require.NoError(t, json.Unmarshal(raw, &ac))
+			require.NoError(t, json.Unmarshal(raw, &ac, jsonx.V1()))
 			assert.Equal(t, tt.wantUser, ac["username"])
 			assert.Equal(t, "hunter2", ac["password"])
 			assert.Equal(t, "registry.example.com", ac["serveraddress"])

@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte, error) {
@@ -20,7 +22,7 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 		MemberAbilities               []string          `json:"memberAbilities"`
 		IsMetricsEnabled              bool              `json:"isMetricsEnabled"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := firstErr(
 		checkEnum("queryLogStatus", crtypes.MembershipQueryLogStatus(req.QueryLogStatus)),
 		checkEnum("jobLogStatus", crtypes.MembershipJobLogStatus(req.JobLogStatus)),
@@ -50,7 +52,7 @@ func (h *Handler) handleGetMembership(_ context.Context, body []byte) ([]byte, e
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	m, err := h.Backend.GetMembership(req.MembershipIdentifier)
 	if err != nil {
 		return nil, err
@@ -84,7 +86,7 @@ func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte
 		QueryLogStatus                string         `json:"queryLogStatus"`
 		JobLogStatus                  string         `json:"jobLogStatus"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := firstErr(
 		checkEnum("jobLogStatus", crtypes.MembershipJobLogStatus(req.JobLogStatus)),
 		checkEnum("queryLogStatus", crtypes.MembershipQueryLogStatus(req.QueryLogStatus)),
@@ -110,7 +112,7 @@ func (h *Handler) handleDeleteMembership(_ context.Context, body []byte) ([]byte
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteMembership(req.MembershipIdentifier)
 }

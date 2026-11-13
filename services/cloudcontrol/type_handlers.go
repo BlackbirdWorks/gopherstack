@@ -2,13 +2,14 @@ package cloudcontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -38,7 +39,7 @@ func (b *InMemoryBackend) typeHandler(typeName string) TypeHandler {
 }
 
 func marshalModel(model map[string]any) (string, error) {
-	raw, err := json.Marshal(model)
+	raw, err := json.Marshal(model, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -90,7 +91,7 @@ func (b *InMemoryBackend) CreateResourceContext(
 	}
 
 	var desired map[string]any
-	if err := json.Unmarshal([]byte(desiredState), &desired); err != nil {
+	if err := json.Unmarshal([]byte(desiredState), &desired, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: DesiredState must be a JSON object", ErrValidation)
 	}
 
@@ -202,7 +203,7 @@ func (b *InMemoryBackend) UpdateResourceContext(
 	}
 
 	var desired map[string]any
-	if jsonErr := json.Unmarshal([]byte(patched), &desired); jsonErr != nil {
+	if jsonErr := json.Unmarshal([]byte(patched), &desired, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: patched document is not a JSON object", ErrValidation)
 	}
 
@@ -278,7 +279,7 @@ func parseModelFilter(resourceModel string) (map[string]any, bool) {
 
 	var filter map[string]any
 
-	return filter, json.Unmarshal([]byte(resourceModel), &filter) == nil
+	return filter, json.Unmarshal([]byte(resourceModel), &filter, jsonx.V1()) == nil
 }
 
 var errInvalidNextToken = fmt.Errorf("%w: NextToken is not valid", ErrValidation)

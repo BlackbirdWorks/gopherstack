@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -119,7 +120,7 @@ func TestHandler_CreateApiMapping(t *testing.T) {
 
 			if tt.wantAPIIDSet {
 				var mapping apigatewayv2.APIMapping
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping, jsonx.V1()))
 				assert.Equal(t, apiID, mapping.APIID)
 				assert.NotEmpty(t, mapping.APIMappingID)
 			}
@@ -174,7 +175,7 @@ func TestHandler_GetAPIMappings(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.APIMapping `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.mappingsCnt)
 			}
 		})
@@ -230,7 +231,7 @@ func TestHandler_GetAPIMapping(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var mapping apigatewayv2.APIMapping
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping, jsonx.V1()))
 
 			domainName := "example.com"
 			mappingID := mapping.APIMappingID
@@ -299,7 +300,7 @@ func TestHandler_DeleteAPIMapping(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var mapping apigatewayv2.APIMapping
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &mapping, jsonx.V1()))
 
 			domainName := "example.com"
 			mappingID := mapping.APIMappingID
@@ -340,7 +341,7 @@ func TestHandler_UpdateAPIMapping(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var m apigatewayv2.APIMapping
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m, jsonx.V1()))
 
 				return "api.example.com", m.APIMappingID
 			},

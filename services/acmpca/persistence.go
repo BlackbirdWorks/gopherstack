@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -108,7 +108,7 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Policies  map[string]map[string]string `json:"policies"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
@@ -282,7 +282,7 @@ func unwrapRegionalDTOs[V any](dtos *store.Table[regionalDTO[V]], setRegion func
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 
 	if err := dtos.registry.RestoreAll(tables); err != nil {

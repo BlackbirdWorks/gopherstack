@@ -2,12 +2,14 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -230,17 +232,17 @@ func TestDefaultBus_RulesAndRestoreInSiblingRegion(t *testing.T) {
 	_, err = b.CreateEventBus(ctx, eventbridge.CreateEventBusParams{Name: "custom"})
 	require.NoError(t, err)
 
-	var snap map[string]json.RawMessage
+	var snap map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(b.Snapshot(ctx), &snap))
+	require.NoError(t, json.Unmarshal(b.Snapshot(ctx), &snap, jsonx.V1()))
 
-	var tables map[string]json.RawMessage
+	var tables map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(snap["tables"], &tables))
+	require.NoError(t, json.Unmarshal(snap["tables"], &tables, jsonx.V1()))
 
 	var buses []map[string]any
 
-	require.NoError(t, json.Unmarshal(tables["buses/"+euRegion], &buses))
+	require.NoError(t, json.Unmarshal(tables["buses/"+euRegion], &buses, jsonx.V1()))
 
 	legacy := make([]map[string]any, 0, len(buses))
 
@@ -252,13 +254,13 @@ func TestDefaultBus_RulesAndRestoreInSiblingRegion(t *testing.T) {
 
 	require.Len(t, legacy, 1, "legacy snapshot keeps only the custom bus")
 
-	tables["buses/"+euRegion], err = json.Marshal(legacy)
+	tables["buses/"+euRegion], err = json.Marshal(legacy, jsonx.V1())
 	require.NoError(t, err)
 
-	snap["tables"], err = json.Marshal(tables)
+	snap["tables"], err = json.Marshal(tables, jsonx.V1())
 	require.NoError(t, err)
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	restored := eventbridge.NewInMemoryBackend()

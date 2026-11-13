@@ -3,7 +3,7 @@ package azurearm
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // gwState carries one gateway request through the policy pipeline.
@@ -125,7 +127,7 @@ func (g *gwState) subAll(in []string) []string {
 }
 
 func (g *gwState) fail(status int, msg string) {
-	body, _ := json.Marshal(map[string]any{apimCStatusCode: status, fieldMessage: msg})
+	body, _ := json.Marshal(map[string]any{apimCStatusCode: status, fieldMessage: msg}, jsonx.V1())
 	g.setResponse(status, http.Header{apimCContentType: {"application/json"}}, body)
 	g.short = true
 }
@@ -373,7 +375,7 @@ func firstExample(examples map[string]any) ([]byte, bool) {
 		return []byte(s), true
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 
 	return b, err == nil
 }

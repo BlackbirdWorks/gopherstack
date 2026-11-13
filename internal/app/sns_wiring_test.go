@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"testing"
 
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -124,7 +125,7 @@ func TestWireSNSToLambdaFirehose_EndToEndDelivery(t *testing.T) {
 	require.NoError(t, err)
 
 	dlqARN := arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, "lambda-dlq")
-	redrivePolicy, err := json.Marshal(map[string]string{"deadLetterTargetArn": dlqARN})
+	redrivePolicy, err := json.Marshal(map[string]string{"deadLetterTargetArn": dlqARN}, jsonx.V1())
 	require.NoError(t, err)
 	require.NoError(t, snsBk.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy)))
 

@@ -1,13 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -25,7 +26,7 @@ func TestCodeSecurityIntegrationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	integARN, _ := createResp["integrationArn"].(string)
 	require.NotEmpty(t, integARN)
 	assert.Equal(t, "ACTIVE", createResp["status"])
@@ -37,7 +38,7 @@ func TestCodeSecurityIntegrationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, integARN, getResp["integrationArn"])
 
 	// List
@@ -45,7 +46,7 @@ func TestCodeSecurityIntegrationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	integrations, _ := listResp["integrations"].([]any)
 	assert.Len(t, integrations, 1)
 
@@ -132,7 +133,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	cfgARN, _ := createResp["scanConfigurationArn"].(string)
 	require.NotEmpty(t, cfgARN)
 
@@ -143,7 +144,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "ACCOUNT", getResp["level"])
 	assert.NotContains(t, getResp, "status")
 	configuration, ok := getResp["configuration"].(map[string]any)
@@ -155,7 +156,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	cfgs, _ := listResp["configurations"].([]any)
 	require.Len(t, cfgs, 1)
 	summary, ok := cfgs[0].(map[string]any)
@@ -191,7 +192,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var batchAssocResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchAssocResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchAssocResp, jsonx.V1()))
 	successful, _ := batchAssocResp["successfulAssociations"].([]any)
 	assert.Len(t, successful, 1)
 
@@ -202,7 +203,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assocResp, jsonx.V1()))
 	assocs, _ := assocResp["associations"].([]any)
 	assert.Len(t, assocs, 1)
 
@@ -224,7 +225,7 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var assocResp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assocResp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assocResp2, jsonx.V1()))
 	assocs2, _ := assocResp2["associations"].([]any)
 	assert.Empty(t, assocs2)
 
@@ -380,7 +381,7 @@ func TestCodeSecurityScanConfigurationValidation(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		cfgARN, _ := createResp["scanConfigurationArn"].(string)
 		require.NotEmpty(t, cfgARN)
 
@@ -403,7 +404,7 @@ func TestCodeSecurityScanLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	scanID, _ := startResp["scanId"].(string)
 	require.NotEmpty(t, scanID)
 
@@ -414,7 +415,7 @@ func TestCodeSecurityScanLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, scanID, getResp["scanId"])
 }
 
@@ -505,7 +506,7 @@ func TestConnectorLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items, ok := resp["items"].([]any)
 				require.True(t, ok)
 				require.Len(t, items, 1)
@@ -537,7 +538,7 @@ func TestConnectorLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items, _ := resp["items"].([]any)
 				assert.Len(t, items, 1)
 
@@ -553,7 +554,7 @@ func TestConnectorLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
 
 				var resp2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 				items2, _ := resp2["items"].([]any)
 				assert.Empty(t, items2)
 			},
@@ -572,12 +573,12 @@ func TestConnectorLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, connectorArn, resp["connectorArn"])
 
 				listRec := auditDo(t, h, http.MethodPost, "/connector/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				items := listResp["items"].([]any)
 				require.Len(t, items, 1)
 
@@ -612,7 +613,7 @@ func TestConnectorLifecycle(t *testing.T) {
 
 				listRec := auditDo(t, h, http.MethodPost, "/connector/list", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.Empty(t, listResp["items"].([]any))
 			},
 		},
@@ -693,7 +694,7 @@ func TestConnectorScanConfigurationLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				cfgs, ok := listResp["scanConfigurations"].([]any)
 				require.True(t, ok)
 				require.Len(t, cfgs, 1)
@@ -739,7 +740,7 @@ func TestConnectorScanConfigurationLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cfgs, _ := resp["scanConfigurations"].([]any)
 				require.Len(t, cfgs, 1)
 				assert.Equal(t, arnA, cfgs[0].(map[string]any)["awsConfigConnectorArn"])

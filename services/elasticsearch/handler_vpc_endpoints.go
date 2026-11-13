@@ -1,12 +1,13 @@
 package elasticsearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // keyNextToken is the required (always-empty, single-page emulator) pagination
@@ -50,7 +51,7 @@ func (h *Handler) handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request
 	}
 
 	var req createVpcEndpointRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -144,7 +145,7 @@ func (h *Handler) handleAuthorizeVpcEndpointAccess(w http.ResponseWriter, r *htt
 	}
 
 	var req authorizeVpcEndpointAccessRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_SnapshotCopyConfiguration_CRUD(t *testing.T) {
@@ -23,7 +26,7 @@ func TestServerless_SnapshotCopyConfiguration_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	cfg, _ := createResp["snapshotCopyConfiguration"].(map[string]any)
 	require.NotNil(t, cfg)
 	assert.Equal(t, "scc-ns", cfg["namespaceName"])
@@ -37,7 +40,7 @@ func TestServerless_SnapshotCopyConfiguration_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	list, _ := listResp["snapshotCopyConfigurations"].([]any)
 	require.Len(t, list, 1)
 
@@ -48,7 +51,7 @@ func TestServerless_SnapshotCopyConfiguration_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	cfg, _ = updateResp["snapshotCopyConfiguration"].(map[string]any)
 	require.NotNil(t, cfg)
 	assert.InEpsilon(t, float64(30), cfg["snapshotRetentionPeriod"], 0)
@@ -59,14 +62,14 @@ func TestServerless_SnapshotCopyConfiguration_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&deleteResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &deleteResp, jsonx.V1()))
 	cfg, _ = deleteResp["snapshotCopyConfiguration"].(map[string]any)
 	require.NotNil(t, cfg, "DeleteSnapshotCopyConfigurationResponse echoes the deleted object on the real wire")
 	assert.Equal(t, id, cfg["snapshotCopyConfigurationId"])
 
 	rec = doServerlessOp(t, h, "ListSnapshotCopyConfigurations", map[string]any{"namespaceName": "scc-ns"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	list, _ = listResp["snapshotCopyConfigurations"].([]any)
 	assert.Empty(t, list)
 }
@@ -114,7 +117,7 @@ func TestServerless_SnapshotCopyConfiguration_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}

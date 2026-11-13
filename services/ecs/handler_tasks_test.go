@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -78,7 +79,7 @@ func TestECS_RunTask(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				tasks := resp["tasks"].([]any)
 				assert.Len(t, tasks, tt.wantLen)
@@ -105,7 +106,7 @@ func TestECS_DescribeTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp, jsonx.V1()))
 
 	taskArns := make([]string, 0, 2)
 	for _, t := range runResp["tasks"].([]any) {
@@ -117,7 +118,7 @@ func TestECS_DescribeTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2["tasks"].([]any), 2)
 
 	// Describe specific task.
@@ -125,7 +126,7 @@ func TestECS_DescribeTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 	assert.Len(t, resp3["tasks"].([]any), 1)
 }
 
@@ -161,7 +162,7 @@ func TestECS_Handler_RunTask_WithGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tasks := resp["tasks"].([]any)
 	task := tasks[0].(map[string]any)
@@ -202,7 +203,7 @@ func TestECS_Handler_DescribeTasks_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tasks, _ := resp["tasks"].([]any)
 	assert.Empty(t, tasks)
@@ -312,7 +313,7 @@ func TestRunTask_WithOverrides(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 }
@@ -336,7 +337,7 @@ func TestRunTask_Count_Multiple(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	assert.Len(t, tasks, 5)
 
@@ -365,7 +366,7 @@ func TestDescribeTasks_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		tasks, _ := resp["tasks"].([]any)
 		assert.Empty(t, tasks)
@@ -390,7 +391,7 @@ func TestDescribeTasks_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, runResp.Code)
 
 		var runOut map[string]any
-		require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+		require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 		tasksRaw, _ := runOut["tasks"].([]any)
 		require.Len(t, tasksRaw, 1)
 		taskArn := tasksRaw[0].(map[string]any)["taskArn"].(string)
@@ -401,7 +402,7 @@ func TestDescribeTasks_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		tasks, _ := resp["tasks"].([]any)
 		assert.Len(t, tasks, 1)
@@ -438,7 +439,7 @@ func TestDescribeTasks_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		tasks, _ := resp["tasks"].([]any)
 		assert.Empty(t, tasks)
@@ -471,7 +472,7 @@ func TestHandler_RunTask_NetworkConfiguration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)
@@ -558,7 +559,7 @@ func TestHandler_RunTask_PropagateTags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)

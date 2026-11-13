@@ -2,12 +2,14 @@ package workmail
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -95,7 +97,7 @@ func validatePageParams(body []byte) error {
 		NextToken  *string `json:"NextToken"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.MaxResults != nil && (*req.MaxResults < minPageSize || *req.MaxResults > defaultPageSize) {
 		return fmt.Errorf("%w: MaxResults must be between %d and %d", ErrValidation, minPageSize, defaultPageSize)
@@ -188,7 +190,7 @@ func organizationIDOf(body []byte) string {
 		OrganizationID string `json:"OrganizationId"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return req.OrganizationID
 }

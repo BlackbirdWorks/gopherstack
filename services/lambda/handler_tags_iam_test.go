@@ -1,7 +1,7 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -154,7 +155,7 @@ func TestHandler_TagsRoute(t *testing.T) {
 
 			if tt.wantTagsNotNil || len(tt.wantTagValues) > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				if tt.wantTagsNotNil {
 					assert.NotNil(t, resp["Tags"])
 				}
@@ -173,7 +174,7 @@ func TestHandler_TagsRoute(t *testing.T) {
 
 				if len(tt.verifyTagValues) > 0 || len(tt.verifyTagAbsent) > 0 {
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp, jsonx.V1()))
 					tags, ok := resp["Tags"].(map[string]any)
 					require.True(t, ok)
 					for k, v := range tt.verifyTagValues {

@@ -2,8 +2,10 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // associationObject is the JSON representation of a ResourceShareAssociation.
@@ -46,7 +48,7 @@ type associateResourceShareResponse struct {
 
 func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) ([]byte, error) {
 	var req associateResourceShareRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -86,7 +88,7 @@ func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) (
 		objs = append(objs, toAssociationObject(a))
 	}
 
-	return json.Marshal(associateResourceShareResponse{ResourceShareAssociations: objs})
+	return json.Marshal(associateResourceShareResponse{ResourceShareAssociations: objs}, jsonx.V1())
 }
 
 type disassociateResourceShareRequest struct {
@@ -102,7 +104,7 @@ type disassociateResourceShareResponse struct {
 
 func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte) ([]byte, error) {
 	var req disassociateResourceShareRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -129,7 +131,7 @@ func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte
 		objs = append(objs, toAssociationObject(a))
 	}
 
-	return json.Marshal(disassociateResourceShareResponse{ResourceShareAssociations: objs})
+	return json.Marshal(disassociateResourceShareResponse{ResourceShareAssociations: objs}, jsonx.V1())
 }
 
 type getResourceShareAssociationsRequest struct {
@@ -152,7 +154,7 @@ func (h *Handler) handleGetResourceShareAssociations(
 	body []byte,
 ) ([]byte, error) {
 	var req getResourceShareAssociationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -194,6 +196,6 @@ func (h *Handler) handleGetResourceShareAssociations(
 	}
 
 	return json.Marshal(
-		getResourceShareAssociationsResponse{NextToken: nextToken, ResourceShareAssociations: page},
+		getResourceShareAssociationsResponse{NextToken: nextToken, ResourceShareAssociations: page}, jsonx.V1(),
 	)
 }

@@ -2,11 +2,13 @@ package fis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -32,11 +34,11 @@ const fisSnapshotVersion = 1
 // snapshot either, so idempotency tokens do not survive a snapshot/restore
 // cycle -- this preserves that pre-existing behaviour unchanged.
 type backendSnapshot struct {
-	Tables      map[string]json.RawMessage `json:"tables"`
-	SafetyLever *SafetyLever               `json:"safetyLever"`
-	AccountID   string                     `json:"accountID"`
-	Region      string                     `json:"region"`
-	Version     int                        `json:"version"`
+	Tables      map[string]jsontext.Value `json:"tables"`
+	SafetyLever *SafetyLever              `json:"safetyLever"`
+	AccountID   string                    `json:"accountID"`
+	Region      string                    `json:"region"`
+	Version     int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -59,7 +61,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:      b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "fis: Snapshot marshal failure", "error", err)
 

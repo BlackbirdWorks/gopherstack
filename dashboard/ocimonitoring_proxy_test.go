@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 )
 
@@ -59,7 +60,7 @@ func newMonitoringDashboard(t *testing.T) (*dashboard.DashboardHandler, string) 
 	}
 
 	require.NoError(t, json.Unmarshal(monSeed(t, e, http.MethodGet,
-		"/20180401/alarms?compartmentId="+monComp, ""), &alarms))
+		"/20180401/alarms?compartmentId="+monComp, ""), &alarms, jsonx.V1()))
 	require.Len(t, alarms, 1)
 
 	return dashboard.NewHandler(dashboard.Config{OCIMonitoringOps: ops}), alarms[0].ID

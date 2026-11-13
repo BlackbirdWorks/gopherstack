@@ -2,8 +2,10 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
@@ -15,7 +17,7 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, e
 		} `json:"Tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
@@ -42,7 +44,7 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte,
 		TagKeys     []string `json:"TagKeys"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -54,7 +56,7 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
@@ -62,7 +64,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 		ResourceARN string `json:"ResourceARN"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -77,5 +79,5 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 
 	return json.Marshal(map[string]any{
 		"Tags": tags,
-	})
+	}, jsonx.V1())
 }

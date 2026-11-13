@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -17,6 +17,7 @@ import (
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -221,7 +222,7 @@ func (r *runner) writeManifest(bucket, prefix string, lines []manifestLine) (str
 	var sb strings.Builder
 
 	for _, l := range lines {
-		raw, err := json.Marshal(l)
+		raw, err := json.Marshal(l, jsonx.V1())
 		if err != nil {
 			return "", fmt.Errorf("encode manifest: %w", err)
 		}

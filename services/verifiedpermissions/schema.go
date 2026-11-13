@@ -1,18 +1,20 @@
 package verifiedpermissions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractSchemaNamespaces parses a Cedar JSON schema and returns its top-level namespace keys.
 func extractSchemaNamespaces(schemaJSON string) []string {
-	var top map[string]json.RawMessage
+	var top map[string]jsontext.Value
 
-	if err := json.Unmarshal([]byte(schemaJSON), &top); err != nil {
+	if err := json.Unmarshal([]byte(schemaJSON), &top, jsonx.V1()); err != nil {
 		return []string{}
 	}
 
@@ -31,7 +33,7 @@ func (b *InMemoryBackend) PutSchema(policyStoreID, schema string) ([]string, err
 	}
 
 	// Validate JSON format.
-	if !json.Valid([]byte(schema)) {
+	if !jsontext.Value([]byte(schema)).IsValid(jsonx.V1()) {
 		return nil, fmt.Errorf("%w: schema is not valid JSON", ErrValidation)
 	}
 

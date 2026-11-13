@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -51,7 +52,7 @@ func jsonField(t *testing.T, body []byte, key string) string {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(body, &m))
+	require.NoError(t, json.Unmarshal(body, &m, jsonx.V1()))
 
 	v, ok := m[key]
 	require.True(t, ok, "key %q missing", key)
@@ -75,7 +76,7 @@ func athenaDoPass5(t *testing.T, h *athena.Handler, action, body string) *httpte
 func athenaUnmarshalPass5(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -104,7 +105,7 @@ func a1Unmarshal(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -136,7 +137,7 @@ func TestHandler_UnknownOperation(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.NotEmpty(t, errResp["__type"])
 		})
 	}

@@ -1,12 +1,14 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetIndexingRules(t *testing.T) {
@@ -33,7 +35,7 @@ func TestHandler_GetIndexingRules(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			rules, ok := resp["IndexingRules"].([]any)
 			require.True(t, ok)
@@ -80,7 +82,7 @@ func TestHandler_GetIndexingRules_Pagination(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			rules, _ := resp["IndexingRules"].([]any)
 			assert.GreaterOrEqual(t, len(rules), tt.wantMin)
@@ -98,7 +100,7 @@ func TestIndexingRules_GetDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rules, ok := resp["IndexingRules"].([]any)
 	require.True(t, ok)
@@ -114,7 +116,7 @@ func TestIndexingRules_UpdateModifiesTimestamp(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rule, ok := resp["IndexingRule"].(map[string]any)
 	require.True(t, ok)
@@ -147,7 +149,7 @@ func TestIndexingRules_UpdateAppliesProbabilisticRule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rule, ok := resp["IndexingRule"].(map[string]any)
 	require.True(t, ok)
@@ -165,7 +167,7 @@ func TestIndexingRules_UpdateAppliesProbabilisticRule(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	rules, ok := getResp["IndexingRules"].([]any)
 	require.True(t, ok)
@@ -197,7 +199,7 @@ func TestHandler_UpdateIndexingRule_NotFoundReturnsResourceNotFoundException(t *
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// UpdateIndexingRule's modeled error set uses ResourceNotFoundException, unlike
 	// most other X-Ray not-found cases (which use InvalidRequestException).
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])

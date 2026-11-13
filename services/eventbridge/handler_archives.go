@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createArchiveOutput struct {
@@ -86,7 +88,7 @@ func (h *Handler) archiveActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateArchiveInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			archive, err := h.Backend.CreateArchive(ctx, input)
@@ -111,7 +113,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 			var input struct {
 				ArchiveName string `json:"ArchiveName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -121,7 +123,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 			var input struct {
 				ArchiveName string `json:"ArchiveName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -140,7 +142,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 				NextToken      string `json:"NextToken"`
 				Limit          int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			archives, next, err := h.Backend.ListArchives(
@@ -162,7 +164,7 @@ func (h *Handler) extendedArchiveActions() map[string]actionFn {
 		},
 		"UpdateArchive": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateArchiveInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			archive, err := h.Backend.UpdateArchive(ctx, input)

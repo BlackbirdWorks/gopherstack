@@ -1,7 +1,7 @@
 package kql_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor/kql"
 )
 
@@ -78,7 +79,7 @@ func render(rel *kql.Rel) (string, string) {
 		}
 	}
 
-	raw, _ := json.Marshal(rows)
+	raw, _ := json.Marshal(rows, jsonx.V1())
 
 	return cols, string(raw)
 }

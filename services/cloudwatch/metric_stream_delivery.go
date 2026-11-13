@@ -2,9 +2,10 @@ package cloudwatch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -105,7 +106,7 @@ func buildMetricStreamRecords(
 			Unit:             d.Unit,
 		}
 
-		body, err := json.Marshal(rec)
+		body, err := json.Marshal(rec, jsonx.V1())
 		if err != nil {
 			continue
 		}

@@ -1,13 +1,16 @@
 package sns
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // GetTopicAttributes returns the attributes of a topic.
@@ -89,9 +92,9 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 // policyDocument mirrors the shape of an SNS access-control policy document
 // (docs.aws.amazon.com/sns/latest/dg/sns-access-policy-use-cases.html).
 type policyDocument struct {
-	Version   string            `json:"Version"`
-	ID        string            `json:"Id,omitempty"`
-	Statement []json.RawMessage `json:"Statement"`
+	Version   string           `json:"Version"`
+	ID        string           `json:"Id,omitempty"`
+	Statement []jsontext.Value `json:"Statement"`
 }
 
 // policyStatement is a single Allow statement built from an AddPermission grant.
@@ -120,7 +123,7 @@ func mergePermissionsIntoPolicy(basePolicy, topicArn string, perms map[string]*T
 	}
 
 	var doc policyDocument
-	if err := json.Unmarshal([]byte(basePolicy), &doc); err != nil || doc.Version == "" {
+	if err := json.Unmarshal([]byte(basePolicy), &doc, jsonx.V1()); err != nil || doc.Version == "" {
 		doc.Version = "2012-10-17"
 	}
 
@@ -131,13 +134,13 @@ func mergePermissionsIntoPolicy(basePolicy, topicArn string, perms map[string]*T
 
 	sort.Strings(labels)
 
-	kept := make([]json.RawMessage, 0, len(doc.Statement))
+	kept := make([]jsontext.Value, 0, len(doc.Statement))
 
 	for _, raw := range doc.Statement {
 		var sid struct {
 			Sid string `json:"Sid"`
 		}
-		if err := json.Unmarshal(raw, &sid); err == nil {
+		if err := json.Unmarshal(raw, &sid, jsonx.V1()); err == nil {
 			if _, isPermission := perms[sid.Sid]; isPermission {
 				continue
 			}
@@ -147,7 +150,7 @@ func mergePermissionsIntoPolicy(basePolicy, topicArn string, perms map[string]*T
 	}
 
 	for _, label := range labels {
-		raw, err := json.Marshal(permissionStatement(topicArn, perms[label]))
+		raw, err := json.Marshal(permissionStatement(topicArn, perms[label]), jsonx.V1())
 		if err != nil {
 			continue
 		}
@@ -157,7 +160,7 @@ func mergePermissionsIntoPolicy(basePolicy, topicArn string, perms map[string]*T
 
 	doc.Statement = kept
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return basePolicy
 	}
@@ -478,8 +481,8 @@ func validateDataProtectionPolicy(policy string) error {
 		)
 	}
 
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	var doc map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: DataProtectionPolicy must be a valid JSON object", ErrInvalidParameter)
 	}
 

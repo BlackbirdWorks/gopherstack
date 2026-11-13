@@ -1,7 +1,7 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAndDescribeDataset(t *testing.T) {
@@ -101,7 +103,7 @@ func TestHandler_DatasetContentLifecycle(t *testing.T) {
 
 			if tt.wantList == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				summaries, ok := resp["datasetContentSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, 1)
@@ -140,7 +142,7 @@ func TestHandler_CreateDatasetContent_ExplicitVersionID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-custom-version", resp["versionId"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/datasets/explicit_ver_ds/content?versionId=my-custom-version", nil)
@@ -189,7 +191,7 @@ func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			status, _ := resp["status"].(map[string]any)
 			assert.Equal(t, "SUCCEEDED", status["state"])
@@ -214,7 +216,7 @@ func TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest(t *testing
 
 		if i == 0 {
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			firstVersion, _ = resp["versionId"].(string)
 			require.NotEmpty(t, firstVersion)
 		}
@@ -227,7 +229,7 @@ func TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest(t *testing
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, _ := listResp["datasetContentSummaries"].([]any)
 	require.Len(t, summaries, 2, "omitted versionId must delete exactly one version")
 
@@ -259,7 +261,7 @@ func TestHandler_ListDatasetContents_PaginationAcrossPages(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		vid, _ := resp["versionId"].(string)
 		require.NotEmpty(t, vid)
 		wantVersions[vid] = true
@@ -273,7 +275,7 @@ func TestHandler_ListDatasetContents_PaginationAcrossPages(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		summaries, _ := resp["datasetContentSummaries"].([]any)
 		for _, s := range summaries {
@@ -315,7 +317,7 @@ func TestHandler_ListDatasetContents_ScheduleTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["datasetContentSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -360,7 +362,7 @@ func TestHandler_ListDatasetContents_ScheduledFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["datasetContentSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantLen)
@@ -422,7 +424,7 @@ func TestHandler_Datasets(t *testing.T) {
 				listRec := doRequest(t, h, http.MethodGet, "/datasets", nil)
 				assert.Equal(t, tt.wantStatus, listRec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				summaries, ok := resp["datasetSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, 1)
@@ -478,7 +480,7 @@ func TestHandler_DatasetContent_GetVersionSpecific(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	versionID, ok := createResp["versionId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, versionID)
@@ -542,7 +544,7 @@ func TestHandler_DescribeDataset_NewFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "describe response must contain field %q", field)
 			}
@@ -566,7 +568,7 @@ func TestHandler_GetDatasetContent_VersionAndEntries(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasVersionID := resp["versionId"]
 	assert.False(t, hasVersionID, "GetDatasetContent must not return versionId -- AWS has no such member")
 	_, hasStatus := resp["status"]
@@ -608,7 +610,7 @@ func TestHandler_DeleteDatasetContent_RequiresVersionId(t *testing.T) {
 			deletePath := tt.path
 			if deletePath == "" {
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 				vid, _ := cr["versionId"].(string)
 				require.NotEmpty(t, vid)
 				deletePath = "/datasets/delcontds/content?versionId=" + vid
@@ -635,7 +637,7 @@ func TestHandler_ListDatasetContents_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["nextToken"], "nextToken must be set when results are truncated")
 	summaries, _ := resp["datasetContentSummaries"].([]any)
 	assert.Len(t, summaries, 2)

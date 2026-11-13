@@ -3,12 +3,14 @@ package gcpdispatch
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"time"
 
 	"google.golang.org/genproto/googleapis/rpc/code"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -65,7 +67,7 @@ func Backoff(lo, hi time.Duration, doublings, failures int32) time.Duration {
 }
 
 func b64(v any) string {
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(raw)
 }

@@ -1,13 +1,15 @@
 package mwaa_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagsFlow(t *testing.T) {
@@ -39,7 +41,7 @@ func TestHandler_TagsFlow(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			envARN := createResp["Arn"]
 			require.NotEmpty(t, envARN)
 
@@ -54,7 +56,7 @@ func TestHandler_TagsFlow(t *testing.T) {
 			assert.Equal(t, http.StatusOK, listTagRec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(listTagRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(listTagRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tags, ok := tagsResp["Tags"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "test", tags["env"])
@@ -104,7 +106,7 @@ func TestHandler_UntagResource(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			envARN := createResp["Arn"]
 			require.NotEmpty(t, envARN)
 
@@ -129,7 +131,7 @@ func TestHandler_UntagResource(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tags := tagsResp["Tags"].(map[string]any)
 			assert.Len(t, tags, tt.wantTagsLen)
 		})
@@ -158,14 +160,14 @@ func TestListTagsForResource_HTTP_EmptyTagsShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	envARN := createResp["Arn"]
 
 	rec := doMWAARequest(t, h, http.MethodGet, "/tags/"+envARN, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, ok := resp["Tags"]
 	assert.True(t, ok, "response must have Tags key even when empty")
 }
@@ -187,7 +189,7 @@ func TestTagLimit_HTTP_TagResource_Exceeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	envARN := createResp["Arn"]
 
 	// Build 51 tags.
@@ -257,7 +259,7 @@ func TestTags_HTTP_CreateWithTagsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	envARN := createResp["Arn"]
 
 	// ListTagsForResource returns the creation tags.
@@ -267,7 +269,7 @@ func TestTags_HTTP_CreateWithTagsRoundTrip(t *testing.T) {
 	var tagsResp struct {
 		Tags map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	assert.Equal(t, "airflow", tagsResp.Tags["service"])
 	assert.Equal(t, "production", tagsResp.Tags["tier"])
 }

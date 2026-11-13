@@ -1,11 +1,12 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -46,7 +47,7 @@ func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	nc, err := h.Backend.CreateNetworkAnalyzerConfig(
 		h.AccountID, h.DefaultRegion,
@@ -125,7 +126,7 @@ func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name strin
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateNetworkAnalyzerConfig(
 		h.AccountID, h.DefaultRegion, name,

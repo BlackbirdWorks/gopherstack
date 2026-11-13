@@ -2,10 +2,12 @@ package inspector2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -79,7 +81,7 @@ const findingsTableName = "findings"
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage   `json:"tables"`
+	Tables            map[string]jsontext.Value    `json:"tables"`
 	Tags              map[string]map[string]string `json:"tags"`
 	EnabledTypes      map[string]bool              `json:"enabledTypes"`
 	MemberEnabled     map[string]map[string]bool   `json:"memberEnabled,omitempty"`
@@ -121,7 +123,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		dtos[i] = toFindingSnapshot(f)
 	}
 
-	findingsData, err := json.Marshal(dtos)
+	findingsData, err := json.Marshal(dtos, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "inspector2: snapshot findings table marshal failed", "error", err)
 
@@ -194,7 +196,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if hasFindings {
 		var dtos []*findingSnapshot
 
-		if err := json.Unmarshal(findingsRaw, &dtos); err != nil {
+		if err := json.Unmarshal(findingsRaw, &dtos, jsonx.V1()); err != nil {
 			return fmt.Errorf("inspector2: restore findings table: %w", err)
 		}
 

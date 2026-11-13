@@ -1,13 +1,15 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DeregisterScalableTarget(t *testing.T) {
@@ -131,7 +133,7 @@ func TestHandler_DeregisterScalableTarget_CascadeDelete(t *testing.T) {
 		"ServiceNamespace": "ecs",
 	})
 	var targetsResp map[string]any
-	require.NoError(t, json.Unmarshal(targetsRec.Body.Bytes(), &targetsResp))
+	require.NoError(t, json.Unmarshal(targetsRec.Body.Bytes(), &targetsResp, jsonx.V1()))
 	targets, _ := targetsResp["ScalableTargets"].([]any)
 	assert.Empty(t, targets, "scalable targets should be empty after deregister")
 
@@ -140,7 +142,7 @@ func TestHandler_DeregisterScalableTarget_CascadeDelete(t *testing.T) {
 		"ServiceNamespace": "ecs",
 	})
 	var policiesResp map[string]any
-	require.NoError(t, json.Unmarshal(policiesRec.Body.Bytes(), &policiesResp))
+	require.NoError(t, json.Unmarshal(policiesRec.Body.Bytes(), &policiesResp, jsonx.V1()))
 	policies, _ := policiesResp["ScalingPolicies"].([]any)
 	assert.Empty(t, policies, "scaling policies should be cascade-deleted")
 
@@ -149,7 +151,7 @@ func TestHandler_DeregisterScalableTarget_CascadeDelete(t *testing.T) {
 		"ServiceNamespace": "ecs",
 	})
 	var actionsResp map[string]any
-	require.NoError(t, json.Unmarshal(actionsRec.Body.Bytes(), &actionsResp))
+	require.NoError(t, json.Unmarshal(actionsRec.Body.Bytes(), &actionsResp, jsonx.V1()))
 	actions, _ := actionsResp["ScheduledActions"].([]any)
 	assert.Empty(t, actions, "scheduled actions should be cascade-deleted")
 }
@@ -191,14 +193,14 @@ func TestDeregisterScalableTarget_Cascades(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var polOut map[string]any
-	require.NoError(t, json.Unmarshal(polRec.Body.Bytes(), &polOut))
+	require.NoError(t, json.Unmarshal(polRec.Body.Bytes(), &polOut, jsonx.V1()))
 	assert.Empty(t, polOut["ScalingPolicies"], "policies must be deleted when target is deregistered")
 
 	actRec := doRequest(t, h, "DescribeScheduledActions", map[string]any{
 		"ServiceNamespace": ns,
 	})
 	var actOut map[string]any
-	require.NoError(t, json.Unmarshal(actRec.Body.Bytes(), &actOut))
+	require.NoError(t, json.Unmarshal(actRec.Body.Bytes(), &actOut, jsonx.V1()))
 	assert.Empty(t, actOut["ScheduledActions"], "scheduled actions must be deleted when target is deregistered")
 }
 
@@ -240,7 +242,7 @@ func TestHandler_DescribeScalableTargets(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			targets, ok := resp["ScalableTargets"].([]any)
 			require.True(t, ok)
 			assert.Len(t, targets, tt.wantCount)
@@ -264,7 +266,7 @@ func TestHandler_DescribeScalableTargets_HasTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	targets := resp["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 
@@ -287,7 +289,7 @@ func TestHandler_DescribeScalableTargets_OmitsTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var registerResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &registerResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &registerResp, jsonx.V1()))
 
 	doRequest(t, h, "TagResource", map[string]any{
 		"ResourceARN": registerResp["ScalableTargetARN"],
@@ -298,7 +300,7 @@ func TestHandler_DescribeScalableTargets_OmitsTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	targets := resp["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 
@@ -332,7 +334,7 @@ func TestHandler_DescribeScalableTargets_ResourceIdsFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, ok := resp["ScalableTargets"].([]any)
 	require.True(t, ok)
 	assert.Len(t, targets, 2, "expected exactly 2 targets when filtering by ResourceIds")
@@ -390,7 +392,7 @@ func TestHandler_DescribeScalableTargets_ScalableDimensionFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			targets, ok := resp["ScalableTargets"].([]any)
 			require.True(t, ok)
 			assert.Len(t, targets, tt.wantCount)
@@ -431,7 +433,7 @@ func TestHandler_DescribeScalableTargets_Pagination(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			targets := out["ScalableTargets"].([]any)
 			assert.Len(t, targets, tc.wantCount)
 			if tc.wantNext {
@@ -481,7 +483,7 @@ func TestHandler_MaxResults_DescribeScalableTargets(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			targets, ok := resp["ScalableTargets"].([]any)
 			require.True(t, ok)
 			assert.Len(t, targets, tt.wantLen)
@@ -512,7 +514,7 @@ func TestHandler_ApplyMaxResults_CapAt50(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, _ := resp["ScalableTargets"].([]any)
 	assert.Len(t, targets, 50, "MaxResults=200 should be capped at 50")
 }

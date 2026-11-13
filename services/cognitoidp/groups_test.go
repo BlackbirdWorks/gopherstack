@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -186,7 +187,7 @@ func TestGroup_LastModifiedDate_Present(t *testing.T) {
 						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.Group)
 				assert.Greater(t, out.Group.LastModifiedDate, float64(0), "CreateGroup must include LastModifiedDate")
 
@@ -202,7 +203,7 @@ func TestGroup_LastModifiedDate_Present(t *testing.T) {
 						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.Group)
 				assert.Greater(t, out.Group.LastModifiedDate, float64(0), "GetGroup must include LastModifiedDate")
 
@@ -219,7 +220,7 @@ func TestGroup_LastModifiedDate_Present(t *testing.T) {
 						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.Group)
 				assert.Greater(t, out.Group.LastModifiedDate, float64(0), "UpdateGroup must include LastModifiedDate")
 
@@ -235,7 +236,7 @@ func TestGroup_LastModifiedDate_Present(t *testing.T) {
 						LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 					} `json:"Groups"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.Len(t, out.Groups, 1)
 				assert.Greater(
 					t,
@@ -273,7 +274,7 @@ func TestGroup_Create_WithRoleArn(t *testing.T) {
 			CreationDate float64 `json:"CreationDate,omitempty"`
 		} `json:"Group"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.Group)
 	assert.Equal(t, "admins", out.Group.GroupName)
 	assert.Equal(t, roleArn, out.Group.RoleArn)
@@ -310,7 +311,7 @@ func TestGroup_Update_WithRoleArn(t *testing.T) {
 			Precedence int32  `json:"Precedence,omitempty"`
 		} `json:"Group"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.Group)
 	assert.Equal(t, roleArn, out.Group.RoleArn)
 	assert.Equal(t, int32(10), out.Group.Precedence)
@@ -344,7 +345,7 @@ func TestGroup_GetGroup_WithRoleArn(t *testing.T) {
 			Precedence int32  `json:"Precedence,omitempty"`
 		} `json:"Group"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.Group)
 	assert.Equal(t, "viewers", out.Group.GroupName)
 	assert.Equal(t, roleArn, out.Group.RoleArn)
@@ -378,7 +379,7 @@ func TestGroup_ListGroups_Pagination(t *testing.T) {
 			GroupName string `json:"GroupName,omitempty"`
 		} `json:"Groups"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Groups, 3)
 	assert.NotEmpty(t, page1.NextToken)
 
@@ -396,7 +397,7 @@ func TestGroup_ListGroups_Pagination(t *testing.T) {
 			GroupName string `json:"GroupName,omitempty"`
 		} `json:"Groups"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Groups, 2)
 	assert.Empty(t, page2.NextToken)
 }
@@ -439,7 +440,7 @@ func TestGroup_ListUsersInGroup_Pagination(t *testing.T) {
 			Username string `json:"Username,omitempty"`
 		} `json:"Users"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Users, 2)
 	assert.NotEmpty(t, page1.NextToken)
 
@@ -458,7 +459,7 @@ func TestGroup_ListUsersInGroup_Pagination(t *testing.T) {
 			Username string `json:"Username,omitempty"`
 		} `json:"Users"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Users, 2)
 	assert.Empty(t, page2.NextToken)
 }

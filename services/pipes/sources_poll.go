@@ -3,9 +3,10 @@ package pipes
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -148,7 +149,7 @@ func (r *Runner) pollKinesisShard(ctx context.Context, p *Pipe, shardID, startin
 		return
 	}
 
-	payload, err := json.Marshal(kinesisPipeEvent{Records: buildKinesisRecords(p, shardID, records)})
+	payload, err := json.Marshal(kinesisPipeEvent{Records: buildKinesisRecords(p, shardID, records)}, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to marshal Kinesis records", "pipe", p.Name, "error", err)
 
@@ -218,7 +219,7 @@ func (r *Runner) pollDynamoDBShard(ctx context.Context, p *Pipe, shardID, starti
 		return
 	}
 
-	payload, err := json.Marshal(dynamoDBPipeEvent{Records: buildDynamoDBRecords(p, records)})
+	payload, err := json.Marshal(dynamoDBPipeEvent{Records: buildDynamoDBRecords(p, records)}, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to marshal DynamoDB stream records",
 			"pipe", p.Name, "error", err)
@@ -312,7 +313,7 @@ func filterDynamoDBRecords(p *Pipe, records []DynamoDBStreamRecord) []DynamoDBSt
 				NewImage: rec.NewImage,
 				OldImage: rec.OldImage,
 			},
-		})
+		}, jsonx.V1())
 		if err == nil && matchesAnyFilter(string(body), filters) {
 			out = append(out, rec)
 		}

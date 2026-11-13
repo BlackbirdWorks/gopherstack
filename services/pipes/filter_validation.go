@@ -1,9 +1,11 @@
 package pipes
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // isKnownPipeMatcher reports whether key is a matcher-object key that pipes'
@@ -54,7 +56,7 @@ func validateFilterPattern(pattern string) error {
 	}
 
 	var patternMap map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &patternMap); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &patternMap, jsonx.V1()); err != nil {
 		return fmt.Errorf("pattern: %w: not valid JSON: %w", ErrValidation, err)
 	}
 

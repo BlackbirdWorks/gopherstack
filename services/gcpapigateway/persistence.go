@@ -2,7 +2,7 @@ package gcpapigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/apigateway/apiv1/apigatewaypb"
@@ -18,9 +18,9 @@ import (
 const snapshotVersion = 1
 
 type recSnap struct {
-	Resource json.RawMessage `json:"resource"`
-	Policy   json.RawMessage `json:"policy,omitempty"`
-	Life     life            `json:"life"`
+	Resource jsontext.Value `json:"resource"`
+	Policy   jsontext.Value `json:"policy,omitempty"`
+	Life     life           `json:"life"`
 }
 
 type backendSnapshot struct {
@@ -32,7 +32,7 @@ type backendSnapshot struct {
 	Seq      uint64             `json:"seq"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	if m == nil || !m.ProtoReflect().IsValid() {
 		return nil
 	}
@@ -49,7 +49,7 @@ func unmarshalPB(raw []byte, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
-func restorePolicy(raw json.RawMessage) (*iampb.Policy, error) {
+func restorePolicy(raw jsontext.Value) (*iampb.Policy, error) {
 	if len(raw) == 0 {
 		return nil, nil //nolint:nilnil // no policy stored
 	}

@@ -2,7 +2,7 @@ package fsx
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -36,7 +36,7 @@ const fsxSnapshotVersion = 2
 // store_setup.go's file doc comment for why they do not fit store.Table's
 // keyed-by-identity-value shape.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage    `json:"tables"`
+	Tables                 map[string]jsontext.Value     `json:"tables"`
 	Tags                   map[string]map[string]string  `json:"tags"`
 	Aliases                map[string][]string           `json:"aliases"`
 	CreateFileSystemTokens map[string]fsCreateTokenEntry `json:"createFileSystemTokens"`

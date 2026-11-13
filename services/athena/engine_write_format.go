@@ -3,10 +3,12 @@ package athena
 import (
 	"bytes"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func encodeTextRows(res *sqlResult, rows []int, cols []outCol, delim string) []byte {
@@ -63,7 +65,7 @@ func encodeJSONLines(res *sqlResult, rows []int, cols []outCol) []byte {
 				buf.WriteByte(',')
 			}
 
-			key, _ := json.Marshal(c.name)
+			key, _ := json.Marshal(c.name, jsonx.V1())
 			buf.Write(key)
 			buf.WriteByte(':')
 
@@ -99,7 +101,7 @@ func jsonLiteral(v string, null bool, typ string) string {
 	case kindString, kindText:
 	}
 
-	b, _ := json.Marshal(strings.ToValidUTF8(v, "�"))
+	b, _ := json.Marshal(strings.ToValidUTF8(v, "�"), jsonx.V1())
 
 	return string(b)
 }

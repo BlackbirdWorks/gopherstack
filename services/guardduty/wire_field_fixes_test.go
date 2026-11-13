@@ -1,7 +1,7 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -366,7 +367,7 @@ func TestListMalwareProtectionPlans_NoInventedArn(t *testing.T) {
 	var raw struct {
 		MalwareProtectionPlans []map[string]any `json:"malwareProtectionPlans"`
 	}
-	require.NoError(t, json.Unmarshal(body, &raw))
+	require.NoError(t, json.Unmarshal(body, &raw, jsonx.V1()))
 	require.NotEmpty(t, raw.MalwareProtectionPlans)
 
 	for _, entry := range raw.MalwareProtectionPlans {

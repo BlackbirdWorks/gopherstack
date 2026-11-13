@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -41,7 +42,7 @@ func TestUpdateUsage_ValidatesKeyExists(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "create plan: %s", rec.Body.String())
 
 	var plan map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plan))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plan, jsonx.V1()))
 	planID, _ := plan["id"].(string)
 	require.NotEmpty(t, planID)
 
@@ -81,7 +82,7 @@ func TestAPIGateway_UpdateUsage_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	values, _ := resp["values"].(map[string]any)
 	require.Contains(t, values, key.ID, "real wire key is \"values\", not \"items\"")
 
@@ -174,7 +175,7 @@ func TestGetUsage(t *testing.T) {
 			planRec := postWithHandler(t, handler, e, "CreateUsagePlan", `{"name":"my-plan"}`)
 			require.Equal(t, http.StatusCreated, planRec.Code)
 			var planResp map[string]any
-			require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp))
+			require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp, jsonx.V1()))
 			planID := planResp["id"].(string)
 
 			lookupID := planID
@@ -250,7 +251,7 @@ func TestDeleteUsagePlan_ClearsUsageOverrides(t *testing.T) {
 	var decoded struct {
 		UsageOverrides map[string]map[string]int64 `json:"usageOverrides"`
 	}
-	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded))
+	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded, jsonx.V1()))
 	assert.NotContains(t, decoded.UsageOverrides, plan.ID,
 		"a deleted usage plan's override entry must not survive in the persisted snapshot")
 }
@@ -278,7 +279,7 @@ func TestDeleteAPIKey_ClearsUsageOverrides(t *testing.T) {
 	var decoded struct {
 		UsageOverrides map[string]map[string]int64 `json:"usageOverrides"`
 	}
-	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded))
+	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded, jsonx.V1()))
 	assert.NotContains(t, decoded.UsageOverrides[plan.ID], key.ID,
 		"a deleted API key's usage override must not survive in the persisted snapshot")
 }

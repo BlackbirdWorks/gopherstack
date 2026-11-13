@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -22,7 +24,7 @@ func TestListCostAllocationTags_EmptyWithNoTags(t *testing.T) {
 	var out struct {
 		CostAllocationTags []any `json:"CostAllocationTags"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotNil(t, out.CostAllocationTags)
 	assert.Empty(t, out.CostAllocationTags)
 }
@@ -81,7 +83,7 @@ func TestUpdateCostAllocationTagsStatus_MultipleUpdates(t *testing.T) {
 			var out struct {
 				Errors []any `json:"Errors"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Errors, tt.wantErrors)
 		})
 	}
@@ -107,7 +109,7 @@ func TestBackfillMultipleJobs(t *testing.T) {
 	var out struct {
 		BackfillRequests []map[string]any `json:"BackfillRequests"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.BackfillRequests, 3)
 }
 
@@ -179,7 +181,7 @@ func TestCostAllocationTags_UpdateAndList(t *testing.T) {
 					Type   string `json:"Type"`
 				} `json:"CostAllocationTags"`
 			}
-			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 			assert.Len(t, listOut.CostAllocationTags, tt.wantTagCount)
 
 			for _, tag := range listOut.CostAllocationTags {
@@ -217,7 +219,7 @@ func TestCostAllocationTags_ListFiltersWork(t *testing.T) {
 				TagKey string `json:"TagKey"`
 			} `json:"CostAllocationTags"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.CostAllocationTags, 2)
 	})
 
@@ -235,7 +237,7 @@ func TestCostAllocationTags_ListFiltersWork(t *testing.T) {
 				Status string `json:"Status"`
 			} `json:"CostAllocationTags"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.CostAllocationTags, 2)
 
 		for _, tag := range out.CostAllocationTags {
@@ -262,7 +264,7 @@ func TestCostAllocationTagBackfill_StateTracking(t *testing.T) {
 			RequestedAt    string `json:"requestedAt"`
 		} `json:"BackfillRequest"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &startOut, jsonx.V1()))
 	assert.Equal(t, "2024-01-01T00:00:00Z", startOut.BackfillRequest.BackfillFrom)
 	assert.Equal(t, "PROCESSING", startOut.BackfillRequest.BackfillStatus)
 
@@ -275,7 +277,7 @@ func TestCostAllocationTagBackfill_StateTracking(t *testing.T) {
 			BackfillStatus string `json:"backfillStatus"`
 		} `json:"BackfillRequests"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	require.Len(t, listOut.BackfillRequests, 1)
 	assert.Equal(t, "PROCESSING", listOut.BackfillRequests[0].BackfillStatus)
 }

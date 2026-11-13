@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -87,9 +89,9 @@ type CompilationJob struct {
 	// DescribeCompilationJobOutput (api_op_DescribeCompilationJob.go:67-69)
 	// even though it is legitimately empty for every non-failed job -- the
 	// common case.
-	FailureReason          string          `json:"FailureReason"`
-	ModelPackageVersionArn string          `json:"ModelPackageVersionArn,omitempty"`
-	VpcConfig              json.RawMessage `json:"VpcConfig,omitempty"`
+	FailureReason          string         `json:"FailureReason"`
+	ModelPackageVersionArn string         `json:"ModelPackageVersionArn,omitempty"`
+	VpcConfig              jsontext.Value `json:"VpcConfig,omitempty"`
 }
 
 func cloneCompilationJob(j *CompilationJob) *CompilationJob {
@@ -121,7 +123,7 @@ func cloneCompilationJob(j *CompilationJob) *CompilationJob {
 		cp.ModelArtifacts = &ma
 	}
 
-	cp.VpcConfig = append(json.RawMessage(nil), j.VpcConfig...)
+	cp.VpcConfig = append(jsontext.Value(nil), j.VpcConfig...)
 
 	if j.CompilationStartTime != nil {
 		t := *j.CompilationStartTime
@@ -155,7 +157,7 @@ func (j *CompilationJob) MarshalJSON() ([]byte, error) {
 		LastModifiedTime:     epochSeconds(j.LastModifiedTime),
 		CompilationStartTime: epochSecondsPtr(j.CompilationStartTime),
 		CompilationEndTime:   epochSecondsPtr(j.CompilationEndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [CompilationJob.MarshalJSON], read by
@@ -171,7 +173,7 @@ func (j *CompilationJob) UnmarshalJSON(data []byte) error {
 		LastModifiedTime     float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -431,7 +433,7 @@ func (b *InMemoryBackend) SetCompilationJobExtras(
 	outputConfig *CompilationOutputConfig,
 	stoppingCondition *StoppingCondition,
 	modelPackageVersionArn string,
-	vpcConfig json.RawMessage,
+	vpcConfig jsontext.Value,
 ) error {
 	b.mu.Lock("SetCompilationJobExtras")
 	defer b.mu.Unlock()

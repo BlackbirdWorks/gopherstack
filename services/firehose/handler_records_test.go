@@ -2,13 +2,14 @@ package firehose_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -82,7 +83,7 @@ func TestPutRecord_Success_ReturnsRecordId(t *testing.T) {
 	var out struct {
 		RecordID string `json:"RecordId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.RecordID)
 }
 
@@ -170,7 +171,7 @@ func TestKinesisStreamAsSource_PutRecordRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", body["__type"])
 }
 
@@ -249,7 +250,7 @@ func TestPutRecordBatch_Success_ResponseShape(t *testing.T) {
 		RequestResponses []any `json:"RequestResponses"`
 		FailedPutCount   int   `json:"FailedPutCount"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, 0, out.FailedPutCount)
 	assert.NotNil(t, out.RequestResponses)
 }
@@ -303,7 +304,7 @@ func TestPutRecordBatch_ResponseShape(t *testing.T) {
 				} `json:"RequestResponses"`
 				FailedPutCount int `json:"FailedPutCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.Equal(t, 0, out.FailedPutCount, "FailedPutCount must always be 0")
 			assert.Len(t, out.RequestResponses, len(tc.recordData), "one response per record")
@@ -355,7 +356,7 @@ func TestPutRecordBatch_PerRecordRecordId(t *testing.T) {
 				} `json:"RequestResponses"`
 				FailedPutCount int `json:"FailedPutCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.Equal(t, 0, out.FailedPutCount)
 			require.Len(t, out.RequestResponses, tt.recordCount,
@@ -457,7 +458,7 @@ func TestPutRecord_EncryptedField(t *testing.T) {
 			var putOut struct {
 				Encrypted bool `json:"Encrypted"`
 			}
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 			assert.Equal(t, tt.wantEncrypted, putOut.Encrypted, "PutRecord Encrypted mismatch")
 
 			batchRec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
@@ -469,7 +470,7 @@ func TestPutRecord_EncryptedField(t *testing.T) {
 			var batchOut struct {
 				Encrypted bool `json:"Encrypted"`
 			}
-			require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchOut))
+			require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchOut, jsonx.V1()))
 			assert.Equal(t, tt.wantEncrypted, batchOut.Encrypted, "PutRecordBatch Encrypted mismatch")
 		})
 	}

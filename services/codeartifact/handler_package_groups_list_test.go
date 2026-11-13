@@ -2,7 +2,7 @@ package codeartifact_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -94,7 +95,7 @@ func TestHandler_ListAllowedRepositoriesForGroup(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["allowedRepositories"])
 			}
 		})
@@ -161,7 +162,7 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pkgs, _ := resp["packages"].([]any)
 				assert.NotNil(t, pkgs)
 			}
@@ -199,7 +200,7 @@ func TestHandler_ListAssociatedPackages_Preview(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pkgs, _ := resp["packages"].([]any)
 	require.Len(t, pkgs, 1)
 	assert.Equal(t, "react", pkgs[0].(map[string]any)["package"])
@@ -256,7 +257,7 @@ func TestHandler_ListAssociatedPackages_MostSpecificMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, broadRec.Code)
 
 	var broadResp map[string]any
-	require.NoError(t, json.Unmarshal(broadRec.Body.Bytes(), &broadResp))
+	require.NoError(t, json.Unmarshal(broadRec.Body.Bytes(), &broadResp, jsonx.V1()))
 	broadPkgs, _ := broadResp["packages"].([]any)
 	require.Len(t, broadPkgs, 1)
 	assert.Equal(t, "react", broadPkgs[0].(map[string]any)["package"])
@@ -272,7 +273,7 @@ func TestHandler_ListAssociatedPackages_MostSpecificMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, specificRec.Code)
 
 	var specificResp map[string]any
-	require.NoError(t, json.Unmarshal(specificRec.Body.Bytes(), &specificResp))
+	require.NoError(t, json.Unmarshal(specificRec.Body.Bytes(), &specificResp, jsonx.V1()))
 	specificPkgs, _ := specificResp["packages"].([]any)
 	require.Len(t, specificPkgs, 1)
 	assert.Equal(t, "utils", specificPkgs[0].(map[string]any)["package"])
@@ -323,7 +324,7 @@ func TestHandler_ListAssociatedPackages_WeakMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pkgs, _ := resp["packages"].([]any)
 	require.Len(t, pkgs, 2, "both the strong and weak variant are associated with the same group")
 
@@ -342,7 +343,7 @@ func TestHandler_ListAssociatedPackages_WeakMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "WEAK", getResp["associationType"])
 }
 
@@ -383,7 +384,7 @@ func TestHandler_GetAssociatedPackageGroup_MostSpecificMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pg, _ := resp["packageGroup"].(map[string]any)
 	require.NotNil(t, pg)
 	assert.Equal(t, "/npm/space/react$", pg["pattern"])
@@ -398,7 +399,7 @@ func TestHandler_GetAssociatedPackageGroup_MostSpecificMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	pg2, _ := resp2["packageGroup"].(map[string]any)
 	require.NotNil(t, pg2)
 	assert.Equal(t, "/npm/*", pg2["pattern"])
@@ -495,7 +496,7 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				groups, _ := resp["packageGroups"].([]any)
 				assert.Len(t, groups, tt.wantCount)
 			}
@@ -582,7 +583,7 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pg, _ := resp["packageGroup"].(map[string]any)
 				assert.NotNil(t, pg)
 			}
@@ -690,7 +691,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pg, _ := resp["packageGroup"].(map[string]any)
 				require.NotNil(t, pg)
 
@@ -735,7 +736,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_AllowedRepositories(t *te
 	require.Equal(t, http.StatusOK, addRec.Code)
 
 	var addResp map[string]any
-	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp))
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp, jsonx.V1()))
 	updates, _ := addResp["allowedRepositoryUpdates"].(map[string]any)
 	require.NotNil(t, updates)
 	extUpstream, _ := updates["EXTERNAL_UPSTREAM"].(map[string]any)
@@ -752,7 +753,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_AllowedRepositories(t *te
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	allowed, _ := listResp["allowedRepositories"].([]any)
 	assert.Equal(t, []any{"upgocr-repo"}, allowed)
 
@@ -776,7 +777,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_AllowedRepositories(t *te
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	allowed2, _ := listResp2["allowedRepositories"].([]any)
 	assert.Empty(t, allowed2)
 }
@@ -828,7 +829,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_Inheritance(t *testing.T)
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	pg, _ := descResp["packageGroup"].(map[string]any)
 	originConfig, _ := pg["originConfiguration"].(map[string]any)
 	restrictions, _ := originConfig["restrictions"].(map[string]any)
@@ -859,7 +860,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_Inheritance(t *testing.T)
 	require.Equal(t, http.StatusOK, descRec2.Code)
 
 	var descResp2 map[string]any
-	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2, jsonx.V1()))
 	pg2, _ := descResp2["packageGroup"].(map[string]any)
 	originConfig2, _ := pg2["originConfiguration"].(map[string]any)
 	restrictions2, _ := originConfig2["restrictions"].(map[string]any)
@@ -891,7 +892,7 @@ func TestListPackageGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1, _ := out1["packageGroups"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["nextToken"].(string)
@@ -902,7 +903,7 @@ func TestListPackageGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2, _ := out2["packageGroups"].([]any)
 	assert.Len(t, page2, 2)
 }

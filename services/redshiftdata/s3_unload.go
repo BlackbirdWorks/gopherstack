@@ -7,12 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -402,12 +403,12 @@ func encodeJSONLines(cols []ColumnMetadata, rows [][]Field) ([]byte, error) {
 		buf.WriteByte('{')
 
 		for i, f := range row {
-			name, err := json.Marshal(cols[i].Name)
+			name, err := json.Marshal(cols[i].Name, jsonx.V1())
 			if err != nil {
 				return nil, stmtErrorf("could not write JSON: %v", err)
 			}
 
-			val, err := json.Marshal(jsonValue(f))
+			val, err := json.Marshal(jsonValue(f), jsonx.V1())
 			if err != nil {
 				return nil, stmtErrorf("could not write JSON: %v", err)
 			}
@@ -559,7 +560,7 @@ func unloadManifest(s *unloadSpec, rs *ResultSet, files []unloadFile) []byte {
 		doc["schema"] = map[string]any{"elements": elems}
 	}
 
-	raw, err := json.Marshal(doc)
+	raw, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}

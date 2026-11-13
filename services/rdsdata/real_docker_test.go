@@ -1,7 +1,7 @@
 package rdsdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"os/exec"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
@@ -95,7 +96,7 @@ func (d *dockerDataAPI) call(path string, body map[string]any) (int, map[string]
 
 	out := map[string]any{}
 	if rec.Body.Len() > 0 {
-		require.NoError(d.t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(d.t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	}
 
 	return rec.Code, out

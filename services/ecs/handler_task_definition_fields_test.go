@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTaskDefinition_RuntimePlatform_Roundtrip(t *testing.T) {
@@ -27,7 +29,7 @@ func TestTaskDefinition_RuntimePlatform_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	rp := td["runtimePlatform"].(map[string]any)
 	assert.Equal(t, "ARM64", rp["cpuArchitecture"])
@@ -41,7 +43,7 @@ func TestTaskDefinition_RuntimePlatform_Roundtrip(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	descTD := descOut["taskDefinition"].(map[string]any)
 	assert.Equal(t, "ARM64", descTD["runtimePlatform"].(map[string]any)["cpuArchitecture"])
 }
@@ -64,7 +66,7 @@ func TestTaskDefinition_RuntimePlatform_X86(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	rp := td["runtimePlatform"].(map[string]any)
 	assert.Equal(t, "X86_64", rp["cpuArchitecture"])
@@ -89,7 +91,7 @@ func TestTaskDefinition_RuntimePlatform_Windows(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	rp := td["runtimePlatform"].(map[string]any)
 	assert.Equal(t, "WINDOWS_SERVER_2022_FULL", rp["operatingSystemFamily"])
@@ -116,7 +118,7 @@ func TestTaskDefinition_EphemeralStorage_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	es := td["ephemeralStorage"].(map[string]any)
 	assert.InDelta(t, float64(50), es["sizeInGiB"], 0.001)
@@ -129,7 +131,7 @@ func TestTaskDefinition_EphemeralStorage_Roundtrip(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	descTD := descOut["taskDefinition"].(map[string]any)
 	assert.InDelta(t, float64(50), descTD["ephemeralStorage"].(map[string]any)["sizeInGiB"], 0.001)
 }
@@ -146,7 +148,7 @@ func TestTaskDefinition_EphemeralStorage_Default(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	_, hasEph := td["ephemeralStorage"]
 	assert.False(t, hasEph, "ephemeralStorage should be absent when not set")
@@ -176,7 +178,7 @@ func TestTaskDefinition_InferenceAccelerators_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 
 	accs := td["inferenceAccelerators"].([]any)
@@ -212,7 +214,7 @@ func TestTaskDefinition_InferenceAccelerators_Multiple(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	accs := td["inferenceAccelerators"].([]any)
 	assert.Len(t, accs, 2)
@@ -239,7 +241,7 @@ func TestContainerDef_GPU_ResourceRequirement(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cds := td["containerDefinitions"].([]any)
 	require.Len(t, cds, 1)
@@ -275,7 +277,7 @@ func TestContainerDef_GPU_MultipleContainers(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cds := td["containerDefinitions"].([]any)
 	require.Len(t, cds, 2)
@@ -312,7 +314,7 @@ func TestContainerDef_EnvironmentFiles_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cds := td["containerDefinitions"].([]any)
 	cd := cds[0].(map[string]any)
@@ -359,7 +361,7 @@ func TestContainerDef_EnvironmentFiles_WithEnv(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 
@@ -411,7 +413,7 @@ func TestTaskDefinition_AllAdvancedFields_Combined(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 
 	rp := td["runtimePlatform"].(map[string]any)
@@ -461,7 +463,7 @@ func TestTaskDefinition_BackwardCompat_NoNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 
 	// New fields should be absent
@@ -495,7 +497,7 @@ func TestTaskDefinition_Volumes_EmptyNotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		td := resp["taskDefinition"].(map[string]any)
 
@@ -524,7 +526,7 @@ func TestTaskDefinition_Volumes_EmptyNotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		td := resp["taskDefinition"].(map[string]any)
 
@@ -560,7 +562,7 @@ func TestTaskDefinition_Volumes_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	td := resp["taskDefinition"].(map[string]any)
 	vols, _ := td["volumes"].([]any)
@@ -588,7 +590,7 @@ func TestHandler_RegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	rcs := td["requiresCompatibilities"].([]any)
 	require.Len(t, rcs, 1)
@@ -658,7 +660,7 @@ func TestHandler_RegisterTaskDefinition_TaskRoleArn(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/task-role", td["taskRoleArn"])
 	assert.Equal(t, "arn:aws:iam::000000000000:role/exec-role", td["executionRoleArn"])
@@ -698,7 +700,7 @@ func TestHandler_RegisterTaskDefinition_Volumes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	vols := td["volumes"].([]any)
 	require.Len(t, vols, 2)
@@ -734,7 +736,7 @@ func TestHandler_RegisterTaskDefinition_LogConfiguration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 	lc := cd["logConfiguration"].(map[string]any)
@@ -764,7 +766,7 @@ func TestHandler_RegisterTaskDefinition_Secrets(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 	secrets := cd["secrets"].([]any)
@@ -798,7 +800,7 @@ func TestHandler_RegisterTaskDefinition_PortMapping_Extended(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 	pm := cd["portMappings"].([]any)[0].(map[string]any)
@@ -831,7 +833,7 @@ func TestHandler_RegisterTaskDefinition_HealthCheck(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	cd := td["containerDefinitions"].([]any)[0].(map[string]any)
 	hc := cd["healthCheck"].(map[string]any)
@@ -858,7 +860,7 @@ func TestHandler_DescribeTaskDefinition_Volumes_RoundTrip(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	vols := td["volumes"].([]any)
 	require.Len(t, vols, 1)
@@ -886,7 +888,7 @@ func TestHandler_DescribeTaskDefinition_RequiresCompatibilities_RoundTrip(t *tes
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	td := out["taskDefinition"].(map[string]any)
 	rcs := td["requiresCompatibilities"].([]any)
 	assert.Len(t, rcs, 2)
@@ -937,7 +939,7 @@ func TestECS_RegisterTaskDefinition_CPU_Memory(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			td, ok := resp["taskDefinition"].(map[string]any)
 			require.True(t, ok)

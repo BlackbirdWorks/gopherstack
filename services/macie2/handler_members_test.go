@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -38,7 +39,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getMem map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getMem))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getMem, jsonx.V1()))
 				assert.Equal(t, "111111111111", getMem["accountId"])
 				assert.Equal(t, "member@example.com", getMem["email"])
 				assert.Equal(t, "Created", getMem["relationshipStatus"])
@@ -52,7 +53,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				members, _ := listResp["members"].([]any)
 				assert.Len(t, members, 1)
 
@@ -63,7 +64,7 @@ func TestMembers(t *testing.T) {
 				// List after delete
 				rec = doRequest(t, h, http.MethodGet, "/members", nil)
 				var afterList map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterList))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterList, jsonx.V1()))
 				membersAfter, _ := afterList["members"].([]any)
 				assert.Empty(t, membersAfter)
 			},
@@ -87,7 +88,7 @@ func TestMembers(t *testing.T) {
 				// Verify status changed
 				rec = doRequest(t, h, http.MethodGet, "/members/222222222222", nil)
 				var mem map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mem))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mem, jsonx.V1()))
 				assert.Equal(t, "Removed", mem["relationshipStatus"])
 			},
 		},
@@ -111,7 +112,7 @@ func TestMembers(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/members/333333333333", nil)
 				var mem map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mem))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mem, jsonx.V1()))
 				assert.Equal(t, "PAUSED", mem["relationshipStatus"])
 			},
 		},
@@ -175,7 +176,7 @@ func TestListMembersOnlyAssociatedAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		members, ok := resp["members"].([]any)
 		require.True(t, ok)
 		require.Len(t, members, 1)
@@ -192,7 +193,7 @@ func TestListMembersOnlyAssociatedAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		members, ok := resp["members"].([]any)
 		require.True(t, ok)
 		assert.Len(t, members, 2)
@@ -205,7 +206,7 @@ func TestListMembersOnlyAssociatedAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		members, ok := resp["members"].([]any)
 		require.True(t, ok)
 		require.Len(t, members, 1)
@@ -221,7 +222,7 @@ func TestListMembersOnlyAssociatedAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 
 		var resp2 map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 		members2, ok := resp2["members"].([]any)
 		require.True(t, ok)
 		require.Len(t, members2, 1)
@@ -255,7 +256,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var countResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &countResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &countResp, jsonx.V1()))
 				count, _ := countResp["invitationsCount"].(float64)
 				assert.InDelta(t, 2, count, 0.0001)
 
@@ -264,7 +265,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				invitations, _ := listResp["invitations"].([]any)
 				assert.Len(t, invitations, 2)
 			},
@@ -285,7 +286,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var adminResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &adminResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &adminResp, jsonx.V1()))
 				admin, _ := adminResp["administrator"].(map[string]any)
 				assert.Equal(t, "123456789012", admin["accountId"])
 			},
@@ -306,7 +307,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var declineResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &declineResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &declineResp, jsonx.V1()))
 				assert.Empty(t, declineResp["unprocessedAccounts"])
 
 				// DeleteInvitations

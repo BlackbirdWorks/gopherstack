@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -261,7 +262,7 @@ func TestAccessPoint_ClientTokenIdempotency_HTTP(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	firstRec := doREST(t, h, http.MethodPost, "/2015-02-01/access-points", map[string]any{
 		"FileSystemId": fsOut.FileSystemID,
@@ -272,7 +273,7 @@ func TestAccessPoint_ClientTokenIdempotency_HTTP(t *testing.T) {
 	var firstOut struct {
 		AccessPointID string `json:"AccessPointId"`
 	}
-	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstOut))
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstOut, jsonx.V1()))
 
 	secondRec := doREST(t, h, http.MethodPost, "/2015-02-01/access-points", map[string]any{
 		"FileSystemId": fsOut.FileSystemID,
@@ -283,7 +284,7 @@ func TestAccessPoint_ClientTokenIdempotency_HTTP(t *testing.T) {
 	var secondOut struct {
 		AccessPointID string `json:"AccessPointId"`
 	}
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondOut))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondOut, jsonx.V1()))
 
 	assert.Equal(t, firstOut.AccessPointID, secondOut.AccessPointID,
 		"repeated CreateAccessPoint with same ClientToken must return the same access point")
@@ -304,7 +305,7 @@ func TestDeleteAccessPoint_CleansAPIndex(t *testing.T) {
 	require.Equal(t, http.StatusOK, apRec.Code)
 
 	var apOut map[string]any
-	require.NoError(t, json.Unmarshal(apRec.Body.Bytes(), &apOut))
+	require.NoError(t, json.Unmarshal(apRec.Body.Bytes(), &apOut, jsonx.V1()))
 	apID := apOut["AccessPointId"].(string)
 
 	blockRec := doREST(t, h, http.MethodDelete, "/2015-02-01/file-systems/"+fsID, nil)

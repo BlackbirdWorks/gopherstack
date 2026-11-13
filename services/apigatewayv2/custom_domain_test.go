@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -32,11 +33,11 @@ func TestCustomDomainRouting(t *testing.T) {
 				} `json:"requestContext"`
 				RawPath string `json:"rawPath"`
 			}
-			_ = json.Unmarshal(payload, &ev)
+			_ = json.Unmarshal(payload, &ev, jsonx.V1())
 			b, _ := json.Marshal(map[string]any{
 				"statusCode": 200,
 				"body":       name + "|" + ev.RequestContext.Stage + "|" + ev.RawPath,
-			})
+			}, jsonx.V1())
 
 			return b, 200, nil
 		},

@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createDeliveryInput struct {
@@ -48,7 +50,7 @@ type deleteDeliveryOutput struct{}
 
 func (h *Handler) handleCreateDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input createDeliveryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -68,7 +70,7 @@ func (h *Handler) handleDescribeDeliveries(
 	b []byte,
 ) (any, error) {
 	var input describeDeliveriesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	deliveries, next, err := h.Backend.DescribeDeliveries(input.Limit, input.NextToken)
@@ -81,7 +83,7 @@ func (h *Handler) handleDescribeDeliveries(
 
 func (h *Handler) handleGetDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input getDeliveryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	d, err := h.Backend.GetDelivery(input.ID)
@@ -94,7 +96,7 @@ func (h *Handler) handleGetDelivery(ctx context.Context, b []byte) (any, error) 
 
 func (h *Handler) handleDeleteDelivery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input deleteDeliveryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteDelivery(input.ID); err != nil {
@@ -144,7 +146,7 @@ func (h *Handler) handlePutDeliveryDestination(
 	body []byte,
 ) (any, error) {
 	var in putDeliveryDestinationInputFull
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -171,7 +173,7 @@ func (h *Handler) handleGetDeliveryDestination(
 	body []byte,
 ) (any, error) {
 	var in getDeliveryDestinationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -197,7 +199,7 @@ func (h *Handler) handleDescribeDeliveryDestinations(
 	body []byte,
 ) (any, error) {
 	var in describeDeliveryDestinationsInput
-	_ = json.Unmarshal(body, &in)
+	_ = json.Unmarshal(body, &in, jsonx.V1())
 
 	if b := cwlBackend(h); b != nil {
 		dests, next := b.DescribeDeliveryDestinations(in.NextToken, in.Limit)
@@ -226,7 +228,7 @@ func (h *Handler) handleDeleteDeliveryDestination(
 	body []byte,
 ) (any, error) {
 	var in deleteDeliveryDestinationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -249,7 +251,7 @@ func (h *Handler) handlePutDeliveryDestinationPolicy(
 	body []byte,
 ) (any, error) {
 	var in putDeliveryDestinationPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -273,7 +275,7 @@ func (h *Handler) handleGetDeliveryDestinationPolicy(
 	body []byte,
 ) (any, error) {
 	var in getDeliveryDestinationPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -298,7 +300,7 @@ func (h *Handler) handleDeleteDeliveryDestinationPolicy(
 	body []byte,
 ) (any, error) {
 	var in deleteDeliveryDestinationPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -353,7 +355,7 @@ func (h *Handler) handlePutDeliverySource(
 	body []byte,
 ) (any, error) {
 	var in putDeliverySourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -383,7 +385,7 @@ func (h *Handler) handleGetDeliverySource(
 	body []byte,
 ) (any, error) {
 	var in getDeliverySourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -409,7 +411,7 @@ func (h *Handler) handleDescribeDeliverySources(
 	body []byte,
 ) (any, error) {
 	var in describeDeliverySourcesInput
-	_ = json.Unmarshal(body, &in)
+	_ = json.Unmarshal(body, &in, jsonx.V1())
 
 	if b := cwlBackend(h); b != nil {
 		srcs, next := b.DescribeDeliverySources(in.NextToken, in.Limit)
@@ -438,7 +440,7 @@ func (h *Handler) handleDeleteDeliverySource(
 	body []byte,
 ) (any, error) {
 	var in deleteDeliverySourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -463,7 +465,7 @@ func (h *Handler) handleUpdateDeliveryConfiguration(
 	body []byte,
 ) (any, error) {
 	var in updateDeliveryConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 

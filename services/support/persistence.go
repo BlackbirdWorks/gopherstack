@@ -2,10 +2,12 @@ package support
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -55,7 +57,7 @@ func newAttachmentSetDTORegistry() (*store.Registry, *store.Table[attachmentSetS
 // is order-sensitive and left a plain map -- see store_setup.go -- so it is
 // persisted here directly instead of through a store.Table.
 type backendSnapshot struct {
-	Tables         map[string]json.RawMessage `json:"tables"`
+	Tables         map[string]jsontext.Value  `json:"tables"`
 	Communications map[string][]Communication `json:"communications"`
 	NextDisplayID  uint64                     `json:"nextDisplayId"`
 	Version        int                        `json:"version"`
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextDisplayID:  b.nextDisplayID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "support: snapshot marshal failed", "error", err)
 
@@ -161,7 +163,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreAttachmentSetsLocked rebuilds the "dirty" attachmentSets table from
 // tables via the ephemeral DTO registry, converting each DTO back to its live
 // type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreAttachmentSetsLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreAttachmentSetsLocked(tables map[string]jsontext.Value) error {
 	dtoReg, asDTOs := newAttachmentSetDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("support: restore snapshot DTO tables: %w", err)

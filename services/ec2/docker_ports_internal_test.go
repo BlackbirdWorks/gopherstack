@@ -1,7 +1,7 @@
 package ec2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,8 @@ import (
 	mobynetwork "github.com/moby/moby/api/types/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestWorldOpenPorts(t *testing.T) {
@@ -255,7 +257,7 @@ func TestServePublishedPorts(t *testing.T) {
 			}
 
 			var body publishedPortsResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, tt.instance, body.InstanceID)
 			require.Len(t, body.Ports, tt.wantPorts)
 			assert.Equal(t, 8080, body.Ports[0].ContainerPort)

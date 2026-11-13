@@ -38,6 +38,7 @@ func TestXrayDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -80,6 +81,7 @@ func TestXrayDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -121,6 +123,7 @@ func TestXrayDashboard_CreateGroup(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/xray")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

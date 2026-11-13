@@ -1,7 +1,8 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -9,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const tempPwd = "Tmp-Secret-9876!x"
@@ -108,7 +111,7 @@ func TestTemporaryPassword_NotReturnedByUserOps(t *testing.T) {
 			require.NoError(t, err)
 
 			attrs := tt.op(t, c, poolID)
-			raw, err := json.Marshal(attrs)
+			raw, err := json.Marshal(attrs, jsonx.V1())
 			require.NoError(t, err)
 			assert.NotContains(t, string(raw), tempPwd)
 			assert.NotContains(t, attrNames(attrs), "custom:temporaryPassword")
@@ -196,25 +199,25 @@ func TestTemporaryPassword_LegacySnapshotMigrates(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var snap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &snap))
+	var snap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &snap, jsonx.V1()))
 
-	var tables map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap["tables"], &tables))
+	var tables map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap["tables"], &tables, jsonx.V1()))
 
 	var users []map[string]any
-	require.NoError(t, json.Unmarshal(tables["users"], &users))
+	require.NoError(t, json.Unmarshal(tables["users"], &users, jsonx.V1()))
 	require.Len(t, users, 1)
 
 	delete(users[0], "temporaryPassword")
 	users[0]["attributes"].(map[string]any)["custom:temporaryPassword"] = tempPwd
 
-	tables["users"], err = json.Marshal(users)
+	tables["users"], err = json.Marshal(users, jsonx.V1())
 	require.NoError(t, err)
-	snap["tables"], err = json.Marshal(tables)
+	snap["tables"], err = json.Marshal(tables, jsonx.V1())
 	require.NoError(t, err)
 
-	old, err := json.Marshal(snap)
+	old, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	fresh := newTestHandler(t)

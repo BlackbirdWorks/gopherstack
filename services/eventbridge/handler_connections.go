@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createConnectionOutput struct {
@@ -104,7 +106,7 @@ func (h *Handler) connectionActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateConnectionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			conn, err := h.Backend.CreateConnection(ctx, input)
@@ -123,7 +125,7 @@ func (h *Handler) connectionActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			conn, err := h.Backend.DeauthorizeConnection(ctx, input.Name)
@@ -153,7 +155,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -163,7 +165,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -181,7 +183,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				NextToken       string `json:"NextToken"`
 				Limit           int    `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			conns, next, err := h.Backend.ListConnections(
@@ -203,7 +205,7 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 		},
 		"UpdateConnection": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateConnectionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			conn, err := h.Backend.UpdateConnection(ctx, input)

@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateDeviceProfile(t *testing.T) {
@@ -39,7 +41,7 @@ func TestHandler_CreateDeviceProfile(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["Id"])
 			assert.NotEmpty(t, resp["Arn"])
 		})
@@ -71,7 +73,7 @@ func TestHandler_DeviceProfile_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id := createResp["Id"].(string)
 			require.NotEmpty(t, id)
 
@@ -80,7 +82,7 @@ func TestHandler_DeviceProfile_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.profileName, getResp["Name"])
 			assert.Equal(t, id, getResp["Id"])
 
@@ -89,7 +91,7 @@ func TestHandler_DeviceProfile_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			list, ok := listResp["DeviceProfileList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, list, 1)
@@ -121,7 +123,7 @@ func TestHandler_ServiceProfile_LoRaWANGetShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, _ := createResp["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -129,7 +131,7 @@ func TestHandler_ServiceProfile_LoRaWANGetShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	loRaWAN, ok := getResp["LoRaWAN"].(map[string]any)
 	require.True(t, ok, "LoRaWAN must be present on Get")
 	assert.InDelta(t, float64(15), loRaWAN["DrMax"], 0.001)
@@ -153,7 +155,7 @@ func TestHandler_DeviceProfile_SidewalkCreateShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, _ := createResp["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -161,7 +163,7 @@ func TestHandler_DeviceProfile_SidewalkCreateShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	sidewalk, ok := getResp["Sidewalk"].(map[string]any)
 	require.True(t, ok, "an empty Sidewalk request object must still mark the profile as Sidewalk on Get")
 	assert.Empty(t, sidewalk, "AWS-assigned Sidewalk fields must not be fabricated")
@@ -205,7 +207,7 @@ func TestHandler_ListDeviceProfiles_FilterByType(t *testing.T) {
 					Name string `json:"Name"`
 				} `json:"DeviceProfileList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			names := make([]string, 0, len(resp.DeviceProfileList))
 			for _, dp := range resp.DeviceProfileList {
@@ -253,7 +255,7 @@ func TestHandler_CreateGetListDeleteServiceProfile(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id, ok := createResp["Id"].(string)
 			require.True(t, ok)
 			assert.NotEmpty(t, id)
@@ -263,7 +265,7 @@ func TestHandler_CreateGetListDeleteServiceProfile(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.profileName, getResp["Name"])
 
 			// List
@@ -271,7 +273,7 @@ func TestHandler_CreateGetListDeleteServiceProfile(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			profiles, ok := listResp["ServiceProfileList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, profiles, 1)

@@ -1,12 +1,14 @@
 package cloudfront
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -115,7 +117,7 @@ func (h *Handler) runFunction(
 	}
 
 	var out map[string]any
-	if err := json.Unmarshal([]byte(res.Output), &out); err != nil {
+	if err := json.Unmarshal([]byte(res.Output), &out, jsonx.V1()); err != nil {
 		return nil, res, false
 	}
 

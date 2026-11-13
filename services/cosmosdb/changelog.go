@@ -1,9 +1,11 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -125,10 +127,10 @@ func partitionKeyObject(paths []string, pkJSON string) map[string]any {
 	var vals []any
 	if len(paths) == 1 {
 		var v any
-		if json.Unmarshal([]byte(pkJSON), &v) == nil {
+		if json.Unmarshal([]byte(pkJSON), &v, jsonx.V1()) == nil {
 			vals = []any{v}
 		}
-	} else if json.Unmarshal([]byte(pkJSON), &vals) != nil {
+	} else if json.Unmarshal([]byte(pkJSON), &vals, jsonx.V1()) != nil {
 		vals = nil
 	}
 

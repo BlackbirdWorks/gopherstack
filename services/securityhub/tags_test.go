@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Batch-1 accuracy gap: TagResource is POST /tags/{ResourceArn}.
@@ -40,7 +42,7 @@ func TestListTagsForResourceIsGETTagsArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, _ := resp["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
@@ -71,7 +73,7 @@ func TestUntagResourceIsDELETETagsArn(t *testing.T) {
 	// Verify tag removed
 	getRec := doRequest(t, h, http.MethodGet, "/tags/"+testArn, nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, _ := resp["Tags"].(map[string]any)
 	_, hasEnv := tags["env"]

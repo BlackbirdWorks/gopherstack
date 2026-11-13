@@ -2,7 +2,7 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
@@ -40,7 +41,7 @@ func armCosmosDo(t *testing.T, h http.Handler, method, path string, body any) (i
 	if body != nil {
 		var err error
 
-		raw, err = json.Marshal(body)
+		raw, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -53,7 +54,7 @@ func armCosmosDo(t *testing.T, h http.Handler, method, path string, body any) (i
 
 	var out map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 	}
 
 	return rec.Code, out

@@ -1,10 +1,12 @@
 package timestreamquery
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func varcharResult(names []string, rows [][]string) *resultSet {
@@ -188,7 +190,7 @@ func (b *InMemoryBackend) showMeasures(region, q string, src RecordSource) (*res
 			dims = append(dims, map[string]string{"dimension_name": d, "data_type": types[d]})
 		}
 
-		enc, _ := json.Marshal(dims)
+		enc, _ := json.Marshal(dims, jsonx.V1())
 		rows = append(rows, []string{m.name, m.typ, string(enc)})
 	}
 

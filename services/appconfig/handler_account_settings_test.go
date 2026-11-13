@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -47,7 +48,7 @@ func TestHandler_GetAccountSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var settings appconfig.AccountSettings
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings, jsonx.V1()))
 }
 
 // TestHandler_UpdateAccountSettings_DeletionProtectionFieldsSurviveIndependentUpdates
@@ -73,7 +74,7 @@ func TestHandler_UpdateAccountSettings_DeletionProtectionFieldsSurviveIndependen
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var settings appconfig.AccountSettings
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings, jsonx.V1()))
 	require.NotNil(t, settings.DeletionProtection)
 	require.NotNil(t, settings.DeletionProtection.Enabled)
 	assert.False(t, *settings.DeletionProtection.Enabled, "B's own field must apply")
@@ -84,7 +85,7 @@ func TestHandler_UpdateAccountSettings_DeletionProtectionFieldsSurviveIndependen
 	// GetAccountSettings must reflect the same merged state.
 	rec = doRequest(t, h, http.MethodGet, "/settings", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings, jsonx.V1()))
 	require.NotNil(t, settings.DeletionProtection.ProtectionPeriodInMinutes)
 	assert.EqualValues(t, 120, *settings.DeletionProtection.ProtectionPeriodInMinutes)
 }
@@ -100,7 +101,7 @@ func TestHandler_UpdateAccountSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var settings appconfig.AccountSettings
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings, jsonx.V1()))
 	require.NotNil(t, settings.DeletionProtection)
 	require.NotNil(t, settings.DeletionProtection.Enabled)
 	assert.True(t, *settings.DeletionProtection.Enabled)
@@ -109,7 +110,7 @@ func TestHandler_UpdateAccountSettings(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/settings", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &settings, jsonx.V1()))
 	require.NotNil(t, settings.DeletionProtection)
 	assert.True(t, *settings.DeletionProtection.Enabled)
 }

@@ -2,7 +2,7 @@ package gcpeventarc_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPubsubDelivery(t *testing.T) {
@@ -89,7 +91,7 @@ func TestPubsubDelivery(t *testing.T) {
 				} `json:"message"`
 				Subscription string `json:"subscription"`
 			}
-			require.NoError(t, json.Unmarshal(got.body, &body))
+			require.NoError(t, json.Unmarshal(got.body, &body, jsonx.V1()))
 
 			raw, err := base64.StdEncoding.DecodeString(body.Message.Data)
 			require.NoError(t, err)
@@ -231,7 +233,7 @@ func TestStorageDelivery(t *testing.T) {
 			assert.Equal(t, "application/json", got.header.Get("Content-Type"))
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(got.body, &data))
+			require.NoError(t, json.Unmarshal(got.body, &data, jsonx.V1()))
 			assert.Equal(t, "photos", data["bucket"])
 			assert.Equal(t, strings.TrimPrefix(tt.subject, "objects/"), data["name"])
 		})

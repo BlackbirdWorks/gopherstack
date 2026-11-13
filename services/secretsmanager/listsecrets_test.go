@@ -5,7 +5,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -658,7 +659,7 @@ func TestListSecrets_OwningServiceHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.SecretList, "owning-service=rds must match neither om-1 nor om-2")
 }
 
@@ -924,7 +925,7 @@ func TestListSecrets_FilterByNameHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.SecretList, 2)
 }
 
@@ -969,7 +970,7 @@ func TestListSecrets_SortOrder(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.SecretList, 3)
 	assert.Equal(t, "gamma", out.SecretList[0].Name)
 	assert.Equal(t, "alpha", out.SecretList[2].Name)
@@ -987,7 +988,7 @@ func TestListSecrets_FilterAll(t *testing.T) {
 		"Name":         "findme/secret",
 		"Description":  "unique-token",
 		"SecretString": "v",
-	})
+	}, jsonx.V1())
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1001,7 +1002,7 @@ func TestListSecrets_FilterAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.SecretList, 1)
 	assert.Equal(t, "findme/secret", out.SecretList[0].Name)
 }
@@ -1025,7 +1026,7 @@ func TestListSecrets_EntryHasRotationFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.SecretList, 1)
 
 	entry := out.SecretList[0]
@@ -1056,7 +1057,7 @@ func TestListSecrets_EntryHasCreatedAndRotatedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.SecretList, 1)
 	assert.NotNil(t, out.SecretList[0].CreatedDate)
 	assert.NotNil(t, out.SecretList[0].LastRotatedDate)

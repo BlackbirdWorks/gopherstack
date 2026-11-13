@@ -1,9 +1,11 @@
 package fsx
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const clientRequestTokenField = "ClientRequestToken"
@@ -11,19 +13,19 @@ const clientRequestTokenField = "ClientRequestToken"
 // tokenFingerprint canonicalises input minus its ClientRequestToken so a retry
 // with the same parameters hashes equal and a changed one does not.
 func tokenFingerprint(input any) (string, error) {
-	raw, err := json.Marshal(input)
+	raw, err := json.Marshal(input, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("canonicalize request: %w", err)
 	}
 
 	var fields map[string]any
-	if err = json.Unmarshal(raw, &fields); err != nil {
+	if err = json.Unmarshal(raw, &fields, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("canonicalize request: %w", err)
 	}
 
 	delete(fields, clientRequestTokenField)
 
-	out, err := json.Marshal(fields)
+	out, err := json.Marshal(fields, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("canonicalize request: %w", err)
 	}

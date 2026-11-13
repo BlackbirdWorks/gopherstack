@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"strconv"
@@ -267,13 +267,13 @@ func sagemakerFloatProp(props map[string]any, key string) float64 {
 
 // rawJSONProp reads a property as opaque JSON, returning nil when absent
 // (unlike jsonProp's "", which is not valid json.RawMessage).
-func rawJSONProp(props map[string]any, key string) json.RawMessage {
+func rawJSONProp(props map[string]any, key string) jsontext.Value {
 	s := jsonProp(props, key)
 	if s == "" {
 		return nil
 	}
 
-	return json.RawMessage(s)
+	return jsontext.Value(s)
 }
 
 // ---- AWS::SageMaker::Model ----

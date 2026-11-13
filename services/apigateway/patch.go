@@ -1,12 +1,15 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // patch.go implements AWS API Gateway's PATCH-operation semantics beyond what
@@ -90,10 +93,10 @@ const (
 // op used e.g. to promote a canary deployment,
 // {"op":"copy","from":"/canarySettings/deploymentId","path":"/deploymentId"}.
 type patchOp struct {
-	Op    string          `json:"op"`
-	Path  string          `json:"path"`
-	From  string          `json:"from,omitempty"`
-	Value json.RawMessage `json:"value"`
+	Op    string         `json:"op"`
+	Path  string         `json:"path"`
+	From  string         `json:"from,omitempty"`
+	Value jsontext.Value `json:"value"`
 }
 
 // parsePatchDocument detects and parses a PATCH request body: either a bare
@@ -101,7 +104,7 @@ type patchOp struct {
 // wrapper (the real AWS wire shape), which may carry sibling fields alongside
 // "patchOperations" (rest). ok is false when body is neither shape, in which
 // case the caller should treat body as an already-flat field object.
-func parsePatchDocument(body []byte) ([]patchOp, map[string]json.RawMessage, bool) {
+func parsePatchDocument(body []byte) ([]patchOp, map[string]jsontext.Value, bool) {
 	if len(body) == 0 {
 		return nil, nil, false
 	}
@@ -109,7 +112,7 @@ func parsePatchDocument(body []byte) ([]patchOp, map[string]json.RawMessage, boo
 	switch body[0] {
 	case '[':
 		var arr []patchOp
-		if err := json.Unmarshal(body, &arr); err != nil || len(arr) == 0 || arr[0].Op == "" {
+		if err := json.Unmarshal(body, &arr, jsonx.V1()); err != nil || len(arr) == 0 || arr[0].Op == "" {
 			return nil, nil, false
 		}
 
@@ -118,13 +121,13 @@ func parsePatchDocument(body []byte) ([]patchOp, map[string]json.RawMessage, boo
 		var wrapper struct {
 			PatchOperations []patchOp `json:"patchOperations"`
 		}
-		if err := json.Unmarshal(body, &wrapper); err != nil || len(wrapper.PatchOperations) == 0 {
+		if err := json.Unmarshal(body, &wrapper, jsonx.V1()); err != nil || len(wrapper.PatchOperations) == 0 {
 			return nil, nil, false
 		}
 
-		var siblings map[string]json.RawMessage
+		var siblings map[string]jsontext.Value
 
-		_ = json.Unmarshal(body, &siblings)
+		_ = json.Unmarshal(body, &siblings, jsonx.V1())
 		delete(siblings, "patchOperations")
 
 		return wrapper.PatchOperations, siblings, true
@@ -180,7 +183,7 @@ var removableTopLevelScalar = map[string]map[string]bool{
 // top level. Fields absent from patchFieldKind are assumed to be strings (the
 // common case, and already correctly a JSON string on the wire) and passed
 // through unchanged.
-func coerceTopLevelPatchValue(field string, raw json.RawMessage) json.RawMessage {
+func coerceTopLevelPatchValue(field string, raw jsontext.Value) jsontext.Value {
 	kind, known := patchFieldKind[field]
 	if !known {
 		return raw
@@ -194,13 +197,13 @@ func coerceTopLevelPatchValue(field string, raw json.RawMessage) json.RawMessage
 	switch kind {
 	case patchKindBool:
 		if b, parseErr := strconv.ParseBool(s); parseErr == nil {
-			if encoded, marshalErr := json.Marshal(b); marshalErr == nil {
+			if encoded, marshalErr := json.Marshal(b, jsonx.V1()); marshalErr == nil {
 				return encoded
 			}
 		}
 	case patchKindInt:
 		if n, parseErr := strconv.Atoi(s); parseErr == nil {
-			if encoded, marshalErr := json.Marshal(n); marshalErr == nil {
+			if encoded, marshalErr := json.Marshal(n, jsonx.V1()); marshalErr == nil {
 				return encoded
 			}
 		}
@@ -228,13 +231,13 @@ func patchIgnorableErr(err error) bool {
 // numeric targets (see the package doc above), so every call site that needs
 // the underlying scalar goes through this and then parses it with strconv.
 // ok is false when Value is empty/absent or not a JSON string.
-func patchValueString(raw json.RawMessage) (string, bool) {
+func patchValueString(raw jsontext.Value) (string, bool) {
 	if len(raw) == 0 {
 		return "", false
 	}
 
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return "", false
 	}
 
@@ -264,8 +267,8 @@ func patchPathSegments(path string) []string {
 // setJSONValue marshals value and stores it under field in out. Errors are
 // swallowed (defensive only): every call site below passes a well-formed
 // built-in Go value that always marshals successfully.
-func setJSONValue(out map[string]json.RawMessage, field string, value any) {
-	raw, err := json.Marshal(value)
+func setJSONValue(out map[string]jsontext.Value, field string, value any) {
+	raw, err := json.Marshal(value, jsonx.V1())
 	if err != nil {
 		return
 	}
@@ -284,7 +287,7 @@ func setJSONValue(out map[string]json.RawMessage, field string, value any) {
 // discarding whatever an earlier op in the SAME request had already staged
 // there. ok is false when field isn't staged yet or fails to decode, in
 // which case the caller must fall back to reading current backend state.
-func stagedValue[T any](out map[string]json.RawMessage, field string) (T, bool) {
+func stagedValue[T any](out map[string]jsontext.Value, field string) (T, bool) {
 	var v T
 
 	raw, present := out[field]
@@ -292,7 +295,7 @@ func stagedValue[T any](out map[string]json.RawMessage, field string) (T, bool) 
 		return v, false
 	}
 
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(raw, &v, jsonx.V1()); err != nil {
 		return v, false
 	}
 
@@ -334,7 +337,7 @@ func (h *Handler) applyStructuredPatch(action string, pathParams map[string]stri
 		return body, nil
 	}
 
-	out := make(map[string]json.RawMessage, len(rest)+len(ops))
+	out := make(map[string]jsontext.Value, len(rest)+len(ops))
 	maps.Copy(out, rest)
 
 	for _, op := range ops {
@@ -350,7 +353,7 @@ func (h *Handler) applyStructuredPatch(action string, pathParams map[string]stri
 		applyTopLevelPatchOp(action, op, out)
 	}
 
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(out, jsonx.V1())
 	if patchIgnorableErr(err) {
 		return body, nil
 	}
@@ -385,7 +388,7 @@ func unmodeledPatchPath(action, path string) error {
 // "not provided" from "reset to zero value" — a much larger refactor across
 // every resource's Update backend method than this pass's PATCH-semantics
 // fix covers in full. Tracked as a follow-up (see PARITY.md gaps).
-func applyTopLevelPatchOp(action string, op patchOp, out map[string]json.RawMessage) {
+func applyTopLevelPatchOp(action string, op patchOp, out map[string]jsontext.Value) {
 	field := strings.TrimPrefix(op.Path, "/")
 	if field == "" || strings.Contains(field, "/") {
 		return
@@ -396,7 +399,7 @@ func applyTopLevelPatchOp(action string, op patchOp, out map[string]json.RawMess
 		out[field] = coerceTopLevelPatchValue(field, op.Value)
 	case patchOpRemove:
 		if removableTopLevelScalar[action][field] {
-			out[field] = json.RawMessage(`""`)
+			out[field] = jsontext.Value(`""`)
 		}
 	}
 }
@@ -408,7 +411,7 @@ func applyTopLevelPatchOp(action string, op patchOp, out map[string]json.RawMess
 // is one this action must reject, or (false, nil) to fall through to the
 // generic top-level fallback.
 type resourcePatchResolver func(
-	h *Handler, pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	h *Handler, pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error)
 
 // resourcePatchResolvers maps each action with map/struct/list/rejectable
@@ -440,7 +443,7 @@ var resourcePatchResolvers = map[string]resourcePatchResolver{
 // single-field replace cannot express. See resourcePatchResolver's doc
 // comment for the return-value contract.
 func (h *Handler) applyResourcePatchOp(
-	action string, pathParams map[string]string, op patchOp, out map[string]json.RawMessage,
+	action string, pathParams map[string]string, op patchOp, out map[string]jsontext.Value,
 ) (bool, error) {
 	segs := patchPathSegments(op.Path)
 	if len(segs) == 0 {
@@ -460,7 +463,7 @@ func (h *Handler) applyResourcePatchOp(
 // stage-variable edits, single canarySettings/accessLogSettings sub-fields,
 // and per-route method settings.
 func (h *Handler) applyStagePatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op == patchOpCopy && op.Path == "/deploymentId" && op.From == "/canarySettings/deploymentId" {
 		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
@@ -499,7 +502,7 @@ func (h *Handler) applyStagePatchOp(
 // with whatever an earlier op in the SAME request already staged into
 // out["variables"] (see stagedValue's doc comment).
 func (h *Handler) applyStageVariablePatch(
-	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, rawName string, out map[string]jsontext.Value,
 ) bool {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return false
@@ -534,7 +537,7 @@ func (h *Handler) applyStageVariablePatch(
 // with the stage's existing canary settings and whatever an earlier op in the
 // SAME request already staged into out["canarySettings"].
 func (h *Handler) applyStageCanaryPatch(
-	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, prop string, out map[string]jsontext.Value,
 ) bool {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return false
@@ -595,7 +598,7 @@ func applyStageCanaryProp(cur *CanarySettings, prop, val string, remove bool) bo
 		// contents are themselves a JSON-encoded {name: value} object.
 		if !remove {
 			var overrides map[string]string
-			if json.Unmarshal([]byte(val), &overrides) == nil {
+			if json.Unmarshal([]byte(val), &overrides, jsonx.V1()) == nil {
 				cur.StageVariableOverrides = overrides
 			}
 		}
@@ -611,7 +614,7 @@ func applyStageCanaryProp(cur *CanarySettings, prop, val string, remove bool) bo
 // existing access log settings and whatever an earlier op in the SAME
 // request already staged into out["accessLogSettings"].
 func (h *Handler) applyStageAccessLogPatch(
-	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, prop string, out map[string]jsontext.Value,
 ) bool {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return false
@@ -737,7 +740,7 @@ func parseBoolLenient(v string) bool {
 // (e.g. "/~1pets/GET/throttling/burstLimit" or "/*/*/logging/loglevel") —
 // merged with the stage's existing per-route overrides.
 func (h *Handler) applyStageMethodSettingPatch(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) bool {
 	apply, known := stageMethodSettingProperty[strings.Join(segs[2:], "/")]
 	if !known || (op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove) {
@@ -773,7 +776,7 @@ func (h *Handler) applyStageMethodSettingPatch(
 // silently drop every other configured type) and whatever an earlier op in
 // the SAME request already staged into out["binaryMediaTypes"].
 func (h *Handler) applyRestAPIPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != patchPathSegs2 || segs[0] != "binaryMediaTypes" {
 		return false, nil
@@ -823,7 +826,7 @@ const accountFeatureUsagePlans = "UsagePlans"
 // membership. "/cloudwatchRoleArn" is a plain top-level string field and is
 // handled by the generic fallback (applyTopLevelPatchOp).
 func (h *Handler) applyAccountPatchOp(
-	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	_ map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) == 1 && segs[0] == "features" {
 		return h.applyAccountFeaturesPatch(op, out)
@@ -892,7 +895,7 @@ func applyAccountThrottleProp(cur *ThrottleSettings, prop, val string, remove bo
 // removing accountFeatureUsagePlans, matching patch-operations.html's
 // documented exception, and any op other than add/remove (replace is "Not
 // supported").
-func (h *Handler) applyAccountFeaturesPatch(op patchOp, out map[string]json.RawMessage) (bool, error) {
+func (h *Handler) applyAccountFeaturesPatch(op patchOp, out map[string]jsontext.Value) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/features", op.Op)
 	}
@@ -941,7 +944,7 @@ func (h *Handler) applyAccountFeaturesPatch(op patchOp, out map[string]json.RawM
 // earlier op in this request has touched apiStages yet. ok is false only
 // when the plan itself can't be resolved.
 func (h *Handler) currentUsagePlanAPIStages(
-	pathParams map[string]string, out map[string]json.RawMessage,
+	pathParams map[string]string, out map[string]jsontext.Value,
 ) ([]APIStageAssociation, bool) {
 	if staged, ok := stagedValue[[]APIStageAssociation](out, "apiStages"); ok {
 		return staged, true
@@ -962,7 +965,7 @@ func (h *Handler) currentUsagePlanAPIStages(
 // applyUsagePlanThrottlePatch) — see the AWS "UpdateUsagePlan" patch-operations
 // reference.
 func (h *Handler) applyUsagePlanPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) == 1 && segs[0] == "apiStages" {
 		return h.applyUsagePlanAPIStageMembershipPatch(pathParams, op, out), nil
@@ -978,7 +981,7 @@ func (h *Handler) applyUsagePlanPatchOp(
 // applyUsagePlanAPIStageMembershipPatch handles the whole-apiStage add/remove
 // case ("/apiStages", Value "{restApiId}:{stage}").
 func (h *Handler) applyUsagePlanAPIStageMembershipPatch(
-	pathParams map[string]string, op patchOp, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, out map[string]jsontext.Value,
 ) bool {
 	if op.Op != patchOpAdd && op.Op != patchOpRemove {
 		return false
@@ -1038,7 +1041,7 @@ const usagePlanThrottlePathMinSegs = 5
 // APIStageAssociation.Throttle elsewhere in this service (see usage.go's
 // effectiveThrottle and CreateUsagePlan's test fixtures).
 func (h *Handler) applyUsagePlanThrottlePatch(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) bool {
 	if len(segs) < usagePlanThrottlePathMinSegs || len(segs) > usagePlanThrottlePathMinSegs+1 {
 		return false
@@ -1139,7 +1142,7 @@ func (h *Handler) mergeUsagePlanThrottleEntry(
 // default response when none has been customized yet) and whatever an
 // earlier op in the SAME request already staged into out[segs[0]].
 func (h *Handler) applyGatewayResponsePatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != patchPathSegs2 || (segs[0] != fieldResponseParameters && segs[0] != "responseTemplates") {
 		return false, nil
@@ -1185,7 +1188,7 @@ func (h *Handler) applyGatewayResponsePatchOp(
 // StageKeys (a wholesale replace would otherwise silently drop every other
 // associated stage).
 func (h *Handler) applyAPIKeyPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != 1 || segs[0] != "stages" {
 		return false, nil
@@ -1236,7 +1239,7 @@ func (h *Handler) applyAPIKeyPatchOp(
 // had no case for opUpdateDomainName at all, so every nested DomainName PATCH
 // path silently no-opped via applyTopLevelPatchOp's path-contains-"/" guard.
 func (h *Handler) applyDomainNamePatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != patchPathSegs2 {
 		return false, nil
@@ -1258,7 +1261,7 @@ func (h *Handler) applyDomainNamePatchOp(
 // and whatever an earlier op in the SAME request already staged into
 // out["endpointConfiguration"].
 func (h *Handler) applyDomainNameEndpointConfigPatch(
-	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, prop string, out map[string]jsontext.Value,
 ) bool {
 	cur, ok := stagedValue[EndpointConfiguration](out, "endpointConfiguration")
 	if !ok {
@@ -1310,7 +1313,7 @@ func (h *Handler) applyDomainNameEndpointConfigPatch(
 // with the domain name's existing mTLS configuration and whatever an earlier
 // op in the SAME request already staged into out["mutualTlsAuthentication"].
 func (h *Handler) applyDomainNameMTLSPatch(
-	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, prop string, out map[string]jsontext.Value,
 ) bool {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return false
@@ -1354,7 +1357,7 @@ func (h *Handler) applyDomainNameMTLSPatch(
 // patch-operations.html's UpdateResource table documents both paths as
 // replace-only.
 func (h *Handler) applyResourceEntityPatchOp(
-	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	_ map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != 1 || segs[0] != "parentId" {
 		return false, nil
@@ -1398,7 +1401,7 @@ func (h *Handler) applyResourceEntityPatchOp(
 // decision). "/restApiId" and "/stage" are spelled identically in every AWS
 // source and already work via the generic fallback (applyTopLevelPatchOp).
 func (h *Handler) applyBasePathMappingPatchOp(
-	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	_ map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != 1 {
 		return false, nil
@@ -1431,7 +1434,7 @@ func (h *Handler) applyBasePathMappingPatchOp(
 // json.Unmarshal then failed the WHOLE PATCH request with a 500 (same bug
 // class as UpdateIntegration's /cacheKeyParameters).
 func (h *Handler) applyAuthorizerPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != 1 || segs[0] != "providerARNs" {
 		return false, nil
@@ -1484,7 +1487,7 @@ func (h *Handler) applyAuthorizerPatchOp(
 // requestValidatorId) are plain replace-only fields left to the generic
 // fallback.
 func (h *Handler) applyMethodPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) == 1 && segs[0] == "authorizationScopes" {
 		return true, unmodeledPatchPath(opUpdateMethod, op.Path)
@@ -1510,7 +1513,7 @@ func (h *Handler) applyMethodPatchOp(
 // silently drop every other parameter) and whatever an earlier op in the SAME
 // request already staged into out["requestParameters"].
 func (h *Handler) applyMethodRequestParameterPatch(
-	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, rawName string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/requestParameters", op.Op)
@@ -1546,7 +1549,7 @@ func (h *Handler) applyMethodRequestParameterPatch(
 // existing RequestModels and whatever an earlier op in the SAME request
 // already staged into out["requestModels"].
 func (h *Handler) applyMethodRequestModelPatch(
-	pathParams map[string]string, op patchOp, rawContentType string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, rawContentType string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/requestModels", op.Op)
@@ -1587,7 +1590,7 @@ func (h *Handler) applyMethodRequestModelPatch(
 // connectionId, connectionType, contentHandling, httpMethod, passthroughBehavior,
 // uri, timeoutInMillis) are plain replace-only fields left to the generic fallback.
 func (h *Handler) applyIntegrationPatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) == 1 {
 		return h.applyIntegrationTopLevelPatchOp(pathParams, op, segs[0], out)
@@ -1613,7 +1616,7 @@ func (h *Handler) applyIntegrationPatchOp(
 // PATCH paths that need explicit rejection or list-membership merging rather
 // than the generic scalar fallback.
 func (h *Handler) applyIntegrationTopLevelPatchOp(
-	pathParams map[string]string, op patchOp, field string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, field string, out map[string]jsontext.Value,
 ) (bool, error) {
 	switch field {
 	case "type":
@@ -1636,7 +1639,7 @@ func (h *Handler) applyIntegrationTopLevelPatchOp(
 // matching this file's other single-segment list-membership paths
 // (UpdateApiKey's "/stages", UpdateRestApi's "/binaryMediaTypes").
 func (h *Handler) applyIntegrationCacheKeyParametersPatch(
-	pathParams map[string]string, op patchOp, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/cacheKeyParameters", op.Op)
@@ -1681,7 +1684,7 @@ func (h *Handler) applyIntegrationCacheKeyParametersPatch(
 // with the integration's existing map and whatever an earlier op in the SAME
 // request already staged into out[field].
 func (h *Handler) applyIntegrationMapPatch(
-	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/"+field, op.Op)
@@ -1722,7 +1725,7 @@ func (h *Handler) applyIntegrationMapPatch(
 // edits. "/contentHandling" and "/selectionPattern" are plain top-level
 // replace-only fields left to the generic fallback.
 func (h *Handler) applyIntegrationResponsePatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != patchPathSegs2 {
 		return false, nil
@@ -1743,7 +1746,7 @@ func (h *Handler) applyIntegrationResponsePatchOp(
 // merging with the integration response's existing map and whatever an
 // earlier op in the SAME request already staged into out[field].
 func (h *Handler) applyIntegrationResponseMapPatch(
-	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/"+field, op.Op)
@@ -1782,7 +1785,7 @@ func (h *Handler) applyIntegrationResponseMapPatch(
 // applyMethodResponsePatchOp handles UpdateMethodResponse's per-key
 // "/responseModels/{content-type}" and "/responseParameters/{name}" map edits.
 func (h *Handler) applyMethodResponsePatchOp(
-	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, segs []string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if len(segs) != patchPathSegs2 {
 		return false, nil
@@ -1803,7 +1806,7 @@ func (h *Handler) applyMethodResponsePatchOp(
 // method response's existing ResponseModels and whatever an earlier op in the
 // SAME request already staged into out["responseModels"].
 func (h *Handler) applyMethodResponseModelPatch(
-	pathParams map[string]string, op patchOp, rawContentType string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, rawContentType string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/responseModels", op.Op)
@@ -1840,7 +1843,7 @@ func (h *Handler) applyMethodResponseModelPatch(
 // method response's existing ResponseParameters and whatever an earlier op in
 // the SAME request already staged into out["responseParameters"].
 func (h *Handler) applyMethodResponseParameterPatch(
-	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
+	pathParams map[string]string, op patchOp, rawName string, out map[string]jsontext.Value,
 ) (bool, error) {
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
 		return true, unsupportedPatchOp("/responseParameters", op.Op)

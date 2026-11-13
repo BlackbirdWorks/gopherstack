@@ -2,7 +2,7 @@ package apigatewayv2
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -373,7 +374,7 @@ func buildV1Payload(
 		},
 	}
 
-	p, _ := json.Marshal(event)
+	p, _ := json.Marshal(event, jsonx.V1())
 
 	return p
 }
@@ -451,7 +452,7 @@ func buildV2Payload(
 		},
 	}
 
-	p, _ := json.Marshal(event)
+	p, _ := json.Marshal(event, jsonx.V1())
 
 	return p
 }

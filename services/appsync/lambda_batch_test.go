@@ -2,7 +2,7 @@ package appsync_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
@@ -11,6 +11,8 @@ import (
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type batchInvoker struct {
@@ -27,7 +29,7 @@ func (b *batchInvoker) InvokeFunction(_ context.Context, name, _ string, payload
 	}
 
 	var items []any
-	if err := json.Unmarshal(payload, &items); err != nil {
+	if err := json.Unmarshal(payload, &items, jsonx.V1()); err != nil {
 		return nil, 0, err
 	}
 
@@ -35,7 +37,7 @@ func (b *batchInvoker) InvokeFunction(_ context.Context, name, _ string, payload
 	b.sizes = append(b.sizes, len(items))
 	b.mu.Unlock()
 
-	out, err := json.Marshal(b.respond(items))
+	out, err := json.Marshal(b.respond(items), jsonx.V1())
 
 	return out, 200, err
 }
@@ -166,7 +168,7 @@ type Query { posts: [Post] }`)
 				Data   map[string]any `json:"data"`
 				Errors []any          `json:"errors"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &reply), rec.Body.String())
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &reply, jsonx.V1()), rec.Body.String())
 
 			assert.Equal(t, tt.wantSizes, inv.sizes)
 			assert.Len(t, reply.Errors, max(tt.wantErrs, boolInt(tt.wantData == nil)))

@@ -2,7 +2,7 @@ package amplify_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
@@ -34,7 +35,7 @@ func doRequest(
 	var buf *bytes.Buffer
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		buf = bytes.NewBuffer(b)
 	} else {
@@ -422,7 +423,7 @@ func TestHandler_ErrorResponseShape(t *testing.T) {
 
 			var payload map[string]any
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload, jsonx.V1()))
 			assert.Equal(t, tt.wantType, payload["__type"])
 			assert.NotEmpty(t, payload["message"])
 		})

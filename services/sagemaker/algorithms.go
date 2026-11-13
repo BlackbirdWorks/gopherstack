@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -22,9 +22,9 @@ type CreateAlgorithmOptions struct {
 	Tags                    map[string]string
 	AlgorithmName           string
 	AlgorithmDescription    string
-	TrainingSpecification   json.RawMessage
-	InferenceSpecification  json.RawMessage
-	ValidationSpecification json.RawMessage
+	TrainingSpecification   jsontext.Value
+	InferenceSpecification  jsontext.Value
+	ValidationSpecification jsontext.Value
 	CertifyForMarketplace   bool
 }
 

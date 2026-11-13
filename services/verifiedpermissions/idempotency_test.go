@@ -1,12 +1,14 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestVPHandler_CreateOps_ClientTokenIdempotency table-drives the shared
@@ -93,19 +95,19 @@ func TestVPHandler_CreateOps_ClientTokenIdempotency(t *testing.T) {
 			rec1 := doVPRequest(t, h, tt.action, tt.body(storeID, "fixed-token", "v1"))
 			require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body.String())
 			var resp1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 			// Same token, same parameters: replays the original resource.
 			rec2 := doVPRequest(t, h, tt.action, tt.body(storeID, "fixed-token", "v1"))
 			require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body.String())
 			var resp2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 			assert.Equal(t, resp1[tt.idField], resp2[tt.idField])
 
 			listRec := doVPRequest(t, h, tt.listAction, map[string]any{"policyStoreId": storeID})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			items, _ := listResp[tt.listField].([]any)
 			assert.Len(t, items, 1, "a replayed ClientToken call must not create a duplicate resource")
 
@@ -113,7 +115,7 @@ func TestVPHandler_CreateOps_ClientTokenIdempotency(t *testing.T) {
 			rec3 := doVPRequest(t, h, tt.action, tt.body(storeID, "fixed-token", "v2-different"))
 			assert.Equal(t, http.StatusBadRequest, rec3.Code)
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "ConflictException", errResp["__type"])
 		})
 	}

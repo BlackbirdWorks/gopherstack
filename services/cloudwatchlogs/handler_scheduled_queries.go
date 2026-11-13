@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createScheduledQueryInput struct {
@@ -153,7 +155,7 @@ func (h *Handler) handleCreateScheduledQuery(
 	b []byte,
 ) (any, error) {
 	var input createScheduledQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -195,7 +197,7 @@ func (h *Handler) handleDeleteScheduledQuery(
 	b []byte,
 ) (any, error) {
 	var input deleteScheduledQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteScheduledQuery(input.Identifier); err != nil {
@@ -210,7 +212,7 @@ func (h *Handler) handleListScheduledQueries(
 	b []byte,
 ) (any, error) {
 	var input listScheduledQueriesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	queries, next, err := h.Backend.ListScheduledQueries(
@@ -233,7 +235,7 @@ func (h *Handler) handleUpdateScheduledQuery(
 	b []byte,
 ) (any, error) {
 	var input updateScheduledQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -252,7 +254,7 @@ func (h *Handler) handleGetScheduledQuery(
 	b []byte,
 ) (any, error) {
 	var input getScheduledQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	sq, err := h.Backend.GetScheduledQuery(input.Identifier)
@@ -274,7 +276,7 @@ func (h *Handler) handleGetScheduledQueryHistory(
 	b []byte,
 ) (any, error) {
 	var input getScheduledQueryHistoryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -2,7 +2,7 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // notificationConfiguration mirrors the AWS S3 XML notification configuration
@@ -204,7 +205,7 @@ func buildS3EventPayload(
 	}
 	envelope := map[string]any{"Records": []s3EventRecord{record}}
 
-	b, err := json.Marshal(envelope)
+	b, err := json.Marshal(envelope, jsonx.V1())
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +250,7 @@ func buildEventBridgeDetail(bucket, key, etag, reason string, size int64) (strin
 		Reason:    reason,
 	}
 
-	b, err := json.Marshal(detail)
+	b, err := json.Marshal(detail, jsonx.V1())
 	if err != nil {
 		return "", err
 	}

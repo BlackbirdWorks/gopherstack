@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 const (
 	keySessionID  = "SessionId"
@@ -72,7 +76,7 @@ type getResourceDashboardInput struct {
 
 func (h *Handler) handleStartSession(b []byte) (any, error) {
 	var input startSessionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -123,7 +127,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 		"StartSession": h.handleStartSession,
 		"GetSession": func(b []byte) (any, error) {
 			var input sessionIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -147,7 +151,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 		},
 		"GetSessionStatus": func(b []byte) (any, error) {
 			var input sessionIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -160,7 +164,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 		},
 		"GetSessionEndpoint": func(b []byte) (any, error) {
 			var input sessionIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -177,7 +181,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 		},
 		"TerminateSession": func(b []byte) (any, error) {
 			var input sessionIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -195,7 +199,7 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"ListSessions": func(b []byte) (any, error) {
 			var input listSessionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -219,7 +223,7 @@ func (h *Handler) sessionListOps() map[string]athenaActionFn {
 		},
 		"ListNotebookSessions": func(b []byte) (any, error) {
 			var input listNotebookSessionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -250,7 +254,7 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"ListExecutors": func(b []byte) (any, error) {
 			var input listExecutorsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -274,7 +278,7 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 		},
 		"ListEngineVersions": func(b []byte) (any, error) {
 			var input listPageInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -293,7 +297,7 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 		},
 		"ListApplicationDPUSizes": func(b []byte) (any, error) {
 			var input listPageInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -309,7 +313,7 @@ func (h *Handler) sessionInfoOps() map[string]athenaActionFn {
 		},
 		"GetResourceDashboard": func(b []byte) (any, error) {
 			var input getResourceDashboardInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

@@ -1,13 +1,14 @@
 package efs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -17,7 +18,7 @@ type tagResourceBody struct {
 
 func (h *Handler) handleTagResource(c *echo.Context, resourceID string, body []byte) error {
 	var in tagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
@@ -110,7 +111,7 @@ type createTagsBody struct {
 
 func (h *Handler) handleCreateTags(c *echo.Context, fileSystemID string, body []byte) error {
 	var in createTagsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
@@ -128,7 +129,7 @@ type deleteTagsBody struct {
 
 func (h *Handler) handleDeleteTags(c *echo.Context, fileSystemID string, body []byte) error {
 	var in deleteTagsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 

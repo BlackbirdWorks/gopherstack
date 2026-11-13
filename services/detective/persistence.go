@@ -2,7 +2,7 @@ package detective
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -31,7 +31,7 @@ const detectiveSnapshotVersion = 1
 // order-sensitive slice; all four are carried directly, matching the
 // pre-Phase-3.3 snapshot shape for those fields.
 type backendSnapshot struct {
-	Tables      map[string]json.RawMessage   `json:"tables"`
+	Tables      map[string]jsontext.Value    `json:"tables"`
 	Tags        map[string]map[string]string `json:"tags"`
 	Datasources map[string]map[string]string `json:"datasources"`
 	// DatasourceChangedAt is additive (gopherstack-c902): graphARN -> package

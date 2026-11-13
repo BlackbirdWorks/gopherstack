@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getUsagePlansPageInput struct {
@@ -139,7 +141,7 @@ func (h *Handler) usagePlanActions() map[string]actionFn {
 
 func (h *Handler) createUsagePlanAction(b []byte) (int, any, error) {
 	var input CreateUsagePlanInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -153,7 +155,7 @@ func (h *Handler) createUsagePlanAction(b []byte) (int, any, error) {
 
 func (h *Handler) createUsagePlanKeyAction(b []byte) (int, any, error) {
 	var input CreateUsagePlanKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) createUsagePlanKeyAction(b []byte) (int, any, error) {
 
 func (h *Handler) getUsagePlanAction(b []byte) (int, any, error) {
 	var input getUsagePlanInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	p, err := h.Backend.GetUsagePlan(input.UsagePlanID)
@@ -180,7 +182,7 @@ func (h *Handler) getUsagePlanAction(b []byte) (int, any, error) {
 
 func (h *Handler) getUsagePlansAction(b []byte) (int, any, error) {
 	var input getUsagePlansPageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -215,7 +217,7 @@ func (h *Handler) getUsagePlansAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateUsagePlanAction(b []byte) (int, any, error) {
 	var input UpdateUsagePlanInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateUsagePlan(input)
@@ -228,7 +230,7 @@ func (h *Handler) updateUsagePlanAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteUsagePlanAction(b []byte) (int, any, error) {
 	var input deleteUsagePlanInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteUsagePlan(input.UsagePlanID); err != nil {
@@ -240,7 +242,7 @@ func (h *Handler) deleteUsagePlanAction(b []byte) (int, any, error) {
 
 func (h *Handler) getUsagePlanKeyAction(b []byte) (int, any, error) {
 	var input getUsagePlanKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	k, err := h.Backend.GetUsagePlanKey(input.UsagePlanID, input.KeyID)
@@ -253,7 +255,7 @@ func (h *Handler) getUsagePlanKeyAction(b []byte) (int, any, error) {
 
 func (h *Handler) getUsagePlanKeysAction(b []byte) (int, any, error) {
 	var input getUsagePlanKeysInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	ks, err := h.Backend.GetUsagePlanKeys(input.UsagePlanID)
@@ -282,7 +284,7 @@ func (h *Handler) getUsagePlanKeysAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteUsagePlanKeyAction(b []byte) (int, any, error) {
 	var input deleteUsagePlanKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteUsagePlanKey(input.UsagePlanID, input.KeyID); err != nil {

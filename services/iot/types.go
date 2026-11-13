@@ -3,9 +3,12 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Thing represents an AWS IoT Thing.
@@ -54,15 +57,15 @@ type RuleAction struct {
 	Lambda *LambdaAction `json:"lambda,omitempty"`
 	SNS    *SNSAction    `json:"sns,omitempty"`
 	// Other holds action types with no typed model (s3, dynamoDB, ...), kept verbatim.
-	Other map[string]json.RawMessage `json:"-"`
+	Other map[string]jsontext.Value `json:"-"`
 }
 
 const typedRuleActionKeys = 3
 
 // UnmarshalJSON decodes the typed actions and keeps every other key verbatim.
 func (a *RuleAction) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return err
 	}
 	*a = RuleAction{}
@@ -73,14 +76,14 @@ func (a *RuleAction) UnmarshalJSON(data []byte) error {
 		var err error
 		switch k {
 		case "sqs":
-			err = json.Unmarshal(v, &a.SQS)
+			err = json.Unmarshal(v, &a.SQS, jsonx.V1())
 		case "lambda":
-			err = json.Unmarshal(v, &a.Lambda)
+			err = json.Unmarshal(v, &a.Lambda, jsonx.V1())
 		case "sns":
-			err = json.Unmarshal(v, &a.SNS)
+			err = json.Unmarshal(v, &a.SNS, jsonx.V1())
 		default:
 			if a.Other == nil {
-				a.Other = map[string]json.RawMessage{}
+				a.Other = map[string]jsontext.Value{}
 			}
 			a.Other[k] = v
 		}
@@ -106,10 +109,10 @@ func (a RuleAction) MarshalJSON() ([]byte, error) {
 		out["sns"] = a.SNS
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
-func castRaw(in map[string]json.RawMessage) map[string]any {
+func castRaw(in map[string]jsontext.Value) map[string]any {
 	out := make(map[string]any, len(in))
 	for k, v := range in {
 		out[k] = v

@@ -3,7 +3,7 @@ package iam
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -752,7 +753,7 @@ func writeJSONRPCAccessDenied(c *echo.Context, action, msg string) error {
 		Message: cmp.Or(msg, "User is not authorized to perform: "+action),
 	}
 
-	body, err := json.Marshal(resp)
+	body, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.String(http.StatusBadRequest, `{"__type":"AccessDeniedException"}`)
 	}

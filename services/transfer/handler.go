@@ -2,7 +2,7 @@ package transfer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -221,7 +222,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		ServerID string `json:"ServerId"`
 		UserName string `json:"UserName"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.ServerID != "" && req.UserName != "" {
 		return req.ServerID + "/" + req.UserName
@@ -340,13 +341,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, errInvalidNextToken):
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -366,8 +364,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err),
+		jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "InvalidRequestException",
 			keyMessageField: publicMessage(err),

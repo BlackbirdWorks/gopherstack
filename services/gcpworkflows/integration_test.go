@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest/resttest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -468,4 +469,6 @@ func TestRESTFlow(t *testing.T) {
 	})
 }
 
-func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(bytes.TrimSpace(raw), v) }
+func jsonUnmarshal(raw []byte, v any) error {
+	return json.Unmarshal(bytes.TrimSpace(raw), v, jsonx.V1())
+}

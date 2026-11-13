@@ -2,7 +2,8 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -61,7 +63,7 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetFunctionScalingConfigOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.AppliedFunctionScalingConfig)
 	require.NotNil(t, out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
 	assert.Equal(t, int32(maxEnv), *out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
@@ -96,7 +98,7 @@ func TestFunctionScalingConfig_DistinctPerQualifier(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out lambda.GetFunctionScalingConfigOutput
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.NotNil(t, out.AppliedFunctionScalingConfig)
 		require.NotNil(t, out.AppliedFunctionScalingConfig.MaxExecutionEnvironments)
 
@@ -147,7 +149,7 @@ func TestRuntimeManagementConfig_GetDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cfg lambda.RuntimeManagementConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "Auto", cfg.UpdateRuntimeOn)
 }
 
@@ -163,7 +165,7 @@ func TestRuntimeManagementConfig_Put(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var cfg lambda.RuntimeManagementConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "FunctionUpdate", cfg.UpdateRuntimeOn)
 }
 
@@ -180,7 +182,7 @@ func TestRuntimeManagementConfig_PutManualWithARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var cfg lambda.RuntimeManagementConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "Manual", cfg.UpdateRuntimeOn)
 	assert.Equal(t, rva, cfg.RuntimeVersionArn)
 }
@@ -196,7 +198,7 @@ func TestRuntimeManagementConfig_FunctionARNInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cfg lambda.RuntimeManagementConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.Contains(t, cfg.FunctionArn, "rmc-arn-fn")
 }
 
@@ -215,7 +217,7 @@ func TestRecursionConfig_GetDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cfg lambda.FunctionRecursionConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "Terminate", cfg.RecursiveLoop)
 }
 
@@ -231,7 +233,7 @@ func TestRecursionConfig_Put_Allow(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var cfg lambda.FunctionRecursionConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "Allow", cfg.RecursiveLoop)
 }
 
@@ -251,7 +253,7 @@ func TestRecursionConfig_Put_Terminate(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var cfg lambda.FunctionRecursionConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &cfg, jsonx.V1()))
 	assert.Equal(t, "Terminate", cfg.RecursiveLoop)
 }
 

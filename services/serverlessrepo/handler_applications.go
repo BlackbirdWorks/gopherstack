@@ -2,10 +2,11 @@ package serverlessrepo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -153,7 +154,7 @@ func toEmbeddedVersionResponse(v *ApplicationVersion) *versionResponse {
 
 func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]byte, error) {
 	var req createApplicationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -205,7 +206,7 @@ func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]b
 		resp.Version = toEmbeddedVersionResponse(v)
 	}
 
-	b, marshalErr := json.Marshal(resp)
+	b, marshalErr := json.Marshal(resp, jsonx.V1())
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
@@ -244,7 +245,7 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
@@ -300,7 +301,7 @@ func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 		resp["nextToken"] = encodePageToken(apps[end-1].Name)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateApplicationRequest is the request body for UpdateApplication.
@@ -320,7 +321,7 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 	}
 
 	var updateReq updateApplicationRequest
-	if err := json.Unmarshal(body, &updateReq); err != nil {
+	if err := json.Unmarshal(body, &updateReq, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -365,7 +366,7 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 		}
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteApplication(ctx context.Context, req *http.Request) error {
@@ -396,7 +397,7 @@ func (h *Handler) handleUnshareApplication(ctx context.Context, req *http.Reques
 	}
 
 	var unshareReq unshareApplicationRequest
-	if jsonErr := json.Unmarshal(body, &unshareReq); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &unshareReq, jsonx.V1()); jsonErr != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 

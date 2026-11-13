@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -20,7 +21,7 @@ func verifiedPermissionsPost(t *testing.T, action string, body any) *http.Respon
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -72,7 +73,7 @@ func TestIntegration_VerifiedPermissions_PolicyStoreLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "create body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	storeID, ok := createResult["policyStoreId"].(string)
 	require.True(t, ok, "policyStoreId should be a string")
 	require.NotEmpty(t, storeID)
@@ -127,7 +128,7 @@ func TestIntegration_VerifiedPermissions_PolicyLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createStoreResp.StatusCode, "create store body: %s", createStoreBody)
 
 	var storeResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createStoreBody), &storeResult))
+	require.NoError(t, json.Unmarshal([]byte(createStoreBody), &storeResult, jsonx.V1()))
 	storeID := storeResult["policyStoreId"].(string)
 
 	// Create a policy.
@@ -143,7 +144,7 @@ func TestIntegration_VerifiedPermissions_PolicyLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createPolicyResp.StatusCode, "create policy body: %s", createPolicyBody)
 
 	var policyResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createPolicyBody), &policyResult))
+	require.NoError(t, json.Unmarshal([]byte(createPolicyBody), &policyResult, jsonx.V1()))
 	policyID := policyResult["policyId"].(string)
 	require.NotEmpty(t, policyID)
 
@@ -198,7 +199,7 @@ func TestIntegration_VerifiedPermissions_PolicyTemplateLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createStoreResp.StatusCode, "create store body: %s", createStoreBody)
 
 	var storeResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createStoreBody), &storeResult))
+	require.NoError(t, json.Unmarshal([]byte(createStoreBody), &storeResult, jsonx.V1()))
 	storeID := storeResult["policyStoreId"].(string)
 
 	// Create a policy template.
@@ -211,7 +212,7 @@ func TestIntegration_VerifiedPermissions_PolicyTemplateLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createTplResp.StatusCode, "create template body: %s", createTplBody)
 
 	var tplResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createTplBody), &tplResult))
+	require.NoError(t, json.Unmarshal([]byte(createTplBody), &tplResult, jsonx.V1()))
 	templateID := tplResult["policyTemplateId"].(string)
 	require.NotEmpty(t, templateID)
 

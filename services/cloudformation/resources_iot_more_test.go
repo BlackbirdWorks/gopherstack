@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"testing"
 
@@ -14,6 +14,8 @@ import (
 	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateStack_IoTMoreTypes(t *testing.T) {
@@ -203,7 +205,10 @@ func testIoTCertificate(t *testing.T) {
 		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "device"}}, key)
 	require.NoError(t, err)
 
-	csrJSON, err := json.Marshal(string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})))
+	csrJSON, err := json.Marshal(
+		string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})),
+		jsonx.V1(),
+	)
 	require.NoError(t, err)
 
 	tmpl := `{

@@ -1,11 +1,13 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestReconciler_MinimumHealthyPercent_CapsScaleDown(t *testing.T) {
@@ -19,7 +21,7 @@ func TestReconciler_MinimumHealthyPercent_CapsScaleDown(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "test"})

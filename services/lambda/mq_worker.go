@@ -2,11 +2,12 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -169,7 +170,7 @@ func (p *EventSourcePoller) mqCredentials(
 	}
 
 	raw, err := secrets.SecretString(ctx, secretARN)
-	if err != nil || json.Unmarshal([]byte(raw), &creds) != nil {
+	if err != nil || json.Unmarshal([]byte(raw), &creds, jsonx.V1()) != nil {
 		return creds, false
 	}
 

@@ -1,7 +1,7 @@
 package sagemakerruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
@@ -36,7 +37,7 @@ func TestInvoke_NoContainerBackend_NeverFabricatesOutput(t *testing.T) {
 			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ServiceUnavailable", body["__type"])
 			assert.NotContains(t, rec.Body.String(), "mock")
 			assert.Empty(t, h.Backend.ListInvocations(), "a failed invoke must not be recorded")
@@ -95,7 +96,7 @@ func TestInvoke_ErrorMapping(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, tt.wantType, body["__type"])
 		})
 	}

@@ -2,19 +2,20 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createSubnetGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -34,10 +35,15 @@ func (h *Handler) handleCreateSubnetGroup(ctx context.Context, c *echo.Context, 
 	return c.JSON(http.StatusOK, createSubnetGroupResponse{SubnetGroup: toSubnetGroupObject(sg)})
 }
 
-func (h *Handler) handleDescribeSubnetGroups(ctx context.Context, c *echo.Context, body []byte) error {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleDescribeSubnetGroups(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var req describeSubnetGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -60,7 +66,7 @@ func (h *Handler) handleDescribeSubnetGroups(ctx context.Context, c *echo.Contex
 func (h *Handler) handleDeleteSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteSubnetGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -79,7 +85,7 @@ func (h *Handler) handleDeleteSubnetGroup(ctx context.Context, c *echo.Context, 
 func (h *Handler) handleUpdateSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateSubnetGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

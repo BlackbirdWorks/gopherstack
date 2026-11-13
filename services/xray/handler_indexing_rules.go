@@ -2,9 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -32,7 +33,7 @@ type updateIndexingRuleInput struct {
 func (h *Handler) handleUpdateIndexingRule(_ context.Context, body []byte) ([]byte, error) {
 	var in updateIndexingRuleInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -54,7 +55,7 @@ func (h *Handler) handleUpdateIndexingRule(_ context.Context, body []byte) ([]by
 
 	return json.Marshal(map[string]any{
 		"IndexingRule": toIndexingRuleView(rule),
-	})
+	}, jsonx.V1())
 }
 
 type indexingRuleView struct {
@@ -90,7 +91,7 @@ type getIndexingRulesInput struct {
 func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte, error) {
 	var in getIndexingRulesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -111,5 +112,5 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]any{
 		"IndexingRules": pg.Data,
 		keyNextToken:    pg.Next,
-	})
+	}, jsonx.V1())
 }

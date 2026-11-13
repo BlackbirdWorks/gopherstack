@@ -1,7 +1,8 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxGetByIDs = 1000
@@ -27,11 +30,11 @@ func odataBase(r *http.Request) string {
 	return "https://" + r.Host + "/" + version
 }
 
-func readJSON(c *echo.Context) (map[string]json.RawMessage, error) {
+func readJSON(c *echo.Context) (map[string]jsontext.Value, error) {
 	data, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxBodyBytes))
-	out := map[string]json.RawMessage{}
+	out := map[string]jsontext.Value{}
 
-	if err != nil || json.Unmarshal(data, &out) != nil || out == nil {
+	if err != nil || json.Unmarshal(data, &out, jsonx.V1()) != nil || out == nil {
 		return nil, badRequest(
 			"Unable to read JSON request payload. Please ensure Content-Type header is set and payload is of valid JSON format.",
 		)
@@ -314,7 +317,7 @@ func (h *Handler) getByIDs(c *echo.Context) error {
 	}
 
 	data, _ := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, maxBodyBytes))
-	if err := json.Unmarshal(data, &in); err != nil || len(in.IDs) == 0 || len(in.IDs) > maxGetByIDs {
+	if err := json.Unmarshal(data, &in, jsonx.V1()); err != nil || len(in.IDs) == 0 || len(in.IDs) > maxGetByIDs {
 		return h.writeErr(
 			c,
 			badRequest("The 'ids' collection must contain between 1 and %d object identifiers.", maxGetByIDs),

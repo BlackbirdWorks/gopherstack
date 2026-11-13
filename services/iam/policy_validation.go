@@ -1,9 +1,12 @@
 package iam
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // IAM policy-grammar validation.
@@ -46,14 +49,14 @@ func isSupportedPolicyVersion(v string) bool {
 // rawStatement is a statement decoded with field presence preserved so that
 // "absent" can be distinguished from "present but empty".
 type rawStatement struct {
-	Effect       *string                               `json:"Effect"`
-	Condition    map[string]map[string]json.RawMessage `json:"Condition"`
-	Action       json.RawMessage                       `json:"Action"`
-	NotAction    json.RawMessage                       `json:"NotAction"`
-	Resource     json.RawMessage                       `json:"Resource"`
-	NotResource  json.RawMessage                       `json:"NotResource"`
-	Principal    json.RawMessage                       `json:"Principal"`
-	NotPrincipal json.RawMessage                       `json:"NotPrincipal"`
+	Effect       *string                              `json:"Effect"`
+	Condition    map[string]map[string]jsontext.Value `json:"Condition"`
+	Action       jsontext.Value                       `json:"Action"`
+	NotAction    jsontext.Value                       `json:"NotAction"`
+	Resource     jsontext.Value                       `json:"Resource"`
+	NotResource  jsontext.Value                       `json:"NotResource"`
+	Principal    jsontext.Value                       `json:"Principal"`
+	NotPrincipal jsontext.Value                       `json:"NotPrincipal"`
 }
 
 // validateIdentityPolicyDocument validates an identity-based policy document
@@ -66,8 +69,8 @@ func validateIdentityPolicyDocument(policyDocument string) error {
 	}
 
 	// Top level must be a JSON object.
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(policyDocument), &top); err != nil {
+	var top map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(policyDocument), &top, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: policy document must be a JSON object", ErrMalformedPolicyDocument)
 	}
 
@@ -99,13 +102,13 @@ func validateIdentityPolicyDocument(policyDocument string) error {
 }
 
 // validatePolicyVersion checks the optional Version element.
-func validatePolicyVersion(raw json.RawMessage) error {
+func validatePolicyVersion(raw jsontext.Value) error {
 	if raw == nil {
 		return nil
 	}
 
 	var version string
-	if err := json.Unmarshal(raw, &version); err != nil {
+	if err := json.Unmarshal(raw, &version, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: Version must be a string", ErrMalformedPolicyDocument)
 	}
 
@@ -121,11 +124,11 @@ func validatePolicyVersion(raw json.RawMessage) error {
 
 // decodeStatements accepts either a single statement object or an array of
 // statement objects, matching AWS's tolerance of both shapes.
-func decodeStatements(raw json.RawMessage) ([]rawStatement, error) {
+func decodeStatements(raw jsontext.Value) ([]rawStatement, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if strings.HasPrefix(trimmed, "[") {
 		var arr []rawStatement
-		if err := json.Unmarshal(raw, &arr); err != nil {
+		if err := json.Unmarshal(raw, &arr, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: Statement array is malformed", ErrMalformedPolicyDocument)
 		}
 
@@ -133,7 +136,7 @@ func decodeStatements(raw json.RawMessage) ([]rawStatement, error) {
 	}
 
 	var single rawStatement
-	if err := json.Unmarshal(raw, &single); err != nil {
+	if err := json.Unmarshal(raw, &single, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: Statement must be an object or array of objects", ErrMalformedPolicyDocument)
 	}
 

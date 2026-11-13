@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractSettingsOp returns the settings operation name.
@@ -74,7 +75,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &incoming); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &incoming, jsonx.V1()); jsonErr != nil {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		}
 	}

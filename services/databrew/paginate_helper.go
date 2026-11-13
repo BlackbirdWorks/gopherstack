@@ -2,10 +2,12 @@ package databrew
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func paginateKeys(keys []string, maxResults int, nextToken string) ([]string, string) {
@@ -69,5 +71,5 @@ func marshalPage(key string, items any, next string) ([]byte, error) {
 		out[nextTokenKey] = base64.RawURLEncoding.EncodeToString([]byte(pageTokenPrefix + next))
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }

@@ -2,10 +2,13 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -18,11 +21,16 @@ const (
 
 // parseJSONContainer implements StringToArray and StringToObject: the string must hold exactly that JSON kind.
 func parseJSONContainer(name, s string) any {
-	dec := json.NewDecoder(bytes.NewReader([]byte(s)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(s)), jsonx.V1())
 
 	var v any
-	if err := dec.Decode(&v); err != nil || rejectTrailingJSON(dec) != nil {
+	if err := json.UnmarshalDecode(
+		dec,
+		&v,
+		jsonx.V1(),
+		jsonx.UseNumber(),
+	); err != nil ||
+		rejectTrailingJSON(dec) != nil {
 		return undef{}
 	}
 
@@ -86,7 +94,7 @@ func dateTicksOp(name string, args []any) any {
 			return undef{}
 		}
 
-		return json.Number(strconv.FormatInt(t.Unix()*ticksPerSecond+int64(t.Nanosecond())/ticksPerNano, 10))
+		return jsonx.Number(strconv.FormatInt(t.Unix()*ticksPerSecond+int64(t.Nanosecond())/ticksPerNano, 10))
 	case biTickstodatetime:
 		n, ok := toNumber(args[0])
 		if !ok {

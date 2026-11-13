@@ -2,7 +2,7 @@ package waf
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -112,12 +113,12 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		var tokenHolder struct {
 			ChangeToken string `json:"ChangeToken"`
 		}
-		if jerr := json.Unmarshal(body, &tokenHolder); jerr == nil && tokenHolder.ChangeToken != "" {
+		if jerr := json.Unmarshal(body, &tokenHolder, jsonx.V1()); jerr == nil && tokenHolder.ChangeToken != "" {
 			h.Backend.MarkChangeTokenUsed(tokenHolder.ChangeToken)
 		}
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // paginate returns a window of items starting after nextMarker, limited to limit items,
@@ -282,7 +283,7 @@ func unmarshal(body []byte, v any) error {
 		return nil
 	}
 
-	return json.Unmarshal(body, v)
+	return json.Unmarshal(body, v, jsonx.V1())
 }
 
 func tagsToMap(tags []Tag) map[string]string {

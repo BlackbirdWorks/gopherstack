@@ -3,7 +3,7 @@ package azurekeyvault
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -270,7 +271,7 @@ func decodeBody[T any](rc *reqCtx) (*T, error) {
 		return &in, nil
 	}
 
-	if err := json.Unmarshal(rc.body, &in); err != nil {
+	if err := json.Unmarshal(rc.body, &in, jsonx.V1()); err != nil {
 		return nil, errBadParameter("The request body is not valid JSON: %s", err.Error())
 	}
 

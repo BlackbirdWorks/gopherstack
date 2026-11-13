@@ -2,12 +2,13 @@ package demo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
 )
 
@@ -35,13 +36,13 @@ func NewWireCaller(key string, handler http.Handler, creds aws.CredentialsProvid
 }
 
 func (c *wireCaller) Call(ctx context.Context, op string, params any) (map[string]any, error) {
-	b, err := json.Marshal(params)
+	b, err := json.Marshal(params, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
 	var in map[string]any
-	if err = json.Unmarshal(b, &in); err != nil {
+	if err = json.Unmarshal(b, &in, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

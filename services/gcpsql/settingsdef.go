@@ -3,8 +3,10 @@ package gcpsql
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const retainDays = 7
@@ -133,7 +135,7 @@ func flagsSig(f []Flag) string {
 }
 
 func etagOf(v any) string {
-	data, _ := json.Marshal(v)
+	data, _ := json.Marshal(v, jsonx.V1())
 	sum := sha256.Sum256(data)
 
 	return base64.RawURLEncoding.EncodeToString(sum[:16])

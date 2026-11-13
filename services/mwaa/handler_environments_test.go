@@ -2,7 +2,7 @@ package mwaa_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mwaa"
 )
 
@@ -71,7 +72,7 @@ func TestHandler_CreateEnvironment(t *testing.T) {
 
 			if tt.wantArn {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Arn"])
 			}
 		})
@@ -122,7 +123,7 @@ func TestHandler_GetEnvironment(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["Environment"])
 			}
 		})
@@ -168,7 +169,7 @@ func TestHandler_ListEnvironments(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			envs, ok := resp["Environments"].([]any)
 			require.True(t, ok)
@@ -317,7 +318,7 @@ func TestGetEnvironment_DerivedFields(t *testing.T) {
 		Environment mwaa.Environment `json:"Environment"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	env := resp.Environment
 	assert.Equal(t, int32(2), env.Schedulers)
@@ -393,7 +394,7 @@ func TestListEnvironments_Pagination(t *testing.T) {
 				Environments []string `json:"Environments"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantNames, resp.Environments)
 			assert.Equal(t, tt.wantNext, resp.NextToken)
 		})
@@ -481,7 +482,7 @@ func TestListEnvironments_HTTP_NoMaxResults_UsesDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, ok := resp["Environments"]
 	assert.True(t, ok, "response must have Environments key")
 }
@@ -510,7 +511,7 @@ func TestListEnvironments_HTTP_NextToken_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	envs1 := resp1["Environments"].([]any)
 	assert.Len(t, envs1, 3)
@@ -525,7 +526,7 @@ func TestListEnvironments_HTTP_NextToken_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	envs2 := resp2["Environments"].([]any)
 	assert.Len(t, envs2, 2, "second page should have the remaining 2 environments")
@@ -555,7 +556,7 @@ func TestHTTP_GetEnvironment_DefaultsPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	env := resp["Environment"].(map[string]any)
 	assert.InEpsilon(t, float64(10), env["MaxWorkers"], 0.001, "default MaxWorkers=10 should be visible via HTTP")
@@ -1014,7 +1015,7 @@ func TestLifecycle_HTTP_CreateResponseDoesNotExposeStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["Arn"])
 	assert.Nil(t, resp["Status"], "create response must not expose Status")
 }
@@ -1040,7 +1041,7 @@ func TestLifecycle_HTTP_GetEnvShowsCreatingThenAvailable(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(get1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(get1.Body.Bytes(), &resp1, jsonx.V1()))
 	assert.Equal(t, "CREATING", resp1.Environment.Status)
 
 	// Second GET: AVAILABLE
@@ -1052,7 +1053,7 @@ func TestLifecycle_HTTP_GetEnvShowsCreatingThenAvailable(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(get2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(get2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", resp2.Environment.Status)
 }
 
@@ -1210,7 +1211,7 @@ func TestHTTP_FullCRUDLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	envARN := createResp["Arn"]
 	assert.NotEmpty(t, envARN)
 
@@ -1224,7 +1225,7 @@ func TestHTTP_FullCRUDLifecycle(t *testing.T) {
 			EnvironmentClass string `json:"EnvironmentClass"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(get1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(get1.Body.Bytes(), &resp1, jsonx.V1()))
 	assert.Equal(t, "CREATING", resp1.Environment.Status)
 	assert.Equal(t, "2.9.2", resp1.Environment.AirflowVersion)
 	assert.Equal(t, "mw1.medium", resp1.Environment.EnvironmentClass)
@@ -1237,7 +1238,7 @@ func TestHTTP_FullCRUDLifecycle(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(get2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(get2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", resp2.Environment.Status)
 
 	// Update.
@@ -1255,7 +1256,7 @@ func TestHTTP_FullCRUDLifecycle(t *testing.T) {
 			EnvironmentClass string `json:"EnvironmentClass"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(get3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(get3.Body.Bytes(), &resp3, jsonx.V1()))
 	assert.Equal(t, "UPDATING", resp3.Environment.Status)
 	assert.Equal(t, "mw1.large", resp3.Environment.EnvironmentClass)
 
@@ -1304,7 +1305,7 @@ func TestHTTP_LoggingConfig_AllModules(t *testing.T) {
 			LoggingConfiguration *mwaa.LoggingConfiguration `json:"LoggingConfiguration"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotNil(t, resp.Environment.LoggingConfiguration)
 	require.NotNil(t, resp.Environment.LoggingConfiguration.DagProcessingLogs)
 	assert.Equal(t, "INFO", resp.Environment.LoggingConfiguration.DagProcessingLogs.LogLevel)
@@ -1345,7 +1346,7 @@ func TestHTTP_LoggingConfig_CloudWatchLogGroupArn_NotEchoedFromRequest(t *testin
 			LoggingConfiguration *mwaa.LoggingConfiguration `json:"LoggingConfiguration"`
 		} `json:"Environment"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotNil(t, resp.Environment.LoggingConfiguration)
 	require.NotNil(t, resp.Environment.LoggingConfiguration.DagProcessingLogs)
 	assert.Equal(t, "INFO", resp.Environment.LoggingConfiguration.DagProcessingLogs.LogLevel)

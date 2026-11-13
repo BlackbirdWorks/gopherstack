@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
@@ -18,7 +20,7 @@ func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([
 		AllowedColumns  []string          `json:"allowedColumns"`
 		SelectedMethods []string          `json:"selectedAnalysisMethods"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := firstErr(
 		checkEnum("analysisMethod", crtypes.AnalysisMethod(req.AnalysisMethod)),
@@ -47,7 +49,7 @@ func (h *Handler) handleGetConfiguredTable(_ context.Context, body []byte) ([]by
 	var req struct {
 		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	ct, err := h.Backend.GetConfiguredTable(req.ConfiguredTableIdentifier)
 	if err != nil {
 		return nil, err
@@ -76,7 +78,7 @@ func (h *Handler) handleUpdateConfiguredTable(_ context.Context, body []byte) ([
 		Description               string   `json:"description"`
 		SelectedMethods           []string `json:"selectedAnalysisMethods"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	ct, err := h.Backend.UpdateConfiguredTable(
 		req.ConfiguredTableIdentifier,
 		req.Name,
@@ -94,7 +96,7 @@ func (h *Handler) handleDeleteConfiguredTable(_ context.Context, body []byte) ([
 	var req struct {
 		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteConfiguredTable(req.ConfiguredTableIdentifier)
 }
@@ -108,7 +110,7 @@ func (h *Handler) handleCreateConfiguredTableAnalysisRule(
 		ConfiguredTableIdentifier string         `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
@@ -136,7 +138,7 @@ func (h *Handler) handleGetConfiguredTableAnalysisRule(
 		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
@@ -164,7 +166,7 @@ func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
 		ConfiguredTableIdentifier string         `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),
@@ -192,7 +194,7 @@ func (h *Handler) handleDeleteConfiguredTableAnalysisRule(
 		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAnalysisRuleType(req.AnalysisRuleType),

@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -212,7 +213,7 @@ func glacierAddTags(t *testing.T, vaultName string, tags map[string]string) erro
 		Tags map[string]string `json:"Tags"`
 	}
 
-	payload, err := json.Marshal(addTagsReq{Tags: tags})
+	payload, err := json.Marshal(addTagsReq{Tags: tags}, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,

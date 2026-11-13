@@ -1,39 +1,42 @@
 package iceberg
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrUnsupportedType is returned for a type that cannot be converted or written.
 var ErrUnsupportedType = errors.New("unsupported iceberg type")
 
 type nestedType struct {
-	Element       json.RawMessage `json:"element"`
-	Key           json.RawMessage `json:"key"`
-	Value         json.RawMessage `json:"value"`
-	Type          string          `json:"type"`
-	Fields        []Field         `json:"fields"`
-	ElementID     int             `json:"element-id"`
-	KeyID         int             `json:"key-id"`
-	ValueID       int             `json:"value-id"`
-	ElementNeeded bool            `json:"element-required"`
-	ValueNeeded   bool            `json:"value-required"`
+	Element       jsontext.Value `json:"element"`
+	Key           jsontext.Value `json:"key"`
+	Value         jsontext.Value `json:"value"`
+	Type          string         `json:"type"`
+	Fields        []Field        `json:"fields"`
+	ElementID     int            `json:"element-id"`
+	KeyID         int            `json:"key-id"`
+	ValueID       int            `json:"value-id"`
+	ElementNeeded bool           `json:"element-required"`
+	ValueNeeded   bool           `json:"value-required"`
 }
 
 // HiveType renders an Iceberg type as the Athena/Hive type name used in the
 // Glue catalog (long -> bigint, list -> array<..>, struct -> struct<a:int,..>).
-func HiveType(raw json.RawMessage) (string, error) {
+func HiveType(raw jsontext.Value) (string, error) {
 	var prim string
-	if err := json.Unmarshal(raw, &prim); err == nil {
+	if err := json.Unmarshal(raw, &prim, jsonx.V1()); err == nil {
 		return hivePrimitive(prim)
 	}
 
 	var n nestedType
-	if err := json.Unmarshal(raw, &n); err != nil {
+	if err := json.Unmarshal(raw, &n, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("%w: %s", ErrUnsupportedType, raw)
 	}
 
@@ -105,9 +108,9 @@ func hivePrimitive(p string) (string, error) {
 }
 
 // PrimitiveName returns the primitive type name of a field type ("" for nested types).
-func PrimitiveName(raw json.RawMessage) string {
+func PrimitiveName(raw jsontext.Value) string {
 	var prim string
-	if err := json.Unmarshal(raw, &prim); err != nil {
+	if err := json.Unmarshal(raw, &prim, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -176,7 +179,7 @@ func SchemaFromColumns(cols []ColumnSpec) (Schema, error) {
 			return Schema{}, err
 		}
 
-		raw, _ := json.Marshal(t)
+		raw, _ := json.Marshal(t, jsonx.V1())
 		fields = append(fields, Field{ID: i + 1, Name: c.Name, Type: raw, Doc: c.Comment})
 	}
 

@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"log/slog"
@@ -30,14 +31,14 @@ func TestHandler_CreateKey_DescriptionTooLong_ViaHTTP(t *testing.T) {
 	b := h.Backend.(*kms.InMemoryBackend)
 
 	longDescription := strings.Repeat("x", 8193)
-	body, err := json.Marshal(map[string]string{"Description": longDescription})
+	body, err := json.Marshal(map[string]string{"Description": longDescription}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := b2postKMSOp(t, h, "CreateKey", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", errResp.Type)
 	assert.NotEqual(t, "ValidationException", errResp.Type)
 
@@ -62,7 +63,7 @@ func TestHandler_CreateKey_KeySpecKeyUsageMismatch_ViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "UnsupportedOperationException", errResp.Type)
 	assert.NotEqual(t, "InvalidKeyUsageException", errResp.Type)
 
@@ -91,7 +92,7 @@ func TestHandler_CreateKey_HMACMultiRegion_ViaHTTP(t *testing.T) {
 			MultiRegion bool   `json:"MultiRegion"`
 		} `json:"KeyMetadata"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "HMAC_256", out.KeyMetadata.KeySpec)
 	assert.Equal(t, "GENERATE_VERIFY_MAC", out.KeyMetadata.KeyUsage)
 	assert.True(t, out.KeyMetadata.MultiRegion)
@@ -112,7 +113,7 @@ func TestHandler_ScheduleKeyDeletion_ViaHTTP(t *testing.T) {
 	var resp struct {
 		KeyState string `json:"KeyState"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingDeletion, resp.KeyState)
 }
 
@@ -137,7 +138,7 @@ func TestHandler_CancelKeyDeletion_ViaHTTP(t *testing.T) {
 	var resp struct {
 		KeyID string `json:"KeyId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, keyID, resp.KeyID)
 
 	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
@@ -180,7 +181,7 @@ func TestKMSHandler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.CreateKeyOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.KeyMetadata.KeyID)
 			},
 		},
@@ -192,7 +193,7 @@ func TestKMSHandler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var errResp kms.ErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "UnknownOperationException", errResp.Type)
 			},
 		},
@@ -210,7 +211,7 @@ func TestKMSHandler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var ops []string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 				assert.Contains(t, ops, "CreateKey")
 			},
 		},
@@ -222,7 +223,7 @@ func TestKMSHandler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var errResp kms.ErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "NotFoundException", errResp.Type)
 			},
 		},
@@ -240,7 +241,7 @@ func TestKMSHandler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.ListKeysOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Keys, 1)
 			},
 		},
@@ -394,7 +395,7 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 	rec = doKMSReqLocal(t, h, "ScheduleKeyDeletion", `{"KeyId":"`+keyID+`","PendingWindowInDays":7}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var schedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingDeletion, schedResp["KeyState"])
 
 	rec = doKMSReqLocal(t, h, "CancelKeyDeletion", body)
@@ -411,7 +412,7 @@ func TestHandlerCancelKeyDeletionReturnsBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	sendKMSOp(t, h, "ScheduleKeyDeletion", `{"KeyId":"`+keyID+`","PendingWindowInDays":7}`)
@@ -420,7 +421,7 @@ func TestHandlerCancelKeyDeletionReturnsBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, keyID, out["KeyId"])
 	assert.NotContains(t, out, "KeyState", "real CancelKeyDeletionOutput has only KeyId")
 }
@@ -435,7 +436,7 @@ func TestHandlerUpdateKeyDescriptionMaxLengthRejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	longDesc := strings.Repeat("x", 8193)

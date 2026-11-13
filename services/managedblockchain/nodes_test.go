@@ -1,7 +1,8 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -39,7 +41,7 @@ func TestHandler_NodeLifecycle_RealWireShape(t *testing.T) {
 	var createOut struct {
 		NodeID string `json:"NodeId"`
 	}
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	require.NotEmpty(t, createOut.NodeID)
 
 	nodePath := "/networks/" + netID + "/nodes/" + createOut.NodeID + "?memberId=" + memID
@@ -163,7 +165,7 @@ func TestHandler_GetNode(t *testing.T) {
 			var createOut struct {
 				NodeID string `json:"NodeId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			getPath := fmt.Sprintf("%s/%s?memberId=%s", nodesPath, createOut.NodeID, memID)
 			rec := doRequest(t, h, http.MethodGet, getPath, nil)
@@ -210,7 +212,7 @@ func TestHandler_ListNodes(t *testing.T) {
 			var out struct {
 				Nodes []map[string]any `json:"Nodes"`
 			}
-			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Nodes, tt.wantLen)
 		})
 	}
@@ -244,7 +246,7 @@ func TestHandler_DeleteNode(t *testing.T) {
 			var createOut struct {
 				NodeID string `json:"NodeId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			delPath := fmt.Sprintf("%s/%s?memberId=%s", nodesPath, createOut.NodeID, memID)
 			rec := doRequest(t, h, http.MethodDelete, delPath, nil)
@@ -377,7 +379,7 @@ func TestHandler_ListNodesFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			nodes := resp["Nodes"].([]any)
 			assert.Len(t, nodes, tt.wantCount)
@@ -477,7 +479,7 @@ func TestHandler_NodeSummaryAvailabilityZone(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp, jsonx.V1()))
 
 			nodes := listResp["Nodes"].([]any)
 			require.Len(t, nodes, 1)
@@ -550,7 +552,7 @@ func TestHandler_UpdateNodeLogPublishingConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			nodeResp := getResp["Node"].(map[string]any)
 			logConfig, ok := nodeResp["LogPublishingConfiguration"]
@@ -598,7 +600,7 @@ func TestHandler_CreateNodeWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	nodeID, _ := resp["NodeId"].(string)
 	require.NotEmpty(t, nodeID)
@@ -609,7 +611,7 @@ func TestHandler_CreateNodeWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var nodeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &nodeResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &nodeResp, jsonx.V1()))
 
 	node := nodeResp["Node"].(map[string]any)
 	tags := node["Tags"].(map[string]any)
@@ -674,7 +676,7 @@ func TestHandler_NodeLifecycleBasicViaHTTP(t *testing.T) {
 			}
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			nodeID, _ := createResp["NodeId"].(string)
 			require.NotEmpty(t, nodeID)
@@ -685,7 +687,7 @@ func TestHandler_NodeLifecycleBasicViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			node := getResp["Node"].(map[string]any)
 			assert.Equal(t, nodeID, node["Id"])
@@ -697,7 +699,7 @@ func TestHandler_NodeLifecycleBasicViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec3.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 			nodes := listResp["Nodes"].([]any)
 			assert.Len(t, nodes, 1)
 

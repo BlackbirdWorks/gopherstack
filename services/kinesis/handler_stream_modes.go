@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // jsonUpdateStreamWarmThroughputReq mirrors UpdateStreamWarmThroughputInput
@@ -35,7 +37,7 @@ func (h *Handler) handleUpdateStreamMode(ctx context.Context, _ *http.Request, b
 		WarmThroughputMiBps *int                   `json:"WarmThroughputMiBps"`
 		StreamARN           string                 `json:"StreamARN"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 	if req.StreamModeDetails == nil {
@@ -55,7 +57,7 @@ func (h *Handler) handleUpdateStreamWarmThroughput(
 	body []byte,
 ) (any, error) {
 	var req jsonUpdateStreamWarmThroughputReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -36,7 +37,7 @@ type retryPipelineExecutionInput struct {
 
 func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req retryPipelineExecutionInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.PipelineExecutionArn == "" {
@@ -51,7 +52,7 @@ func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte)
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: retried pipeline execution", "arn", exec.PipelineExecutionArn)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn}, jsonx.V1())
 }
 
 // stopPipelineExecutionInput mirrors StopPipelineExecutionInput
@@ -63,7 +64,7 @@ type stopPipelineExecutionInput struct {
 
 func (h *Handler) handleStopPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopPipelineExecutionInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.PipelineExecutionArn == "" {
@@ -78,7 +79,7 @@ func (h *Handler) handleStopPipelineExecution(ctx context.Context, body []byte) 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: stopped pipeline execution", "arn", exec.PipelineExecutionArn)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: exec.PipelineExecutionArn}, jsonx.V1())
 }
 
 // sendPipelineExecutionStepSuccessInput mirrors SendPipelineExecutionStepSuccessInput
@@ -98,7 +99,7 @@ func (h *Handler) handleSendPipelineExecutionStepSuccess(
 	body []byte,
 ) ([]byte, error) {
 	var req sendPipelineExecutionStepSuccessInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.CallbackToken == "" {
@@ -116,7 +117,7 @@ func (h *Handler) handleSendPipelineExecutionStepSuccess(
 	// backend's execution-ARN convention, so it doubles as the real
 	// response's PipelineExecutionArn (SendPipelineExecutionStepSuccessOutput,
 	// api_op_SendPipelineExecutionStepSuccess.go:48-50).
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken}, jsonx.V1())
 }
 
 // sendPipelineExecutionStepFailureInput mirrors SendPipelineExecutionStepFailureInput
@@ -134,7 +135,7 @@ func (h *Handler) handleSendPipelineExecutionStepFailure(
 	body []byte,
 ) ([]byte, error) {
 	var req sendPipelineExecutionStepFailureInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.CallbackToken == "" {
@@ -148,7 +149,7 @@ func (h *Handler) handleSendPipelineExecutionStepFailure(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: sent pipeline step failure", "token", req.CallbackToken)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: req.CallbackToken}, jsonx.V1())
 }
 
 // pipelineStepCallbackMetadata mirrors types.CallbackStepMetadata
@@ -191,7 +192,7 @@ type listPipelineExecutionStepsInput struct {
 
 func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []byte) ([]byte, error) {
 	var req listPipelineExecutionStepsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.PipelineExecutionArn == "" {
@@ -234,7 +235,7 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +259,7 @@ type createPipelineInput struct {
 func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPipelineInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -293,7 +294,7 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created pipeline (full)", "name", p.PipelineName)
 
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
+	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn}, jsonx.V1())
 }
 
 // updatePipelineInput mirrors UpdatePipelineInput (api_op_UpdatePipeline.go:
@@ -311,7 +312,7 @@ type updatePipelineInput struct {
 func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req updatePipelineInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -345,7 +346,7 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated pipeline (full)", "name", p.PipelineName)
 
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
+	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn}, jsonx.V1())
 }
 
 // startPipelineExecutionInput mirrors StartPipelineExecutionInput
@@ -371,7 +372,7 @@ func (h *Handler) handleStartPipelineExecutionFull(
 ) ([]byte, error) {
 	var req startPipelineExecutionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -391,7 +392,7 @@ func (h *Handler) handleStartPipelineExecutionFull(
 		pe.PipelineExecutionArn,
 	)
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +414,7 @@ func (h *Handler) handleListPipelineParametersForExecution(
 ) ([]byte, error) {
 	var req listPipelineParametersForExecutionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -438,7 +439,7 @@ func (h *Handler) handleListPipelineParametersForExecution(
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -455,7 +456,7 @@ type describePipelineInput struct {
 func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req describePipelineInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -506,7 +507,7 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 		}
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // pipelineSummary mirrors PipelineSummary (types.go:17593-17620,
@@ -539,7 +540,7 @@ type listPipelinesInput struct {
 func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte, error) {
 	var req listPipelinesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -577,7 +578,7 @@ func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte,
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deletePipelineInput mirrors DeletePipelineInput (api_op_DeletePipeline.go:
@@ -590,7 +591,7 @@ type deletePipelineInput struct {
 func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req deletePipelineInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -605,7 +606,7 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted pipeline", "name", req.PipelineName)
 
-	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
+	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn}, jsonx.V1())
 }
 
 // describePipelineExecutionInput mirrors DescribePipelineExecutionInput
@@ -617,7 +618,7 @@ type describePipelineExecutionInput struct {
 func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req describePipelineExecutionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -661,7 +662,7 @@ func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []by
 		resp["MLflowConfig"] = map[string]string{"MlflowExperimentName": pe.MlflowExperimentName}
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type pipelineExecutionSummary struct {
@@ -688,7 +689,7 @@ type listPipelineExecutionsInput struct {
 func (h *Handler) handleListPipelineExecutions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listPipelineExecutionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -723,5 +724,5 @@ func (h *Handler) handleListPipelineExecutions(ctx context.Context, body []byte)
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

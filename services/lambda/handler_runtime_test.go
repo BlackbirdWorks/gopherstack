@@ -2,7 +2,7 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -500,7 +501,7 @@ func assertLambdaError(t *testing.T, rec *httptest.ResponseRecorder, errType str
 	t.Helper()
 
 	var lambdaErr lambda.Error
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lambdaErr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lambdaErr, jsonx.V1()))
 	assert.Equal(t, errType, lambdaErr.Type)
 }
 

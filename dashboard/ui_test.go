@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -72,7 +73,7 @@ func TestSystemSettings_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 	assert.Equal(t, "123456789012", body["accountID"])
 	assert.Equal(t, "eu-west-1", body["region"])
@@ -134,7 +135,7 @@ func TestSystemSettings_NoSecretShapedKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 	secretLike := regexp.MustCompile(`(?i)secret|password|token|credential|accesskey`)
 	for key := range body {
@@ -184,7 +185,7 @@ func TestSystemRegions(t *testing.T) {
 			var body struct {
 				Regions []string `json:"regions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 			for _, want := range tt.wantContains {
 				assert.Contains(t, body.Regions, want)

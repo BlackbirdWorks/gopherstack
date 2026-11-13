@@ -1,12 +1,14 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGitHubTokens_ListAddDelete(t *testing.T) {
@@ -21,7 +23,7 @@ func TestGitHubTokens_ListAddDelete(t *testing.T) {
 	var listResp struct {
 		TokenNameList []string `json:"tokenNameList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.TokenNameList)
 
 	// Add token via internal method and verify it appears.
@@ -29,7 +31,7 @@ func TestGitHubTokens_ListAddDelete(t *testing.T) {
 
 	rec = doRequest(t, h, "ListGitHubAccountTokenNames", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Equal(t, []string{"my-token"}, listResp.TokenNameList)
 
 	// Delete the token.
@@ -39,7 +41,7 @@ func TestGitHubTokens_ListAddDelete(t *testing.T) {
 	// List should be empty again.
 	rec = doRequest(t, h, "ListGitHubAccountTokenNames", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.TokenNameList)
 }
 
@@ -51,7 +53,7 @@ func TestGitHubTokens_DeleteNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "GitHubAccountTokenDoesNotExistException", resp["__type"])
 }
 

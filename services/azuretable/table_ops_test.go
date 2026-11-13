@@ -1,7 +1,7 @@
 package azuretable_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateTable(t *testing.T) {
@@ -24,7 +26,7 @@ func TestCreateTable(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Equal(t, "mytable", body["TableName"])
 		assert.Contains(t, body, "odata.metadata")
 	})
@@ -94,7 +96,7 @@ func TestListTables(t *testing.T) {
 	var body struct {
 		Value []map[string]any `json:"value"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	require.Len(t, body.Value, 2)
 	assert.Equal(t, "tablea", body.Value[0]["TableName"])
 	assert.Equal(t, "tableb", body.Value[1]["TableName"])
@@ -117,7 +119,7 @@ func TestListTables_NoMetadataLevel(t *testing.T) {
 	var body struct {
 		Value []map[string]any `json:"value"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	require.Len(t, body.Value, 1)
 	assert.NotContains(t, body.Value[0], "odata.metadata")
 	assert.Contains(t, rec.Header().Get("Content-Type"), "odata=nometadata")
@@ -140,7 +142,7 @@ func TestListTables_FullMetadataLevel(t *testing.T) {
 	var body struct {
 		Value []map[string]any `json:"value"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	require.Len(t, body.Value, 1)
 	assert.Contains(t, body.Value[0], "odata.type")
 	assert.Contains(t, body.Value[0], "odata.id")
@@ -200,7 +202,7 @@ func TestGetTable(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Equal(t, "m8table", body["TableName"])
 	})
 

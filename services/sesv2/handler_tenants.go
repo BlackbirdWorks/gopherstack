@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Tenant handlers.
@@ -18,7 +21,7 @@ import (
 // no {Placeholder} segments for this family at all).
 
 func decodeSESv2Body(c *echo.Context, v any) error {
-	if err := json.NewDecoder(c.Request().Body).Decode(v); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), v, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

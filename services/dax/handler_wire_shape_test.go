@@ -1,7 +1,7 @@
 package dax_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
@@ -25,7 +26,7 @@ func TestHandlerClusterStatusWireKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cluster := resp["Cluster"].(map[string]any)
 	assert.Equal(t, "creating", cluster["Status"], "wire key must be Status")
@@ -48,7 +49,7 @@ func TestHandlerTimestampsAreEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	cluster := createResp["Cluster"].(map[string]any)
 	nodes := cluster["Nodes"].([]any)
@@ -63,7 +64,7 @@ func TestHandlerTimestampsAreEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, eventsRec.Code)
 
 	var eventsResp map[string]any
-	require.NoError(t, json.Unmarshal(eventsRec.Body.Bytes(), &eventsResp))
+	require.NoError(t, json.Unmarshal(eventsRec.Body.Bytes(), &eventsResp, jsonx.V1()))
 
 	events := eventsResp["Events"].([]any)
 	require.NotEmpty(t, events)
@@ -93,7 +94,7 @@ func TestHandlerDescribeEventsAcceptsEpochSecondsRequest(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Events"], "a StartTime in the future should exclude all existing events")
 
 	past := float64(time.Now().UTC().Add(-time.Hour).Unix())
@@ -104,7 +105,7 @@ func TestHandlerDescribeEventsAcceptsEpochSecondsRequest(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.NotEmpty(t, resp2["Events"], "a StartTime in the past should include existing events")
 }
 
@@ -155,7 +156,7 @@ func TestHandlerParameterGroupNodeIdsToRebootWireKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clusters := resp["Clusters"].([]any)
 	require.Len(t, clusters, 1)
@@ -185,7 +186,7 @@ func TestHandlerClusterNetworkTypeWireKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cluster := resp["Cluster"].(map[string]any)
 	assert.Equal(t, "ipv4", cluster["NetworkType"])
@@ -211,7 +212,7 @@ func TestHandlerDecreaseReplicationFactorNodeIdsToRemoveWireKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cluster := resp["Cluster"].(map[string]any)
 	nodeIDs, ok := cluster["NodeIdsToRemove"].([]any)
@@ -233,7 +234,7 @@ func TestHandlerSubnetGroupSupportedNetworkTypesWireKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	sg := resp["SubnetGroup"].(map[string]any)
 	types, ok := sg["SupportedNetworkTypes"].([]any)
@@ -263,7 +264,7 @@ func TestHandlerDescribeParametersSourceFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	params := resp["Parameters"].([]any)
 	require.Len(t, params, 1)

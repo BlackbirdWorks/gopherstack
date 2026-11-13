@@ -1,11 +1,14 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func queryPageSize(c *echo.Context) int {
@@ -36,7 +39,7 @@ func listRequestParams(c *echo.Context) listParams {
 		PageSize  int               `json:"PageSize"`
 	}
 
-	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1())
 
 	return listParams{Filter: in.Filter, NextToken: in.NextToken, PageSize: max(in.PageSize, 0)}
 }

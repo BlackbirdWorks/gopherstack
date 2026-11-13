@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -31,7 +32,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				setID := cr["threatIntelSetId"].(string)
 				require.NotEmpty(t, setID)
 
@@ -39,7 +40,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "my-threatset", gr["name"])
 				assert.Equal(t, "ACTIVE", gr["status"])
 			},
@@ -52,7 +53,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 					"name": "upd-threat", "format": "TXT", "location": "s3://b/t.txt", "activate": true,
 				})
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				setID := cr["threatIntelSetId"].(string)
 
 				activate := false
@@ -63,7 +64,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/threatintelset/"+setID, nil)
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "INACTIVE", gr["status"])
 			},
 		},
@@ -75,7 +76,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 					"name": "del-threat", "format": "TXT", "location": "s3://b/t.txt",
 				})
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				setID := cr["threatIntelSetId"].(string)
 
 				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/threatintelset/"+setID, nil)
@@ -85,7 +86,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "DELETED", gr["status"])
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/threatintelset", nil)
@@ -109,7 +110,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ids, ok := resp["threatIntelSetIds"].([]any)
 				require.True(t, ok)
 				assert.Len(t, ids, 2)
@@ -137,7 +138,7 @@ func TestListThreatIntelSets_Empty_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["threatIntelSetIds"]
 	require.True(t, exists, "ListThreatIntelSets must include 'threatIntelSetIds' key")
@@ -163,14 +164,14 @@ func TestThreatIntelSet_Tags_EmptyMap_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	setID := createResp["threatIntelSetId"].(string)
 
 	rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/threatintelset/"+setID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["tags"]
 	require.True(t, exists, "GetThreatIntelSet response must include 'tags' key")

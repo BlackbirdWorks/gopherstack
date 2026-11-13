@@ -2,7 +2,7 @@ package s3_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -118,7 +119,7 @@ func TestObjectLambdaEventUserIdentity(t *testing.T) {
 
 	select {
 	case p := <-rec.payload:
-		require.NoError(t, json.Unmarshal(p, &event))
+		require.NoError(t, json.Unmarshal(p, &event, jsonx.V1()))
 	case <-t.Context().Done():
 		t.Fatal("lambda not invoked")
 	}

@@ -3,11 +3,13 @@ package ocinosql
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -35,26 +37,26 @@ type usageWire struct {
 
 // UpdateRowResult is the UpdateRow response body.
 type UpdateRowResult struct {
-	Version         *string         `json:"version"`
-	ExistingVersion *string         `json:"existingVersion,omitempty"`
-	GeneratedValue  *string         `json:"generatedValue,omitempty"`
-	ExistingValue   json.RawMessage `json:"existingValue,omitempty"`
-	Usage           usageWire       `json:"usage"`
+	Version         *string        `json:"version"`
+	ExistingVersion *string        `json:"existingVersion,omitempty"`
+	GeneratedValue  *string        `json:"generatedValue,omitempty"`
+	ExistingValue   jsontext.Value `json:"existingValue,omitempty"`
+	Usage           usageWire      `json:"usage"`
 }
 
 // RowResult is the GetRow response body.
 type RowResult struct {
-	TimeOfExpiration *time.Time      `json:"timeOfExpiration,omitempty"`
-	Value            json.RawMessage `json:"value"`
-	Usage            usageWire       `json:"usage"`
+	TimeOfExpiration *time.Time     `json:"timeOfExpiration,omitempty"`
+	Value            jsontext.Value `json:"value"`
+	Usage            usageWire      `json:"usage"`
 }
 
 // DeleteRowResult is the DeleteRow response body.
 type DeleteRowResult struct {
-	ExistingVersion *string         `json:"existingVersion,omitempty"`
-	ExistingValue   json.RawMessage `json:"existingValue,omitempty"`
-	IsSuccess       bool            `json:"isSuccess"`
-	Usage           usageWire       `json:"usage"`
+	ExistingVersion *string        `json:"existingVersion,omitempty"`
+	ExistingValue   jsontext.Value `json:"existingValue,omitempty"`
+	IsSuccess       bool           `json:"isSuccess"`
+	Usage           usageWire      `json:"usage"`
 }
 
 func unitsFor(size int) int { return max(1, (size+bytesPerUnit-1)/bytesPerUnit) }
@@ -189,7 +191,7 @@ func (t *Table) generateIdentity(col string, out map[string]any, given map[strin
 
 	v := strconv.FormatInt(id.Next, 10)
 	id.Next += id.Increment
-	out[col], given[col] = json.Number(v), true
+	out[col], given[col] = jsonx.Number(v), true
 
 	return &v, nil
 }
@@ -293,7 +295,7 @@ func (b *InMemoryBackend) UpdateRow(ref, ifMatch string, in updateRowIn) (Update
 		return b.refusedPut(t, existing, in, now), nil
 	}
 
-	raw, _ := json.Marshal(row)
+	raw, _ := json.Marshal(row, jsonx.V1())
 	t.Rows[key] = &Row{Value: raw, Version: t.nextVersion(), Expire: expire}
 	w := unitsFor(len(raw))
 	t.record(now, 0, w)
@@ -346,7 +348,7 @@ func parseKey(t *Table, parts []string) (map[string]any, *APIError) {
 
 		var raw any = val
 		if sv.types[i].isNumeric() {
-			raw = json.Number(val)
+			raw = jsonx.Number(val)
 		}
 
 		n, msg := coerce(sv.types[i], raw)

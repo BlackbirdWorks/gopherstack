@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateHumanTaskUI(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_CreateHumanTaskUI(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["HumanTaskUiArn"], "my-ui")
 }
 
@@ -61,7 +63,7 @@ func TestHandler_DescribeHumanTaskUI(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ui-1", resp["HumanTaskUiName"])
 }
 
@@ -110,7 +112,7 @@ func TestHandler_ListHumanTaskUIs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["HumanTaskUiSummaries"])
 
 	doSageMakerRequest(t, h, "CreateHumanTaskUi", map[string]any{
@@ -119,7 +121,7 @@ func TestHandler_ListHumanTaskUIs(t *testing.T) {
 	})
 
 	rec = doSageMakerRequest(t, h, "ListHumanTaskUis", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	uis := resp["HumanTaskUiSummaries"].([]any)
 	assert.Len(t, uis, 1)
 	u := uis[0].(map[string]any)

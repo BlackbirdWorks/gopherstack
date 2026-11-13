@@ -1,13 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -73,7 +74,7 @@ func TestEndpointConfig_VariantWeightDefaultsToOne(t *testing.T) {
 					DesiredWeight float64 `json:"DesiredWeight"`
 				} `json:"ProductionVariants"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ep))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ep, jsonx.V1()))
 			require.Len(t, ep.ProductionVariants, 1)
 			assert.InDelta(t, tt.want, ep.ProductionVariants[0].DesiredWeight, 0.0001)
 
@@ -85,7 +86,7 @@ func TestEndpointConfig_VariantWeightDefaultsToOne(t *testing.T) {
 					InitialVariantWeight float64 `json:"InitialVariantWeight"`
 				} `json:"ProductionVariants"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &cfg))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &cfg, jsonx.V1()))
 			require.Len(t, cfg.ProductionVariants, 1)
 			assert.InDelta(t, tt.want, cfg.ProductionVariants[0].InitialVariantWeight, 0.0001)
 		})

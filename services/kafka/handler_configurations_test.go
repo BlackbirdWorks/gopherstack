@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -56,7 +57,7 @@ func TestKafka_CreateAndDescribeConfiguration(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "my-config", resp["name"])
 				assert.NotEmpty(t, resp["arn"])
 			}
@@ -102,7 +103,7 @@ func TestKafka_ListConfigurations(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			configs, ok := resp["configurations"].([]any)
 			require.True(t, ok)
@@ -144,7 +145,7 @@ func TestKafka_DescribeAndDeleteConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			var cfgArn string
 			if tt.useRealArn {
@@ -209,7 +210,7 @@ func TestCreateConfigurationResponseIncludesStateAndRevision(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotEmpty(t, resp["arn"], "arn must be present")
 			assert.NotEmpty(t, resp["name"], "name must be present")
@@ -269,7 +270,7 @@ func TestListConfigurationsPagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			configs := resp["configurations"].([]any)
 			assert.Len(t, configs, tt.wantPage1)
@@ -301,7 +302,7 @@ func TestConfigRevision_DescribeAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.InDelta(t, float64(1), descResp["revision"], 0)
 
 	// ListConfigurationRevisions.
@@ -310,7 +311,7 @@ func TestConfigRevision_DescribeAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	revisions, _ := listResp["revisions"].([]any)
 	assert.NotEmpty(t, revisions, "should have at least one revision")
 }
@@ -330,7 +331,7 @@ func TestConfigRevision_UpdateConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, configArn, updateResp["arn"])
 	assert.Equal(t, "cfg-update-test", updateResp["name"])
 }

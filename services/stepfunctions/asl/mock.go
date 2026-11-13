@@ -1,7 +1,8 @@
 package asl
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Mock config errors.
@@ -29,7 +32,7 @@ type MockConfig struct {
 
 type mockStep struct {
 	throw *mockThrow
-	ret   json.RawMessage
+	ret   jsontext.Value
 	lo    int
 	hi    int
 }
@@ -40,8 +43,8 @@ type mockThrow struct {
 }
 
 type mockFileStep struct {
-	Throw  *mockThrow      `json:"Throw"`
-	Return json.RawMessage `json:"Return"`
+	Throw  *mockThrow     `json:"Throw"`
+	Return jsontext.Value `json:"Return"`
 }
 
 type mockFile struct {
@@ -64,7 +67,7 @@ func LoadMockConfig(path string) (*MockConfig, error) {
 // ParseMockConfig validates mock configuration JSON.
 func ParseMockConfig(data []byte) (*MockConfig, error) {
 	var f mockFile
-	if err := json.Unmarshal(data, &f); err != nil {
+	if err := json.Unmarshal(data, &f, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrMockConfigInvalid, err)
 	}
 
@@ -204,7 +207,7 @@ func (r *MockRun) invoke(stateName string) (any, bool, error) {
 		}
 
 		var out any
-		if uerr := json.Unmarshal(s.ret, &out); uerr != nil {
+		if uerr := json.Unmarshal(s.ret, &out, jsonx.V1()); uerr != nil {
 			return nil, true, &FailError{ErrCode: errCodeStatesRuntime, Cause: uerr.Error()}
 		}
 

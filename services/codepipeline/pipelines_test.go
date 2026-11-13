@@ -2,13 +2,14 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -72,7 +73,7 @@ func TestHandler_CreatePipeline(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pipeline, ok := out["pipeline"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, pipeline["name"])
@@ -131,8 +132,8 @@ func TestHandler_CreatePipeline_RoleArnRequired(t *testing.T) {
 			input := tt.pipeline
 			if input == nil {
 				// marshal samplePipeline to map
-				b, _ := json.Marshal(samplePipeline("role-test"))
-				require.NoError(t, json.Unmarshal(b, &input))
+				b, _ := json.Marshal(samplePipeline("role-test"), jsonx.V1())
+				require.NoError(t, json.Unmarshal(b, &input, jsonx.V1()))
 			}
 
 			rec := doRequest(t, h, "CreatePipeline", map[string]any{"pipeline": input})
@@ -140,7 +141,7 @@ func TestHandler_CreatePipeline_RoleArnRequired(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["__type"])
 			}
 		})
@@ -177,7 +178,7 @@ func TestCreatePipeline_DuplicateName_PipelineNameInUseException(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec2.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body, jsonx.V1()))
 
 			errType, ok := body["__type"].(string)
 			require.True(t, ok, "response must have __type field")
@@ -200,7 +201,7 @@ func TestCreatePipeline_DuplicateName_NotInvalidStructureException(t *testing.T)
 	require.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body, jsonx.V1()))
 
 	errType, _ := body["__type"].(string)
 	assert.NotEqual(t, "InvalidStructureException", errType,
@@ -329,7 +330,7 @@ func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["__type"])
 			}
 		})
@@ -449,7 +450,7 @@ func TestHandler_UpdatePipeline_VersionIsIgnored(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			pipeline, _ := out["pipeline"].(map[string]any)
 			assert.InDelta(
 				t,
@@ -585,7 +586,7 @@ func TestInMemoryBackend_DeletePipeline_ClearsActionExecutions(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var before map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before, jsonx.V1()))
 				beforeDetails, _ := before["actionExecutionDetails"].([]any)
 				require.NotEmpty(t, beforeDetails, "action executions must be recorded before delete")
 
@@ -600,7 +601,7 @@ func TestInMemoryBackend_DeletePipeline_ClearsActionExecutions(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var after map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after, jsonx.V1()))
 				afterDetails, _ := after["actionExecutionDetails"].([]any)
 				assert.Empty(
 					t,
@@ -683,7 +684,7 @@ func TestDeletePipeline_CascadeActionRevisions(t *testing.T) {
 	require.Equal(t, http.StatusOK, stateRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(stateRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(stateRec.Body.Bytes(), &out, jsonx.V1()))
 	stageStates, _ := out["stageStates"].([]any)
 	require.Len(t, stageStates, 1)
 	stage, _ := stageStates[0].(map[string]any)
@@ -738,7 +739,7 @@ func TestHandler_ListPipelines(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			pipelines, _ := out["pipelines"].([]any)
 			assert.Len(t, pipelines, tt.wantCount)
 		})
@@ -783,7 +784,7 @@ func TestHandler_ListPipelines_IncludesPipelineType(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			pipelines, _ := out["pipelines"].([]any)
 			require.Len(t, pipelines, 1)
 
@@ -812,7 +813,7 @@ func TestSortedListPipelines(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["pipelines"].([]any)
 	require.True(t, ok)
@@ -836,7 +837,7 @@ func TestListPipelines_NonNilWhenEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// pipelines key must exist and be an array, not null.
 	list, ok := out["pipelines"]
@@ -861,7 +862,7 @@ func TestListPipelines_OmitsPipelineArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list := out["pipelines"].([]any)
 	item := list[0].(map[string]any)
@@ -871,7 +872,7 @@ func TestListPipelines_OmitsPipelineArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	metadata := getOut["metadata"].(map[string]any)
 	arn, ok := metadata["pipelineArn"].(string)
@@ -932,7 +933,7 @@ func TestListPipelines_Pagination(t *testing.T) {
 				NextToken string           `json:"nextToken"`
 				Pipelines []map[string]any `json:"pipelines"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Pipelines, tt.wantLen)
 			if tt.wantNextToken {
 				assert.NotEmpty(t, out.NextToken)
@@ -976,7 +977,7 @@ func TestListPipelines_FullPagination(t *testing.T) {
 			NextToken string           `json:"nextToken"`
 			Pipelines []map[string]any `json:"pipelines"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.LessOrEqual(t, len(out.Pipelines), 2)
 
 		for _, p := range out.Pipelines {

@@ -2,7 +2,7 @@ package guardduty_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -30,7 +31,7 @@ func doRequest(t *testing.T, h *guardduty.Handler, method, path string, body any
 
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -54,7 +55,7 @@ func createTestDetector(t *testing.T, h *guardduty.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	id, ok := resp["detectorId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)

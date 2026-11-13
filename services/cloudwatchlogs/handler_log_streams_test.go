@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -25,7 +26,7 @@ func TestHandler_DeleteLogStream(t *testing.T) {
 	rec := doLogsRequest(t, h, e, "DescribeLogStreams", `{"logGroupName":"g"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var desc1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc1, jsonx.V1()))
 	assert.Len(t, desc1["logStreams"], 1)
 
 	// Delete it.
@@ -36,7 +37,7 @@ func TestHandler_DeleteLogStream(t *testing.T) {
 	rec = doLogsRequest(t, h, e, "DescribeLogStreams", `{"logGroupName":"g"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var desc2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc2, jsonx.V1()))
 	assert.Empty(t, desc2["logStreams"])
 
 	// Delete non-existent stream → 404.
@@ -171,7 +172,7 @@ func TestHandler_LogStreamOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -179,13 +180,13 @@ func TestHandler_LogStreamOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})

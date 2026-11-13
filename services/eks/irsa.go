@@ -5,7 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math/big"
 	"slices"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -284,12 +286,12 @@ func serviceAccountClaims(issuer string, req ServiceAccountTokenRequest, now, ex
 }
 
 func signServiceAccountJWT(key *rsa.PrivateKey, claims map[string]any) (string, error) {
-	hdr, err := json.Marshal(map[string]string{"alg": jwtAlgRS256, "kid": irsaKeyID(&key.PublicKey)})
+	hdr, err := json.Marshal(map[string]string{"alg": jwtAlgRS256, "kid": irsaKeyID(&key.PublicKey)}, jsonx.V1())
 	if err != nil {
 		return "", err
 	}
 
-	body, err := json.Marshal(claims)
+	body, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		return "", err
 	}

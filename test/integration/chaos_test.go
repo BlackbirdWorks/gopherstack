@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -19,6 +19,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -103,7 +104,7 @@ func newDynamoDBClientAt(t *testing.T, ep string) *dynamodb.Client {
 func postChaosRules(t *testing.T, ep string, rules any) {
 	t.Helper()
 
-	body, err := json.Marshal(rules)
+	body, err := json.Marshal(rules, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(
@@ -128,7 +129,7 @@ func postChaosRules(t *testing.T, ep string, rules any) {
 func postChaosEffects(t *testing.T, ep string, effects chaosNetworkEffects) {
 	t.Helper()
 
-	body, err := json.Marshal(effects)
+	body, err := json.Marshal(effects, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(

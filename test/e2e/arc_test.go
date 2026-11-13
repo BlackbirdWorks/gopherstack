@@ -50,6 +50,7 @@ func TestARCDashboards(t *testing.T) {
 
 			_, err = page.Goto(server.URL + "/dashboard/" + tc.route)
 			require.NoError(t, err)
+			waitHydrated(t, page)
 
 			visible := playwright.LocatorWaitForOptions{
 				State:   playwright.WaitForSelectorStateVisible,

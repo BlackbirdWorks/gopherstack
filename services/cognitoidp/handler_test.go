@@ -2,7 +2,7 @@ package cognitoidp_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -191,7 +192,7 @@ func TestHandler_JWKS(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -354,7 +355,7 @@ func TestReset(t *testing.T) {
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp.UserPool.ID
 	assert.Equal(t, 1, b.UserPoolCount())
 
@@ -423,7 +424,7 @@ func TestNonNilSlices(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "nil-slices-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	// Empty ListUsers must return [] not null.
@@ -484,7 +485,7 @@ func TestExportCountHelpers(t *testing.T) {
 
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "count-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 	assert.Equal(t, 1, h.Backend.UserPoolCount())
 
@@ -593,7 +594,7 @@ func TestHandler_ProvisionedLimits(t *testing.T) {
 			}
 
 			var resp provisionedLimitResp
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "API_CATEGORY", resp.Limit.LimitDefinition.LimitClass)
 			assert.EqualValues(t, 120, resp.Limit.FreeLimitValue)
 
@@ -627,7 +628,7 @@ func TestHandler_ProvisionedLimits_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp provisionedLimitResp
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.EqualValues(t, 200, resp.Limit.ProvisionedLimitValue)
 	assert.EqualValues(t, 50, resp.Limit.FreeLimitValue)
 }

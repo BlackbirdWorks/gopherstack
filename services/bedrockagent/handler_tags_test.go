@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerTagging(t *testing.T) {
@@ -20,7 +22,7 @@ func TestHandlerTagging(t *testing.T) {
 	rec := doRequest(t, h, e, http.MethodPut, "/agents", createBody)
 
 	var createResp map[string]map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
+	_ = json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1())
 	arn := createResp["agent"]["agentArn"].(string)
 
 	t.Run("tag resource", func(t *testing.T) {

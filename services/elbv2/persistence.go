@@ -2,7 +2,7 @@ package elbv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -37,7 +37,7 @@ const elbv2SnapshotVersion = 2
 // ResourcePolicies / TargetReadyAt / TargetDrainingUntil are persisted
 // separately because they are not store.Table-shaped -- see store_setup.go.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage      `json:"tables"`
+	Tables              map[string]jsontext.Value       `json:"tables"`
 	ResourcePolicies    map[string]string               `json:"resourcePolicies"`
 	TargetReadyAt       map[string]map[string]time.Time `json:"targetReadyAt"`
 	TargetDrainingUntil map[string]map[string]time.Time `json:"targetDrainingUntil"`

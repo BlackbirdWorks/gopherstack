@@ -8,7 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -21,6 +21,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -143,7 +144,7 @@ func parseKeySet(raw []byte) map[string]crypto.PublicKey {
 		Keys []jwk `json:"keys"`
 	}
 
-	if json.Unmarshal(raw, &set) == nil && len(set.Keys) > 0 {
+	if json.Unmarshal(raw, &set, jsonx.V1()) == nil && len(set.Keys) > 0 {
 		for _, k := range set.Keys {
 			if pub, err := k.public(); err == nil {
 				keys[k.Kid] = pub
@@ -154,7 +155,7 @@ func parseKeySet(raw []byte) map[string]crypto.PublicKey {
 	}
 
 	var certs map[string]string
-	if json.Unmarshal(raw, &certs) != nil {
+	if json.Unmarshal(raw, &certs, jsonx.V1()) != nil {
 		return keys
 	}
 

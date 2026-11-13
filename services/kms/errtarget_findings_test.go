@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -34,7 +35,7 @@ func TestCancelKeyDeletion_DisabledKey_NotDisabledException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 
 	desc, err := h.Backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
@@ -73,7 +74,7 @@ func TestDecrypt_DisabledKey_StillDisabledException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "DisabledException", errResp.Type)
 }
 
@@ -119,7 +120,7 @@ func TestImportKeyMaterial_DisabledKey_NotDisabledException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 
 	require.NoError(t, h.Backend.EnableKey(context.Background(), &kms.EnableKeyInput{KeyID: keyID}))
@@ -169,7 +170,7 @@ func TestVerifyMac_Mismatch_IsInvalidMac_NotInvalidSignature(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidMacException", errResp.Type)
 }
 
@@ -211,6 +212,6 @@ func TestDecrypt_ExpiredImportedMaterial_KMSInvalidStateException(t *testing.T) 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 }

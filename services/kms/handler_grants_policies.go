@@ -2,8 +2,10 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // buildGrantPolicyActions returns dispatch entries for grant and key policy operations.
@@ -11,7 +13,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		opCreateGrant: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateGrantInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -19,7 +21,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 		},
 		"ListGrants": func(ctx context.Context, b []byte) (any, error) {
 			var input ListGrantsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -27,7 +29,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 		},
 		"RevokeGrant": func(ctx context.Context, b []byte) (any, error) {
 			var input RevokeGrantInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -35,7 +37,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 		},
 		opRetireGrant: func(ctx context.Context, b []byte) (any, error) {
 			var input RetireGrantInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -43,7 +45,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 		},
 		"ListRetirableGrants": func(ctx context.Context, b []byte) (any, error) {
 			var input ListRetirableGrantsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -59,7 +61,7 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 // function's cognitive complexity under the gocognit limit.
 func (h *Handler) handlePutKeyPolicy(ctx context.Context, b []byte) (any, error) {
 	var input PutKeyPolicyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -85,7 +87,7 @@ func (h *Handler) handlePutKeyPolicy(ctx context.Context, b []byte) (any, error)
 
 func (h *Handler) handleGetKeyPolicy(ctx context.Context, b []byte) (any, error) {
 	var input GetKeyPolicyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

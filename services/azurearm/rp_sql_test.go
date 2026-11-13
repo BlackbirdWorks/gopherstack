@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -116,7 +117,7 @@ func newSQLEnv() *sqlEnv {
 func (e *sqlEnv) do(t *testing.T, method, path string, body any) (int, map[string]any, http.Header) {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	if body == nil {
@@ -130,7 +131,7 @@ func (e *sqlEnv) do(t *testing.T, method, path string, body any) (int, map[strin
 
 	var out map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 	}
 
 	return rec.Code, out, rec.Header()

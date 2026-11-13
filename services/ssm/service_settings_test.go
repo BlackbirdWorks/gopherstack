@@ -1,7 +1,7 @@
 package ssm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -101,7 +102,7 @@ func TestServiceSettings_LifecycleRoundTrip(t *testing.T) {
 			h, _ := newTestHandler(t)
 
 			// Default state.
-			body, _ := json.Marshal(map[string]any{"SettingId": tt.settingID})
+			body, _ := json.Marshal(map[string]any{"SettingId": tt.settingID}, jsonx.V1())
 			rec := doRequest(t, h, "GetServiceSetting", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), "Default")
@@ -110,24 +111,24 @@ func TestServiceSettings_LifecycleRoundTrip(t *testing.T) {
 			body, _ = json.Marshal(map[string]any{
 				"SettingId":    tt.settingID,
 				"SettingValue": tt.setValue,
-			})
+			}, jsonx.V1())
 			rec = doRequest(t, h, "UpdateServiceSetting", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Get updated.
-			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID})
+			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID}, jsonx.V1())
 			rec = doRequest(t, h, "GetServiceSetting", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.setValue)
 			assert.Contains(t, rec.Body.String(), "Customized")
 
 			// Reset.
-			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID})
+			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID}, jsonx.V1())
 			rec = doRequest(t, h, "ResetServiceSetting", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Default again.
-			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID})
+			body, _ = json.Marshal(map[string]any{"SettingId": tt.settingID}, jsonx.V1())
 			rec = doRequest(t, h, "GetServiceSetting", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), "Default")

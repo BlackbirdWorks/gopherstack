@@ -3,7 +3,8 @@ package resourcegroupstaggingapi_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
@@ -102,7 +104,7 @@ func doTaggingRequest(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -598,7 +600,7 @@ func TestValidationFailures_UseInvalidParameterException(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
 
 			var body map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &body, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", body["__type"],
 				"real resourcegroupstaggingapi has no ValidationException shape")
 			assert.NotContains(t, rec.Body.String(), "ValidationException")
@@ -631,7 +633,7 @@ func TestMalformedBody_UsesSerializationException(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), "SerializationException")
 
 			var body map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &body, jsonx.V1()))
 			assert.Equal(t, "SerializationException", body["__type"])
 		})
 	}
@@ -772,7 +774,7 @@ func TestHandler_ValidationError_HasInvalidParameterExceptionBody(t *testing.T) 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &body, jsonx.V1()))
 	// Real resourcegroupstaggingapi has no ValidationException shape; parameter
 	// validation failures are modeled as InvalidParameterException.
 	assert.Equal(t, "InvalidParameterException", body["__type"])

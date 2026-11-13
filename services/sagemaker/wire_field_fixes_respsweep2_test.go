@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateEndpointConfig_DataCaptureConfig proves
@@ -83,7 +85,7 @@ func TestCreateEndpointConfig_VpcConfigSurvivesEmptyArrays(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	vpc, ok := resp["VpcConfig"].(map[string]any)
 	require.True(t, ok, "VpcConfig key must be present")
@@ -128,7 +130,7 @@ func TestCreateTrainingJob_ModelArtifactsRequiredWhileInProgress(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 		require.Equal(t, "InProgress", resp["TrainingJobStatus"])
 
 		artifacts, ok := resp["ModelArtifacts"].(map[string]any)
@@ -267,7 +269,7 @@ func TestCreatePipeline_ParallelismConfigurationSurvivesZero(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	pc, ok := resp["ParallelismConfiguration"].(map[string]any)
 	require.True(t, ok, "ParallelismConfiguration key must be present")
@@ -301,7 +303,7 @@ func TestCreateProcessingJob_OutputsSurvivesEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	poc, ok := resp["ProcessingOutputConfig"].(map[string]any)
 	require.True(t, ok)
@@ -337,7 +339,7 @@ func TestDescribeAutoMLJob_RequiredFieldsSurviveEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	outCfg, ok := resp["OutputDataConfig"].(map[string]any)
 	require.True(t, ok)
@@ -421,7 +423,7 @@ func TestCreateCompilationJob_InputConfigOrModelPackageVersionArnRequired(t *tes
 		require.Equal(t, http.StatusOK, rr.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 		inCfg, ok := resp["InputConfig"].(map[string]any)
 		require.True(t, ok)
 		s3uri, ok := inCfg["S3Uri"]
@@ -472,7 +474,7 @@ func TestListTrainingJobsForHPTuningJob_TunedHyperParametersSurvivesEmpty(t *tes
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["TrainingJobSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, summaries, 1)

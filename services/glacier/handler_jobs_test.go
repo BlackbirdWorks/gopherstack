@@ -1,7 +1,8 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -48,7 +50,7 @@ func TestInitiateListDescribeJob(t *testing.T) {
 			assert.Equal(t, http.StatusAccepted, rec.Code)
 
 			var jobResp map[string]any
-			err := json.Unmarshal(rec.Body.Bytes(), &jobResp)
+			err := json.Unmarshal(rec.Body.Bytes(), &jobResp, jsonx.V1())
 			require.NoError(t, err)
 
 			jobID := jobResp["jobId"].(string)
@@ -63,7 +65,7 @@ func TestInitiateListDescribeJob(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			err = json.Unmarshal(rec.Body.Bytes(), &descResp)
+			err = json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1())
 			require.NoError(t, err)
 			assert.Equal(t, jobID, descResp["JobId"])
 
@@ -122,7 +124,7 @@ func TestJobTier_StoredInDescribeJob(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var initResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 	jobID := initResp["jobId"].(string)
 
 	rec = doRequest(t, h, http.MethodGet,
@@ -130,7 +132,7 @@ func TestJobTier_StoredInDescribeJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Bulk", descResp["Tier"])
 }
 
@@ -150,7 +152,7 @@ func TestInventoryJob_UpdatesLastInventoryDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	_, hasDate := desc["LastInventoryDate"]
 	assert.False(t, hasDate, "LastInventoryDate should not be set before first inventory")
 
@@ -165,7 +167,7 @@ func TestInventoryJob_UpdatesLastInventoryDate(t *testing.T) {
 		"/"+testAccountID+"/vaults/inv-date-vault", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	lastInventory, ok := desc["LastInventoryDate"]
 	assert.True(t, ok, "LastInventoryDate should be set after inventory job")
 	assert.NotEmpty(t, lastInventory)
@@ -184,7 +186,7 @@ func TestArchiveJob_DoesNotUpdateLastInventoryDate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var archResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp, jsonx.V1()))
 	archiveID := archResp["archiveId"].(string)
 
 	// Initiate archive-retrieval job.
@@ -244,7 +246,7 @@ func TestListJobs_LimitAndMarker(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			jobList := resp["JobList"]
 			if jobList == nil {
@@ -304,7 +306,7 @@ func TestArchiveRetrievalJob_StoresRetrievalByteRange(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var archResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp, jsonx.V1()))
 	archiveID := archResp["archiveId"].(string)
 
 	// Initiate archive retrieval with RetrievalByteRange.
@@ -314,7 +316,7 @@ func TestArchiveRetrievalJob_StoresRetrievalByteRange(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var initResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 	jobID := initResp["jobId"].(string)
 
 	// DescribeJob should reflect the stored range.
@@ -323,7 +325,7 @@ func TestArchiveRetrievalJob_StoresRetrievalByteRange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	// The RetrievalByteRange field is forwarded from the request.
 	_ = descResp
 }
@@ -468,7 +470,7 @@ func TestDescribeJob_ArchiveSizeInBytes(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var initResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"].(string)
 
 			rec = doRequest(
@@ -481,7 +483,7 @@ func TestDescribeJob_ArchiveSizeInBytes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var jobResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp, jsonx.V1()))
 			if tt.wantSizePresent {
 				assert.NotNil(t, jobResp["ArchiveSizeInBytes"])
 			}
@@ -540,7 +542,7 @@ func TestDescribeJob_ArchiveSHA256TreeHash(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var initResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"].(string)
 
 			rec = doRequest(t, h, http.MethodGet,
@@ -548,7 +550,7 @@ func TestDescribeJob_ArchiveSHA256TreeHash(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var jobResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp, jsonx.V1()))
 
 			if tt.wantArchiveSHA {
 				assert.Equal(t, "cafebabe", jobResp["ArchiveSHA256TreeHash"],
@@ -594,7 +596,7 @@ func initiateJob(t *testing.T, h *glacier.Handler, vaultName, jobType string) st
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	jobID, ok := resp["jobId"].(string)
 	require.True(t, ok, "jobId missing from initiate response")
@@ -635,7 +637,7 @@ func TestInitiateJob_StartsInProgress(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var desc map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 			assert.Equal(t, "InProgress", desc["StatusCode"])
 		})
 	}
@@ -678,7 +680,7 @@ func TestInitiateJob_SucceedsAfterDelay(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, recEarly.Code)
 				var earlyDesc map[string]any
-				require.NoError(t, json.Unmarshal(recEarly.Body.Bytes(), &earlyDesc))
+				require.NoError(t, json.Unmarshal(recEarly.Body.Bytes(), &earlyDesc, jsonx.V1()))
 				assert.Equal(t, "InProgress", earlyDesc["StatusCode"])
 
 				// After the delay elapses the job should be Succeeded.
@@ -687,7 +689,7 @@ func TestInitiateJob_SucceedsAfterDelay(t *testing.T) {
 				recLate := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+tt.vaultName+"/jobs/"+jobID, "")
 				require.Equal(t, http.StatusOK, recLate.Code)
 				var lateDesc map[string]any
-				require.NoError(t, json.Unmarshal(recLate.Body.Bytes(), &lateDesc))
+				require.NoError(t, json.Unmarshal(recLate.Body.Bytes(), &lateDesc, jsonx.V1()))
 				assert.Equal(t, "Succeeded", lateDesc["StatusCode"])
 			})
 		})
@@ -721,7 +723,7 @@ func TestInitiateJob_ZeroDelay_ImmediateSucceeded(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var desc map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 			assert.Equal(t, "Succeeded", desc["StatusCode"])
 		})
 	}
@@ -762,8 +764,8 @@ func TestListJobs_JobListAlwaysPresent(t *testing.T) {
 				"/"+testAccountID+"/vaults/listjobs-audit-vault/jobs", "")
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			_, present := resp["JobList"]
 			assert.True(t, present, "JobList key must always be present in ListJobs response")
@@ -821,7 +823,7 @@ func TestDescribeJob_SNSTopicPresent(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, initRec.Code)
 
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"]
 			require.NotEmpty(t, jobID)
 
@@ -829,18 +831,18 @@ func TestDescribeJob_SNSTopicPresent(t *testing.T) {
 				"/"+testAccountID+"/vaults/snstopic-audit-vault/jobs/"+jobID, "")
 			require.Equal(t, http.StatusOK, descRec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			snsRaw, present := resp["SNSTopic"]
 			if tt.wantPresent {
 				assert.True(t, present, "SNSTopic must be present when job was initiated with SNSTopic")
 				var got string
-				require.NoError(t, json.Unmarshal(snsRaw, &got))
+				require.NoError(t, json.Unmarshal(snsRaw, &got, jsonx.V1()))
 				assert.Equal(t, tt.wantSNSTopic, got)
 			} else if present {
 				var got string
-				require.NoError(t, json.Unmarshal(snsRaw, &got))
+				require.NoError(t, json.Unmarshal(snsRaw, &got, jsonx.V1()))
 				assert.Empty(t, got, "SNSTopic should be empty or absent when not set")
 			}
 		})
@@ -889,7 +891,7 @@ func TestDescribeJob_RetrievalByteRange(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var archResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &archResp, jsonx.V1()))
 			archiveID := archResp["archiveId"]
 			require.NotEmpty(t, archiveID)
 
@@ -906,7 +908,7 @@ func TestDescribeJob_RetrievalByteRange(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, initRec.Code)
 
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"]
 			require.NotEmpty(t, jobID)
 
@@ -914,18 +916,18 @@ func TestDescribeJob_RetrievalByteRange(t *testing.T) {
 				"/"+testAccountID+"/vaults/byterange-audit-vault/jobs/"+jobID, "")
 			require.Equal(t, http.StatusOK, descRec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			rangeRaw, present := resp["RetrievalByteRange"]
 			if tt.wantInResp {
 				assert.True(t, present, "RetrievalByteRange must be present when set on the job")
 				var got string
-				require.NoError(t, json.Unmarshal(rangeRaw, &got))
+				require.NoError(t, json.Unmarshal(rangeRaw, &got, jsonx.V1()))
 				assert.Equal(t, tt.byteRange, got)
 			} else if present {
 				var got string
-				require.NoError(t, json.Unmarshal(rangeRaw, &got))
+				require.NoError(t, json.Unmarshal(rangeRaw, &got, jsonx.V1()))
 				assert.Empty(t, got, "RetrievalByteRange should be empty or absent when not set")
 			}
 		})
@@ -1020,7 +1022,7 @@ func TestListJobs_CompletedFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			jobs := resp["JobList"].([]any)
 			assert.Len(t, jobs, tt.wantCount)
 		})
@@ -1054,7 +1056,7 @@ func TestListJobs_StatusCodeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			jobs := resp["JobList"].([]any)
 			assert.Len(t, jobs, tt.wantCount)
 		})
@@ -1127,7 +1129,7 @@ func TestDescribeJob_Fidelity(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantAction, resp["Action"])
 			assert.Equal(t, tt.wantTier, resp["Tier"])
 			assert.NotEmpty(t, resp["JobId"])
@@ -1164,7 +1166,7 @@ func TestDescribeJob_ArchiveSizePopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			archiveSize, ok := resp["ArchiveSizeInBytes"].(float64)
 			assert.True(t, ok, "ArchiveSizeInBytes must be present for archive-retrieval job")
 			assert.InDelta(t, float64(len(tt.content)), archiveSize, 0)

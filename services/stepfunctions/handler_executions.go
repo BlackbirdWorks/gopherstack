@@ -2,8 +2,10 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type startExecutionInput struct {
@@ -150,7 +152,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 
 func (h *Handler) handleRedriveExecution(b []byte) (any, error) {
 	var input redriveExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -164,7 +166,7 @@ func (h *Handler) handleRedriveExecution(b []byte) (any, error) {
 
 func (h *Handler) handleDescribeStateMachineForExecution(b []byte) (any, error) {
 	var input describeStateMachineForExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -189,7 +191,7 @@ func (h *Handler) handleStartExecution(b []byte) (any, error) {
 
 func (h *Handler) handleStartExecutionCtx(ctx context.Context, b []byte) (any, error) {
 	var input startExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -209,7 +211,7 @@ func (h *Handler) handleStartExecutionCtx(ctx context.Context, b []byte) (any, e
 
 func (h *Handler) handleStartSyncExecution(b []byte) (any, error) {
 	var input startSyncExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -218,7 +220,7 @@ func (h *Handler) handleStartSyncExecution(b []byte) (any, error) {
 
 func (h *Handler) handleStopExecution(b []byte) (any, error) {
 	var input stopExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -236,7 +238,7 @@ func (h *Handler) handleStopExecution(b []byte) (any, error) {
 
 func (h *Handler) handleDescribeExecution(b []byte) (any, error) {
 	var input describeExecutionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -264,7 +266,7 @@ func validateRedriveFilter(filter string, hasMapRun bool) error {
 
 func (h *Handler) handleListExecutions(b []byte) (any, error) {
 	var input listExecutionsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -313,7 +315,7 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 
 func (h *Handler) handleGetExecutionHistory(b []byte) (any, error) {
 	var input getExecutionHistoryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

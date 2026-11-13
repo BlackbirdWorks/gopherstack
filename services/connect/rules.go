@@ -2,10 +2,12 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -57,8 +59,8 @@ type Rule struct {
 	PublishStatus        string                  `json:"PublishStatus"`
 	RuleArn              string                  `json:"RuleArn"`
 	RuleID               string                  `json:"RuleId"`
-	Actions              []json.RawMessage       `json:"Actions"`
-	PreEvaluationFilters json.RawMessage         `json:"PreEvaluationFilters,omitempty"`
+	Actions              []jsontext.Value        `json:"Actions"`
+	PreEvaluationFilters jsontext.Value          `json:"PreEvaluationFilters,omitempty"`
 }
 
 // ActionSummary is the list shape of a rule action.
@@ -92,8 +94,8 @@ type CreateRuleInput struct {
 	PublishStatus      string
 	ClientToken        string
 	instPath
-	PreEvaluationFilters json.RawMessage
-	Actions              []json.RawMessage
+	PreEvaluationFilters jsontext.Value
+	Actions              []jsontext.Value
 }
 
 // UpdateRuleInput is the UpdateRule request.
@@ -103,8 +105,8 @@ type UpdateRuleInput struct {
 	PublishStatus string
 	RuleID        string `json:"-" path:"RuleId"`
 	instPath
-	PreEvaluationFilters json.RawMessage
-	Actions              []json.RawMessage
+	PreEvaluationFilters jsontext.Value
+	Actions              []jsontext.Value
 }
 
 // RuleOut is the wire shape of a rule.
@@ -113,14 +115,14 @@ type RuleOut struct {
 	RuleID  string `json:"RuleId"`
 }
 
-func ruleActionType(raw json.RawMessage) (string, error) {
-	var a map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &a); err != nil {
+func ruleActionType(raw jsontext.Value) (string, error) {
+	var a map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &a, jsonx.V1()); err != nil {
 		return "", invalidParamErr("Actions contains an invalid action")
 	}
 
 	var t string
-	if err := json.Unmarshal(a["ActionType"], &t); err != nil {
+	if err := json.Unmarshal(a["ActionType"], &t, jsonx.V1()); err != nil {
 		return "", invalidParamErr("every action needs an ActionType")
 	}
 
@@ -136,7 +138,7 @@ func ruleActionType(raw json.RawMessage) (string, error) {
 	return t, nil
 }
 
-func (b *Backend) checkRuleActions(inst string, actions []json.RawMessage) error {
+func (b *Backend) checkRuleActions(inst string, actions []jsontext.Value) error {
 	if len(actions) == 0 || len(actions) > maxRuleActions {
 		return invalidParamErr("Actions must contain 1-%d actions", maxRuleActions)
 	}
@@ -157,14 +159,14 @@ func (b *Backend) checkRuleActions(inst string, actions []json.RawMessage) error
 	return nil
 }
 
-func (b *Backend) checkTaskActionFlow(inst string, raw json.RawMessage) error {
+func (b *Backend) checkTaskActionFlow(inst string, raw jsontext.Value) error {
 	var a struct {
 		TaskAction struct {
 			ContactFlowID string `json:"ContactFlowId"`
 		} `json:"TaskAction"`
 	}
 
-	if err := json.Unmarshal(raw, &a); err != nil {
+	if err := json.Unmarshal(raw, &a, jsonx.V1()); err != nil {
 		return invalidParamErr("TaskAction is not valid")
 	}
 

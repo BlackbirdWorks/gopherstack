@@ -2,13 +2,15 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createClusterInput is CreateClusterInput (api_op_CreateCluster.go,
@@ -233,7 +235,7 @@ type createClusterV2Output struct {
 
 func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createClusterInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -264,7 +266,7 @@ func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body
 
 func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createClusterV2Input
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

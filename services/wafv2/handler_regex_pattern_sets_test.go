@@ -2,13 +2,14 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -74,7 +75,7 @@ func TestHandler_CreateRegexPatternSet(t *testing.T) {
 
 			if tt.wantID {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				summary, ok := result["Summary"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, summary["Id"])
@@ -180,7 +181,7 @@ func TestRegexPatternSetObjectShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, recObj.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recObj.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recObj.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Get and verify the entries are returned as objects.
@@ -190,7 +191,7 @@ func TestRegexPatternSetObjectShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp, jsonx.V1()))
 
 	rps := getResp["RegexPatternSet"].(map[string]any)
 	entries, ok := rps["RegularExpressionList"].([]any)
@@ -232,7 +233,7 @@ func TestRegexPatternSet_MaxEntries(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "11 regex entries should exceed limit")
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFLimitsExceededException", errResp["__type"])
 }
 
@@ -268,7 +269,7 @@ func createRegexPatternSetHelper(t *testing.T, h *wafv2.Handler, name string) st
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summary, ok := resp["Summary"].(map[string]any)
 	require.True(t, ok)
@@ -331,7 +332,7 @@ func TestHandler_GetRegexPatternSet(t *testing.T) {
 
 			if tt.wantField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantField)
 			}
 		})
@@ -389,7 +390,7 @@ func TestHandler_ListRegexPatternSets(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, ok := resp["RegexPatternSets"].([]any)
 			require.True(t, ok)
@@ -459,7 +460,7 @@ func TestHandler_UpdateRegexPatternSet(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "NextLockToken")
 			}
 		})

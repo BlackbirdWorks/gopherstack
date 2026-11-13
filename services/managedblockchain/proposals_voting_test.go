@@ -1,7 +1,7 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -175,7 +176,7 @@ func TestHandler_ProposalOutstandingVoteCount(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			p := getResp["Proposal"].(map[string]any)
 			outstanding := int(p["OutstandingVoteCount"].(float64))
@@ -257,7 +258,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createNetResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createNetResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createNetResp, jsonx.V1()))
 
 			networkID := createNetResp["NetworkId"].(string)
 			firstMemberID := createNetResp["MemberId"].(string)
@@ -275,7 +276,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 				require.Equal(t, http.StatusOK, memRec.Code)
 
 				var createMemResp map[string]any
-				require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &createMemResp))
+				require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &createMemResp, jsonx.V1()))
 				extraMemberIDs = append(extraMemberIDs, createMemResp["MemberId"].(string))
 			}
 
@@ -288,7 +289,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createPropResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createPropResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createPropResp, jsonx.V1()))
 
 			proposalID := createPropResp["ProposalId"].(string)
 
@@ -313,7 +314,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			p := getResp["Proposal"].(map[string]any)
 			assert.Equal(t, tt.wantStatus, p["Status"])
@@ -353,7 +354,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var netResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &netResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &netResp, jsonx.V1()))
 
 			networkID := netResp["NetworkId"].(string)
 			memberID := netResp["MemberId"].(string)
@@ -365,7 +366,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var propResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &propResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &propResp, jsonx.V1()))
 
 			proposalID := propResp["ProposalId"].(string)
 			votePath := fmt.Sprintf("/networks/%s/proposals/%s/votes", networkID, proposalID)
@@ -382,7 +383,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			p := getResp["Proposal"].(map[string]any)
 			assert.Equal(t, "APPROVED", p["Status"])
@@ -415,7 +416,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	ownerMemberID := netResp["MemberId"].(string)
@@ -450,7 +451,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
-	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp))
+	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp, jsonx.V1()))
 
 	propID := propResp["ProposalId"].(string)
 	votePath := fmt.Sprintf("/networks/%s/proposals/%s/votes", netID, propID)
@@ -465,7 +466,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	p := getResp["Proposal"].(map[string]any)
 	assert.Equal(t, "APPROVED", p["Status"],
@@ -497,7 +498,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	ownerMemberID := netResp["MemberId"].(string)
@@ -507,7 +508,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, listBefore.Code)
 
 	var listBeforeResp map[string]any
-	require.NoError(t, json.Unmarshal(listBefore.Body.Bytes(), &listBeforeResp))
+	require.NoError(t, json.Unmarshal(listBefore.Body.Bytes(), &listBeforeResp, jsonx.V1()))
 	assert.Empty(t, listBeforeResp["Invitations"],
 		"no invitations should exist before proposal approval")
 
@@ -525,7 +526,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
-	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp))
+	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp, jsonx.V1()))
 
 	propID := propResp["ProposalId"].(string)
 
@@ -540,7 +541,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, listAfter.Code)
 
 	var listAfterResp map[string]any
-	require.NoError(t, json.Unmarshal(listAfter.Body.Bytes(), &listAfterResp))
+	require.NoError(t, json.Unmarshal(listAfter.Body.Bytes(), &listAfterResp, jsonx.V1()))
 
 	invitations, _ := listAfterResp["Invitations"].([]any)
 	assert.Len(t, invitations, 1,
@@ -573,7 +574,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	m0ID := netResp["MemberId"].(string)
@@ -594,7 +595,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var r map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r, jsonx.V1()))
 
 		return r["MemberId"].(string)
 	}
@@ -610,7 +611,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
-	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp))
+	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp, jsonx.V1()))
 
 	propID := propResp["ProposalId"].(string)
 	votePath := fmt.Sprintf("/networks/%s/proposals/%s/votes", netID, propID)
@@ -631,7 +632,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	p := getResp["Proposal"].(map[string]any)
 	assert.Equal(t, "REJECTED", p["Status"],
@@ -662,7 +663,7 @@ func TestHandler_ProposalExpiresAfterExpirationDate(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				p, ok := resp["Proposal"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "EXPIRED", p["Status"])
@@ -677,7 +678,7 @@ func TestHandler_ProposalExpiresAfterExpirationDate(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				proposals, ok := resp["Proposals"].([]any)
 				require.True(t, ok)
 				require.Len(t, proposals, 1)
@@ -741,7 +742,7 @@ func TestHandler_ApprovedRemovalProposalCascadeDeletesEmptyNetwork(t *testing.T)
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	ownerMemberID := netResp["MemberId"].(string)
@@ -759,7 +760,7 @@ func TestHandler_ApprovedRemovalProposalCascadeDeletesEmptyNetwork(t *testing.T)
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
-	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp))
+	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp, jsonx.V1()))
 
 	propID := propResp["ProposalId"].(string)
 
@@ -802,7 +803,7 @@ func TestHandler_ApprovedProposalActionFailedWhenTargetMemberAlreadyGone(t *test
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	ownerID := netResp["MemberId"].(string)
@@ -823,7 +824,7 @@ func TestHandler_ApprovedProposalActionFailedWhenTargetMemberAlreadyGone(t *test
 	require.Equal(t, http.StatusOK, propRec.Code)
 
 	var propResp map[string]any
-	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp))
+	require.NoError(t, json.Unmarshal(propRec.Body.Bytes(), &propResp, jsonx.V1()))
 
 	propID := propResp["ProposalId"].(string)
 
@@ -842,7 +843,7 @@ func TestHandler_ApprovedProposalActionFailedWhenTargetMemberAlreadyGone(t *test
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	proposal, ok := getResp["Proposal"].(map[string]any)
 	require.True(t, ok)

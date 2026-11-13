@@ -2,12 +2,14 @@ package resourcegroups_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
@@ -295,8 +297,8 @@ func Test_PersistenceFullStateRoundTrip(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 	assert.Contains(t, raw, "version")
 
 	b2 := resourcegroups.NewInMemoryBackend("123456789012", "us-east-1")

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -12,6 +12,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DeleteProcessingJob(t *testing.T) {
@@ -233,7 +235,7 @@ func TestHandler_ListProcessingJobs_FilterSort(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["ProcessingJobSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "pj-beta", summaries[0].(map[string]any)["ProcessingJobName"])
@@ -243,7 +245,7 @@ func TestHandler_ListProcessingJobs_FilterSort(t *testing.T) {
 		"SortOrder": "Descending",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries = resp["ProcessingJobSummaries"].([]any)
 	require.Len(t, summaries, 2)
 	assert.Equal(t, "pj-beta", summaries[0].(map[string]any)["ProcessingJobName"])

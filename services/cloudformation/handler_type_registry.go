@@ -1,7 +1,7 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // typeSchemaFor returns the primary identifier property name for a given CloudFormation resource type.
@@ -112,11 +113,11 @@ func describeTypeSchemaJSON(typeName string) (string, error) {
 		// Round-trip through a generic map to normalize formatting and to fail
 		// loudly (via the error return) if a catalog entry is ever malformed.
 		var generic map[string]any
-		if err := json.Unmarshal([]byte(raw), &generic); err != nil {
+		if err := json.Unmarshal([]byte(raw), &generic, jsonx.V1()); err != nil {
 			return "", err
 		}
 
-		normalized, err := json.Marshal(generic)
+		normalized, err := json.Marshal(generic, jsonx.V1())
 		if err != nil {
 			return "", err
 		}
@@ -143,7 +144,7 @@ func describeTypeSchemaJSON(typeName string) (string, error) {
 		AdditionalProperties: true,
 	}
 
-	schemaBytes, err := json.Marshal(schemaObj)
+	schemaBytes, err := json.Marshal(schemaObj, jsonx.V1())
 	if err != nil {
 		return "", err
 	}

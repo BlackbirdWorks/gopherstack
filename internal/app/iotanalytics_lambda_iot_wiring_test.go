@@ -2,8 +2,9 @@ package app
 
 import (
 	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http/httptest"
 	"testing"
@@ -116,7 +117,7 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 		require.Len(t, out.Payloads, 1)
 
 		var decoded map[string]any
-		require.NoError(t, json.Unmarshal(out.Payloads[0], &decoded))
+		require.NoError(t, json.Unmarshal(out.Payloads[0], &decoded, jsonx.V1()))
 
 		registryData, isMap := decoded["registry"].(map[string]any)
 		require.True(t, isMap, "registry attribute must be populated from the real IoT backend")
@@ -155,7 +156,7 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 		require.Len(t, out.Payloads, 1)
 
 		var decoded map[string]any
-		require.NoError(t, json.Unmarshal(out.Payloads[0], &decoded))
+		require.NoError(t, json.Unmarshal(out.Payloads[0], &decoded, jsonx.V1()))
 
 		shadowData, isMap := decoded["shadow"].(map[string]any)
 		require.True(t, isMap, "shadow attribute must be populated from the real IoT backend")

@@ -2,7 +2,7 @@ package account
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -58,21 +58,21 @@ const accountSnapshotVersion = 2
 // key on) and Regions is a plain (non-map) slice, so both stay raw; the
 // rest are scalars.
 type backendSnapshot struct {
-	AccountCreatedDate       time.Time                  `json:"accountCreatedDate"`
-	Tables                   map[string]json.RawMessage `json:"tables"`
-	ContactInfo              *ContactInformation        `json:"contactInfo,omitempty"`
-	AccountID                string                     `json:"accountID"`
-	Region                   string                     `json:"region"`
-	AccountName              string                     `json:"accountName"`
-	PrimaryEmail             string                     `json:"primaryEmail"`
-	PendingEmail             string                     `json:"pendingEmail"`
-	PendingOTP               string                     `json:"pendingOTP"`
-	PhoneVerifyNumber        string                     `json:"phoneVerifyNumber,omitempty"`
-	PhoneVerifyOTP           string                     `json:"phoneVerifyOTP,omitempty"`
-	PrimaryEmailUpdateStatus PrimaryEmailUpdateStatus   `json:"primaryEmailUpdateStatus,omitempty"`
-	PrimaryEmailUpdateAt     time.Time                  `json:"primaryEmailUpdateAt"`
-	Regions                  []*Region                  `json:"regions"`
-	Version                  int                        `json:"version"`
+	AccountCreatedDate       time.Time                 `json:"accountCreatedDate"`
+	Tables                   map[string]jsontext.Value `json:"tables"`
+	ContactInfo              *ContactInformation       `json:"contactInfo,omitempty"`
+	AccountID                string                    `json:"accountID"`
+	Region                   string                    `json:"region"`
+	AccountName              string                    `json:"accountName"`
+	PrimaryEmail             string                    `json:"primaryEmail"`
+	PendingEmail             string                    `json:"pendingEmail"`
+	PendingOTP               string                    `json:"pendingOTP"`
+	PhoneVerifyNumber        string                    `json:"phoneVerifyNumber,omitempty"`
+	PhoneVerifyOTP           string                    `json:"phoneVerifyOTP,omitempty"`
+	PrimaryEmailUpdateStatus PrimaryEmailUpdateStatus  `json:"primaryEmailUpdateStatus,omitempty"`
+	PrimaryEmailUpdateAt     time.Time                 `json:"primaryEmailUpdateAt"`
+	Regions                  []*Region                 `json:"regions"`
+	Version                  int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements

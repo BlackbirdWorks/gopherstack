@@ -1,12 +1,14 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractARPOperation mirrors routeARP's dispatch order exactly (same
@@ -347,12 +349,12 @@ func (h *Handler) routeARPSingleItem(
 }
 
 type createAutomatedReasoningPolicyInput struct {
-	Name               string          `json:"name"`
-	Description        string          `json:"description,omitempty"`
-	KmsKeyID           string          `json:"kmsKeyId,omitempty"`
-	ClientRequestToken string          `json:"clientRequestToken,omitempty"`
-	PolicyDefinition   json.RawMessage `json:"policyDefinition,omitempty"`
-	Tags               []Tag           `json:"tags,omitempty"`
+	Name               string         `json:"name"`
+	Description        string         `json:"description,omitempty"`
+	KmsKeyID           string         `json:"kmsKeyId,omitempty"`
+	ClientRequestToken string         `json:"clientRequestToken,omitempty"`
+	PolicyDefinition   jsontext.Value `json:"policyDefinition,omitempty"`
+	Tags               []Tag          `json:"tags,omitempty"`
 }
 
 type createAutomatedReasoningPolicyOutput struct {
@@ -809,9 +811,9 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 }
 
 type updateARPInput struct {
-	Description      string          `json:"description,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	PolicyDefinition json.RawMessage `json:"policyDefinition"`
+	Description      string         `json:"description,omitempty"`
+	Name             string         `json:"name,omitempty"`
+	PolicyDefinition jsontext.Value `json:"policyDefinition"`
 }
 
 func (h *Handler) handleUpdateAutomatedReasoningPolicy(c *echo.Context, policyARN string, body []byte) error {
@@ -858,7 +860,7 @@ func (h *Handler) handleDeleteAutomatedReasoningPolicy(c *echo.Context, policyAR
 func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string, body []byte) error {
 	policyARN, buildWorkflowType := extractARPBuildWorkflowStart(path)
 
-	if !json.Valid(body) {
+	if !jsontext.Value(body).IsValid(jsonx.V1()) {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
@@ -873,7 +875,7 @@ func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string, body
 			return h.Backend.StartAutomatedReasoningPolicyBuildWorkflow(
 				policyARN,
 				buildWorkflowType,
-				json.RawMessage(body),
+				jsontext.Value(body),
 			)
 		},
 	)

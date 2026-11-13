@@ -1,13 +1,15 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestNotifications(t *testing.T) {
@@ -96,7 +98,7 @@ func TestVaultNotifications_EventValidation(t *testing.T) {
 			h := newTestHandler()
 			createVault(t, h, "notif-vault")
 
-			eventsJSON, _ := json.Marshal(tt.events)
+			eventsJSON, _ := json.Marshal(tt.events, jsonx.V1())
 			body := fmt.Sprintf(`{"SNSTopic":"arn:aws:sns:us-east-1:000000000000:test","Events":%s}`, eventsJSON)
 			rec := doRequest(t, h, http.MethodPut,
 				"/"+testAccountID+"/vaults/notif-vault/notification-configuration", body)
@@ -195,7 +197,7 @@ func TestVaultNotifications_SetGetDelete(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			// SET.
-			eventsJSON, _ := json.Marshal(tt.events)
+			eventsJSON, _ := json.Marshal(tt.events, jsonx.V1())
 			body := `{"SNSTopic":"` + tt.topic + `","Events":` + string(eventsJSON) + `}`
 			rec = doRequestWithHeaders(t, h, http.MethodPut,
 				"/"+testAccountID+"/vaults/notif-vault-"+tt.name+"/notification-configuration", body, nil)
@@ -206,7 +208,7 @@ func TestVaultNotifications_SetGetDelete(t *testing.T) {
 				"/"+testAccountID+"/vaults/notif-vault-"+tt.name+"/notification-configuration", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var notifResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notifResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notifResp, jsonx.V1()))
 			assert.Equal(t, tt.topic, notifResp["SNSTopic"])
 			events, ok := notifResp["Events"].([]any)
 			require.True(t, ok)

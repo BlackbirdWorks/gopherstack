@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -38,7 +39,7 @@ func TestHTTPAPIProxy_RouteThrottle_TooManyRequests(t *testing.T) {
 		fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
 			integrationCalls.Add(1)
 
-			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 			return b, 200, nil
 		},

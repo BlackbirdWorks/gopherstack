@@ -2,7 +2,7 @@ package workspaces
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -43,7 +43,7 @@ const workspacesSnapshotVersion = 1
 // against decoding a snapshot from an incompatible (older or newer) build of
 // this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables               map[string]json.RawMessage     `json:"tables"`
+	Tables               map[string]jsontext.Value      `json:"tables"`
 	Tags                 map[string]map[string]string   `json:"tags"`
 	ClientProperties     map[string]storedClientProps   `json:"clientProperties,omitempty"`
 	ImagePermissions     map[string]map[string]bool     `json:"imagePermissions,omitempty"`

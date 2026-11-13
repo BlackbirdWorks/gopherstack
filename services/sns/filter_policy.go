@@ -1,11 +1,14 @@
 package sns
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseFilterPolicy parses and validates a FilterPolicy JSON string. It returns
@@ -46,8 +49,8 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 		)
 	}
 
-	var rawPolicy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy); err != nil {
+	var rawPolicy map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(filterPolicy), &rawPolicy, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf(
 			"%w: FilterPolicy is not valid JSON: %s",
 			ErrInvalidParameter,
@@ -89,15 +92,15 @@ const nestedPolicyKey = "$nestedPolicy"
 
 // parseFilterPolicyKey validates one top-level FilterPolicy key and returns its
 // stored conditions plus how many count toward the total-condition budget.
-func parseFilterPolicyKey(key string, rawConditions json.RawMessage) ([]json.RawMessage, int, error) {
+func parseFilterPolicyKey(key string, rawConditions jsontext.Value) ([]jsontext.Value, int, error) {
 	if isNestedPolicyValue(rawConditions) {
 		nested, err := parseNestedFilterPolicy(key, rawConditions)
 
 		return nested, 0, err
 	}
 
-	var conditions []json.RawMessage
-	if err := json.Unmarshal(rawConditions, &conditions); err != nil {
+	var conditions []jsontext.Value
+	if err := json.Unmarshal(rawConditions, &conditions, jsonx.V1()); err != nil {
 		return nil, 0, fmt.Errorf(
 			"%w: FilterPolicy attribute %q must be a JSON array",
 			ErrInvalidParameter, key,
@@ -119,7 +122,7 @@ func parseFilterPolicyKey(key string, rawConditions json.RawMessage) ([]json.Raw
 	return conditions, len(conditions), validateConditionShapes(key, conditions)
 }
 
-func isNestedPolicyValue(raw json.RawMessage) bool {
+func isNestedPolicyValue(raw jsontext.Value) bool {
 	return strings.HasPrefix(strings.TrimSpace(string(raw)), "{")
 }
 
@@ -134,27 +137,27 @@ func checkConditionBudget(total int) error {
 	return nil
 }
 
-func parseNestedFilterPolicy(key string, raw json.RawMessage) ([]json.RawMessage, error) {
+func parseNestedFilterPolicy(key string, raw jsontext.Value) ([]jsontext.Value, error) {
 	if _, err := parseFilterPolicy(string(raw)); err != nil {
 		return nil, fmt.Errorf("%w (nested key %q)", err, key)
 	}
 
-	wrapped, err := json.Marshal(map[string]json.RawMessage{nestedPolicyKey: raw})
+	wrapped, err := json.Marshal(map[string]jsontext.Value{nestedPolicyKey: raw}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: FilterPolicy attribute %q: %s", ErrInvalidParameter, key, err.Error())
 	}
 
-	return []json.RawMessage{wrapped}, nil
+	return []jsontext.Value{wrapped}, nil
 }
 
 // nestedSubPolicy returns the nested sub-policy JSON stored by parseNestedFilterPolicy.
-func nestedSubPolicy(conditions []json.RawMessage) (string, bool) {
+func nestedSubPolicy(conditions []jsontext.Value) (string, bool) {
 	if len(conditions) != 1 {
 		return "", false
 	}
 
-	var wrapper map[string]json.RawMessage
-	if err := json.Unmarshal(conditions[0], &wrapper); err != nil {
+	var wrapper map[string]jsontext.Value
+	if err := json.Unmarshal(conditions[0], &wrapper, jsonx.V1()); err != nil {
 		return "", false
 	}
 
@@ -177,14 +180,14 @@ const minOrOperatorElems = 2
 //   - no element uses a reserved operator keyword as a top-level field name.
 //
 // When any rule is violated, AWS treats "$or" as an ordinary attribute key.
-func isRecognisedOrOperator(elems []json.RawMessage) bool {
+func isRecognisedOrOperator(elems []jsontext.Value) bool {
 	if len(elems) < minOrOperatorElems {
 		return false
 	}
 
 	for _, elem := range elems {
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(elem, &obj); err != nil {
+		var obj map[string]jsontext.Value
+		if err := json.Unmarshal(elem, &obj, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -206,7 +209,7 @@ func isRecognisedOrOperator(elems []json.RawMessage) bool {
 // array, rejecting malformed operators or numeric operands. It returns the total
 // number of conditions contained across all sub-policies so the caller can
 // enforce the global condition cap.
-func validateOrSubPolicies(elems []json.RawMessage) (int, error) {
+func validateOrSubPolicies(elems []jsontext.Value) (int, error) {
 	total := 0
 
 	for _, elem := range elems {
@@ -244,10 +247,10 @@ var knownFilterPolicyOperators = map[string]struct{}{
 // attribute and rejects unknown operator names and malformed numeric operand
 // structures. Scalar conditions (plain strings, numbers, booleans, null) and
 // known object operators are tolerated as-is and matched lazily at evaluation.
-func validateConditionShapes(key string, conditions []json.RawMessage) error {
+func validateConditionShapes(key string, conditions []jsontext.Value) error {
 	for _, raw := range conditions {
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &obj); err != nil {
+		var obj map[string]jsontext.Value
+		if err := json.Unmarshal(raw, &obj, jsonx.V1()); err != nil {
 			// Scalar conditions (e.g. plain strings) are valid; skip object-only checks.
 			continue
 		}
@@ -281,9 +284,9 @@ func validateConditionShapes(key string, conditions []json.RawMessage) error {
 // containing a valid IPv4/IPv6 address (bare host route) or CIDR block,
 // rejecting it eagerly at Subscribe/SetSubscriptionAttributes time rather
 // than letting it silently never match at evaluation (matchCIDR).
-func validateCIDROperand(key string, raw json.RawMessage) error {
+func validateCIDROperand(key string, raw jsontext.Value) error {
 	var operand string
-	if err := json.Unmarshal(raw, &operand); err != nil {
+	if err := json.Unmarshal(raw, &operand, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: FilterPolicy attribute %q cidr operand must be a string",
 			ErrInvalidParameter, key,
@@ -313,9 +316,9 @@ func validateCIDROperand(key string, raw json.RawMessage) error {
 
 // validateNumericOperands enforces that a "numeric" condition operand is a JSON
 // array of even length where each pair is (operator-string, number).
-func validateNumericOperands(key string, raw json.RawMessage) error {
-	var operands []json.RawMessage
-	if err := json.Unmarshal(raw, &operands); err != nil {
+func validateNumericOperands(key string, raw jsontext.Value) error {
+	var operands []jsontext.Value
+	if err := json.Unmarshal(raw, &operands, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: FilterPolicy attribute %q numeric operand must be a JSON array",
 			ErrInvalidParameter, key,
@@ -338,7 +341,7 @@ func validateNumericOperands(key string, raw json.RawMessage) error {
 
 	for i := 0; i+1 < len(operands); i += 2 {
 		var op string
-		if err := json.Unmarshal(operands[i], &op); err != nil {
+		if err := json.Unmarshal(operands[i], &op, jsonx.V1()); err != nil {
 			return fmt.Errorf(
 				"%w: FilterPolicy attribute %q numeric operator must be a string",
 				ErrInvalidParameter, key,
@@ -352,8 +355,8 @@ func validateNumericOperands(key string, raw json.RawMessage) error {
 			)
 		}
 
-		var num json.Number
-		if err := json.Unmarshal(operands[i+1], &num); err != nil {
+		var num jsonx.Number
+		if err := json.Unmarshal(operands[i+1], &num, jsonx.V1()); err != nil {
 			return fmt.Errorf(
 				"%w: FilterPolicy attribute %q numeric threshold must be a number",
 				ErrInvalidParameter, key,
@@ -378,7 +381,7 @@ func validateRedrivePolicy(policy string) error {
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
 	}
 
-	if err := json.Unmarshal([]byte(policy), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(policy), &parsed, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: RedrivePolicy is not valid JSON: %s",
 			ErrInvalidParameter,
@@ -414,7 +417,7 @@ func (b *InMemoryBackend) checkDLQExists(policy string) error {
 	}
 	// Shape is already validated by validateRedrivePolicy, so an unmarshal failure
 	// here cannot happen for a well-formed policy; ignore it and skip verification.
-	_ = json.Unmarshal([]byte(policy), &parsed)
+	_ = json.Unmarshal([]byte(policy), &parsed, jsonx.V1())
 	if parsed.DeadLetterTargetArn == "" {
 		return nil
 	}

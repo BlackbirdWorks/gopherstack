@@ -1,15 +1,17 @@
 package iotanalytics
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	var req createDatastoreRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleUpdateDatastore(c *echo.Context, name string, body []byt
 	var req updateDatastoreRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(
 				c,
 				http.StatusBadRequest,

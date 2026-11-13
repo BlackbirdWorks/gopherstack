@@ -3,13 +3,14 @@ package cognitoidentity_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 )
 
@@ -23,7 +24,7 @@ func tokenClaims(t *testing.T, token string) map[string]any {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(raw, &claims))
+	require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
 
 	return claims
 }

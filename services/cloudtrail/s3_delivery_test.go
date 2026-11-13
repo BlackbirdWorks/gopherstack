@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
@@ -252,7 +253,7 @@ func TestRecordManagementEvent_DeliversLogFileToS3(t *testing.T) {
 	var records struct {
 		Records []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(decoded, &records))
+	require.NoError(t, json.Unmarshal(decoded, &records, jsonx.V1()))
 	require.Len(t, records.Records, 1)
 	assert.Equal(t, "CreateBucket", records.Records[0]["eventName"])
 }

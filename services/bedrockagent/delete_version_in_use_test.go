@@ -2,7 +2,7 @@ package bedrockagent_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
 
@@ -150,7 +151,7 @@ func TestHandleDeleteAgentVersion_ConflictOverHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	agentWrap, _ := created["agent"].(map[string]any)
 	agentID, _ := agentWrap["agentId"].(string)
 	require.NotEmpty(t, agentID)
@@ -161,7 +162,7 @@ func TestHandleDeleteAgentVersion_ConflictOverHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, aliasRec.Code, aliasRec.Body.String())
 
 	var aliasBody map[string]any
-	require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody))
+	require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody, jsonx.V1()))
 	aliasWrap, _ := aliasBody["agentAlias"].(map[string]any)
 	routing, _ := aliasWrap["routingConfiguration"].([]any)
 	require.NotEmpty(t, routing)

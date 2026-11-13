@@ -2,10 +2,11 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -47,7 +48,7 @@ func (b *InMemoryBackend) emitLocked(detailType string, resources []string, deta
 		return
 	}
 
-	body, err := json.Marshal(detail)
+	body, err := json.Marshal(detail, jsonx.V1())
 	if err != nil {
 		return
 	}

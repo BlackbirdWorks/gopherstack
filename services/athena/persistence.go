@@ -29,7 +29,7 @@ package athena
 //     mirroring services/appsync's apiKeys field.
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -189,7 +189,7 @@ func restoreQueryResults(m map[string]*sqlResultSnapshot) map[string]*sqlResult 
 //   - ResourceTags (resourceTags map[string]map[string]string): values are
 //     map[string]string, not *T; already JSON-friendly as-is.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage    `json:"tables"`
+	Tables       map[string]jsontext.Value     `json:"tables"`
 	QueryResults map[string]*sqlResultSnapshot `json:"queryResults,omitempty"`
 	TableData    map[string][]map[string]any   `json:"tableData,omitempty"`
 	ResourceTags map[string]map[string]string  `json:"resourceTags,omitempty"`
@@ -310,7 +310,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreDirtyTablesLocked restores the "dirty" tables (databases, tables)
 // from tables via the ephemeral DTO registry, converting each DTO back to
 // its live type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, dbDTOs, tblDTOs := newDirtyTableRegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

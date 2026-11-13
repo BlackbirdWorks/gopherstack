@@ -9,7 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -23,6 +23,7 @@ import (
 	"github.com/mochi-mqtt/server/v2/packets"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -325,7 +326,7 @@ func (b *InMemoryBackend) thingGroupARNsLocked(thingName string) []string {
 }
 
 func jsonEscape(v string) string {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil || len(raw) < 2 {
 		return ""
 	}

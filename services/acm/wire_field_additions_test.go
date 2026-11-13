@@ -1,7 +1,7 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
@@ -258,7 +259,7 @@ func TestACMHandler_ListCertificates_SummaryHasCreatedAtAndInUse(t *testing.T) {
 			InUse     *bool  `json:"InUse"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CertificateSummaryList)
 
 	summary := out.CertificateSummaryList[0]
@@ -296,7 +297,7 @@ func TestACMHandler_ListCertificates_SummaryKeyUsages(t *testing.T) {
 			ExtendedKeyUsages []string `json:"ExtendedKeyUsages"`
 		} `json:"CertificateSummaryList"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.CertificateSummaryList)
 
 	summary := out.CertificateSummaryList[0]
@@ -320,9 +321,9 @@ func TestACMHandler_RenewCertificate_RenewalSummaryHasUpdatedAt(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	renewBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	renewBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	require.NoError(t, err)
 
 	renewRec := postACMJSON(t, h, "RenewCertificate", string(renewBody))
@@ -341,7 +342,7 @@ func TestACMHandler_RenewCertificate_RenewalSummaryHasUpdatedAt(t *testing.T) {
 			RenewalSummary renewalSummary `json:"RenewalSummary"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.NotEmpty(t, descOut.Certificate.RenewalSummary.RenewalStatus)
 	assert.Positive(t, descOut.Certificate.RenewalSummary.UpdatedAt,
 		"RenewalSummary.UpdatedAt must always be present on the wire")
@@ -362,9 +363,9 @@ func TestACMHandler_RequestCertificate_ExportOption_RoundTrips(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	require.NoError(t, err)
 
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
@@ -377,7 +378,7 @@ func TestACMHandler_RequestCertificate_ExportOption_RoundTrips(t *testing.T) {
 			} `json:"Options"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "ENABLED", descOut.Certificate.Options.Export)
 }
 
@@ -429,7 +430,7 @@ func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
 			body, err := json.Marshal(map[string]string{
 				"DomainName": tt.domain,
 				"ManagedBy":  tt.managedBy,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			reqRec := postACMJSON(t, h, "RequestCertificate", string(body))
@@ -442,9 +443,9 @@ func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-			descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+			descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 			require.NoError(t, err)
 
 			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
@@ -455,7 +456,7 @@ func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
 					ManagedBy string `json:"ManagedBy"`
 				} `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			assert.Equal(t, tt.wantManagedBy, descOut.Certificate.ManagedBy)
 
 			listRec := postACMJSON(t, h, "ListCertificates", `{}`)
@@ -466,7 +467,7 @@ func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
 					ManagedBy string `json:"ManagedBy"`
 				} `json:"CertificateSummaryList"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 			require.Len(t, listOut.CertificateSummaryList, 1)
 			assert.Equal(t, tt.wantManagedBy, listOut.CertificateSummaryList[0].ManagedBy)
 		})

@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrOptimizationJobNotFound is returned when an optimization job does not exist.
@@ -45,7 +47,7 @@ func optimizationConfigTypeName(key string) (string, bool) {
 // optimizationTypesOf derives OptimizationJobSummary's required
 // OptimizationTypes from the raw OptimizationConfigs the client sent, by
 // checking which union member keys appear in the JSON.
-func optimizationTypesOf(rawConfigs json.RawMessage) []string {
+func optimizationTypesOf(rawConfigs jsontext.Value) []string {
 	// Every OptimizationConfig union member's wire key, in the same order
 	// optimizationConfigTypeName recognizes them.
 	wireKeys := [...]string{
@@ -84,11 +86,11 @@ type OptimizationJob struct {
 	OptimizationJobArn      string             `json:"OptimizationJobArn"`
 	RoleArn                 string             `json:"RoleArn,omitempty"`
 	DeploymentInstanceType  string             `json:"DeploymentInstanceType,omitempty"`
-	OutputConfig            json.RawMessage    `json:"OutputConfig,omitempty"`
-	VpcConfig               json.RawMessage    `json:"VpcConfig,omitempty"`
-	OptimizationConfigs     json.RawMessage    `json:"OptimizationConfigs,omitempty"`
+	OutputConfig            jsontext.Value     `json:"OutputConfig,omitempty"`
+	VpcConfig               jsontext.Value     `json:"VpcConfig,omitempty"`
+	OptimizationConfigs     jsontext.Value     `json:"OptimizationConfigs,omitempty"`
 	TrainingPlanArns        []string           `json:"TrainingPlanArns,omitempty"`
-	ModelSource             json.RawMessage    `json:"ModelSource,omitempty"`
+	ModelSource             jsontext.Value     `json:"ModelSource,omitempty"`
 	MaxInstanceCount        int32              `json:"MaxInstanceCount,omitempty"`
 }
 
@@ -96,10 +98,10 @@ func cloneOptimizationJob(j *OptimizationJob) *OptimizationJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
 	cp.OptimizationEnvironment = maps.Clone(j.OptimizationEnvironment)
-	cp.ModelSource = append(json.RawMessage(nil), j.ModelSource...)
-	cp.OptimizationConfigs = append(json.RawMessage(nil), j.OptimizationConfigs...)
-	cp.OutputConfig = append(json.RawMessage(nil), j.OutputConfig...)
-	cp.VpcConfig = append(json.RawMessage(nil), j.VpcConfig...)
+	cp.ModelSource = append(jsontext.Value(nil), j.ModelSource...)
+	cp.OptimizationConfigs = append(jsontext.Value(nil), j.OptimizationConfigs...)
+	cp.OutputConfig = append(jsontext.Value(nil), j.OutputConfig...)
+	cp.VpcConfig = append(jsontext.Value(nil), j.VpcConfig...)
 	cp.TrainingPlanArns = append([]string(nil), j.TrainingPlanArns...)
 
 	if j.StoppingCondition != nil {
@@ -128,7 +130,7 @@ func (j *OptimizationJob) MarshalJSON() ([]byte, error) {
 		LastModifiedTime:      epochSeconds(j.LastModifiedTime),
 		OptimizationStartTime: epochSecondsPtr(j.OptimizationStartTime),
 		OptimizationEndTime:   epochSecondsPtr(j.OptimizationEndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [OptimizationJob.MarshalJSON], read by
@@ -144,7 +146,7 @@ func (j *OptimizationJob) UnmarshalJSON(data []byte) error {
 		LastModifiedTime      float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -165,10 +167,10 @@ type CreateOptimizationJobOptions struct {
 	Name                    string
 	RoleArn                 string
 	DeploymentInstanceType  string
-	ModelSource             json.RawMessage
-	OptimizationConfigs     json.RawMessage
-	OutputConfig            json.RawMessage
-	VpcConfig               json.RawMessage
+	ModelSource             jsontext.Value
+	OptimizationConfigs     jsontext.Value
+	OutputConfig            jsontext.Value
+	VpcConfig               jsontext.Value
 	TrainingPlanArns        []string
 	MaxInstanceCount        int32
 }

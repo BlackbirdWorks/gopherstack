@@ -2,7 +2,7 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -54,7 +55,7 @@ func TestHandler_CreateIPSet(t *testing.T) {
 
 			if tt.wantID {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				summary, ok := result["Summary"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, summary["Id"])
@@ -164,7 +165,7 @@ func TestHandler_UpdateIPSet(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				assert.NotEmpty(t, result["NextLockToken"])
 			}
 		})
@@ -250,7 +251,7 @@ func TestHandler_ListIPSets(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 			list, ok := result["IPSets"].([]any)
 			require.True(t, ok)
@@ -281,7 +282,7 @@ func TestHandler_CreateIPSet_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var result map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
 }
 
@@ -364,7 +365,7 @@ func TestHandler_ListIPSets_Scope_Filter(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 			list, ok := result["IPSets"].([]any)
 			require.True(t, ok)
 			assert.Len(t, list, tt.wantCount)
@@ -427,7 +428,7 @@ func createIPSetHelper2(
 	require.Equal(t, http.StatusOK, rec.Code, "createIPSetHelper2: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summary := resp["Summary"].(map[string]any)
 
 	return summary["Id"].(string), summary["LockToken"].(string)
@@ -500,7 +501,7 @@ func TestIPSetListPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page1Rec.Code)
 
 	var page1Resp map[string]any
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp, jsonx.V1()))
 
 	sets, _ := page1Resp["IPSets"].([]any)
 	assert.Len(t, sets, 2)
@@ -580,7 +581,7 @@ func TestIPSet_MaxEntriesRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "10001 IPs should exceed limit")
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFLimitsExceededException", errResp["__type"])
 }
 
@@ -661,7 +662,7 @@ func TestUpdateIPSet_ClearAddresses(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "UpdateIPSet with empty addresses: %s", rec.Body.String())
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	newLockToken := updateResp["NextLockToken"].(string)
 
 	// Verify addresses were cleared.
@@ -669,7 +670,7 @@ func TestUpdateIPSet_ClearAddresses(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	ipSet := getResp["IPSet"].(map[string]any)
 	addresses, _ := ipSet["Addresses"].([]any)
 	assert.Empty(t, addresses, "addresses should be empty after clearing")

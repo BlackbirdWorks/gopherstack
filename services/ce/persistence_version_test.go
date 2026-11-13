@@ -1,12 +1,13 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -18,11 +19,11 @@ func tamperSnapshotVersion(t *testing.T, snap []byte, newVersion int) []byte {
 
 	var raw map[string]any
 
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 
 	raw["version"] = newVersion
 
-	out, err := json.Marshal(raw)
+	out, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	return out
@@ -82,10 +83,10 @@ func TestInMemoryBackend_RestoreMissingVersion(t *testing.T) {
 
 	var raw map[string]any
 
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 	delete(raw, "version")
 
-	legacy, err := json.Marshal(raw)
+	legacy, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	target := ce.NewInMemoryBackend("000000000000", "us-east-1")

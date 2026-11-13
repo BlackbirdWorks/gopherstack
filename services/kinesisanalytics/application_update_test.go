@@ -2,7 +2,7 @@ package kinesisanalytics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 )
 
@@ -248,7 +249,7 @@ func TestHandler_UpdateApplication_NestedWireShapes(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp, jsonx.V1()))
 	detail := resp["ApplicationDetail"].(map[string]any)
 
 	inList := detail["InputDescriptions"].([]any)
@@ -353,7 +354,7 @@ func TestUpdateApplication_ReturnsApplicationDetail(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	detail, ok := resp["ApplicationDetail"].(map[string]any)
 	require.True(t, ok, "UpdateApplication response must contain ApplicationDetail, got: %s", rec.Body.String())
@@ -384,7 +385,7 @@ func TestUpdateApplication_CodeVisible(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	detail, ok := resp["ApplicationDetail"].(map[string]any)
 	require.True(t, ok)
@@ -424,6 +425,6 @@ func TestUpdateApplication_ConcurrentModificationException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConcurrentModificationException", errResp["__type"])
 }

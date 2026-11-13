@@ -1,7 +1,8 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -449,7 +451,12 @@ func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {
 
 func (h *Handler) handlePublishPortal(c *echo.Context, portalID string) error {
 	var input PublishPortalInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(c.Request().Body),
+		&input,
+		jsonx.V1(),
+	); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -521,7 +528,7 @@ func (h *Handler) handleGetPortalProductSharingPolicy(c *echo.Context, portalPro
 
 func (h *Handler) handlePutPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
 	var input PortalProductSharingPolicy
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 

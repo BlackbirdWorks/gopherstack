@@ -1,7 +1,6 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -322,7 +322,7 @@ func TestInMemoryBackend_Int64PrecisionPreservedThroughStorage(t *testing.T) {
 			info, err := b.CreateDocument("mydb", "mycoll", body, false)
 			require.NoError(t, err)
 
-			gotNum, ok := info.Body["big"].(json.Number)
+			gotNum, ok := info.Body["big"].(jsonx.Number)
 			require.True(t, ok, "big field must remain a json.Number, not a lossy float64")
 			assert.Equal(t, tt.raw, gotNum.String())
 		})

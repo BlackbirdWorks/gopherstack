@@ -1,13 +1,15 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGetServiceGraph_Histograms(t *testing.T) {
@@ -39,7 +41,7 @@ func TestGetServiceGraph_Histograms(t *testing.T) {
 			} `json:"Edges"`
 		} `json:"Services"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	byName := map[string]int{}
 	for i, s := range resp.Services {

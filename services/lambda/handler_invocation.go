@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"hash/crc32"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // errInvalidInvocationType and errInvalidLogType are returned unwritten by
@@ -129,7 +131,7 @@ func writeInvokeResult(c *echo.Context, result []byte, functionError string, sta
 }
 
 func rejectNonJSONPayload(h *Handler, c *echo.Context, body []byte) bool {
-	if len(body) == 0 || json.Valid(body) {
+	if len(body) == 0 || jsontext.Value(body).IsValid(jsonx.V1()) {
 		return false
 	}
 
@@ -326,10 +328,10 @@ func isLambdaFunctionErrorPayload(result []byte) bool {
 	}
 
 	var probe struct {
-		ErrorMessage *json.RawMessage `json:"errorMessage"`
-		ErrorType    *json.RawMessage `json:"errorType"`
+		ErrorMessage *jsontext.Value `json:"errorMessage"`
+		ErrorType    *jsontext.Value `json:"errorType"`
 	}
-	if err := json.Unmarshal(trimmed, &probe); err != nil {
+	if err := json.Unmarshal(trimmed, &probe, jsonx.V1()); err != nil {
 		return false
 	}
 

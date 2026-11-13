@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestStartedOn_IsEpochSecondsNumber locks down a fix for a systemic bug
@@ -37,7 +39,7 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 		require.Equal(t, http.StatusOK, startRec.Code)
 
 		var startOut map[string]any
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 		runID, ok := startOut["RunId"].(string)
 		require.True(t, ok)
 
@@ -48,7 +50,7 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var getOut map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 		run, ok := getOut["BlueprintRun"].(map[string]any)
 		require.True(t, ok)
 
@@ -79,7 +81,7 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 		require.Equal(t, http.StatusOK, startRec.Code)
 
 		var startOut map[string]any
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 		runID, ok := startOut["ColumnStatisticsTaskRunId"].(string)
 		require.True(t, ok)
 
@@ -89,7 +91,7 @@ func TestStartedOn_IsEpochSecondsNumber(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var getOut map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 		run, ok := getOut["ColumnStatisticsTaskRun"].(map[string]any)
 		require.True(t, ok)
 

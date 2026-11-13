@@ -1,7 +1,7 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -78,7 +79,7 @@ func createShare(t *testing.T, h *omics.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	id, _ := resp["shareId"].(string)
 
@@ -158,7 +159,7 @@ func TestOmics_Share_ResponseShape(t *testing.T) {
 			require.Less(t, rec.Code, http.StatusBadRequest)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			keys := make([]string, 0, len(resp))
 			for k := range resp {
@@ -183,7 +184,7 @@ func TestOmics_GetShare_FullObjectFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	share, ok := resp["share"].(map[string]any)
 	require.True(t, ok)
@@ -265,7 +266,7 @@ func createSharePair(t *testing.T, h *omics.Handler) map[string]string {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ids[key], _ = resp["shareId"].(string)
 	}
 
@@ -355,7 +356,7 @@ func TestListShares_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			var want []string
 			if tc.wantKey != "" {

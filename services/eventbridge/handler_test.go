@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
@@ -104,7 +105,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var ops []string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 			for _, op := range tt.wantOps {
 				assert.Contains(t, ops, op)
 			}
@@ -183,7 +184,7 @@ func TestHandler_DispatchErrors(t *testing.T) {
 			}
 			if tt.wantErrorType != "" {
 				var errResp service.JSONErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrorType, errResp.Type)
 			}
 		})
@@ -312,7 +313,7 @@ func auditMakeRequest(
 	body map[string]any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	b, _ := json.Marshal(body)
+	b, _ := json.Marshal(body, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(b)))
 	req.Header.Set("X-Amz-Target", "AmazonEventBridge."+action)
 	rec := httptest.NewRecorder()
@@ -759,6 +760,6 @@ func TestCancelReplay_TerminalStateMapping(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp service.JSONErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "IllegalStatusException", errResp.Type)
 }

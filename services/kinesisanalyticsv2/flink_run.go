@@ -2,7 +2,7 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -77,7 +78,7 @@ func (e *flinkEngine) stage(in flinkLaunch) (string, error) {
 		props = []PropertyGroup{}
 	}
 
-	raw, err := json.Marshal(props)
+	raw, err := json.Marshal(props, jsonx.V1())
 	if err == nil {
 		err = os.WriteFile(filepath.Join(dir, "application_properties.json"), raw, flinkFileMode)
 	}

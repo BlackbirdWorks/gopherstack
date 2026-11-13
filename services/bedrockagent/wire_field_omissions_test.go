@@ -1,11 +1,13 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestBedrockAgentLists_OmitGetOnlyFields asserts the raw decoded response
@@ -30,7 +32,7 @@ func TestBedrockAgentLists_OmitGetOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusOK, agentRec.Code, agentRec.Body.String())
 
 		var agentResp map[string]map[string]any
-		require.NoError(t, json.Unmarshal(agentRec.Body.Bytes(), &agentResp))
+		require.NoError(t, json.Unmarshal(agentRec.Body.Bytes(), &agentResp, jsonx.V1()))
 		agentID, _ := agentResp["agent"]["agentId"].(string)
 		require.NotEmpty(t, agentID)
 
@@ -43,7 +45,7 @@ func TestBedrockAgentLists_OmitGetOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusOK, kbRec.Code, kbRec.Body.String())
 
 		var kbResp map[string]map[string]any
-		require.NoError(t, json.Unmarshal(kbRec.Body.Bytes(), &kbResp))
+		require.NoError(t, json.Unmarshal(kbRec.Body.Bytes(), &kbResp, jsonx.V1()))
 		kbID, _ := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 		require.NotEmpty(t, kbID)
 
@@ -59,7 +61,7 @@ func TestBedrockAgentLists_OmitGetOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
 		var raw map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 
 		summaries, ok := raw["agentKnowledgeBaseSummaries"].([]any)
 		require.True(t, ok)
@@ -91,7 +93,7 @@ func TestBedrockAgentLists_OmitGetOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		flowID, _ := createResp["id"].(string)
 		require.NotEmpty(t, flowID)
 
@@ -103,7 +105,7 @@ func TestBedrockAgentLists_OmitGetOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
 		var raw map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 
 		summaries, ok := raw["flowVersionSummaries"].([]any)
 		require.True(t, ok)

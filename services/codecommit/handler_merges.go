@@ -2,10 +2,11 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type batchDescribeMergeConflictsInput struct {
@@ -29,7 +30,7 @@ func isValidMergeOption(opt string) bool {
 
 func (h *Handler) handleBatchDescribeMergeConflicts(body []byte) (any, error) {
 	var in batchDescribeMergeConflictsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -106,7 +107,7 @@ func (h *Handler) handleMergePullRequest(ctx context.Context, option string, bod
 		Email          string `json:"email"`
 		mergeSettingsWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -157,7 +158,7 @@ func (h *Handler) handleMergeBranchesByFastForward(body []byte) (any, error) {
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
 		TargetBranch               string `json:"targetBranch"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -184,7 +185,7 @@ func (h *Handler) handleGetMergeOptions(body []byte) (any, error) {
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
 		mergeSettingsWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -229,7 +230,7 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 		CommitMessage              string `json:"commitMessage"`
 		mergeSettingsWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -273,7 +274,7 @@ func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
 		mergeSettingsWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -307,7 +308,7 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 		MergeOption                string `json:"mergeOption"`
 		mergeQueryWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -372,7 +373,7 @@ func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 		FilePath                   string `json:"filePath"`
 		mergeQueryWire
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -458,7 +459,7 @@ func (r mergeBranchesRequest) options() (MergeBranchesOptions, error) {
 
 func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
 	var req mergeBranchesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -485,7 +486,7 @@ func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
 
 func (h *Handler) handleMergeBranchesByThreeWay(body []byte) (any, error) {
 	var req mergeBranchesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

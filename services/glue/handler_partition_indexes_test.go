@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -120,7 +121,7 @@ func TestPartitionIndexLifecycle(t *testing.T) {
 			} `json:"Keys"`
 		} `json:"PartitionIndexDescriptorList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Indexes, 2)
 	assert.Equal(t, "year_idx", out.Indexes[0].IndexName)
 	assert.Equal(t, "ACTIVE", out.Indexes[0].IndexStatus)

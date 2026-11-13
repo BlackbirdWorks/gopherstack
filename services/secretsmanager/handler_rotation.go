@@ -2,10 +2,11 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -13,7 +14,7 @@ func (h *Handler) smRotationActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
 			var input RotateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -21,7 +22,7 @@ func (h *Handler) smRotationActions() map[string]smActionFn {
 		},
 		"CancelRotateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input CancelRotateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -57,7 +58,7 @@ func buildRotationStepEvent(secretID, token, step string) ([]byte, error) {
 		rotationEventSecretIDKey: secretID,
 		rotationEventTokenKey:    token,
 		rotationEventStepKey:     step,
-	})
+	}, jsonx.V1())
 }
 
 // extractFunctionNameFromARN extracts the bare function name from a Lambda ARN.

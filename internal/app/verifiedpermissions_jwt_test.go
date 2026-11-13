@@ -6,7 +6,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"math/big"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
@@ -304,11 +306,14 @@ func newOIDCServer(t *testing.T) *oidcServer {
 	t.Cleanup(o.srv.Close)
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": o.srv.URL, "jwks_uri": o.srv.URL + "/keys"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"issuer": o.srv.URL, "jwks_uri": o.srv.URL + "/keys"},
+		)
 	})
 	mux.HandleFunc("/keys", func(w http.ResponseWriter, _ *http.Request) {
 		o.jwksHits.Add(1)
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"keys": []map[string]string{{
 			"kty": "RSA", "use": "sig", "alg": "RS256", "kid": "k1",
 			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),

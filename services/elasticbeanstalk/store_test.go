@@ -2,12 +2,13 @@ package elasticbeanstalk_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 )
 
@@ -65,7 +66,7 @@ func TestInMemoryBackend_Snapshot_NotNilOnFreshBackend(t *testing.T) {
 
 	// Must be valid JSON.
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(snap, &m))
+	require.NoError(t, json.Unmarshal(snap, &m, jsonx.V1()))
 }
 
 // TestInMemoryBackend_SeedHelpers_PopulateAllCollections verifies that seed

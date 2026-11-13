@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -78,7 +79,7 @@ func TestECS_CreateService(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				svc := resp["service"].(map[string]any)
 				assert.NotEmpty(t, svc["serviceArn"])
@@ -131,7 +132,7 @@ func TestECS_DescribeServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	svcs := resp["services"].([]any)
 	assert.GreaterOrEqual(t, len(svcs), 1)
@@ -141,7 +142,7 @@ func TestECS_DescribeServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 
 	svcs3 := resp3["services"].([]any)
 	require.Len(t, svcs3, 1)
@@ -198,7 +199,7 @@ func TestECS_UpdateService(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				svc := resp["service"].(map[string]any)
 				assert.Equal(t, tt.wantDC, int(svc["desiredCount"].(float64)))
@@ -224,7 +225,7 @@ func TestECS_DeleteService(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	svc := resp["service"].(map[string]any)
 	assert.Equal(t, "del-svc", svc["serviceName"])
@@ -237,7 +238,7 @@ func TestECS_DeleteService(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 
 	svcs3, _ := resp3["services"].([]any)
 	require.Len(t, svcs3, 1)
@@ -251,7 +252,7 @@ func TestECS_DeleteService(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var resp4 map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4, jsonx.V1()))
 	assert.Empty(t, resp4["serviceArns"])
 }
 
@@ -579,7 +580,7 @@ func TestCreateService_Tags_PropagateToResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, svcResp.Code)
 	var svcOut map[string]any
-	require.NoError(t, json.Unmarshal(svcResp.Body.Bytes(), &svcOut))
+	require.NoError(t, json.Unmarshal(svcResp.Body.Bytes(), &svcOut, jsonx.V1()))
 	tags := svcOut["service"].(map[string]any)["tags"].([]any)
 	assert.Len(t, tags, 2)
 }
@@ -611,7 +612,7 @@ func TestListServices_LaunchTypeFilter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	arns := listOut["serviceArns"].([]any)
 	assert.Len(t, arns, 3)
 }
@@ -642,7 +643,7 @@ func TestDescribeServices_MultipleServices(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	services := descOut["services"].([]any)
 	assert.Len(t, services, 4)
 }
@@ -736,7 +737,7 @@ func TestListServicesByNamespace_Filter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out, jsonx.V1()))
 	arns := out["serviceArns"].([]any)
 	assert.Len(t, arns, 2, "only the two services actually attached to the payments namespace")
 }
@@ -768,7 +769,7 @@ func TestService_Tags_ResourceTagSync(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
 
 				listRec := doECSRequest(
@@ -777,7 +778,7 @@ func TestService_Tags_ResourceTagSync(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listOut map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 				tags := listOut["tags"].([]any)
 				require.Len(t, tags, 1)
 				assert.Equal(t, "team", tags[0].(map[string]any)["key"])
@@ -905,7 +906,7 @@ func TestService_Tags_ResourceTagSync(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				serviceArn := createOut["service"].(map[string]any)["serviceArn"].(string)
 
 				deleteRec := doECSRequest(t, h, "DeleteService", map[string]any{
@@ -915,7 +916,7 @@ func TestService_Tags_ResourceTagSync(t *testing.T) {
 				require.Equal(t, http.StatusOK, deleteRec.Code)
 
 				var deleteOut map[string]any
-				require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteOut))
+				require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteOut, jsonx.V1()))
 				deletedTags := deleteOut["service"].(map[string]any)["tags"].([]any)
 				require.Len(t, deletedTags, 1)
 				assert.Equal(t, "team", deletedTags[0].(map[string]any)["key"])
@@ -926,7 +927,7 @@ func TestService_Tags_ResourceTagSync(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listOut map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 				assert.Empty(t, listOut["tags"])
 			},
 		},

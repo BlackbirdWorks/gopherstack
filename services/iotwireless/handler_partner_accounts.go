@@ -2,12 +2,13 @@ package iotwireless
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -47,7 +48,7 @@ type listPartnerAccountsResponse struct {
 
 func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, body []byte) error {
 	var req associatePartnerAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 

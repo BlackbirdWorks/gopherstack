@@ -1,13 +1,15 @@
 package scheduler_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateSchedule_ClientToken_ReplaysOnRetry verifies that retrying a
@@ -32,13 +34,13 @@ func TestCreateSchedule_ClientToken_ReplaysOnRetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec2 := doSchedulerRequest(t, h, "CreateSchedule", req)
 	require.Equal(t, http.StatusOK, rec2.Code, "retry with the same ClientToken must replay, not 409")
 
 	var out2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1["ScheduleArn"], out2["ScheduleArn"])
 
@@ -49,7 +51,7 @@ func TestCreateSchedule_ClientToken_ReplaysOnRetry(t *testing.T) {
 	var list struct {
 		Schedules []map[string]any `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &list, jsonx.V1()))
 	assert.Len(t, list.Schedules, 1)
 }
 
@@ -120,13 +122,13 @@ func TestCreateScheduleGroup_ClientToken_ReplaysOnRetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec2 := doSchedulerRequest(t, h, "CreateScheduleGroup", req)
 	require.Equal(t, http.StatusOK, rec2.Code, "retry with the same ClientToken must replay, not 409")
 
 	var out2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1["ScheduleGroupArn"], out2["ScheduleGroupArn"])
 }

@@ -1,7 +1,8 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
@@ -334,8 +336,8 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 		ScheduledActionName: "rt-slscheduledaction",
 		NamespaceName:       "rt-namespace",
 		RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
-		Schedule:            json.RawMessage(`{"at":1893456000}`),
-		TargetAction: json.RawMessage(
+		Schedule:            jsontext.Value(`{"at":1893456000}`),
+		TargetAction: jsontext.Value(
 			`{"createSnapshot":{"namespaceName":"rt-namespace","snapshotName":"rt-slsnapshot2"}}`,
 		),
 		StartTime: time.Now(),
@@ -661,8 +663,8 @@ func TestPersistence_ScheduledActionWindowSurvivesRestore(t *testing.T) {
 				ScheduledActionName: "sa-rt-action",
 				NamespaceName:       "sa-rt-ns",
 				RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
-				Schedule:            json.RawMessage(`{"cron":"0 10 ? * MON *"}`),
-				TargetAction: json.RawMessage(
+				Schedule:            jsontext.Value(`{"cron":"0 10 ? * MON *"}`),
+				TargetAction: jsontext.Value(
 					`{"createSnapshot":{"namespaceName":"sa-rt-ns","snapshotName":"sa-rt-snap"}}`,
 				),
 				StartTime: tt.startTime,
@@ -686,7 +688,7 @@ func TestPersistence_ScheduledActionWindowSurvivesRestore(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			saData, _ := resp["scheduledAction"].(map[string]any)
 			require.NotNil(t, saData)
 

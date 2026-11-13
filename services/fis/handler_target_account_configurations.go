@@ -1,7 +1,7 @@
 package fis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ----------------------------------------
@@ -31,7 +32,7 @@ func (h *Handler) handleCreateTargetAccountConfiguration(
 	templateID, accountID := splitCompositeID(compositeID)
 
 	var input createTargetAccountConfigurationRequest
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -101,7 +102,7 @@ func (h *Handler) handleUpdateTargetAccountConfiguration(
 	templateID, accountID := splitCompositeID(compositeID)
 
 	var input updateTargetAccountConfigurationRequest
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

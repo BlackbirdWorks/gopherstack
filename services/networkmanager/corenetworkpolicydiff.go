@@ -1,8 +1,11 @@
 package networkmanager
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"reflect"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // This file implements the real ADD/MODIFY/REMOVE structural diff
@@ -28,17 +31,17 @@ import (
 
 type namedSection struct {
 	key string
-	raw json.RawMessage
+	raw jsontext.Value
 }
 
 // policyDocSections is the subset of the real Cloud WAN policy-document
 // schema's top-level keys this diff engine reads.
 type policyDocSections struct {
-	CoreNetworkConfiguration json.RawMessage   `json:"core-network-configuration"`
-	Segments                 []json.RawMessage `json:"segments"`
-	NetworkFunctionGroups    []json.RawMessage `json:"network-function-groups"`
-	SegmentActions           []json.RawMessage `json:"segment-actions"`
-	AttachmentPolicies       []json.RawMessage `json:"attachment-policies"`
+	CoreNetworkConfiguration jsontext.Value   `json:"core-network-configuration"`
+	Segments                 []jsontext.Value `json:"segments"`
+	NetworkFunctionGroups    []jsontext.Value `json:"network-function-groups"`
+	SegmentActions           []jsontext.Value `json:"segment-actions"`
+	AttachmentPolicies       []jsontext.Value `json:"attachment-policies"`
 }
 
 func parsePolicyDocSections(doc string) policyDocSections {
@@ -51,22 +54,22 @@ func parsePolicyDocSections(doc string) policyDocSections {
 	// CreateCoreNetwork) -- an error here means an empty/absent document,
 	// which decodes to the zero value, itself a valid "nothing to diff"
 	// input to diffNamedSections.
-	_ = json.Unmarshal([]byte(doc), &s)
+	_ = json.Unmarshal([]byte(doc), &s, jsonx.V1())
 
 	return s
 }
 
-func namedByKey(items []json.RawMessage, keyField string) map[string]namedSection {
+func namedByKey(items []jsontext.Value, keyField string) map[string]namedSection {
 	out := make(map[string]namedSection, len(items))
 
 	for _, item := range items {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(item, &fields); err != nil {
+		var fields map[string]jsontext.Value
+		if err := json.Unmarshal(item, &fields, jsonx.V1()); err != nil {
 			continue
 		}
 
 		var key string
-		if err := json.Unmarshal(fields[keyField], &key); err != nil {
+		if err := json.Unmarshal(fields[keyField], &key, jsonx.V1()); err != nil {
 			continue
 		}
 
@@ -82,7 +85,7 @@ func namedByKey(items []json.RawMessage, keyField string) map[string]namedSectio
 // key present in either oldItems or newItems, keyed by keyField (e.g.
 // "name", "rule-number").
 func diffSectionEntries(
-	oldItems, newItems []json.RawMessage,
+	oldItems, newItems []jsontext.Value,
 	keyField, changeType, pathPrefix string,
 	values func(key string) *CoreNetworkChangeValues,
 ) []CoreNetworkChange {
@@ -139,9 +142,9 @@ func withRawJSON(v *CoreNetworkChangeValues, raw string) *CoreNetworkChangeValue
 	return v
 }
 
-func jsonEqual(a, b json.RawMessage) bool {
+func jsonEqual(a, b jsontext.Value) bool {
 	var av, bv any
-	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+	if json.Unmarshal(a, &av, jsonx.V1()) != nil || json.Unmarshal(b, &bv, jsonx.V1()) != nil {
 		return string(a) == string(b)
 	}
 
@@ -159,7 +162,7 @@ const (
 
 // diffCoreNetworkConfiguration compares the single "core-network-configuration"
 // object, which has no natural key -- a single MODIFY/ADD/REMOVE covers it.
-func diffCoreNetworkConfiguration(oldRaw, newRaw json.RawMessage) []CoreNetworkChange {
+func diffCoreNetworkConfiguration(oldRaw, newRaw jsontext.Value) []CoreNetworkChange {
 	base := CoreNetworkChange{
 		Identifier: coreNetworkConfigurationIdentifier, IdentifierPath: coreNetworkConfigurationChangeType,
 		Type: coreNetworkConfigurationChangeType,

@@ -2,12 +2,13 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
 )
@@ -40,12 +41,12 @@ func wireCall[O any](ctx context.Context, c *ccWireClient, op string, in any) (*
 	params := map[string]any{}
 
 	if in != nil {
-		b, err := json.Marshal(in)
+		b, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
 		}
 
-		if err = json.Unmarshal(b, &params); err != nil {
+		if err = json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
 		}
 	}
@@ -57,12 +58,12 @@ func wireCall[O any](ctx context.Context, c *ccWireClient, op string, in any) (*
 
 	var out O
 
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
-	if err = json.Unmarshal(b, &out); err != nil {
+	if err = json.Unmarshal(b, &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("decode %s response: %w", op, err)
 	}
 

@@ -2,7 +2,7 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -191,7 +192,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 		OutputRoute: "gopherstack",
 		OutputToken: token,
 	}
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		h.pendingObjectLambdaRequests.Delete(token)
 		WriteError(ctx, w, r, err)

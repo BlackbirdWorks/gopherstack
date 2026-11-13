@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -97,7 +98,7 @@ func newMonitorHandler(t *testing.T, dp azurearm.MonitorLogs) *azurearm.Handler 
 func monitorDo(t *testing.T, h *azurearm.Handler, method, path string, body any) (int, map[string]any) {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(method, path, bytes.NewReader(raw))
@@ -106,7 +107,7 @@ func monitorDo(t *testing.T, h *azurearm.Handler, method, path string, body any)
 	newEchoServer(h).ServeHTTP(rec, req)
 
 	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 
 	return rec.Code, out
 }

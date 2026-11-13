@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"math/big"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -193,7 +194,7 @@ func TestScalingCap_HandlerValidationException(t *testing.T) {
 						Type    string `json:"__type"`
 						Message string `json:"message"`
 					}
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 					assert.Equal(t, tt.wantType, resp.Type)
 					assert.NotEmpty(t, resp.Message)
 				}
@@ -494,7 +495,7 @@ func TestMergeShards_ARNSupport(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 2)
 
 		streamARN := descResp.StreamDescription.StreamARN
@@ -539,7 +540,7 @@ func TestSplitShard_ARNSupport(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 1)
 
 		rec = doRequest(t, h, "SplitShard", map[string]any{
@@ -574,7 +575,7 @@ func TestMergeShards_OnDemandRejected(t *testing.T) {
 		var resp struct {
 			Type string `json:"__type"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "InvalidArgumentException", resp.Type)
 	})
 }
@@ -602,7 +603,7 @@ func TestSplitShard_OnDemandRejected(t *testing.T) {
 		var resp struct {
 			Type string `json:"__type"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "InvalidArgumentException", resp.Type)
 	})
 }
@@ -659,7 +660,7 @@ func TestMergeShards(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 2)
 
 		shard0 := descResp.StreamDescription.Shards[0].ShardID
@@ -690,7 +691,7 @@ func TestMergeShards(t *testing.T) {
 				} `json:"Shards"`
 			} `json:"StreamDescription"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp2))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp2, jsonx.V1()))
 		assert.Len(t, descResp2.StreamDescription.Shards, 3)
 	})
 }
@@ -725,7 +726,7 @@ func TestMergeAndSplitShardIDs(t *testing.T) {
 				} `json:"StreamDescription"`
 			}
 
-			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d))
+			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d, jsonx.V1()))
 
 			return d.StreamDescription.Shards
 		}
@@ -739,7 +740,7 @@ func TestMergeAndSplitShardIDs(t *testing.T) {
 				Shards []shardEntry `json:"Shards"`
 			}
 
-			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d))
+			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &d, jsonx.V1()))
 
 			return d.Shards
 		}
@@ -850,7 +851,7 @@ func TestMergeShards_Errors(t *testing.T) {
 					Type string `json:"__type"`
 				}
 
-				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})
@@ -884,7 +885,7 @@ func TestSplitShard(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 1)
 
 		shardID := descResp.StreamDescription.Shards[0].ShardID
@@ -903,7 +904,7 @@ func TestSplitShard(t *testing.T) {
 		// After splitting 1 → 2, expect 3 total: 1 closed parent + 2 open children.
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "split-stream"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Len(t, descResp.StreamDescription.Shards, 3)
 	})
 }
@@ -961,7 +962,7 @@ func TestSplitShard_Errors(t *testing.T) {
 					Type string `json:"__type"`
 				}
 
-				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.errType, errResp.Type)
 			}
 		})

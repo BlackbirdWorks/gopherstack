@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -78,7 +79,7 @@ func TestAccuracy_PromptRouter_CreateResponseShape(t *testing.T) {
 
 			if tt.wantRouterID {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["promptRouterArn"])
 			}
 		})
@@ -155,7 +156,7 @@ func TestAccuracy_PromptRouter_GetAndListAccuracy(t *testing.T) {
 			require.Equal(t, http.StatusOK, recList.Code)
 
 			var listOut map[string]any
-			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 			routers := listOut["promptRouterSummaries"].([]any)
 			assert.Len(t, routers, tt.wantLen)
 
@@ -165,7 +166,7 @@ func TestAccuracy_PromptRouter_GetAndListAccuracy(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var getOut map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getOut))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getOut, jsonx.V1()))
 			assert.Equal(t, lastARN, getOut["promptRouterArn"])
 			assert.Equal(t, "AVAILABLE", getOut["status"])
 			assert.Equal(t, "custom", getOut["type"])
@@ -232,7 +233,7 @@ func TestAccuracy_PromptRouter_NamePreservedInGetAndList(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			routerARN := out["promptRouterArn"].(string)
 			assert.NotEmpty(t, routerARN)
 
@@ -240,7 +241,7 @@ func TestAccuracy_PromptRouter_NamePreservedInGetAndList(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getOut map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 			assert.Equal(t, tt.routerName, getOut["promptRouterName"])
 			assert.Equal(t, "AVAILABLE", getOut["status"])
 		})
@@ -260,7 +261,7 @@ func TestAccuracy_PromptRouter_TagsPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	routerARN := out["promptRouterArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/prompt-routers/"+routerARN, nil)
@@ -268,7 +269,7 @@ func TestAccuracy_PromptRouter_TagsPreserved(t *testing.T) {
 
 	// Router ARN is returned and non-empty
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", getOut["status"])
 }
 
@@ -297,7 +298,7 @@ func TestAccuracy_PromptRouter_ListAfterDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, delRec.Code)
 
 	var delOut map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut, jsonx.V1()))
 	delARN := delOut["promptRouterArn"].(string)
 
 	// Delete it
@@ -309,7 +310,7 @@ func TestAccuracy_PromptRouter_ListAfterDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	routers := listOut["promptRouterSummaries"].([]any)
 
 	for _, r := range routers {

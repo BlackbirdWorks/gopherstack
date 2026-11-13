@@ -2,7 +2,7 @@ package s3_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -23,7 +24,7 @@ type recordingObjectLambda struct {
 
 func (l *recordingObjectLambda) InvokeFunction(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 	var ev map[string]any
-	_ = json.Unmarshal(payload, &ev)
+	_ = json.Unmarshal(payload, &ev, jsonx.V1())
 
 	l.mu.Lock()
 	l.events = append(l.events, ev)

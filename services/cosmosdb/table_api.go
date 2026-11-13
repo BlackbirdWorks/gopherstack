@@ -23,7 +23,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -31,6 +31,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 )
 
@@ -362,7 +363,7 @@ func (h *Handler) createTable(c *echo.Context) error {
 	}
 
 	var req createTableBody
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "The input is not valid.")
 	}
 
@@ -514,7 +515,7 @@ type tableODataErrorEnvelope struct {
 func (h *Handler) writeTableJSON(c *echo.Context, status int, v any) error {
 	level := tableODataLevelFromAccept(c.Request().Header.Get("Accept"))
 
-	body, err := json.Marshal(v)
+	body, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return h.writeTableErrorNoRecurse(c, http.StatusInternalServerError, "InternalError",
 			"Failed to marshal response.")
@@ -545,7 +546,7 @@ func (h *Handler) writeTableErrorNoRecurse(c *echo.Context, status int, code, me
 	c.Response().Header().Set("X-Ms-Error-Code", code)
 	body, _ := json.Marshal(tableODataErrorEnvelope{
 		Error: tableODataErrorDetail{Code: code, Message: tableODataErrorMessage{Lang: tableErrorLang, Value: message}},
-	})
+	}, jsonx.V1())
 
 	return c.Blob(status, "application/json;odata=minimalmetadata;streaming=true;charset=utf-8", body)
 }

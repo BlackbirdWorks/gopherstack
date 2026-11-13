@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDomainControllers_Lifecycle(t *testing.T) {
@@ -128,7 +130,7 @@ func TestDomainControllers(t *testing.T) {
 			rec1 := doRequest(t, h, "DescribeDomainControllers", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			dcs, _ := r1["DomainControllers"].([]any)
 			assert.Empty(t, dcs)
 
@@ -143,7 +145,7 @@ func TestDomainControllers(t *testing.T) {
 			rec3 := doRequest(t, h, "DescribeDomainControllers", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 			dcs2, _ := r3["DomainControllers"].([]any)
 			assert.Len(t, dcs2, 2)
 

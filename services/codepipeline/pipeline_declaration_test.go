@@ -1,13 +1,14 @@
 package codepipeline_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -95,7 +96,7 @@ func TestHandler_PipelineDeclaration_V2Fields(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				pl, _ := out["pipeline"].(map[string]any)
 				require.NotNil(t, pl)
@@ -219,7 +220,7 @@ func TestHandler_Action_ExtendedFields(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec2.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 				pl := out["pipeline"].(map[string]any)
 				stages := pl["stages"].([]any)

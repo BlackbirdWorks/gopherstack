@@ -1,12 +1,13 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -134,7 +135,7 @@ func certificateAuthorityIdempotencyFingerprintBody(clusterName, id string) []by
 		payload["certificateAuthorityId"] = id
 	}
 
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return nil
 	}
@@ -149,7 +150,7 @@ type createCertificateAuthorityBody struct {
 func (h *Handler) handleCreateCertificateAuthority(c *echo.Context, clusterName string, body []byte) error {
 	var in createCertificateAuthorityBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 		}
 	}
@@ -176,7 +177,7 @@ type activateCertificateAuthorityBody struct {
 func (h *Handler) handleActivateCertificateAuthority(c *echo.Context, clusterName, id string, body []byte) error {
 	var in activateCertificateAuthorityBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 		}
 	}

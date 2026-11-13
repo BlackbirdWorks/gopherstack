@@ -1,12 +1,13 @@
 package dynamoattr
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // UnwrapAttributeValue converts a DynamoDB wire attribute map into a bare value when possible.
@@ -163,7 +164,7 @@ func ToString(v any) string {
 	case nil:
 		return ""
 	default:
-		b, err := json.Marshal(s)
+		b, err := json.Marshal(s, jsonx.V1())
 		if err != nil {
 			return fmt.Sprintf("%v", s)
 		}

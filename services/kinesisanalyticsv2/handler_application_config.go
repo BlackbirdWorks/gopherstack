@@ -2,10 +2,12 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type cwlOptionInput struct {
@@ -218,7 +220,7 @@ type deleteApplicationVpcConfigOutput struct {
 
 func (h *Handler) handleAddApplicationCloudWatchLoggingOption(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationCWLOptionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -258,7 +260,7 @@ func (h *Handler) handleAddApplicationInput(
 	body []byte,
 ) error {
 	var in addApplicationInputInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -288,7 +290,7 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(
 	ctx context.Context, c *echo.Context, body []byte,
 ) error {
 	var in addInputProcessingConfigInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -337,7 +339,7 @@ func (h *Handler) handleAddApplicationOutput(
 	body []byte,
 ) error {
 	var in addApplicationOutputInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -368,7 +370,7 @@ func (h *Handler) handleAddApplicationOutput(
 //nolint:dupl // add input/reference-data-source handlers share structure but are semantically distinct operations
 func (h *Handler) handleAddApplicationReferenceDataSource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationRefDataSourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -398,7 +400,7 @@ func (h *Handler) handleAddApplicationReferenceDataSource(ctx context.Context, c
 
 func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationVpcConfigInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -439,7 +441,7 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 	ctx context.Context, c *echo.Context, body []byte,
 ) error {
 	var in deleteApplicationCWLOptionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -467,7 +469,7 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 	ctx context.Context, c *echo.Context, body []byte,
 ) error {
 	var in deleteInputProcessingConfigInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -490,7 +492,7 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 
 func (h *Handler) handleDeleteApplicationOutput(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationOutputInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -513,7 +515,7 @@ func (h *Handler) handleDeleteApplicationOutput(ctx context.Context, c *echo.Con
 
 func (h *Handler) handleDeleteApplicationReferenceDataSource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationRefDataSourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -536,7 +538,7 @@ func (h *Handler) handleDeleteApplicationReferenceDataSource(ctx context.Context
 
 func (h *Handler) handleDeleteApplicationVpcConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationVpcConfigInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

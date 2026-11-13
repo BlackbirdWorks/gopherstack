@@ -2,7 +2,7 @@ package resourcegroupstaggingapi_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
@@ -92,7 +93,7 @@ func TestStartReportCreationInput_HasNoS3BucketRegionField(t *testing.T) {
 
 	// A request body containing S3BucketRegion (as some non-AWS client might send) must
 	// simply be ignored as an unknown field, not silently accepted as a modeled member.
-	marshaled, err := json.Marshal(resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "b"})
+	marshaled, err := json.Marshal(resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "b"}, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(marshaled), "S3BucketRegion")
 }
@@ -331,7 +332,7 @@ func TestDescribeReportCreationJSONShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "SUCCEEDED", out["Status"])
 	assert.Equal(t, "s3://bkt/path.csv", out["S3Location"])

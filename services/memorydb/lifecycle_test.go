@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -29,7 +30,7 @@ func TestCluster_LifecycleDelay_Default(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cl, _ := resp["Cluster"].(map[string]any)
 	assert.Equal(t, "available", cl["Status"])
 }
@@ -63,7 +64,7 @@ func TestCluster_LifecycleDelay_CreatingThenAvailable(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	cl, _ := createResp["Cluster"].(map[string]any)
 	assert.Equal(t, "creating", cl["Status"], "CreateCluster response must show creating while pending")
 
@@ -72,7 +73,7 @@ func TestCluster_LifecycleDelay_CreatingThenAvailable(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	clusters, _ := descResp["Clusters"].([]any)
 	require.Len(t, clusters, 1)
 	got, _ := clusters[0].(map[string]any)
@@ -85,7 +86,7 @@ func TestCluster_LifecycleDelay_CreatingThenAvailable(t *testing.T) {
 	require.Equal(t, http.StatusOK, afterRec.Code)
 
 	var afterResp map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterResp))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterResp, jsonx.V1()))
 	afterClusters, _ := afterResp["Clusters"].([]any)
 	require.Len(t, afterClusters, 1)
 	afterGot, _ := afterClusters[0].(map[string]any)
@@ -123,7 +124,7 @@ func TestCluster_LifecycleDelay_UpdateAndUnrelatedOpsObserveOverlay(t *testing.T
 	require.Equal(t, http.StatusOK, updateRec.Code, "body: %s", updateRec.Body)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	cl, _ := updateResp["Cluster"].(map[string]any)
 	assert.Equal(t, "creating", cl["Status"], "UpdateCluster response must still observe the pending status")
 	assert.Equal(t, "updated while creating", cl["Description"])

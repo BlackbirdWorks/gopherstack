@@ -1,12 +1,14 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestACMHandler_MalformedArn_ReturnsInvalidArnException verifies that a
@@ -102,7 +104,7 @@ func TestACMHandler_RequestCertificate_TooManySANs_ReturnsLimitExceeded(t *testi
 	body, err := json.Marshal(map[string]any{
 		"DomainName":              "toomany.example.com",
 		"SubjectAlternativeNames": sans,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	h := newACMHandler()
@@ -124,7 +126,7 @@ func TestACMHandler_TooManyTags_ReturnsTooManyTagsException(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	tags := make([]map[string]string, 0, 51)
 	for i := range 51 {
@@ -134,7 +136,7 @@ func TestACMHandler_TooManyTags_ReturnsTooManyTagsException(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"CertificateArn": reqOut.CertificateArn,
 		"Tags":           tags,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := postACMJSON(t, h, "AddTagsToCertificate", string(body))
@@ -155,12 +157,12 @@ func TestACMHandler_ReservedTagPrefix_ReturnsInvalidTagException(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	body, err := json.Marshal(map[string]any{
 		"CertificateArn": reqOut.CertificateArn,
 		"Tags":           []map[string]string{{"Key": "aws:reserved", "Value": "v"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := postACMJSON(t, h, "AddTagsToCertificate", string(body))
@@ -187,9 +189,9 @@ func TestACMHandler_RequestCertificate_DomainValidationOptions_Applied(t *testin
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	require.NoError(t, err)
 
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))

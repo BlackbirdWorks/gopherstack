@@ -1,7 +1,7 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -111,14 +112,14 @@ func TestHandler_CreateDeployment(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["deploymentId"])
 				assert.True(t, len(resp["deploymentId"]) > 2 && resp["deploymentId"][:2] == "d-")
 			}
 
 			if tt.wantErrType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
@@ -153,7 +154,7 @@ func TestDeployments_CreateIDFormat(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		id := resp["deploymentId"]
 		assert.True(t, deployIDRe.MatchString(id), "deploymentId %q does not match pattern d-[A-Z0-9]{9}", id)
 	}
@@ -184,7 +185,7 @@ func TestDeployments_CreateIDFormat_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Regexp(t, deployIDRe, out["deploymentId"],
 				"deploymentId must match d-[A-Z0-9]{9}")
 		})
@@ -209,7 +210,7 @@ func TestDeployments_CreateExtraFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec2 := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": createResp["deploymentId"]})
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -222,7 +223,7 @@ func TestDeployments_CreateExtraFields(t *testing.T) {
 			IgnoreApplicationStopFailures bool   `json:"ignoreApplicationStopFailures"`
 		} `json:"deploymentInfo"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 	assert.Equal(t, "my-description", getResp.DeploymentInfo.Description)
 	assert.Equal(t, "OVERWRITE", getResp.DeploymentInfo.FileExistsBehavior)
@@ -253,7 +254,7 @@ func TestDeployments_S3RevisionRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	deployID := createOut["deploymentId"]
 	require.NotEmpty(t, deployID)
 
@@ -274,7 +275,7 @@ func TestDeployments_S3RevisionRoundTrip(t *testing.T) {
 			} `json:"revision"`
 		} `json:"deploymentInfo"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	rev := getOut.DeploymentInfo.Revision
 	assert.Equal(t, "S3", rev.RevisionType, "revisionType must round-trip")
@@ -305,7 +306,7 @@ func TestDeployments_GitHubRevisionRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	deployID := createOut["deploymentId"]
 
 	getRec := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": deployID})
@@ -322,7 +323,7 @@ func TestDeployments_GitHubRevisionRoundTrip(t *testing.T) {
 			} `json:"revision"`
 		} `json:"deploymentInfo"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	rev := getOut.DeploymentInfo.Revision
 	assert.Equal(t, "GitHub", rev.RevisionType)
@@ -397,7 +398,7 @@ func TestDeployments_InfoIncludesConfigName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	info := resp["deploymentInfo"]
 	assert.Equal(t, "CodeDeployDefault.AllAtOnce", info["deploymentConfigName"])
@@ -416,7 +417,7 @@ func TestDeployments_GetDeploymentOverview(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	getRec := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": createOut["deploymentId"]})
 	require.Equal(t, http.StatusOK, getRec.Code)
@@ -426,7 +427,7 @@ func TestDeployments_GetDeploymentOverview(t *testing.T) {
 			DeploymentOverview map[string]any `json:"deploymentOverview"`
 		} `json:"deploymentInfo"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	ov := getOut.DeploymentInfo.DeploymentOverview
 	assert.NotNil(t, ov, "GetDeployment must include deploymentOverview")
@@ -455,7 +456,7 @@ func TestHandler_ListDeployments(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	deployments, ok := resp["deployments"].([]any)
 	require.True(t, ok)
 	assert.Len(t, deployments, 1)
@@ -483,7 +484,7 @@ func TestDeployments_SortedList(t *testing.T) {
 		Deployments []string `json:"deployments"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Deployments, 2)
 
 	assert.Contains(t, resp.Deployments, d1.DeploymentID)
@@ -535,7 +536,7 @@ func TestDeployments_ListStatusFilter(t *testing.T) {
 			var resp struct {
 				Deployments []string `json:"deployments"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Deployments, tt.wantLen)
 		})
 	}
@@ -578,7 +579,7 @@ func TestDeployments_ListExternalIDFilter(t *testing.T) {
 			var resp struct {
 				Deployments []string `json:"deployments"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Deployments, tt.wantLen)
 		})
 	}
@@ -714,7 +715,7 @@ func TestHandler_ContinueDeployment(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
@@ -738,7 +739,7 @@ func TestDeployments_StopDeployment_AlreadyStopped(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, secondStop.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(secondStop.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(secondStop.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "DeploymentAlreadyCompletedException", errResp["__type"])
 }
 
@@ -756,7 +757,7 @@ func TestDeployments_StopDeploymentStatus(t *testing.T) {
 	var stopOut struct {
 		Status string `json:"status"`
 	}
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut, jsonx.V1()))
 	assert.Equal(t, "Succeeded", stopOut.Status,
 		"StopDeploymentOutput.status is the StopStatus enum (Pending|Succeeded), not the deployment status")
 
@@ -768,7 +769,7 @@ func TestDeployments_StopDeploymentStatus(t *testing.T) {
 			Status string `json:"status"`
 		} `json:"deploymentInfo"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "Stopped", getOut.DeploymentInfo.Status,
 		"GetDeployment must reflect Stopped status after StopDeployment")
 }
@@ -821,7 +822,7 @@ func TestHandler_BatchGetDeployments(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				infos, ok := resp["deploymentsInfo"].([]any)
 				require.True(t, ok)
 				assert.Len(t, infos, tt.wantCount)
@@ -847,7 +848,7 @@ func TestDeployments_BatchGetReturnsRevision(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	batchRec := doRequest(t, h, "BatchGetDeployments", map[string]any{
 		"deploymentIds": []string{createOut["deploymentId"]},
@@ -864,7 +865,7 @@ func TestDeployments_BatchGetReturnsRevision(t *testing.T) {
 	var batchOut struct {
 		DeploymentsInfo []batchItem `json:"deploymentsInfo"`
 	}
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchOut))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchOut, jsonx.V1()))
 	require.Len(t, batchOut.DeploymentsInfo, 1)
 
 	info := batchOut.DeploymentsInfo[0]
@@ -887,7 +888,7 @@ func TestDeployments_SkipWaitTime_DeploymentNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DeploymentDoesNotExistException", resp["__type"])
 }
 
@@ -907,7 +908,7 @@ func TestDeployments_SkipWaitTime_DeploymentFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	deployID := createOut["deploymentId"]
 
 	skipRec := doRequest(t, h, "SkipWaitTimeForInstanceTermination", map[string]any{

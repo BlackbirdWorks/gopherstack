@@ -2,13 +2,15 @@ package mediastore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutLifecyclePolicy stores a lifecycle policy for a container.
 func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, name, policy string) error {
-	if !json.Valid([]byte(policy)) {
+	if !jsontext.Value([]byte(policy)).IsValid(jsonx.V1()) {
 		return ErrInvalidPolicy
 	}
 

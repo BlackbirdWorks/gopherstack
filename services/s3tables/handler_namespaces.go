@@ -2,10 +2,11 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -23,7 +24,7 @@ func (h *Handler) handleCreateNamespace(ctx context.Context, r *http.Request, bo
 	bucketARN := segs[1]
 
 	var req createNamespaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -42,7 +43,7 @@ func (h *Handler) handleCreateNamespace(ctx context.Context, r *http.Request, bo
 	return json.Marshal(map[string]any{
 		keyNamespace:      ns.Namespace,
 		keyTableBucketARN: ns.TableBucketARN,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -73,7 +74,7 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 		keyCreatedBy:      ns.CreatedBy,
 		keyOwnerAccountID: ns.OwnerAccountID,
 		keyNamespaceID:    ns.NamespaceID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteNamespace(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -143,5 +144,5 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 		resp[keyContinuationToken] = pg.Next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

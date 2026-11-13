@@ -1,12 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestKAV2_UpdateApplication_ApplicationDescription_NotARealField proves
@@ -43,7 +45,7 @@ func TestKAV2_UpdateApplication_ApplicationDescription_NotARealField(t *testing.
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	detail, ok := updateOut["ApplicationDetail"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "original", detail["ApplicationDescription"],
@@ -53,7 +55,7 @@ func TestKAV2_UpdateApplication_ApplicationDescription_NotARealField(t *testing.
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	descDetail, ok := descOut["ApplicationDetail"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "original", descDetail["ApplicationDescription"])

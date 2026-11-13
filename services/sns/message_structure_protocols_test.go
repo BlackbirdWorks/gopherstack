@@ -1,7 +1,7 @@
 package sns_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -86,7 +87,7 @@ func receiveBody(t *testing.T, sqsClient *sqssdk.Client, queueURL string, raw bo
 		Message string `json:"Message"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &env))
+	require.NoError(t, json.Unmarshal([]byte(body), &env, jsonx.V1()))
 
 	return env.Message
 }
@@ -222,7 +223,7 @@ func TestMessageStructureJSON_AllProtocols(t *testing.T) {
 				} `json:"Records"`
 			}
 
-			require.NoError(t, json.Unmarshal(lambda.Last().Payload, &lenv))
+			require.NoError(t, json.Unmarshal(lambda.Last().Payload, &lenv, jsonx.V1()))
 			require.Len(t, lenv.Records, 1)
 			assert.Equal(t, tt.want["lambda"], lenv.Records[0].Sns.Message)
 
@@ -237,7 +238,7 @@ func TestMessageStructureJSON_AllProtocols(t *testing.T) {
 				Message string `json:"Message"`
 			}
 
-			require.NoError(t, json.Unmarshal(envRecs[0], &fenv))
+			require.NoError(t, json.Unmarshal(envRecs[0], &fenv, jsonx.V1()))
 			assert.Equal(t, tt.want["firehose-env"], fenv.Message)
 
 			got := map[string]string{}
@@ -353,7 +354,7 @@ func TestMessageStructureJSON_Replay(t *testing.T) {
 				}
 
 				require.Equal(t, 1, lambda.Count())
-				require.NoError(t, json.Unmarshal(lambda.Last().Payload, &env))
+				require.NoError(t, json.Unmarshal(lambda.Last().Payload, &env, jsonx.V1()))
 				assert.Equal(t, tt.want, env.Records[0].Sns.Message)
 			})
 		})

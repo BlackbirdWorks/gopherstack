@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestImportJob_CreatesSegment(t *testing.T) {
@@ -33,7 +36,7 @@ func TestImportJob_CreatesSegment(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	items, _ := listResp["Item"].([]any)
 	require.Len(t, items, 1, "import job must materialise exactly one segment")
@@ -70,7 +73,7 @@ func TestImportJob_DefaultSegmentName(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	items, _ := listResp["Item"].([]any)
 	require.Len(t, items, 1)
@@ -97,7 +100,7 @@ func TestImportJob_SegmentGetByID(t *testing.T) {
 
 	listRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/segments", nil)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	items := listResp["Item"].([]any)
 	segID := items[0].(map[string]any)["Id"].(string)
@@ -106,7 +109,7 @@ func TestImportJob_SegmentGetByID(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var s map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s, jsonx.V1()))
 	assert.Equal(t, "IMPORT", s["SegmentType"])
 	assert.Equal(t, "direct-import", s["Name"])
 }
@@ -302,7 +305,7 @@ func TestHandler_CreateExportJob(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.Equal(t, appID, resp["ApplicationId"])
 				assert.Equal(t, "CREATED", resp["JobStatus"])
@@ -345,7 +348,7 @@ func TestHandler_CreateImportJob(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.Equal(t, appID, resp["ApplicationId"])
 				assert.Equal(t, "CREATED", resp["JobStatus"])
@@ -376,7 +379,7 @@ func TestGetSegmentImportJobs_FiltersBySegment(t *testing.T) {
 	segsRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/segments", nil)
 	require.Equal(t, http.StatusOK, segsRec.Code)
 	var segsResp map[string]any
-	require.NoError(t, json.Unmarshal(segsRec.Body.Bytes(), &segsResp))
+	require.NoError(t, json.Unmarshal(segsRec.Body.Bytes(), &segsResp, jsonx.V1()))
 
 	items, _ := segsResp["Item"].([]any)
 	require.Len(t, items, 1, "import job must materialise exactly one segment")
@@ -388,7 +391,7 @@ func TestGetSegmentImportJobs_FiltersBySegment(t *testing.T) {
 	require.Equal(t, http.StatusOK, jobsRec.Code)
 
 	var jobsResp map[string]any
-	require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp))
+	require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp, jsonx.V1()))
 
 	jobs, _ := jobsResp["Item"].([]any)
 	assert.Len(t, jobs, 1, "GetSegmentImportJobs must return the job that created the segment")
@@ -415,7 +418,7 @@ func TestGetSegmentImportJobs_OtherSegmentReturnsEmpty(t *testing.T) {
 		map[string]any{"Name": "unrelated-segment"})
 	require.Equal(t, http.StatusCreated, segRec.Code)
 	var segResp map[string]any
-	require.NoError(t, json.Unmarshal(segRec.Body.Bytes(), &segResp))
+	require.NoError(t, json.Unmarshal(segRec.Body.Bytes(), &segResp, jsonx.V1()))
 	unrelatedSegID := segResp["Id"].(string)
 
 	// GetSegmentImportJobs for the unrelated segment → must return empty list.
@@ -424,7 +427,7 @@ func TestGetSegmentImportJobs_OtherSegmentReturnsEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, jobsRec.Code)
 
 	var jobsResp map[string]any
-	require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp))
+	require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp, jsonx.V1()))
 
 	jobs, _ := jobsResp["Item"].([]any)
 	assert.Empty(t, jobs, "GetSegmentImportJobs must return empty for segments not created by an import job")
@@ -457,7 +460,7 @@ func TestGetSegmentImportJobs_MultipleJobs_IsolatedBySegment(t *testing.T) {
 	segsRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/segments", nil)
 	require.Equal(t, http.StatusOK, segsRec.Code)
 	var segsResp map[string]any
-	require.NoError(t, json.Unmarshal(segsRec.Body.Bytes(), &segsResp))
+	require.NoError(t, json.Unmarshal(segsRec.Body.Bytes(), &segsResp, jsonx.V1()))
 	items, _ := segsResp["Item"].([]any)
 	require.Len(t, items, 2)
 
@@ -471,7 +474,7 @@ func TestGetSegmentImportJobs_MultipleJobs_IsolatedBySegment(t *testing.T) {
 		require.Equal(t, http.StatusOK, jobsRec.Code)
 
 		var jobsResp map[string]any
-		require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp))
+		require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp, jsonx.V1()))
 		jobs, _ := jobsResp["Item"].([]any)
 		assert.Len(t, jobs, 1,
 			"each segment's GetSegmentImportJobs must return only its own job, segment %s", segID)

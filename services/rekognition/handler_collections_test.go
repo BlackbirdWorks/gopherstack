@@ -1,7 +1,8 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -31,7 +33,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["CollectionArn"], "arn:aws:rekognition:")
 				assert.Equal(t, "7.0", resp["FaceModelVersion"])
 			},
@@ -47,7 +49,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
 			},
 		},
@@ -62,7 +64,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.InDelta(t, float64(200), resp["StatusCode"], 0)
 			},
 		},
@@ -74,7 +76,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 			},
 		},
@@ -89,7 +91,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["CollectionARN"], "arn:aws:rekognition:")
 				assert.InDelta(t, float64(0), resp["FaceCount"], 0)
 			},
@@ -102,7 +104,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				ids, _ := resp["CollectionIds"].([]any)
 				assert.Empty(t, ids)
 			},
@@ -118,7 +120,7 @@ func TestRekognition_Collections(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				ids, _ := resp["CollectionIds"].([]any)
 				assert.Len(t, ids, 1)
 				assert.Equal(t, "list-coll", ids[0])
@@ -165,7 +167,7 @@ func TestListCollections_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	ids1, _ := page1["CollectionIds"].([]any)
 	require.Len(t, ids1, 2)
@@ -180,7 +182,7 @@ func TestListCollections_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	ids2, _ := page2["CollectionIds"].([]any)
 	require.Len(t, ids2, 1)
@@ -205,7 +207,7 @@ func TestDeleteCollection_CascadesToFaces(t *testing.T) {
 	rec := doRequest(t, h, "ListFaces", map[string]any{"CollectionId": "cascade-coll"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var lf map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lf))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lf, jsonx.V1()))
 	faces, _ := lf["Faces"].([]any)
 	require.Len(t, faces, 2)
 
@@ -218,7 +220,7 @@ func TestDeleteCollection_CascadesToFaces(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -234,7 +236,7 @@ func TestDescribeCollection_NotFound_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -344,13 +346,13 @@ func TestListCollections_EmptyReturnsSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Decode raw to check for non-null slice presence.
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasIDs := raw["CollectionIds"]
 	assert.True(t, hasIDs, "CollectionIds must be present")
 
 	var ids []any
-	require.NoError(t, json.Unmarshal(raw["CollectionIds"], &ids))
+	require.NoError(t, json.Unmarshal(raw["CollectionIds"], &ids, jsonx.V1()))
 	assert.NotNil(t, ids, "CollectionIds must not be null")
 }

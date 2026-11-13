@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +18,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -130,7 +131,7 @@ func (s *flexStack) raw(t *testing.T, method, path, body, apiVersion string) (in
 
 	var out map[string]any
 	if len(data) > 0 {
-		_ = json.Unmarshal(data, &out)
+		_ = json.Unmarshal(data, &out, jsonx.V1())
 	}
 
 	return resp.StatusCode, out

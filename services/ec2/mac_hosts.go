@@ -1,12 +1,14 @@
 package ec2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // mac_hosts.go: a Mac Dedicated Host has no separate creation API -- it's a
@@ -167,7 +169,7 @@ func validateMacCredentials(raw string) error {
 	}
 
 	var creds macCredentials
-	if err := json.Unmarshal([]byte(raw), &creds); err != nil {
+	if err := json.Unmarshal([]byte(raw), &creds, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: MacCredentials must be a JSON object: %w", ErrInvalidParameter, err)
 	}
 

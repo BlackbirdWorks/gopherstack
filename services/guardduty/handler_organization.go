@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchOrgOps(op, path, query string, body []byte) (any, int, bool, error) {
@@ -70,7 +72,7 @@ func (h *Handler) handleEnableOrganizationAdminAccount(body []byte) (int, error)
 		AdminAccountID string `json:"adminAccountId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -86,7 +88,7 @@ func (h *Handler) handleDisableOrganizationAdminAccount(body []byte) (int, error
 		AdminAccountID string `json:"adminAccountId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -160,7 +162,7 @@ func (h *Handler) handleUpdateOrganizationConfiguration(detectorID string, body 
 		Features                      []OrgFeature    `json:"features"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

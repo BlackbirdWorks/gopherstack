@@ -2,12 +2,14 @@ package bedrockruntime
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Request/response header names used by the InvokeModel family (see
@@ -147,7 +149,7 @@ func modelResponsePayloadPart(out []byte) []byte {
 	part := map[string]string{"bytes": base64.StdEncoding.EncodeToString(out)}
 
 	// Marshaling a map[string]string with one entry never fails.
-	b, _ := json.Marshal(part)
+	b, _ := json.Marshal(part, jsonx.V1())
 
 	return b
 }
@@ -177,7 +179,7 @@ func (h *Handler) handleInvokeModel(
 
 	resp := mockInvokeModelResponse(modelID)
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -234,7 +236,7 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	resp := mockInvokeModelResponse(modelID)
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -271,7 +273,7 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 ) error {
 	resp := mockInvokeModelResponse(modelID)
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -341,7 +343,7 @@ func estimateTokenCount(body []byte, modelID string) int {
 	}
 
 	var req countTokensRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return max(1, len(body)/charsPerToken)
 	}
 
@@ -392,7 +394,7 @@ func (h *Handler) handleCountTokens(
 		keyInputTokens: inputTokens,
 	}
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}

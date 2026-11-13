@@ -2,11 +2,12 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -96,7 +97,7 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 
 func (h *Handler) handleCreatePullRequest(body []byte) (any, error) {
 	var in createPullRequestInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -156,7 +157,7 @@ func (h *Handler) handleGetPullRequest(body []byte) (any, error) {
 	var in struct {
 		PullRequestID string `json:"pullRequestId"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -186,7 +187,7 @@ func (h *Handler) handleListPullRequests(body []byte) (any, error) {
 		NextToken         string `json:"nextToken"`
 		MaxResults        int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -226,7 +227,7 @@ func (h *Handler) handleGetPullRequestApprovalStates(body []byte) (any, error) {
 		PullRequestID string `json:"pullRequestId"`
 		RevisionID    string `json:"revisionId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -252,7 +253,7 @@ func (h *Handler) handleGetPullRequestOverrideState(body []byte) (any, error) {
 		PullRequestID string `json:"pullRequestId"`
 		RevisionID    string `json:"revisionId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -287,7 +288,7 @@ func (h *Handler) handleOverridePullRequestApprovalRules(ctx context.Context, bo
 		RevisionID     string `json:"revisionId"`
 		OverrideStatus string `json:"overrideStatus"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -309,7 +310,7 @@ func (h *Handler) handleUpdatePullRequestApprovalState(body []byte) (any, error)
 		RevisionID    string `json:"revisionId"`
 		ApprovalState string `json:"approvalState"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -328,7 +329,7 @@ func (h *Handler) handleUpdatePullRequestDescription(body []byte) (any, error) {
 		PullRequestID string `json:"pullRequestId"`
 		Description   string `json:"description"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -354,7 +355,7 @@ func (h *Handler) handleUpdatePullRequestStatus(body []byte) (any, error) {
 		PullRequestID     string `json:"pullRequestId"`
 		PullRequestStatus string `json:"pullRequestStatus"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -383,7 +384,7 @@ func (h *Handler) handleUpdatePullRequestTitle(body []byte) (any, error) {
 		PullRequestID string `json:"pullRequestId"`
 		Title         string `json:"title"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -410,7 +411,7 @@ func (h *Handler) handleCreatePullRequestApprovalRule(body []byte) (any, error) 
 		ApprovalRuleName    string `json:"approvalRuleName"`
 		ApprovalRuleContent string `json:"approvalRuleContent"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" || req.ApprovalRuleName == "" {
@@ -441,7 +442,7 @@ func (h *Handler) handleDeletePullRequestApprovalRule(body []byte) (any, error) 
 		PullRequestID    string `json:"pullRequestId"`
 		ApprovalRuleName string `json:"approvalRuleName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" || req.ApprovalRuleName == "" {
@@ -468,7 +469,7 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 		NewRuleContent   string `json:"newRuleContent"`
 		ExistingSha      string `json:"existingRuleContentSha256"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" || req.ApprovalRuleName == "" {
@@ -500,7 +501,7 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 		NextToken            string `json:"nextToken"`
 		MaxResults           int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -548,7 +549,7 @@ func (h *Handler) handleEvaluatePullRequestApprovalRules(body []byte) (any, erro
 		PullRequestID string `json:"pullRequestId"`
 		RevisionID    string `json:"revisionId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {

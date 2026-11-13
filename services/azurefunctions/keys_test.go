@@ -1,7 +1,7 @@
 package azurefunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
 
@@ -33,7 +34,7 @@ func loadSecrets(t *testing.T, dir, file string) secretsFile {
 	require.NoError(t, err)
 
 	var s secretsFile
-	require.NoError(t, json.Unmarshal([]byte(raw), &s))
+	require.NoError(t, json.Unmarshal([]byte(raw), &s, jsonx.V1()))
 
 	return s
 }

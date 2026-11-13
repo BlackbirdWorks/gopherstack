@@ -1,7 +1,7 @@
 package gcpserve
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"strconv"
 	"strings"
@@ -9,6 +9,8 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	ltype "google.golang.org/genproto/googleapis/logging/type"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Special JSON fields the structured-logging agent lifts out of jsonPayload.
@@ -49,7 +51,7 @@ func jsonObject(line string) (map[string]any, bool) {
 	}
 
 	var obj map[string]any
-	if err := json.Unmarshal([]byte(s), &obj); err != nil || obj == nil {
+	if err := json.Unmarshal([]byte(s), &obj, jsonx.V1()); err != nil || obj == nil {
 		return nil, false
 	}
 

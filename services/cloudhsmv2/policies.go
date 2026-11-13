@@ -2,8 +2,11 @@ package cloudhsmv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (b *InMemoryBackend) policyBackupLocked(sc scope, resourceARN string) (*Backup, error) {
@@ -21,10 +24,10 @@ func (b *InMemoryBackend) policyBackupLocked(sc scope, resourceARN string) (*Bac
 // PutResourcePolicy attaches a policy to a READY backup the caller owns.
 func (b *InMemoryBackend) PutResourcePolicy(ctx context.Context, resourceARN, policy string) (string, error) {
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if policy == "" || json.Unmarshal([]byte(policy), &doc) != nil || len(doc.Statement) == 0 {
+	if policy == "" || json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil || len(doc.Statement) == 0 {
 		return "", fail(ErrInvalidRequest, "Policy must be a JSON policy document with a Statement")
 	}
 

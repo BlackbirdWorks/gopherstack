@@ -1,8 +1,10 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // listAttacksTimeRange mirrors the AWS Shield TimeRange wire format for ListAttacks.
@@ -24,7 +26,7 @@ type listAttacksRequest struct {
 func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 	var req listAttacksRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -89,7 +91,7 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // simulateAttackRequest is the request body for the __SimulateAttack endpoint (gap 25).
@@ -101,7 +103,7 @@ type simulateAttackRequest struct {
 // handleSimulateAttack creates a synthetic attack record via the chaos endpoint (gap 25/10).
 func (h *Handler) handleSimulateAttack(body []byte) ([]byte, error) {
 	var req simulateAttackRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -119,7 +121,7 @@ func (h *Handler) handleSimulateAttack(body []byte) ([]byte, error) {
 		keyResourceArn: attack.ResourceARN,
 		keyStartTime:   floatSeconds(attack.StartTime),
 		keyEndTime:     floatSeconds(attack.EndTime),
-	})
+	}, jsonx.V1())
 }
 
 // describeAttackRequest is the request body for DescribeAttack.
@@ -129,7 +131,7 @@ type describeAttackRequest struct {
 
 func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 	var req describeAttackRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -174,7 +176,7 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 			"AttackCounters": counters,
 			"Mitigations":    mitigations,
 		},
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeAttackStatistics() ([]byte, error) {
@@ -187,5 +189,5 @@ func (h *Handler) handleDescribeAttackStatistics() ([]byte, error) {
 			"ToExclusive":   float64(stats.TimeRange.ToExclusive),
 		},
 		"DataItems": stats.DataItems,
-	})
+	}, jsonx.V1())
 }

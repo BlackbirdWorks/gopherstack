@@ -3,7 +3,7 @@ package sesv2_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay/smtptest"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
@@ -147,7 +148,7 @@ func TestSMTPRelayDelivery(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			sess := nextSession(t, srv)
 			msg, err := mail.ReadMessage(strings.NewReader(sess.Data))
@@ -195,7 +196,7 @@ func TestSMTPRelayRespectsRejectionAndFailure(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.NotEmpty(t, out["MessageId"])
 
 		_ = nextSession(t, srv)

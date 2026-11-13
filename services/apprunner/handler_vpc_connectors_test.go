@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestVpcConnectorCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -31,7 +33,7 @@ func TestVpcConnectorCRUD(t *testing.T) { //nolint:paralleltest // existing issu
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vc := resp["VpcConnector"].(map[string]any)
 				assert.Contains(t, vc["VpcConnectorArn"], "vpcconnector/my-vpc/1/")
 				assert.Equal(t, "ACTIVE", vc["Status"])
@@ -74,7 +76,7 @@ func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest //
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	vcArn := createResp["VpcConnector"].(map[string]any)["VpcConnectorArn"].(string)
 
 	tests := []struct {
@@ -92,7 +94,7 @@ func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest //
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vc := resp["VpcConnector"].(map[string]any)
 				assert.Equal(t, "vc1", vc["VpcConnectorName"])
 			},
@@ -119,7 +121,7 @@ func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest //
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["VpcConnectors"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -132,7 +134,7 @@ func TestVpcConnectorDescribeDeleteList(t *testing.T) { //nolint:paralleltest //
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vc := resp["VpcConnector"].(map[string]any)
 				assert.Equal(t, "vc1", vc["VpcConnectorName"])
 			},
@@ -180,7 +182,7 @@ func TestDeleteVpcConnector_RejectsWhenServiceUsesIt(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var vcResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vcResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vcResp, jsonx.V1()))
 	vcArn := vcResp["VpcConnector"].(map[string]any)["VpcConnectorArn"].(string)
 
 	rec = doRequest(t, h, "CreateService", map[string]any{
@@ -194,7 +196,7 @@ func TestDeleteVpcConnector_RejectsWhenServiceUsesIt(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcArn := svcResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DeleteVpcConnector", map[string]any{"VpcConnectorArn": vcArn})

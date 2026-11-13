@@ -2,10 +2,11 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AWS/Events rule metrics per docs.aws.amazon.com/eventbridge/latest/userguide/eb-monitoring.html.
@@ -48,7 +49,7 @@ func (b *InMemoryBackend) observePutEvents(
 	put("PutEventsEntriesCount", ebUnitCount, float64(len(entries)))
 	put("PutEventsLatency", ebUnitMillis, float64(elapsed.Milliseconds()))
 
-	if body, mErr := json.Marshal(entries); mErr == nil {
+	if body, mErr := json.Marshal(entries, jsonx.V1()); mErr == nil {
 		put("PutEventsRequestSize", ebUnitBytes, float64(len(body)))
 	}
 }

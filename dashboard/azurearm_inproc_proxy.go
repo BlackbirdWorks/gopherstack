@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -152,7 +154,7 @@ func armProxyRelay(c *echo.Context, rec *httptest.ResponseRecorder, view func(an
 // armScrubBody applies the optional view and the generic scrub to a JSON body; anything else is returned as is.
 func armScrubBody(body []byte, view func(any)) []byte {
 	var doc any
-	if json.Unmarshal(body, &doc) != nil {
+	if json.Unmarshal(body, &doc, jsonx.V1()) != nil {
 		return body
 	}
 
@@ -162,7 +164,7 @@ func armScrubBody(body []byte, view func(any)) []byte {
 
 	armScrub(doc)
 
-	if out, err := json.Marshal(doc); err == nil {
+	if out, err := json.Marshal(doc, jsonx.V1()); err == nil {
 		return out
 	}
 

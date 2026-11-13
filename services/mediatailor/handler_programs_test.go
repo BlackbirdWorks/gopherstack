@@ -1,12 +1,14 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestProgram_CRUD(t *testing.T) {
@@ -24,7 +26,7 @@ func TestProgram_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, "prog1", created["ProgramName"])
 	assert.Equal(t, "ch1", created["ChannelName"])
 	assert.Contains(t, created["Arn"], ":mediatailor:")
@@ -34,7 +36,7 @@ func TestProgram_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described, jsonx.V1()))
 	assert.Equal(t, "prog1", described["ProgramName"])
 	assert.Equal(t, "sl1", described["SourceLocationName"])
 
@@ -49,7 +51,7 @@ func TestProgram_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var schedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp, jsonx.V1()))
 	items, _ := schedResp["Items"].([]any)
 	assert.Len(t, items, 1)
 	item0, _ := items[0].(map[string]any)
@@ -151,7 +153,7 @@ func TestHandleGetChannelSchedule_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var schedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp, jsonx.V1()))
 	items, _ := schedResp["Items"].([]any)
 	require.Len(t, items, 1)
 }

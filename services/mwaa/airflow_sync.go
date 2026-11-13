@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +18,7 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -200,7 +201,7 @@ func (e *airflowEngine) stageStatic(ctx context.Context, dir string, in airflowL
 
 	_ = os.Chmod(filepath.Join(dir, "state"), airflowDirMode)
 
-	passwords, _ := json.Marshal(map[string]string{airflowAdminUser: in.adminPass})
+	passwords, _ := json.Marshal(map[string]string{airflowAdminUser: in.adminPass}, jsonx.V1())
 
 	for name, data := range map[string][]byte{
 		"requirements.txt":           reqs,

@@ -2,7 +2,7 @@ package rekognition_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -40,7 +41,7 @@ func doRequest(t *testing.T, h *rekognition.Handler, action string, body any) *h
 
 	if body != nil {
 		var marshalErr error
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -65,6 +66,6 @@ func TestRekognition_UnknownOperation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "UnknownOperationException", resp["__type"])
 }

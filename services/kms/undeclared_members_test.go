@@ -1,7 +1,7 @@
 package kms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_KeyMetadataOmitsUndeclaredMembers(t *testing.T) {
@@ -32,14 +34,14 @@ func TestHandler_KeyMetadataOmitsUndeclaredMembers(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotContains(t, out["KeyMetadata"], "PrimaryRegion")
 			assert.NotContains(t, out["KeyMetadata"], "MultiRegionKeyType")
 
 			id := out["KeyMetadata"]["KeyId"].(string)
 			rec = sendKMSOp(t, h, "DescribeKey", `{"KeyId":"`+id+`"}`)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotContains(t, out["KeyMetadata"], "PrimaryRegion")
 			assert.NotContains(t, out["KeyMetadata"], "MultiRegionKeyType")
 		})

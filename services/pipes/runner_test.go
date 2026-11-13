@@ -2,7 +2,7 @@ package pipes_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -138,7 +139,7 @@ func TestPipesRunner_SQSToLambda(t *testing.T) {
 			EventSource string `json:"eventSource"`
 		} `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(payloads[0], &event))
+	require.NoError(t, json.Unmarshal(payloads[0], &event, jsonx.V1()))
 	require.Len(t, event.Records, 2)
 	assert.Equal(t, "msg-1", event.Records[0].MessageID)
 	assert.Equal(t, "hello", event.Records[0].Body)
@@ -313,7 +314,7 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 	require.Len(t, calls, 1)
 
 	var event map[string]any
-	require.NoError(t, json.Unmarshal(payloads[0], &event))
+	require.NoError(t, json.Unmarshal(payloads[0], &event, jsonx.V1()))
 	require.Len(t, event, 1)
 	// payload is forwarded - just check Lambda was called once
 

@@ -1,13 +1,15 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_BatchPutMessage(t *testing.T) {
@@ -67,7 +69,7 @@ func TestHandler_BatchPutMessage(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				entries, _ := resp["batchPutMessageErrorEntries"].([]any)
 				assert.Len(t, entries, tt.wantErrors)
 			}
@@ -149,7 +151,7 @@ func TestHandler_BatchPutMessage_NoChannelNameInErrorEntry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	entries, _ := resp["batchPutMessageErrorEntries"].([]any)
 	require.Len(t, entries, 1)
 	entry, _ := entries[0].(map[string]any)

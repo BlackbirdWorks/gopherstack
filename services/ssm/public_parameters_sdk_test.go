@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -60,7 +61,7 @@ func TestGetParameter_PublicCatalog_SDK(t *testing.T) {
 			t.Helper()
 
 			var doc map[string]any
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(p.Value)), &doc))
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(p.Value)), &doc, jsonx.V1()))
 			assert.Contains(t, doc, "image_id")
 			assert.Contains(t, doc, "ecs_agent_version")
 		}},
@@ -474,7 +475,7 @@ func TestSecretsManagerReference_SDK(t *testing.T) {
 			assert.Contains(t, aws.ToString(p.ARN), ":parameter/aws/reference/secretsmanager/")
 
 			var src map[string]any
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(p.SourceResult)), &src))
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(p.SourceResult)), &src, jsonx.V1()))
 			assert.Equal(t, secretARN, src["ARN"])
 			assert.Equal(t, "db", src["Name"])
 			assert.Equal(t, tc.wantValue, src["SecretString"])

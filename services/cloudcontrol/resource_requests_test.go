@@ -1,7 +1,7 @@
 package cloudcontrol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -61,7 +62,7 @@ func TestHandler_GetResourceRequestStatus(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantOp, pe["Operation"])
@@ -189,7 +190,7 @@ func TestHandler_CancelResourceRequest(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantOpStatus, pe["OperationStatus"])
@@ -263,7 +264,7 @@ func TestHandler_CancelResourceRequest_OnlyAllowsInProgress(t *testing.T) {
 
 			if tt.wantHTTP == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok, "ProgressEvent must be present")
 				assert.Equal(t, "CANCEL_COMPLETE", pe["OperationStatus"])
@@ -350,7 +351,7 @@ func TestHandler_EventTimeIsUnixNumber(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				pe, ok := createOut["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 
@@ -375,7 +376,7 @@ func TestHandler_EventTimeIsUnixNumber(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			pe, ok := out["ProgressEvent"].(map[string]any)
 			require.True(t, ok, "ProgressEvent should be present in response")
 
@@ -488,7 +489,7 @@ func TestHandler_ListResourceRequests(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 				require.True(t, ok, "ResourceRequestStatusSummaries should be an array")
 				assert.Len(t, summaries, tt.wantCount)
@@ -565,7 +566,7 @@ func TestHandler_ListResourceRequests_FilterByOperationStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries, _ := out["ResourceRequestStatusSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantLen, "filter %v", tt.filter)
 		})
@@ -581,7 +582,7 @@ func TestHandler_ListResourceRequests_ContainsExpectedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 	require.True(t, ok)
@@ -655,7 +656,7 @@ func TestHandler_ListResourceRequests_EnumValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 
 			if tt.wantMatches {
@@ -693,7 +694,7 @@ func TestHandler_ListResourceRequests_TypeNameFilterIsIgnored(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 	require.True(t, ok)
@@ -716,7 +717,7 @@ func TestHandler_ListResourceRequests_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, ok := out["ResourceRequestStatusSummaries"].([]any)
 	require.True(t, ok)
@@ -734,7 +735,7 @@ func TestHandler_ListResourceRequests_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	summaries2, ok := out2["ResourceRequestStatusSummaries"].([]any)
 	require.True(t, ok)

@@ -1,13 +1,15 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_TagOperations covers ListTagsForResource/TagResource/UntagResource.
@@ -63,7 +65,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			arn, _ := createResp["channelArn"].(string)
 			require.NotEmpty(t, arn)
 
@@ -152,7 +154,7 @@ func TestHandler_CreateResource_InvalidTagsRejected(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", errResp["__type"])
 
 			okRec := doRequest(t, h, http.MethodPost, tt.path, tt.body(validTags))
@@ -191,7 +193,7 @@ func TestHandler_TagResource_Returns204(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn, _ := resp["channelArn"].(string)
 			require.NotEmpty(t, arn)
 
@@ -252,7 +254,7 @@ func TestHandler_TagValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn, _ := resp["channelArn"].(string)
 			require.NotEmpty(t, arn)
 
@@ -306,7 +308,7 @@ func TestHandler_ListTagsForResource_EmptyNotError(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			arn, _ := createResp[tt.arnKey].(string)
 			require.NotEmpty(t, arn)
 
@@ -314,7 +316,7 @@ func TestHandler_ListTagsForResource_EmptyNotError(t *testing.T) {
 			assert.Equal(t, http.StatusOK, tagRec.Code)
 
 			var tagResp map[string]any
-			require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+			require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp, jsonx.V1()))
 			tags, ok := tagResp["tags"].([]any)
 			require.True(t, ok, "tags field must be array")
 			assert.Empty(t, tags, "newly created resource must have empty tag array")

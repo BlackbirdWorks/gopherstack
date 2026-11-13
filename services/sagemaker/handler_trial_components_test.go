@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
@@ -31,7 +33,7 @@ func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recByTrial.Code)
 
 	var byTrial map[string]any
-	require.NoError(t, json.Unmarshal(recByTrial.Body.Bytes(), &byTrial))
+	require.NoError(t, json.Unmarshal(recByTrial.Body.Bytes(), &byTrial, jsonx.V1()))
 	summaries, _ := byTrial["TrialComponentSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "tc-a", summaries[0].(map[string]any)["TrialComponentName"])
@@ -41,7 +43,7 @@ func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recByExp.Code)
 
 	var byExp map[string]any
-	require.NoError(t, json.Unmarshal(recByExp.Body.Bytes(), &byExp))
+	require.NoError(t, json.Unmarshal(recByExp.Body.Bytes(), &byExp, jsonx.V1()))
 	expSummaries, _ := byExp["TrialComponentSummaries"].([]any)
 	require.Len(t, expSummaries, 1)
 
@@ -50,7 +52,7 @@ func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recAll.Code)
 
 	var all map[string]any
-	require.NoError(t, json.Unmarshal(recAll.Body.Bytes(), &all))
+	require.NoError(t, json.Unmarshal(recAll.Body.Bytes(), &all, jsonx.V1()))
 	allSummaries, _ := all["TrialComponentSummaries"].([]any)
 	assert.Len(t, allSummaries, 2)
 
@@ -61,7 +63,7 @@ func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDisassoc.Code)
 
 	var disassocOut map[string]any
-	require.NoError(t, json.Unmarshal(recDisassoc.Body.Bytes(), &disassocOut))
+	require.NoError(t, json.Unmarshal(recDisassoc.Body.Bytes(), &disassocOut, jsonx.V1()))
 	assert.NotEmpty(t, disassocOut["TrialArn"])
 	assert.NotEmpty(t, disassocOut["TrialComponentArn"])
 
@@ -69,7 +71,7 @@ func TestHandler_ListAndDisassociateTrialComponents(t *testing.T) {
 	require.Equal(t, http.StatusOK, recByTrial2.Code)
 
 	var byTrial2 map[string]any
-	require.NoError(t, json.Unmarshal(recByTrial2.Body.Bytes(), &byTrial2))
+	require.NoError(t, json.Unmarshal(recByTrial2.Body.Bytes(), &byTrial2, jsonx.V1()))
 	assert.Empty(t, byTrial2["TrialComponentSummaries"])
 }
 
@@ -87,7 +89,7 @@ func TestHandler_DisassociateTrialComponent_Idempotent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out["TrialArn"], "never-existed")
 }
 
@@ -173,7 +175,7 @@ func TestHandler_UpdateTrialComponent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["TrialComponentArn"])
 
 	// Describe returns updated fields
@@ -181,7 +183,7 @@ func TestHandler_UpdateTrialComponent(t *testing.T) {
 		"TrialComponentName": "my-tc",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "TC Display", descResp["DisplayName"])
 	assert.Equal(t, "InProgress", descResp["Status"].(map[string]any)["PrimaryStatus"])
 	assert.NotNil(t, descResp["Parameters"])
@@ -218,7 +220,7 @@ func TestHandler_CreateTrialComponent_FullFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Training Run 1", descResp["DisplayName"])
 	assert.InEpsilon(t, float64(1700000000), descResp["StartTime"], 0)
 	assert.InEpsilon(t, float64(1700003600), descResp["EndTime"], 0)

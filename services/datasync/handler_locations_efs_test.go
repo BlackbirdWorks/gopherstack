@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_Efs covers the EFS location lifecycle.
@@ -28,7 +30,7 @@ func TestDataSync_Efs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -36,7 +38,7 @@ func TestDataSync_Efs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, locArn, descResp["LocationArn"])
 	assert.Equal(t, "TLS1_2", descResp["InTransitEncryption"])
 	assert.Contains(t, descResp["LocationUri"].(string), "efs://")

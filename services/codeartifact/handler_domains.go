@@ -3,12 +3,14 @@ package codeartifact
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const authTokenBytes = 48
@@ -60,7 +62,7 @@ func (h *Handler) handleCreateDomain(c *echo.Context, name string, body []byte) 
 
 	var in createDomainBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -105,7 +107,7 @@ type listDomainsBody struct {
 func (h *Handler) handleListDomains(c *echo.Context, body []byte) error {
 	var in listDomainsBody
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	all := h.Backend.ListDomains(c.Request().Context())
@@ -217,7 +219,7 @@ type putDomainPermissionsPolicyBody struct {
 func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, body []byte) error {
 	var in putDomainPermissionsPolicyBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}

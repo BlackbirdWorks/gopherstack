@@ -1,13 +1,14 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -83,7 +84,7 @@ func TestS3SNSPublisherAdapter_ForwardsSubject(t *testing.T) {
 	var envelope struct {
 		Subject string `json:"Subject"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(receivedBody), &envelope))
+	require.NoError(t, json.Unmarshal([]byte(receivedBody), &envelope, jsonx.V1()))
 	require.Equal(t, "S3Notification", envelope.Subject,
 		"s3SNSPublisherAdapter must forward the S3 notification dispatcher's subject to SNS "+
 			"Publish instead of hardcoding an empty one")

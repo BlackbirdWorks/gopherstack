@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDeleteUsageProfile_NotFound verifies that DeleteUsageProfile raises
@@ -203,7 +205,7 @@ func TestGetUsageProfile_FullFields(t *testing.T) {
 		CreatedOn      float64           `json:"CreatedOn"`
 		LastModifiedOn float64           `json:"LastModifiedOn"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "full-profile", out.Name)
 	assert.Equal(t, "test description", out.Description)
 	assert.NotZero(t, out.CreatedOn)

@@ -2,7 +2,7 @@ package apprunner_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apprunner"
 )
 
@@ -29,7 +30,7 @@ func doRequest(t *testing.T, h *apprunner.Handler, action string, body any) *htt
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -60,7 +61,7 @@ func createTestService(t *testing.T, h *apprunner.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	svc, ok := resp["Service"].(map[string]any)
 	require.True(t, ok)

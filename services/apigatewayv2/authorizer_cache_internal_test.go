@@ -3,7 +3,7 @@ package apigatewayv2
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,6 +15,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // doInternalRequest performs an HTTP request against h and returns the
@@ -27,7 +29,7 @@ func doInternalRequest(t *testing.T, h *Handler, method, path string, body any) 
 	var bodyReader *bytes.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyReader = bytes.NewReader(b)
 	} else {

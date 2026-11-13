@@ -2,7 +2,7 @@ package s3_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -42,7 +43,7 @@ func (l *staticObjectLambda) InvokeFunction(
 			OutputToken string `json:"outputToken"`
 		} `json:"getObjectContext"`
 	}
-	if err := json.Unmarshal(payload, &event); err != nil {
+	if err := json.Unmarshal(payload, &event, jsonx.V1()); err != nil {
 		return nil, 0, err
 	}
 

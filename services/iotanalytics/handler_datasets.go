@@ -1,12 +1,14 @@
 package iotanalytics
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseQueryDateTime parses a scheduledBefore/scheduledOnOrAfter query parameter into epoch
@@ -61,7 +63,7 @@ func filterDatasetContentsBySchedule(contents []*DatasetContent, c *echo.Context
 
 func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 	var req createDatasetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -190,7 +192,7 @@ func (h *Handler) handleUpdateDataset(c *echo.Context, name string, body []byte)
 	var req updateDatasetRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(
 				c,
 				http.StatusBadRequest,
@@ -222,7 +224,7 @@ func (h *Handler) handleCreateDatasetContent(c *echo.Context, datasetName string
 	var req createDatasetContentRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(
 				c,
 				http.StatusBadRequest,

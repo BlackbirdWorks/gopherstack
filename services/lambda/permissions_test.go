@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -29,7 +31,7 @@ func TestPermission_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, addRec.Code)
 
 	var addOut lambda.AddPermissionOutput
-	require.NoError(t, json.NewDecoder(addRec.Body).Decode(&addOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(addRec.Body), &addOut, jsonx.V1()))
 	require.NotNil(t, addOut.Statement)
 	assert.NotEmpty(t, *addOut.Statement)
 
@@ -44,7 +46,7 @@ func TestPermission_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var pol lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &pol, jsonx.V1()))
 	require.NotNil(t, pol.Policy)
 	assert.Contains(t, *pol.Policy, "AllowS3")
 	assert.Contains(t, *pol.Policy, "AllowSNS")
@@ -63,7 +65,7 @@ func TestPermission_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var pol2 lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&pol2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &pol2, jsonx.V1()))
 	assert.NotContains(t, *pol2.Policy, "AllowS3")
 	assert.Contains(t, *pol2.Policy, "AllowSNS")
 }
@@ -129,7 +131,7 @@ func TestPermission_SourceArn(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var addOut lambda.AddPermissionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&addOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &addOut, jsonx.V1()))
 	require.NotNil(t, addOut.Statement)
 	assert.NotEmpty(t, *addOut.Statement)
 	// Statement must include the StatementId
@@ -274,7 +276,7 @@ func TestPolicyJSON_SourceArnCondition(t *testing.T) {
 			require.NotEmpty(t, policyStr)
 
 			var policy map[string]any
-			require.NoError(t, json.Unmarshal([]byte(policyStr), &policy))
+			require.NoError(t, json.Unmarshal([]byte(policyStr), &policy, jsonx.V1()))
 			stmts, _ := policy["Statement"].([]any)
 			require.Len(t, stmts, 1)
 			stmt := stmts[0].(map[string]any)
@@ -368,7 +370,7 @@ func TestAddPermission(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var out lambda.AddPermissionOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				require.NotNil(t, out.Statement)
 				assert.NotEmpty(t, *out.Statement)
 			}
@@ -416,7 +418,7 @@ func TestAddPermission_FunctionUrlConditions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out lambda.AddPermissionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotNil(t, out.Statement)
 	assert.Contains(t, *out.Statement, `"StringEquals":{"lambda:FunctionUrlAuthType":"NONE"}`)
 	assert.Contains(t, *out.Statement, `"Bool":{"lambda:InvokedViaFunctionUrl":"true"}`)
@@ -425,7 +427,7 @@ func TestAddPermission_FunctionUrlConditions(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var pol lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &pol, jsonx.V1()))
 	require.NotNil(t, pol.Policy)
 	assert.Contains(t, *pol.Policy, "lambda:FunctionUrlAuthType")
 	assert.Contains(t, *pol.Policy, "lambda:InvokedViaFunctionUrl")
@@ -453,7 +455,7 @@ func TestAddPermission_RevisionId(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var pol lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &pol, jsonx.V1()))
 	require.NotNil(t, pol.RevisionID)
 	rev1 := *pol.RevisionID
 	assert.NotEmpty(t, rev1)
@@ -466,7 +468,7 @@ func TestAddPermission_RevisionId(t *testing.T) {
 
 	getRec2 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
 	var pol2 lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&pol2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &pol2, jsonx.V1()))
 	assert.Equal(t, rev1, *pol2.RevisionID, "rejected AddPermission must not change the revision")
 	assert.NotContains(t, *pol2.Policy, "s2")
 
@@ -478,7 +480,7 @@ func TestAddPermission_RevisionId(t *testing.T) {
 
 	getRec3 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
 	var pol3 lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec3.Body).Decode(&pol3))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec3.Body), &pol3, jsonx.V1()))
 	rev3 := *pol3.RevisionID
 	assert.NotEqual(t, rev1, rev3, "a real mutation must change the revision")
 
@@ -489,7 +491,7 @@ func TestAddPermission_RevisionId(t *testing.T) {
 
 	getRec4 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
 	var pol4 lambda.GetPolicyOutput
-	require.NoError(t, json.NewDecoder(getRec4.Body).Decode(&pol4))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec4.Body), &pol4, jsonx.V1()))
 	assert.Contains(t, *pol4.Policy, "s1", "rejected RemovePermission must not delete the statement")
 
 	// RemovePermission with the correct RevisionId succeeds.
@@ -519,7 +521,7 @@ func TestPermission_PolicyJSONEscapesValues(t *testing.T) {
 			reqBody, err := json.Marshal(map[string]string{
 				"StatementId": tt.sid, "Action": "lambda:InvokeFunction",
 				"Principal": "s3.amazonaws.com", "SourceArn": tt.sourceArn,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			addRec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/policy", string(reqBody))
@@ -529,7 +531,7 @@ func TestPermission_PolicyJSONEscapesValues(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var out lambda.GetPolicyOutput
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 			require.NotNil(t, out.Policy)
 
 			type statement struct {
@@ -540,7 +542,7 @@ func TestPermission_PolicyJSONEscapesValues(t *testing.T) {
 			var doc struct {
 				Statement []statement `json:"Statement"`
 			}
-			require.NoError(t, json.Unmarshal([]byte(*out.Policy), &doc))
+			require.NoError(t, json.Unmarshal([]byte(*out.Policy), &doc, jsonx.V1()))
 			require.Len(t, doc.Statement, 1)
 			assert.Equal(t, tt.sid, doc.Statement[0].Sid)
 			assert.Equal(t, tt.sourceArn, doc.Statement[0].Condition["ArnLike"]["AWS:SourceArn"])

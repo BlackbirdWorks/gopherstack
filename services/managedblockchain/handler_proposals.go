@@ -1,10 +1,12 @@
 package managedblockchain
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body []byte) error {
@@ -14,7 +16,7 @@ func (h *Handler) handleCreateProposal(c *echo.Context, networkID string, body [
 
 	var req createProposalRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
@@ -128,7 +130,7 @@ func (h *Handler) handleVoteOnProposal(c *echo.Context, resource string, body []
 
 	var req voteOnProposalRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 

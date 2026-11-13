@@ -2,7 +2,7 @@ package forecast
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -126,7 +127,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
 	var input map[string]any
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -165,7 +166,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(output)
+	return json.Marshal(output, jsonx.V1())
 }
 
 func (h *Handler) execute(action string, spec operationSpec, input map[string]any) (map[string]any, error) {
@@ -250,7 +251,7 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 		out["NextToken"] = pg.Next
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 // filterMonitorEvaluations applies ListMonitorEvaluations's Filters
@@ -321,7 +322,7 @@ func (h *Handler) dispatchDeleteResourceTree(input map[string]any) ([]byte, erro
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
@@ -330,7 +331,7 @@ func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
@@ -339,7 +340,7 @@ func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) dispatchGetAccuracyMetrics(input map[string]any) ([]byte, error) {
@@ -348,7 +349,7 @@ func (h *Handler) dispatchGetAccuracyMetrics(input map[string]any) ([]byte, erro
 		return nil, err
 	}
 
-	return json.Marshal(metrics)
+	return json.Marshal(metrics, jsonx.V1())
 }
 
 func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, error) {
@@ -361,7 +362,7 @@ func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, err
 		tagList = append(tagList, map[string]string{"Key": k, "Value": v})
 	}
 
-	return json.Marshal(map[string]any{"Tags": tagList})
+	return json.Marshal(map[string]any{"Tags": tagList}, jsonx.V1())
 }
 
 func (h *Handler) dispatchTagResource(input map[string]any) ([]byte, error) {
@@ -370,7 +371,7 @@ func (h *Handler) dispatchTagResource(input map[string]any) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) dispatchUntagResource(input map[string]any) ([]byte, error) {
@@ -385,7 +386,7 @@ func (h *Handler) dispatchUntagResource(input map[string]any) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func resourceIdentifier(spec operationSpec, input map[string]any) string {
@@ -600,7 +601,10 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, errType = http.StatusInternalServerError, "InternalServerException"
 	}
 
-	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": publicMessage(err, errType)})
+	payload, marshalErr := json.Marshal(
+		map[string]string{"__type": errType, "message": publicMessage(err, errType)},
+		jsonx.V1(),
+	)
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}

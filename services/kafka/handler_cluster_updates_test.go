@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -164,7 +165,7 @@ func TestUpdateOpsRequireCurrentVersion(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "BadRequestException", errResp["__type"],
 					"wrong version must produce BadRequestException")
 			}
@@ -285,7 +286,7 @@ func TestUpdateBrokerCount_Persists(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			clusterInfo, ok := descResp["clusterInfo"].(map[string]any)
 			require.True(t, ok)
 			provisioned, ok := clusterInfo["provisioned"].(map[string]any)
@@ -323,7 +324,7 @@ func TestUpdateBrokerStorage_Persists(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
 	bng, _ := provisioned["brokerNodeGroupInfo"].(map[string]any)
@@ -357,7 +358,7 @@ func TestUpdateBrokerType_Persists(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
 	bng, _ := provisioned["brokerNodeGroupInfo"].(map[string]any)
@@ -389,7 +390,7 @@ func TestUpdateClusterKafkaVersion_Persists(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
 	assert.Equal(
@@ -608,7 +609,7 @@ func TestUpdateClusterConfiguration_V2Path(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
 	assert.NotContains(t, provisioned, "configurationInfo",

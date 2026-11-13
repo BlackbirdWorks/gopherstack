@@ -2,7 +2,7 @@ package fsx_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -33,7 +34,7 @@ func doFSxRequest(t *testing.T, h *fsx.Handler, op string, body any) *httptest.R
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -76,7 +77,7 @@ func createFS(t *testing.T, h *fsx.Handler, fsType string) string {
 	rec := doFSxRequest(t, h, "CreateFileSystem", fileSystemCreateBody(fsType))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["FileSystem"].(map[string]any)["FileSystemId"].(string)
 }
@@ -87,7 +88,7 @@ func createFSandBackup(t *testing.T, h *fsx.Handler, fsType string) string {
 	rec := doFSxRequest(t, h, "CreateBackup", map[string]any{"FileSystemId": fsID})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["Backup"].(map[string]any)["BackupId"].(string)
 }
@@ -123,7 +124,7 @@ func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) stri
 	rec := doFSxRequest(t, h, "CreateVolume", body)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["Volume"].(map[string]any)["VolumeId"].(string)
 }
@@ -136,7 +137,7 @@ func openZFSRootVolumeID(t *testing.T, h *fsx.Handler, fsID string) string {
 	rec := doFSxRequest(t, h, "DescribeFileSystems", map[string]any{"FileSystemIds": []string{fsID}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	fileSystems, ok := out["FileSystems"].([]any)
 	require.True(t, ok)
 	require.Len(t, fileSystems, 1)
@@ -156,7 +157,7 @@ func createSVM(t *testing.T, h *fsx.Handler, fsID, name string) string {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
 }
@@ -172,7 +173,7 @@ func createFileCache(t *testing.T, h *fsx.Handler, cacheType string) string { //
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["FileCache"].(map[string]any)["FileCacheId"].(string)
 }
@@ -196,7 +197,7 @@ func decodeField(t *testing.T, rec *httptest.ResponseRecorder, field string) map
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	obj, ok := out[field].(map[string]any)
 	require.True(t, ok, "response must contain object field %q, got %v", field, out)

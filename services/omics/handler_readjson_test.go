@@ -2,7 +2,8 @@ package omics_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestReadJSONMalformedWritesExactlyOneDocument guards against the same
@@ -32,14 +35,14 @@ func TestReadJSONMalformedWritesExactlyOneDocument(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	dec := json.NewDecoder(rec.Body)
+	dec := jsontext.NewDecoder(rec.Body)
 
 	var first map[string]any
-	require.NoError(t, dec.Decode(&first))
+	require.NoError(t, json.UnmarshalDecode(dec, &first, jsonx.V1()))
 	require.Contains(t, first, "message")
 
 	var second map[string]any
-	err := dec.Decode(&second)
+	err := json.UnmarshalDecode(dec, &second, jsonx.V1())
 	require.ErrorIs(
 		t,
 		err,

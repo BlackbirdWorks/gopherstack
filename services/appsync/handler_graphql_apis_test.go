@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -61,7 +63,7 @@ func TestHandler_CreateAndGetGraphqlAPI(t *testing.T) {
 
 			if tt.wantAPIName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				api, ok := resp["graphqlApi"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantAPIName, api["name"])
@@ -162,7 +164,7 @@ func TestHandler_GraphQLExecution(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				if _, hasErrors := resp["errors"]; !hasErrors {
 					data, ok := resp["data"].(map[string]any)
@@ -208,7 +210,7 @@ func TestHandler_ListGraphqlAPIs(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			apis, ok := resp["graphqlApis"].([]any)
 			require.True(t, ok)
 			assert.Len(t, apis, tt.wantCount)
@@ -348,7 +350,7 @@ func TestHandler_UpdateGraphqlAPI(t *testing.T) {
 
 			if tt.wantName != "" && tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				gqlAPI := resp["graphqlApi"].(map[string]any)
 				assert.Equal(t, tt.wantName, gqlAPI["name"])
 			}
@@ -366,7 +368,7 @@ func TestHandler_CreateAndUpdateGraphqlAPI_OwnerContact(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 	createdAPI := createResp["graphqlApi"].(map[string]any)
 	assert.Equal(t, "team-a@example.com", createdAPI["ownerContact"])
 	apiID := createdAPI["apiId"].(string)
@@ -375,7 +377,7 @@ func TestHandler_CreateAndUpdateGraphqlAPI_OwnerContact(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getResp, jsonx.V1()))
 	assert.Equal(t, "team-a@example.com", getResp["graphqlApi"].(map[string]any)["ownerContact"])
 
 	updateRec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+apiID,
@@ -383,7 +385,7 @@ func TestHandler_CreateAndUpdateGraphqlAPI_OwnerContact(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &updateResp, jsonx.V1()))
 	assert.Equal(t, "team-b@example.com", updateResp["graphqlApi"].(map[string]any)["ownerContact"])
 }
 
@@ -399,7 +401,7 @@ func TestHandler_EnvironmentVariables(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &getResp, jsonx.V1()))
 	assert.Empty(t, getResp["environmentVariables"])
 
 	// Put env vars.
@@ -408,7 +410,7 @@ func TestHandler_EnvironmentVariables(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&putResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &putResp, jsonx.V1()))
 	envVars := putResp["environmentVariables"].(map[string]any)
 	assert.Equal(t, "value1", envVars["KEY1"])
 	assert.Equal(t, "value2", envVars["KEY2"])
@@ -418,7 +420,7 @@ func TestHandler_EnvironmentVariables(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getResp2 map[string]any
-	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec3.Body), &getResp2, jsonx.V1()))
 	envVars2 := getResp2["environmentVariables"].(map[string]any)
 	assert.Equal(t, "value1", envVars2["KEY1"])
 }
@@ -480,7 +482,7 @@ func TestHandler_CreateGraphqlAPI_XrayEnabled(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			apiObj := resp["graphqlApi"].(map[string]any)
 			assert.NotEmpty(t, apiObj["apiId"])
 
@@ -540,7 +542,7 @@ func TestHandler_UpdateGraphqlAPI_XrayEnabled(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			apiObj := resp["graphqlApi"].(map[string]any)
 			// xrayEnabled omits false in JSON (omitempty), so nil == false.
 			gotXray, _ := apiObj["xrayEnabled"].(bool)
@@ -560,7 +562,7 @@ func TestHandler_ListGraphqlAPIs_ApiTypeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	apis := resp["graphqlApis"].([]any)
 	assert.Len(t, apis, 1)
 }

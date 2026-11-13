@@ -1,7 +1,7 @@
 package dms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
@@ -191,7 +192,7 @@ func TestCreateReplicationTask_ARNValidation(t *testing.T) {
 			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundFault", body["__type"],
 				"non-existent ARN in CreateReplicationTask must return ResourceNotFoundFault")
 		})
@@ -227,7 +228,7 @@ func TestCreateReplicationTask_InvalidMigrationType(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ValidationException", body["__type"],
 				"invalid MigrationType must return ValidationException")
 		})
@@ -306,7 +307,7 @@ func TestStopReplicationTask_NotRunning(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "InvalidResourceStateFault", body["__type"],
 				"stopping a non-running task must return InvalidResourceStateFault")
 		})

@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"time"
 
@@ -196,11 +196,11 @@ type InboundConnection struct {
 
 // DataSource represents a data source attached to an OpenSearch domain.
 type DataSource struct {
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	Status         string          `json:"status,omitempty"`
-	DomainName     string          `json:"-"`
-	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status,omitempty"`
+	DomainName     string         `json:"-"`
+	DataSourceType jsontext.Value `json:"dataSourceType,omitempty"`
 }
 
 // DirectQueryDataSource represents a direct-query data source.
@@ -208,12 +208,12 @@ type DirectQueryDataSource struct {
 	// DataSourceType is stored as raw JSON for the same reason as
 	// DataSource.DataSourceType above -- types.DirectQueryDataSourceType is
 	// also a tagged union (CloudWatchLog / SecurityLake members).
-	DataSourceType         json.RawMessage `json:"dataSourceType,omitempty"`
-	Name                   string          `json:"name"`
-	Description            string          `json:"description"`
-	DataSourceArn          string          `json:"dataSourceArn"`
-	DataSourceAccessPolicy string          `json:"dataSourceAccessPolicy,omitempty"`
-	OpenSearchArns         []string        `json:"openSearchArns"`
+	DataSourceType         jsontext.Value `json:"dataSourceType,omitempty"`
+	Name                   string         `json:"name"`
+	Description            string         `json:"description"`
+	DataSourceArn          string         `json:"dataSourceArn"`
+	DataSourceAccessPolicy string         `json:"dataSourceAccessPolicy,omitempty"`
+	OpenSearchArns         []string       `json:"openSearchArns"`
 }
 
 // DomainPackageDetails holds details about a package associated with a domain.

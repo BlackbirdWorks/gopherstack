@@ -1,13 +1,15 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_RequestValidation(t *testing.T) {
@@ -158,7 +160,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 				Type    string `json:"__type"`
 				Message string `json:"message"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, out.Type)
 			assert.Contains(t, out.Message, tt.wantMsg)
 		})
@@ -215,7 +217,7 @@ func TestHandler_ErrorMessagesOmitCode(t *testing.T) {
 				Type    string `json:"__type"`
 				Message string `json:"message"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, out.Type)
 			assert.NotContains(t, out.Message, tt.wantCode)
 			assert.NotContains(t, out.Message, "invalid request:")

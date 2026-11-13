@@ -1,9 +1,10 @@
 package networkmanager
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -201,7 +202,7 @@ func (b *InMemoryBackend) coreNetworkScopedResourceItems(
 }
 
 func mustJSON(v any) string {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return "{}"
 	}

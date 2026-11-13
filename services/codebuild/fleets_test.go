@@ -1,13 +1,16 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateFleet(t *testing.T) {
@@ -115,7 +118,7 @@ func TestHandler_BatchGetFleets(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			fleets, _ := out["fleets"].([]any)
 			assert.Len(t, fleets, tt.wantFound)
@@ -146,7 +149,7 @@ func TestCodeBuild_Fleet(t *testing.T) {
 				BaseCapacity int    `json:"baseCapacity"`
 			} `json:"fleet"`
 		}
-		require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 		fleetArn := createOut.Fleet.Arn
 
 		updRec := doRequest(t, h, "UpdateFleet", map[string]any{
@@ -160,7 +163,7 @@ func TestCodeBuild_Fleet(t *testing.T) {
 				BaseCapacity int `json:"baseCapacity"`
 			} `json:"fleet"`
 		}
-		require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updOut, jsonx.V1()))
 		assert.Equal(t, 5, updOut.Fleet.BaseCapacity)
 	})
 
@@ -215,7 +218,7 @@ func TestHandler_CreateFleet_StatusSchema(t *testing.T) {
 					BaseCapacity float64 `json:"baseCapacity"`
 				} `json:"fleet"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.InDelta(t, tt.wantBaseCapacity, out.Fleet.BaseCapacity, 0)
 			assert.Equal(t, tt.wantStatusCode, out.Fleet.Status.StatusCode)
 		})
@@ -258,7 +261,7 @@ func TestHandler_CreateFleet_ExtendedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out fleetExtendedFields
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.Fleet.ID)
 	assert.Equal(t, "ON_DEMAND", out.Fleet.OverflowBehavior)
 	assert.Equal(t, "aws/codebuild/standard:7.0", out.Fleet.ImageID)
@@ -282,7 +285,7 @@ func TestHandler_UpdateFleet_ExtendedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut fleetExtendedFields
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 	updRec := doRequest(t, h, "UpdateFleet", map[string]any{
 		"arn":              createOut.Fleet.Arn,
@@ -294,7 +297,7 @@ func TestHandler_UpdateFleet_ExtendedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var out fleetExtendedFields
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &out, jsonx.V1()))
 	assert.Equal(t, createOut.Fleet.ID, out.Fleet.ID, "id must not change across an update")
 	assert.Equal(t, "QUEUE", out.Fleet.OverflowBehavior)
 	assert.Equal(t, "aws/codebuild/standard:6.0", out.Fleet.ImageID)
@@ -498,7 +501,7 @@ func TestHandler_Fleet_NestedConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createOut fleetNestedConfig
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			out := createOut
 			if tt.updateBody != nil {
@@ -509,7 +512,7 @@ func TestHandler_Fleet_NestedConfiguration(t *testing.T) {
 				require.Equal(t, http.StatusOK, updRec.Code)
 
 				var updOut fleetNestedConfig
-				require.NoError(t, json.NewDecoder(updRec.Body).Decode(&updOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &updOut, jsonx.V1()))
 				out = updOut
 			}
 
@@ -566,7 +569,7 @@ func TestHandler_DeleteFleet_RemovesFleet(t *testing.T) {
 						Arn string `json:"arn"`
 					} `json:"fleet"`
 				}
-				require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 				fleetArn = createOut.Fleet.Arn
 			} else {
 				fleetArn = tt.deleteArn
@@ -582,7 +585,7 @@ func TestHandler_DeleteFleet_RemovesFleet(t *testing.T) {
 				var listOut struct {
 					Fleets []string `json:"fleets"`
 				}
-				require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 				assert.Empty(t, listOut.Fleets, "fleet should be removed from list after delete")
 			}
 		})

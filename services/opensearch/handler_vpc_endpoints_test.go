@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -102,7 +104,7 @@ func TestVpcEndpoints_CreateAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, cr.StatusCode)
 
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	ep := cOut["VpcEndpoint"].(map[string]any)
 	assert.NotEmpty(t, ep["VpcEndpointId"])
 	assert.Equal(t, "ACTIVE", ep["Status"])
@@ -120,7 +122,7 @@ func TestVpcEndpoints_CreateAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	eps, ok := lOut["VpcEndpointSummaryList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, eps, 1)
@@ -175,7 +177,7 @@ func TestVpcEndpoints_ListOmitsGetOnlyFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, lr.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(lr.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &out, jsonx.V1()))
 			items, ok := out[tt.key].([]any)
 			require.True(t, ok)
 			require.Len(t, items, 1)
@@ -205,7 +207,7 @@ func TestVpcEndpoints_DescribeByIDs(t *testing.T) {
 	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints",
 		map[string]any{"DomainArn": domARN, "VpcOptions": map[string]any{}})
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	cr.Body.Close()
 	epID := cOut["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
 
@@ -216,7 +218,7 @@ func TestVpcEndpoints_DescribeByIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	described, ok := dOut["VpcEndpoints"].([]any)
 	require.True(t, ok)
 	assert.Len(t, described, 1)
@@ -232,7 +234,7 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints",
 		map[string]any{"DomainArn": domARN, "VpcOptions": map[string]any{}})
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	cr.Body.Close()
 	epID := cOut["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
 
@@ -248,7 +250,7 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, del.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(del.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(del.Body), &dOut, jsonx.V1()))
 	summary := dOut["VpcEndpointSummary"].(map[string]any)
 	assert.Equal(t, epID, summary["VpcEndpointId"])
 	assert.Equal(t, domARN, summary["DomainArn"])
@@ -258,7 +260,7 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	lr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/vpcEndpoints", nil)
 	defer lr.Body.Close()
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	eps := lOut["VpcEndpointSummaryList"].([]any)
 	assert.Empty(t, eps)
 }
@@ -304,7 +306,7 @@ func TestVpcEndpoints_DescribeUnknownIDReturnsEndpointNotFoundError(t *testing.T
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	errs, ok := dOut["VpcEndpointErrors"].([]any)
 	require.True(t, ok)
 	require.Len(t, errs, 1)

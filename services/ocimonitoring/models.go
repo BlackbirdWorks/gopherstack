@@ -1,7 +1,7 @@
 package ocimonitoring
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -75,7 +75,7 @@ type Alarm struct {
 	PerDimension        *bool             `json:"isNotificationsPerMetricDimensionEnabled,omitempty"`
 	Tags                Tags              `json:"tags"`
 	Extra               map[string]string `json:"extra,omitempty"`
-	Overrides           []json.RawMessage `json:"overrides,omitempty"`
+	Overrides           []jsontext.Value  `json:"overrides,omitempty"`
 	ID                  string            `json:"id"`
 	Name                string            `json:"displayName"`
 	CompartmentID       string            `json:"compartmentId"`

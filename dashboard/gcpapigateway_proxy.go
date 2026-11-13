@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 )
 
@@ -194,7 +195,7 @@ func (a *gcpAPIGWProxy) tryIt(ctx context.Context, r gcpRESTCall) (proto.Message
 	bad := status.Error(codes.InvalidArgument, "invalid API Gateway try-it request")
 
 	var in gcpAPIGWTryIn
-	if len(r.body) > gcpAPIGWMaxBody || json.Unmarshal(r.body, &in) != nil {
+	if len(r.body) > gcpAPIGWMaxBody || json.Unmarshal(r.body, &in, jsonx.V1()) != nil {
 		return nil, bad
 	}
 
@@ -257,7 +258,7 @@ func gcpAPIGWTryTarget(project, location, gateway string, in gcpAPIGWTryIn) (str
 
 // structOf converts a JSON-compatible value into the protobuf Struct the REST proxy renders.
 func structOf(v any) (proto.Message, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, status.Error(codes.Internal, "unreadable response")
 	}

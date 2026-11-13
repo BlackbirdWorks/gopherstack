@@ -2,7 +2,7 @@ package iam
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -148,7 +149,7 @@ func filterPrincipalDocs(docs []string, condCtx ConditionContext) []string {
 
 func filterPrincipalDoc(doc string, condCtx ConditionContext) string {
 	var raw map[string]any
-	if json.Unmarshal([]byte(doc), &raw) != nil {
+	if json.Unmarshal([]byte(doc), &raw, jsonx.V1()) != nil {
 		return doc
 	}
 
@@ -162,7 +163,7 @@ func filterPrincipalDoc(doc string, condCtx ConditionContext) string {
 
 	raw["Statement"] = kept
 
-	out, err := json.Marshal(raw)
+	out, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return doc
 	}

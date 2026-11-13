@@ -3,7 +3,7 @@ package glacier_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -57,7 +58,7 @@ func TestUploadDeleteArchive(t *testing.T) {
 			assert.Equal(t, http.StatusCreated, rec2.Code)
 
 			var uploadResp map[string]any
-			err = json.Unmarshal(rec2.Body.Bytes(), &uploadResp)
+			err = json.Unmarshal(rec2.Body.Bytes(), &uploadResp, jsonx.V1())
 			require.NoError(t, err)
 
 			archiveID := uploadResp["archiveId"].(string)
@@ -190,7 +191,7 @@ func TestUploadArchive_TreeHashReturnedInResponse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, expectedHash, resp["checksum"])
 	assert.Equal(t, expectedHash, rec.Header().Get("X-Amz-Sha256-Tree-Hash"))
 }

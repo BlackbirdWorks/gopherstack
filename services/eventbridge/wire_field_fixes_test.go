@@ -1,7 +1,7 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -387,7 +388,7 @@ func TestPutPermission_Condition_RoundTripsThroughPolicy(t *testing.T) {
 			Sid       string                       `json:"Sid"`
 		} `json:"Statement"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(described.Policy)), &doc))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(described.Policy)), &doc, jsonx.V1()))
 	require.Len(t, doc.Statement, 1)
 	assert.Equal(t, "OrgGrant", doc.Statement[0].Sid)
 	require.NotEmpty(

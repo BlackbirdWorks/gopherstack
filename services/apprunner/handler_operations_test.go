@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListOperations(t *testing.T) {
@@ -22,7 +24,7 @@ func TestListOperations(t *testing.T) {
 	rec := doRequest(t, h, "ListOperations", map[string]any{"ServiceArn": svcArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ops, ok := resp["OperationSummaryList"].([]any)
 	require.True(t, ok)
 	// CREATE + PAUSE + RESUME = 3 operations

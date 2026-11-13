@@ -2,7 +2,9 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createActivityInput struct {
@@ -100,7 +102,7 @@ func (h *Handler) activityActions() map[string]actionFn {
 
 func (h *Handler) handleCreateActivity(ctx context.Context, b []byte) (any, error) {
 	var input createActivityInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -131,7 +133,7 @@ func (h *Handler) handleCreateActivity(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleDeleteActivity(b []byte) (any, error) {
 	var input deleteActivityInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -154,7 +156,7 @@ func (h *Handler) handleDeleteActivity(b []byte) (any, error) {
 
 func (h *Handler) handleDescribeActivity(b []byte) (any, error) {
 	var input describeActivityInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -163,7 +165,7 @@ func (h *Handler) handleDescribeActivity(b []byte) (any, error) {
 
 func (h *Handler) handleListActivities(ctx context.Context, b []byte) (any, error) {
 	var input listActivitiesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -182,7 +184,7 @@ func (h *Handler) handleListActivities(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleSendTaskSuccess(b []byte) (any, error) {
 	var input sendTaskSuccessInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -195,7 +197,7 @@ func (h *Handler) handleSendTaskSuccess(b []byte) (any, error) {
 
 func (h *Handler) handleSendTaskFailure(b []byte) (any, error) {
 	var input sendTaskFailureInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -208,7 +210,7 @@ func (h *Handler) handleSendTaskFailure(b []byte) (any, error) {
 
 func (h *Handler) handleSendTaskHeartbeat(b []byte) (any, error) {
 	var input sendTaskHeartbeatInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -222,7 +224,7 @@ func (h *Handler) handleSendTaskHeartbeat(b []byte) (any, error) {
 // handleGetActivityTask handles GetActivityTask with context support for long-polling.
 func (h *Handler) handleGetActivityTask(ctx context.Context, body []byte) ([]byte, error) {
 	var input getActivityTaskInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -232,11 +234,11 @@ func (h *Handler) handleGetActivityTask(ctx context.Context, body []byte) ([]byt
 	}
 
 	if task == nil {
-		return json.Marshal(&getActivityTaskOutput{})
+		return json.Marshal(&getActivityTaskOutput{}, jsonx.V1())
 	}
 
 	return json.Marshal(&getActivityTaskOutput{
 		TaskToken: task.TaskToken,
 		Input:     task.Input,
-	})
+	}, jsonx.V1())
 }

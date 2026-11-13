@@ -1,11 +1,13 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createBackupVaultBody struct {
@@ -24,7 +26,7 @@ func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []b
 
 	var in createBackupVaultBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -192,7 +194,7 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 
 	var in associateMpaApprovalTeamBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -230,7 +232,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 
 	var in createLogicallyAirGappedBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -264,7 +266,7 @@ type createRestoreAccessVaultBody struct {
 
 func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []byte) error {
 	var in createRestoreAccessVaultBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 

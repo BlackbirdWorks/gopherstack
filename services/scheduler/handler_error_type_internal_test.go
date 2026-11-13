@@ -2,7 +2,7 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -42,6 +43,6 @@ func TestHandleError_GenericErrorSurfacesInternalServerException(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
 	var payload service.JSONErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload, jsonx.V1()))
 	assert.Equal(t, "InternalServerException", payload.Type)
 }

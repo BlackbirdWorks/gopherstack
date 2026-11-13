@@ -1,12 +1,14 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_AnalyzeID(t *testing.T) {
@@ -57,7 +59,7 @@ func TestHandler_AnalyzeID(t *testing.T) {
 
 			if !tt.wantErr {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				docs, ok := resp["IdentityDocuments"].([]any)
 				assert.True(t, ok)
 				assert.Len(t, docs, 2)
@@ -83,7 +85,7 @@ func TestHandler_AnalyzeID_IdentityDocumentFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, ok := resp["IdentityDocuments"].([]any)
 	require.True(t, ok)
@@ -133,7 +135,7 @@ func TestHandler_AnalyzeID_NormalizedValueDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, _ := resp["IdentityDocuments"].([]any)
 	doc, _ := docs[0].(map[string]any)
@@ -180,7 +182,7 @@ func TestHandler_AnalyzeID_DocumentIndex(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	docs, ok := m["IdentityDocuments"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, docs)
@@ -206,7 +208,7 @@ func TestHandler_AnalyzeID_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	ver, ok := m["AnalyzeIDModelVersion"].(string)
 	assert.True(t, ok, "AnalyzeID response must have AnalyzeIDModelVersion")
 	assert.Equal(t, "1.0", ver)
@@ -227,7 +229,7 @@ func TestHandler_AnalyzeID_MultiPageDocumentIndex(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	docs, ok := m["IdentityDocuments"].([]any)
 	require.True(t, ok)
 	require.Len(t, docs, 2, "two DocumentPages should yield two IdentityDocuments")
@@ -277,7 +279,7 @@ func TestHandler_AnalyzeID_DocumentMetadataPagesMatchesInputCount(t *testing.T) 
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			meta, _ := resp["DocumentMetadata"].(map[string]any)
 			gotPages, _ := meta["Pages"].(float64)
 			assert.InDelta(t, float64(tc.pageCount), gotPages, 0,
@@ -310,7 +312,7 @@ func TestHandler_AnalyzeID_NoFabricatedGeometry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, ok := resp["IdentityDocuments"].([]any)
 	require.True(t, ok)

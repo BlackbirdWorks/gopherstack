@@ -1,8 +1,10 @@
 package bedrockagent
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // defaultIdleSessionTTLSeconds is the default agent idle session TTL (10 minutes),
@@ -493,7 +495,7 @@ func (d *DataSource) UnmarshalJSON(data []byte) error {
 		*dataSourceAlias
 	}{dataSourceAlias: (*dataSourceAlias)(d)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const fanoutQueueName = "fanout-queue"
@@ -55,7 +56,7 @@ func (f *fanoutEnv) spans(t *testing.T, query string) []apptrace.Span {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var res apptrace.ListResult
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res, jsonx.V1()))
 
 	return res.Items
 }

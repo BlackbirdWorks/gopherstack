@@ -1,8 +1,10 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -24,7 +26,7 @@ func toQueryDSL(_ *utilEnv, a []any) (any, error) {
 		return nil, err
 	}
 
-	b, err := json.Marshal(q)
+	b, err := json.Marshal(q, jsonx.V1())
 
 	return string(b), err
 }

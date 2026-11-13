@@ -2,12 +2,13 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // JSON response key used by the domain association handlers.
@@ -79,7 +80,7 @@ func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, 
 		EnableAutoSubDomain           bool                         `json:"enableAutoSubDomain"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -163,7 +164,7 @@ func (h *Handler) updateDomainAssociation(
 		AutoSubDomainCreationPatterns []string                     `json:"autoSubDomainCreationPatterns"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 

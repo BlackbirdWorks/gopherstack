@@ -2,11 +2,14 @@ package gremlin
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const uuidBytes = 16
@@ -79,7 +82,8 @@ func recoverFrame(messageType int, data []byte) FrameRequest {
 		RequestID string `json:"requestId"`
 	}
 
-	if json.NewDecoder(bytes.NewReader(body)).Decode(&raw) == nil && raw.RequestID != "" {
+	if json.UnmarshalDecode(jsontext.NewDecoder(bytes.NewReader(body)), &raw, jsonx.V1()) == nil &&
+		raw.RequestID != "" {
 		req.ID = raw.RequestID
 	}
 

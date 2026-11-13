@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
@@ -40,7 +41,7 @@ type wsLambda struct {
 
 func (l *wsLambda) InvokeFunction(_ context.Context, fn, _ string, payload []byte) ([]byte, int, error) {
 	var ev map[string]any
-	_ = json.Unmarshal(payload, &ev)
+	_ = json.Unmarshal(payload, &ev, jsonx.V1())
 	l.calls <- wsLambdaCall{fn: fn, event: ev}
 
 	if h := l.handlers[fn]; h != nil {
@@ -459,7 +460,7 @@ func TestWebSocket_NoMatchingRouteSendsForbidden(t *testing.T) {
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"action":"x"}`)))
 
 	var frame map[string]string
-	require.NoError(t, json.Unmarshal([]byte(readText(t, conn)), &frame))
+	require.NoError(t, json.Unmarshal([]byte(readText(t, conn)), &frame, jsonx.V1()))
 	assert.Equal(t, "Forbidden", frame["message"])
 	assert.NotEmpty(t, frame["connectionId"])
 }

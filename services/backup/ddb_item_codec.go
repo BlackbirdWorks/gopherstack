@@ -2,20 +2,23 @@ package backup
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
-func encodeDDBItem(item map[string]ddbtypes.AttributeValue) (map[string]json.RawMessage, error) {
-	out := make(map[string]json.RawMessage, len(item))
+func encodeDDBItem(item map[string]ddbtypes.AttributeValue) (map[string]jsontext.Value, error) {
+	out := make(map[string]jsontext.Value, len(item))
 	for k, v := range item {
 		w, err := ddbAttrToWire(v)
 		if err != nil {
 			return nil, err
 		}
-		raw, err := json.Marshal(w)
+		raw, err := json.Marshal(w, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("encode attribute %s: %w", k, err)
 		}
@@ -25,11 +28,11 @@ func encodeDDBItem(item map[string]ddbtypes.AttributeValue) (map[string]json.Raw
 	return out, nil
 }
 
-func decodeDDBItem(raw map[string]json.RawMessage) (map[string]ddbtypes.AttributeValue, error) {
+func decodeDDBItem(raw map[string]jsontext.Value) (map[string]ddbtypes.AttributeValue, error) {
 	out := make(map[string]ddbtypes.AttributeValue, len(raw))
 	for k, r := range raw {
 		var w map[string]any
-		if err := json.Unmarshal(r, &w); err != nil {
+		if err := json.Unmarshal(r, &w, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("decode attribute %s: %w", k, err)
 		}
 		av, err := ddbWireToAttr(w)

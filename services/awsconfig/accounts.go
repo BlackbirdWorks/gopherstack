@@ -1,11 +1,13 @@
 package awsconfig
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -98,7 +100,7 @@ func (s *accountSet) snapshot(base []byte, snap func(*Handler) []byte) []byte {
 	}
 
 	s.mu.RLock("snapshot")
-	accounts := make(map[string]json.RawMessage, len(s.peers))
+	accounts := make(map[string]jsontext.Value, len(s.peers))
 
 	for a, p := range s.peers {
 		if data := snap(p); data != nil {
@@ -111,19 +113,19 @@ func (s *accountSet) snapshot(base []byte, snap func(*Handler) []byte) []byte {
 		return base
 	}
 
-	doc := make(map[string]json.RawMessage)
-	if err := json.Unmarshal(base, &doc); err != nil {
+	doc := make(map[string]jsontext.Value)
+	if err := json.Unmarshal(base, &doc, jsonx.V1()); err != nil {
 		return base
 	}
 
-	enc, err := json.Marshal(accounts)
+	enc, err := json.Marshal(accounts, jsonx.V1())
 	if err != nil {
 		return base
 	}
 
 	doc[accountsSnapshotKey] = enc
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return base
 	}
@@ -142,10 +144,10 @@ func (s *accountSet) restore(data []byte, restore func(*Handler, []byte) error) 
 	}
 
 	var doc struct {
-		Accounts map[string]json.RawMessage `json:"accounts"`
+		Accounts map[string]jsontext.Value `json:"accounts"`
 	}
 
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return err
 	}
 

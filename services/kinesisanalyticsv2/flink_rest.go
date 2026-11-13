@@ -3,7 +3,7 @@ package kinesisanalyticsv2
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/textproto"
 	"path"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const flinkMaxBody = 1 << 20
@@ -89,7 +91,7 @@ func (c flinkREST) send(ctx context.Context, method, p, contentType string, body
 		return nil
 	}
 
-	if err = json.Unmarshal(raw, out); err != nil {
+	if err = json.Unmarshal(raw, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode flink response: %w", err)
 	}
 
@@ -100,7 +102,7 @@ func (c flinkREST) json(ctx context.Context, method, p string, in, out any) erro
 	var body io.Reader
 
 	if in != nil {
-		raw, err := json.Marshal(in)
+		raw, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return fmt.Errorf("encode flink request: %w", err)
 		}

@@ -1,7 +1,7 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -211,7 +212,7 @@ func (b *InMemoryBackend) ExportBackupPlanTemplate(planID string) (string, error
 		doc.AdvancedBackupSettings = advancedSettingsToJSON(plan.AdvancedBackupSettings)
 	}
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return "", err
 	}

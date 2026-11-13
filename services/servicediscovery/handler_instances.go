@@ -2,10 +2,11 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type registerInstanceRequest struct {
@@ -17,7 +18,7 @@ type registerInstanceRequest struct {
 
 func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte, error) {
 	var req registerInstanceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -46,7 +47,7 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type deregisterInstanceRequest struct {
@@ -56,7 +57,7 @@ type deregisterInstanceRequest struct {
 
 func (h *Handler) handleDeregisterInstance(_ context.Context, body []byte) ([]byte, error) {
 	var req deregisterInstanceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -73,7 +74,7 @@ func (h *Handler) handleDeregisterInstance(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type getInstanceRequest struct {
@@ -83,7 +84,7 @@ type getInstanceRequest struct {
 
 func (h *Handler) handleGetInstance(_ context.Context, body []byte) ([]byte, error) {
 	var req getInstanceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -105,7 +106,7 @@ func (h *Handler) handleGetInstance(_ context.Context, body []byte) ([]byte, err
 			"Id":          inst.ID,
 			keyAttributes: inst.Attributes,
 		},
-	})
+	}, jsonx.V1())
 }
 
 type listInstancesRequest struct {
@@ -116,7 +117,7 @@ type listInstancesRequest struct {
 
 func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, error) {
 	var req listInstancesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -156,7 +157,7 @@ func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, e
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type getInstancesHealthStatusRequest struct {
@@ -170,7 +171,7 @@ type getInstancesHealthStatusRequest struct {
 // Instances without a recorded custom status default to HEALTHY.
 func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte) ([]byte, error) {
 	var req getInstancesHealthStatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -206,7 +207,7 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type updateInstanceCustomHealthStatusRequest struct {
@@ -217,7 +218,7 @@ type updateInstanceCustomHealthStatusRequest struct {
 
 func (h *Handler) handleUpdateInstanceCustomHealthStatus(_ context.Context, body []byte) error {
 	var req updateInstanceCustomHealthStatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

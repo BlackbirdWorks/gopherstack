@@ -1,7 +1,7 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -92,10 +93,10 @@ func (f *cacheFixture) query(t *testing.T, q string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out gqlReply
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Empty(t, out.Errors, rec.Body.String())
 
-	raw, err := json.Marshal(out.Data)
+	raw, err := json.Marshal(out.Data, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)

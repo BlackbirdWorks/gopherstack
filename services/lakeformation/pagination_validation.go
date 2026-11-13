@@ -1,10 +1,12 @@
 package lakeformation
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,11 +24,11 @@ func validatePagination(op string, body []byte) error {
 		NextToken  string `json:"NextToken"`
 	}
 
-	if !json.Valid(body) {
+	if !jsontext.Value(body).IsValid(jsonx.V1()) {
 		return nil
 	}
 
-	_ = json.Unmarshal(body, &in)
+	_ = json.Unmarshal(body, &in, jsonx.V1())
 
 	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxListResults) {
 		return fmt.Errorf("MaxResults must be between 1 and %d: %w", maxListResults, ErrValidation)

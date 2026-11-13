@@ -2,7 +2,7 @@ package bedrockagentcorecontrol
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"slices"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -511,7 +512,7 @@ func (b *InMemoryBackend) matches(r *Resource, sp *opSpec, in args) bool {
 				return false
 			}
 		case "targetResourceScope":
-			raw, _ := json.Marshal(r.Doc["definition"])
+			raw, _ := json.Marshal(r.Doc["definition"], jsonx.V1())
 			if !strings.Contains(string(raw), want) {
 				return false
 			}

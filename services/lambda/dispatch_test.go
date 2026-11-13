@@ -1,13 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -223,7 +225,7 @@ func TestListFunctionURLConfigs_All(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionURLConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.FunctionURLConfigs, 2)
 }
 
@@ -250,7 +252,7 @@ func TestHandlerReset_ClearsState(t *testing.T) {
 	require.Equal(t, http.StatusOK, listCSC.Code)
 
 	var listOut lambda.ListCodeSigningConfigsOutput
-	require.NoError(t, json.NewDecoder(listCSC.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listCSC.Body), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.CodeSigningConfigs)
 
 	// Reset
@@ -261,7 +263,7 @@ func TestHandlerReset_ClearsState(t *testing.T) {
 	require.Equal(t, http.StatusOK, listCSC2.Code)
 
 	var listOut2 lambda.ListCodeSigningConfigsOutput
-	require.NoError(t, json.NewDecoder(listCSC2.Body).Decode(&listOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listCSC2.Body), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2.CodeSigningConfigs)
 
 	// Verify capacity providers are cleared
@@ -269,6 +271,6 @@ func TestHandlerReset_ClearsState(t *testing.T) {
 	require.Equal(t, http.StatusOK, listCP.Code)
 
 	var listOutCP lambda.ListCapacityProvidersOutput
-	require.NoError(t, json.NewDecoder(listCP.Body).Decode(&listOutCP))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listCP.Body), &listOutCP, jsonx.V1()))
 	assert.Empty(t, listOutCP.CapacityProviders)
 }

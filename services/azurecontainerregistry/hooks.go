@@ -1,11 +1,12 @@
 package azurecontainerregistry
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -36,7 +37,7 @@ func loadChange(app http.Handler, r *http.Request, repo, ref string) (ManifestCh
 	}
 
 	var doc manifestDoc
-	if json.Unmarshal(m.Body, &doc) == nil {
+	if json.Unmarshal(m.Body, &doc, jsonx.V1()) == nil {
 		c.ConfigType = doc.Config.MediaType
 
 		if doc.MediaType != "" {

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateImage(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_CreateImage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ImageArn"], "my-image")
 }
 
@@ -40,7 +42,7 @@ func TestHandler_DescribeImage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "img-1", resp["ImageName"])
 	assert.Equal(t, "CREATED", resp["ImageStatus"])
 }
@@ -70,7 +72,7 @@ func TestHandler_ListImages(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["Images"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -92,7 +94,7 @@ func TestHandler_CreateImageVersion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ImageVersionArn"], "img-ver")
 }
 
@@ -110,7 +112,7 @@ func TestHandler_DescribeImageVersion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.InEpsilon(t, float64(1), resp["Version"], 0.001)
 	assert.Equal(t, "CREATED", resp["ImageVersionStatus"])
 }
@@ -132,7 +134,7 @@ func TestHandler_ListImageVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["ImageVersions"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -208,7 +210,7 @@ func TestHandler_ListAliases(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	aliases, _ := out["SageMakerImageVersionAliases"].([]any)
 	assert.ElementsMatch(t, []any{"latest", "stable"}, aliases)
 }
@@ -249,7 +251,7 @@ func TestHandler_UpdateImage(t *testing.T) {
 	})
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "updated", resp["Description"])
 	assert.Equal(t, "My Image", resp["DisplayName"])
 
@@ -264,7 +266,7 @@ func TestHandler_UpdateImage(t *testing.T) {
 	})
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Empty(t, resp2["Description"])
 }
 
@@ -307,7 +309,7 @@ func TestHandler_UpdateImageVersion(t *testing.T) {
 	})
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PyTorch 2.0", resp["MLFramework"])
 	aliases, ok := resp["Aliases"].([]any)
 	require.True(t, ok)
@@ -326,7 +328,7 @@ func TestHandler_UpdateImageVersion(t *testing.T) {
 	})
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &resp2, jsonx.V1()))
 	aliases2, ok := resp2["Aliases"].([]any)
 	require.True(t, ok)
 	assert.Len(t, aliases2, 1)

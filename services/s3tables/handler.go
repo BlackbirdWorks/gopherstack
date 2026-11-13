@@ -2,7 +2,7 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -530,7 +531,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	payload, _ := json.Marshal(map[string]string{
 		"message": msg,
-	})
+	}, jsonx.V1())
 
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 

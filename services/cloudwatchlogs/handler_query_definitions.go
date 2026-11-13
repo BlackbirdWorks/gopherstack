@@ -2,7 +2,9 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- PutQueryDefinition ---.
@@ -46,7 +48,7 @@ func (h *Handler) handlePutQueryDefinition(
 	b []byte,
 ) (any, error) {
 	var input putQueryDefinitionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	id, err := h.Backend.PutQueryDefinitionWithLanguage(
@@ -69,7 +71,7 @@ func (h *Handler) handleDescribeQueryDefinitions(
 	b []byte,
 ) (any, error) {
 	var input describeQueryDefinitionsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	defs, next, err := h.Backend.DescribeQueryDefinitionsByLanguage(
@@ -90,7 +92,7 @@ func (h *Handler) handleDeleteQueryDefinition(
 	b []byte,
 ) (any, error) {
 	var input deleteQueryDefinitionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteQueryDefinition(input.QueryDefinitionID); err != nil {

@@ -1,7 +1,7 @@
 package timestreaminfluxdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"testing"
@@ -192,7 +192,7 @@ func TestParameterEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, tt.want, timestreaminfluxdb.ParameterEnv(json.RawMessage(tt.in)))
+			assert.Equal(t, tt.want, timestreaminfluxdb.ParameterEnv(jsontext.Value(tt.in)))
 		})
 	}
 }

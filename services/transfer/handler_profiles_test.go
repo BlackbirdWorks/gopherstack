@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ProfileCertificateIDsRoundtrip verifies that CertificateIds set via UpdateProfile
@@ -25,7 +27,7 @@ func TestHandler_ProfileCertificateIDsRoundtrip(t *testing.T) {
 	var createOut struct {
 		ProfileID string `json:"ProfileId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	certIDs := []string{"cert-aaa111", "cert-bbb222"}
 	updateRec := doTransferRequest(t, h, "UpdateProfile", map[string]any{
@@ -44,7 +46,7 @@ func TestHandler_ProfileCertificateIDsRoundtrip(t *testing.T) {
 			CertificateIDs []string `json:"CertificateIds"`
 		} `json:"Profile"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.Equal(t, certIDs, descOut.Profile.CertificateIDs)
 }
@@ -62,7 +64,7 @@ func TestHandler_DescribeProfileIncludesArnAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	profileID := createResp["ProfileId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeProfile", map[string]any{
@@ -71,7 +73,7 @@ func TestHandler_DescribeProfileIncludesArnAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	profile := resp["Profile"].(map[string]any)
 
 	arn, hasArn := profile["Arn"].(string)
@@ -98,7 +100,7 @@ func TestHandler_ListProfilesIncludesArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	profiles := resp["Profiles"].([]any)
 	require.NotEmpty(t, profiles)
 
@@ -119,7 +121,7 @@ func TestHandler_ProfileARNContainsAccountAndRegion(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	profileID := createResp["ProfileId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeProfile", map[string]any{
@@ -128,7 +130,7 @@ func TestHandler_ProfileARNContainsAccountAndRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	profile := resp["Profile"].(map[string]any)
 
 	// newTestHandler uses testAccountID = "123456789012" and testRegion = "us-east-1"
@@ -192,7 +194,7 @@ func TestHandler_CreateProfileReturnsProfileID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["ProfileId"])
 }
 
@@ -237,7 +239,7 @@ func TestHandler_CreateProfile(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["ProfileId"])
 			}
 		})
@@ -256,7 +258,7 @@ func TestHandler_DescribeProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	profileID := createResp["ProfileId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeProfile", map[string]any{
@@ -285,7 +287,7 @@ func TestHandler_DeleteProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	profileID := createResp["ProfileId"].(string)
 
 	rec := doTransferRequest(t, h, "DeleteProfile", map[string]any{
@@ -306,7 +308,7 @@ func TestHandler_UpdateProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	profileID := createResp["ProfileId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateProfile", map[string]any{

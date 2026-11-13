@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -20,7 +21,7 @@ func rdsdataRequest(t *testing.T, path string, body any) *http.Response {
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -96,7 +97,7 @@ func TestIntegration_RDSData_TransactionLifecycle(t *testing.T) {
 
 	// Parse the transaction ID.
 	var beginResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(beginBody), &beginResult))
+	require.NoError(t, json.Unmarshal([]byte(beginBody), &beginResult, jsonx.V1()))
 	txID, ok := beginResult["transactionId"].(string)
 	require.True(t, ok, "transactionId should be a string")
 	require.NotEmpty(t, txID)
@@ -135,7 +136,7 @@ func TestIntegration_RDSData_RollbackTransaction(t *testing.T) {
 	require.Equal(t, http.StatusOK, beginResp.StatusCode, "body: %s", beginBody)
 
 	var beginResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(beginBody), &beginResult))
+	require.NoError(t, json.Unmarshal([]byte(beginBody), &beginResult, jsonx.V1()))
 	txID, ok := beginResult["transactionId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, txID)

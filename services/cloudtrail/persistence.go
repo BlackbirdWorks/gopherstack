@@ -2,7 +2,7 @@ package cloudtrail
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -30,7 +30,7 @@ const cloudtrailSnapshotVersion = 1
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage     `json:"tables"`
+	Tables           map[string]jsontext.Value      `json:"tables"`
 	EventConfigs     map[string]*EventConfiguration `json:"eventConfigs,omitempty"`
 	AccountID        string                         `json:"accountID"`
 	Region           string                         `json:"region"`

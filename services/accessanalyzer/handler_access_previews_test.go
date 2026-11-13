@@ -1,13 +1,14 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -43,7 +44,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				previewID := created["id"]
 				require.NotEmpty(t, previewID)
 
@@ -51,7 +52,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var got map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got, jsonx.V1()))
 				ap := got["accessPreview"].(map[string]any)
 				assert.Equal(t, previewID, ap["id"])
 				assert.Equal(t, "COMPLETED", ap["status"])
@@ -107,7 +108,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				previews, ok := resp["accessPreviews"].([]any)
 				require.True(t, ok)
 				require.Len(t, previews, 1)
@@ -134,7 +135,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-findings-bucket"),
 				})
 				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				previewID := created["id"]
 
 				rec2 := doRequest(t, h, http.MethodPost, "/access-preview/"+previewID, map[string]any{
@@ -143,7 +144,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				findings := resp["findings"].([]any)
 				require.Len(t, findings, 1)
 
@@ -170,7 +171,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-findings-no-arn-bucket"),
 				})
 				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				previewID := created["id"]
 
 				// ListAccessPreviewFindingsInput requires analyzerArn.

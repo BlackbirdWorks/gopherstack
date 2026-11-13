@@ -1,10 +1,12 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildEdgeOps() map[string]handlerFunc {
@@ -18,7 +20,7 @@ func (h *Handler) buildEdgeOps() map[string]handlerFunc {
 
 func (h *Handler) handleStartEdgeConfigurationUpdate(c *echo.Context, body []byte) error {
 	var req edgeStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.EdgeConfig == nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil || req.EdgeConfig == nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -32,7 +34,7 @@ func (h *Handler) handleStartEdgeConfigurationUpdate(c *echo.Context, body []byt
 
 func (h *Handler) handleDescribeEdgeConfiguration(c *echo.Context, body []byte) error {
 	var req edgeStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -46,7 +48,7 @@ func (h *Handler) handleDescribeEdgeConfiguration(c *echo.Context, body []byte) 
 
 func (h *Handler) handleDeleteEdgeConfiguration(c *echo.Context, body []byte) error {
 	var req edgeStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleDeleteEdgeConfiguration(c *echo.Context, body []byte) er
 
 func (h *Handler) handleListEdgeAgentConfigurations(c *echo.Context, body []byte) error {
 	var req listEdgeAgentConfigurationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

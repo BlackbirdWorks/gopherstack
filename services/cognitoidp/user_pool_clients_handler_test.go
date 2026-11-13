@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -56,7 +57,7 @@ func TestHandler_UpdateUserPoolClient_WithOpts(t *testing.T) {
 					AllowedOAuthScopes []string `json:"AllowedOAuthScopes,omitempty"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "renamed-client", resp.UserPoolClient.ClientName)
 		})
 	}
@@ -75,7 +76,7 @@ func TestHandler_CreateUserPoolClient(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -119,7 +120,7 @@ func TestHandler_DescribeUserPoolClient(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -127,7 +128,7 @@ func TestHandler_DescribeUserPoolClient(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 
 				return poolID, clientResp["UserPoolClient"]["ClientId"].(string)
 			},
@@ -138,7 +139,7 @@ func TestHandler_DescribeUserPoolClient(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string), "nonexistent-client"
 			},
@@ -204,7 +205,7 @@ func TestHandler_DeleteUserPoolClient(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -212,7 +213,7 @@ func TestHandler_DeleteUserPoolClient(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 
 				return poolID, clientResp["UserPoolClient"]["ClientId"].(string)
 			},
@@ -223,7 +224,7 @@ func TestHandler_DeleteUserPoolClient(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string), "nonexistent-client"
 			},
@@ -275,7 +276,7 @@ func TestHandler_ListUserPoolClients(t *testing.T) {
 
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 			var poolResp map[string]map[string]any
-			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 			poolID := poolResp["UserPool"]["Id"].(string)
 
 			for i := range tt.numClients {
@@ -290,7 +291,7 @@ func TestHandler_ListUserPoolClients(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			clients := resp["UserPoolClients"].([]any)
 			assert.Len(t, clients, tt.numClients)
 		})
@@ -337,7 +338,7 @@ func TestHandler_AddUserPoolClientSecret(t *testing.T) {
 			if tt.poolExists {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sec-pool"})
 				var poolResp map[string]any
-				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 				poolID = poolResp["UserPool"].(map[string]any)["Id"].(string)
 			}
 
@@ -347,7 +348,7 @@ func TestHandler_AddUserPoolClientSecret(t *testing.T) {
 					"ClientName": "test-client",
 				})
 				var clientResp map[string]any
-				require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+				require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 				clientID = clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 			}
 
@@ -369,7 +370,7 @@ func TestSortedListUserPoolClients(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-clients-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	for _, name := range []string{"web-client", "android-client", "ios-client"} {
@@ -383,7 +384,7 @@ func TestSortedListUserPoolClients(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	clients := listResp["UserPoolClients"].([]any)
 	require.Len(t, clients, 3)
 	assert.Equal(t, "android-client", clients[0].(map[string]any)["ClientName"])
@@ -397,7 +398,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "secret-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -405,7 +406,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 		"ClientName": "sec-client",
 	})
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 
 	// No secret yet.
@@ -414,7 +415,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 		"ClientId":   clientID,
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Empty(t, descResp["UserPoolClient"].(map[string]any)["ClientSecret"])
 
 	// AddUserPoolClientSecret creates an independently ClientSecretId-keyed
@@ -427,7 +428,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 		"ClientId":   clientID,
 	})
 	var addResp map[string]any
-	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp))
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp, jsonx.V1()))
 	descriptor, ok := addResp["ClientSecretDescriptor"].(map[string]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, descriptor["ClientSecretId"])
@@ -438,7 +439,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 		"ClientId":   clientID,
 	})
 	var descResp2 map[string]any
-	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2, jsonx.V1()))
 	assert.Empty(t, descResp2["UserPoolClient"].(map[string]any)["ClientSecret"])
 
 	listRec := doCognitoRequest(t, h, "ListUserPoolClientSecrets", map[string]any{
@@ -446,7 +447,7 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 		"ClientId":   clientID,
 	})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	secrets, ok := listResp["ClientSecrets"].([]any)
 	require.True(t, ok)
 	require.Len(t, secrets, 1)
@@ -460,14 +461,14 @@ func TestListUserPoolClients_NonNilWhenEmpty(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "empty-clients-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	rec := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{"UserPoolId": poolID})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	clients := listResp["UserPoolClients"].([]any)
 	assert.Empty(t, clients)
 }
@@ -486,7 +487,7 @@ func TestClientLastModifiedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	client := descResp["UserPoolClient"].(map[string]any)
 	creationDate := client["CreationDate"].(float64)
 	lastModBefore := client["LastModifiedDate"].(float64)
@@ -501,7 +502,7 @@ func TestClientLastModifiedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, upRec.Code)
 
 	var upResp map[string]any
-	require.NoError(t, json.Unmarshal(upRec.Body.Bytes(), &upResp))
+	require.NoError(t, json.Unmarshal(upRec.Body.Bytes(), &upResp, jsonx.V1()))
 	updatedClient := upResp["UserPoolClient"].(map[string]any)
 	lastModAfter := updatedClient["LastModifiedDate"].(float64)
 	assert.GreaterOrEqual(t, lastModAfter, creationDate, "LastModifiedDate must be >= CreationDate after update")
@@ -526,7 +527,7 @@ func TestClientOAuthRedirectFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	client := resp["UserPoolClient"].(map[string]any)
 
 	callbackURLs := client["CallbackURLs"].([]any)

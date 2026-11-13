@@ -3,7 +3,8 @@ package bedrockruntime
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -50,16 +52,16 @@ type cvDocument struct {
 }
 
 type cvToolUse struct {
-	ToolUseID string          `json:"toolUseId"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
+	ToolUseID string         `json:"toolUseId"`
+	Name      string         `json:"name"`
+	Input     jsontext.Value `json:"input"`
 }
 
 type cvToolResult struct {
 	ToolUseID string `json:"toolUseId"`
 	Content   []struct {
-		Text *string         `json:"text"`
-		JSON json.RawMessage `json:"json"`
+		Text *string        `json:"text"`
+		JSON jsontext.Value `json:"json"`
 	} `json:"content"`
 }
 
@@ -73,8 +75,8 @@ type cvSystemBlock struct {
 }
 
 type cvRequest struct {
-	InferenceConfig json.RawMessage `json:"inferenceConfig"`
-	ToolConfig      json.RawMessage `json:"toolConfig"`
+	InferenceConfig jsontext.Value  `json:"inferenceConfig"`
+	ToolConfig      jsontext.Value  `json:"toolConfig"`
 	Messages        []cvMessage     `json:"messages"`
 	System          []cvSystemBlock `json:"system"`
 }
@@ -185,15 +187,15 @@ func ollamaMessages(req *cvRequest) ([]ollamaMessage, error) {
 	return out, nil
 }
 
-func objectOrEmpty(raw json.RawMessage) json.RawMessage {
+func objectOrEmpty(raw jsontext.Value) jsontext.Value {
 	if len(raw) == 0 || string(raw) == "null" {
-		return json.RawMessage("{}")
+		return jsontext.Value("{}")
 	}
 
 	return raw
 }
 
-func ollamaTools(raw json.RawMessage) []ollamaTool {
+func ollamaTools(raw jsontext.Value) []ollamaTool {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -204,12 +206,12 @@ func ollamaTools(raw json.RawMessage) []ollamaTool {
 				Name        string `json:"name"`
 				Description string `json:"description"`
 				InputSchema struct {
-					JSON json.RawMessage `json:"json"`
+					JSON jsontext.Value `json:"json"`
 				} `json:"inputSchema"`
 			} `json:"toolSpec"`
 		} `json:"tools"`
 	}
-	if json.Unmarshal(raw, &tc) != nil {
+	if json.Unmarshal(raw, &tc, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -228,13 +230,13 @@ func ollamaTools(raw json.RawMessage) []ollamaTool {
 	return out
 }
 
-func ollamaOptionsFromInference(raw json.RawMessage) *ollamaOptions {
+func ollamaOptionsFromInference(raw jsontext.Value) *ollamaOptions {
 	if len(raw) == 0 {
 		return nil
 	}
 
 	var ic inferenceConfigBody
-	if json.Unmarshal(raw, &ic) != nil {
+	if json.Unmarshal(raw, &ic, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -248,7 +250,7 @@ func (o *ollamaBackend) converseCall(modelID string, body []byte) (*ollamaCall, 
 	}
 
 	var req cvRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUnsupportedContent, err)
 	}
 
@@ -335,7 +337,7 @@ func (h *Handler) handleOllamaConverse(
 	resp := buildOllamaConverseResponse(res, time.Since(start))
 	echoConverseConfig(resp, req)
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -421,7 +423,7 @@ func (s *converseStreamer) finish(res *ollamaResult, meta map[string]any) {
 
 func frameWriter(c *echo.Context) (func(string, any), func(string, string)) {
 	write := func(headers [][2]string, payload any) {
-		data, err := json.Marshal(payload)
+		data, err := json.Marshal(payload, jsonx.V1())
 		if err != nil {
 			return
 		}
@@ -486,7 +488,7 @@ func (h *Handler) handleOllamaConverseStream(
 }
 
 func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return b
 }

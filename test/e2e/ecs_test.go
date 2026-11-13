@@ -43,6 +43,7 @@ func TestECSDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for cluster names to be rendered in the DOM (loaded asynchronously).
 	err = page.Locator("text=demo-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -79,6 +80,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -124,6 +126,7 @@ func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for cluster to appear
 	err = page.Locator("text=cap-cluster").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -169,6 +172,7 @@ func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/ecs")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

@@ -1,13 +1,15 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEventStream_PutAndGet_Fields(t *testing.T) {
@@ -30,7 +32,7 @@ func TestEventStream_PutAndGet_Fields(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var es map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &es))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &es, jsonx.V1()))
 
 	assert.Equal(t, destArn, es["DestinationStreamArn"])
 	assert.Equal(t, roleArn, es["RoleArn"])
@@ -59,7 +61,7 @@ func TestEventStream_Replace(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var es map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &es))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &es, jsonx.V1()))
 
 	assert.Equal(t, stream2, es["DestinationStreamArn"], "second PUT must replace first")
 }
@@ -101,13 +103,13 @@ func TestEventStream_AppIsolation(t *testing.T) {
 	getA := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appA+"/eventstream", nil)
 	require.Equal(t, http.StatusOK, getA.Code)
 	var esA map[string]any
-	require.NoError(t, json.Unmarshal(getA.Body.Bytes(), &esA))
+	require.NoError(t, json.Unmarshal(getA.Body.Bytes(), &esA, jsonx.V1()))
 	assert.Equal(t, streamA, esA["DestinationStreamArn"])
 
 	getB := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appB+"/eventstream", nil)
 	require.Equal(t, http.StatusOK, getB.Code)
 	var esB map[string]any
-	require.NoError(t, json.Unmarshal(getB.Body.Bytes(), &esB))
+	require.NoError(t, json.Unmarshal(getB.Body.Bytes(), &esB, jsonx.V1()))
 	assert.Equal(t, streamB, esB["DestinationStreamArn"])
 }
 

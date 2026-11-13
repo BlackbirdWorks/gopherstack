@@ -2,13 +2,16 @@ package mgn
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -388,10 +391,9 @@ func parseActionParameters(raw string) (map[string]string, error) {
 		ExternalParameters map[string]string `json:"externalParameters"`
 	}
 
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(raw)))
 
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), json.RejectUnknownMembers(true)); err != nil {
 		return nil, fmt.Errorf("%w: %w", errImportBadParameters, err)
 	}
 

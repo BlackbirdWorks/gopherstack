@@ -1,9 +1,11 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validSetFormats are the enum values IpSetFormat and ThreatIntelSetFormat
@@ -60,7 +62,7 @@ func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, e
 		ClientToken         string            `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -126,7 +128,7 @@ func (h *Handler) handleUpdateIPSet(detectorID, ipSetID string, body []byte) (in
 		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -210,7 +212,7 @@ func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (an
 		ClientToken         string            `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -276,7 +278,7 @@ func (h *Handler) handleUpdateThreatIntelSet(detectorID, setID string, body []by
 		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

@@ -2,10 +2,11 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -66,7 +67,7 @@ func (h *Handler) handlePostCommentForComparedCommit(ctx context.Context, body [
 		Content            string           `json:"content"`
 		ClientRequestToken string           `json:"clientRequestToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" || req.Content == "" {
@@ -104,7 +105,7 @@ func (h *Handler) handlePostCommentForPullRequest(ctx context.Context, body []by
 		Content            string           `json:"content"`
 		ClientRequestToken string           `json:"clientRequestToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" || req.Content == "" {
@@ -139,7 +140,7 @@ func (h *Handler) handlePostCommentReply(ctx context.Context, body []byte) (any,
 		Content            string `json:"content"`
 		ClientRequestToken string `json:"clientRequestToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.InReplyTo == "" || req.Content == "" {
@@ -167,7 +168,7 @@ func (h *Handler) handleGetComment(body []byte) (any, error) {
 	var req struct {
 		CommentID string `json:"commentId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.CommentID == "" {
@@ -229,7 +230,7 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 		NextToken      string `json:"nextToken"`
 		MaxResults     int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -275,7 +276,7 @@ func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 		NextToken      string `json:"nextToken"`
 		MaxResults     int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.PullRequestID == "" {
@@ -324,7 +325,7 @@ func (h *Handler) handleUpdateComment(body []byte) (any, error) {
 		CommentID string `json:"commentId"`
 		Content   string `json:"content"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.CommentID == "" {
@@ -349,7 +350,7 @@ func (h *Handler) handleDeleteCommentContent(body []byte) (any, error) {
 	var req struct {
 		CommentID string `json:"commentId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.CommentID == "" {

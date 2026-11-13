@@ -4,13 +4,14 @@ package waf_test
 // every List* operation.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -21,7 +22,7 @@ func wafListPage(t *testing.T, h *waf.Handler, op string, body map[string]any) m
 	rec := wafDo(t, h, op, body)
 	require.Equal(t, http.StatusOK, rec.Code, op+": "+rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }

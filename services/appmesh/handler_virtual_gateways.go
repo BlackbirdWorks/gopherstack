@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -47,10 +47,10 @@ func (h *Handler) handleVirtualGateways(c *echo.Context, segs []string, meshName
 
 func (h *Handler) handleCreateVirtualGateway(c *echo.Context, meshName string) error {
 	var body struct {
-		VirtualGatewayName string          `json:"virtualGatewayName"`
-		ClientToken        string          `json:"clientToken"`
-		Spec               json.RawMessage `json:"spec"`
-		Tags               []tagInput      `json:"tags"`
+		VirtualGatewayName string         `json:"virtualGatewayName"`
+		ClientToken        string         `json:"clientToken"`
+		Spec               jsontext.Value `json:"spec"`
+		Tags               []tagInput     `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualGatewayName) {
 		return c.JSON(
@@ -77,8 +77,8 @@ func (h *Handler) handleDescribeVirtualGateway(c *echo.Context, meshName, name s
 
 func (h *Handler) handleUpdateVirtualGateway(c *echo.Context, meshName, name string) error {
 	var body struct {
-		ClientToken string          `json:"clientToken"`
-		Spec        json.RawMessage `json:"spec"`
+		ClientToken string         `json:"clientToken"`
+		Spec        jsontext.Value `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))
@@ -190,10 +190,10 @@ func (h *Handler) handleGatewayRoutes(c *echo.Context, segs []string, meshName s
 
 func (h *Handler) handleCreateGatewayRoute(c *echo.Context, meshName, vgName string) error {
 	var body struct {
-		GatewayRouteName string          `json:"gatewayRouteName"`
-		ClientToken      string          `json:"clientToken"`
-		Spec             json.RawMessage `json:"spec"`
-		Tags             []tagInput      `json:"tags"`
+		GatewayRouteName string         `json:"gatewayRouteName"`
+		ClientToken      string         `json:"clientToken"`
+		Spec             jsontext.Value `json:"spec"`
+		Tags             []tagInput     `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.GatewayRouteName) {
 		return c.JSON(
@@ -220,8 +220,8 @@ func (h *Handler) handleDescribeGatewayRoute(c *echo.Context, meshName, vgName, 
 
 func (h *Handler) handleUpdateGatewayRoute(c *echo.Context, meshName, vgName, routeName string) error {
 	var body struct {
-		ClientToken string          `json:"clientToken"`
-		Spec        json.RawMessage `json:"spec"`
+		ClientToken string         `json:"clientToken"`
+		Spec        jsontext.Value `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))

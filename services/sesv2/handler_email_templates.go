@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createEmailTemplateInput struct {
@@ -16,7 +19,7 @@ type createEmailTemplateInput struct {
 func (h *Handler) handleCreateEmailTemplate(c *echo.Context) (any, error) {
 	var in createEmailTemplateInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -54,7 +57,7 @@ type updateEmailTemplateInput struct {
 func (h *Handler) handleUpdateEmailTemplate(c *echo.Context, name string) (any, error) {
 	var in updateEmailTemplateInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -87,7 +90,7 @@ type testRenderEmailTemplateInput struct {
 func (h *Handler) handleTestRenderEmailTemplate(c *echo.Context, name string) (any, error) {
 	var in testRenderEmailTemplateInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

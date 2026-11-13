@@ -2,7 +2,7 @@ package lightsail
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -18,14 +18,14 @@ const lightsailSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the Lightsail backend.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage `json:"tables"`
-	DefaultKeyPair   *KeyPair                   `json:"defaultKeyPair,omitempty"`
-	Partner          *PartnerProfile            `json:"partner,omitempty"`
-	AccountID        string                     `json:"accountId"`
-	Region           string                     `json:"region"`
-	Version          int                        `json:"version"`
-	NextAccessKeySeq int                        `json:"nextAccessKeySeq"`
-	VpcPeered        bool                       `json:"vpcPeered"`
+	Tables           map[string]jsontext.Value `json:"tables"`
+	DefaultKeyPair   *KeyPair                  `json:"defaultKeyPair,omitempty"`
+	Partner          *PartnerProfile           `json:"partner,omitempty"`
+	AccountID        string                    `json:"accountId"`
+	Region           string                    `json:"region"`
+	Version          int                       `json:"version"`
+	NextAccessKeySeq int                       `json:"nextAccessKeySeq"`
+	VpcPeered        bool                      `json:"vpcPeered"`
 }
 
 // Snapshot serialises the backend state to JSON.

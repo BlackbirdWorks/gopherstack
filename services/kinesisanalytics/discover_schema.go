@@ -3,7 +3,8 @@ package kinesisanalytics
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"sort"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -208,7 +211,7 @@ func sampleJSONLines(body []byte, limit int) []string {
 
 	for _, line := range lines {
 		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 0 || !json.Valid(trimmed) {
+		if len(trimmed) == 0 || !jsontext.Value(trimmed).IsValid(jsonx.V1()) {
 			continue
 		}
 
@@ -266,11 +269,10 @@ func decodeSampleRecords(raw []string) []map[string]any {
 	records := make([]map[string]any, 0, len(raw))
 
 	for _, r := range raw {
-		dec := json.NewDecoder(strings.NewReader(r))
-		dec.UseNumber()
+		dec := jsontext.NewDecoder(strings.NewReader(r))
 
 		var m map[string]any
-		if err := dec.Decode(&m); err != nil {
+		if err := json.UnmarshalDecode(dec, &m, jsonx.V1(), jsonx.UseNumber()); err != nil {
 			continue
 		}
 
@@ -318,7 +320,7 @@ func inferColumnType(records []map[string]any, key string) string {
 		switch val := v.(type) {
 		case bool:
 			sawBool = true
-		case json.Number:
+		case jsonx.Number:
 			if _, err := strconv.ParseInt(val.String(), 10, 64); err == nil {
 				sawInt = true
 			} else {
@@ -330,7 +332,7 @@ func inferColumnType(records []map[string]any, key string) string {
 		default:
 			sawOther = true
 
-			if b, err := json.Marshal(val); err == nil {
+			if b, err := json.Marshal(val, jsonx.V1()); err == nil {
 				maxLen = max(maxLen, len(b))
 			}
 		}
@@ -357,12 +359,12 @@ func stringifyValue(v any) string {
 		return ""
 	case string:
 		return val
-	case json.Number:
+	case jsonx.Number:
 		return val.String()
 	case bool:
 		return strconv.FormatBool(val)
 	default:
-		b, err := json.Marshal(val)
+		b, err := json.Marshal(val, jsonx.V1())
 		if err != nil {
 			return ""
 		}

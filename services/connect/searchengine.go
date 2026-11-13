@@ -1,10 +1,12 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -124,17 +126,17 @@ type searchSpec struct {
 	fields []string
 }
 
-func parseSearch(rawCriteria, rawFilter json.RawMessage, spec searchSpec) (*searchCriteria, *searchFilter, error) {
+func parseSearch(rawCriteria, rawFilter jsontext.Value, spec searchSpec) (*searchCriteria, *searchFilter, error) {
 	var c searchCriteria
 
 	var f searchFilter
 
-	for raw, dst := range map[*json.RawMessage]any{&rawCriteria: &c, &rawFilter: &f} {
+	for raw, dst := range map[*jsontext.Value]any{&rawCriteria: &c, &rawFilter: &f} {
 		if len(*raw) == 0 || string(*raw) == jsonNull {
 			continue
 		}
 
-		if err := json.Unmarshal(*raw, dst); err != nil {
+		if err := json.Unmarshal(*raw, dst, jsonx.V1()); err != nil {
 			return nil, nil, invalidParamErr("SearchCriteria or SearchFilter is not valid")
 		}
 	}

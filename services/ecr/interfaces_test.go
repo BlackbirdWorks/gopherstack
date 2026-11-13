@@ -7,7 +7,7 @@ package ecr_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
 
@@ -412,7 +413,7 @@ func TestECR_Handler_AcceptsBackendInterface(t *testing.T) {
 
 	h := ecr.NewHandler(newStubBackend(), nil)
 
-	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "my-repo"})
+	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "my-repo"}, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -424,7 +425,7 @@ func TestECR_Handler_AcceptsBackendInterface(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repo, ok := resp["repository"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "my-repo", repo["repositoryName"])
@@ -455,7 +456,7 @@ func TestECR_GetAuthorizationToken_ProxyEndpointFromBackend(t *testing.T) {
 
 	h := ecr.NewHandler(newStubBackend(), nil)
 
-	bodyBytes, err := json.Marshal(map[string]any{})
+	bodyBytes, err := json.Marshal(map[string]any{}, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -467,7 +468,7 @@ func TestECR_GetAuthorizationToken_ProxyEndpointFromBackend(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	authData := resp["authorizationData"].([]any)
 	entry := authData[0].(map[string]any)

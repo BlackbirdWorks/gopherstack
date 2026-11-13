@@ -1,7 +1,7 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -92,7 +93,7 @@ func TestHandler_DescribeStream_ShardGenealogy(t *testing.T) {
 	require.Equal(t, 200, descResp.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	streamDesc := descOut["StreamDescription"].(map[string]any)
 	shards := streamDesc["Shards"].([]any)
 
@@ -160,7 +161,7 @@ func TestHandler_DescribeStream_Pagination_ExclusiveStartShardId(t *testing.T) {
 		fmt.Sprintf(`{"StreamArn":"%s","Limit":1}`, table.StreamARN))
 	require.Equal(t, 200, page1.Code)
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(page1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(page1.Body.Bytes(), &out1, jsonx.V1()))
 	desc1 := out1["StreamDescription"].(map[string]any)
 	shards1 := desc1["Shards"].([]any)
 	require.Len(t, shards1, 1, "Limit=1 must cap the shard list to 1")
@@ -174,7 +175,7 @@ func TestHandler_DescribeStream_Pagination_ExclusiveStartShardId(t *testing.T) {
 		fmt.Sprintf(`{"StreamArn":"%s","ExclusiveStartShardId":"%s"}`, table.StreamARN, lastShardID))
 	require.Equal(t, 200, page2.Code)
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(page2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(page2.Body.Bytes(), &out2, jsonx.V1()))
 	desc2 := out2["StreamDescription"].(map[string]any)
 	shards2 := desc2["Shards"].([]any)
 	require.NotEmpty(t, shards2, "second page must return the remaining shards")
@@ -217,7 +218,7 @@ func TestHandler_ListStreams_PaginationViaHTTP(t *testing.T) {
 	w1 := doRequest(t, handler, "ListStreams", `{"Limit":1}`)
 	require.Equal(t, 200, w1.Code)
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(w1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(w1.Body.Bytes(), &out1, jsonx.V1()))
 	streams1 := out1["Streams"].([]any)
 	require.Len(t, streams1, 1)
 	lastArn1, ok := out1["LastEvaluatedStreamArn"].(string)
@@ -228,7 +229,7 @@ func TestHandler_ListStreams_PaginationViaHTTP(t *testing.T) {
 		fmt.Sprintf(`{"Limit":1,"ExclusiveStartStreamArn":"%s"}`, lastArn1))
 	require.Equal(t, 200, w2.Code)
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out2, jsonx.V1()))
 	streams2 := out2["Streams"].([]any)
 	require.Len(t, streams2, 1)
 
@@ -270,7 +271,7 @@ func TestHandler_DescribeStream_StreamLabel(t *testing.T) {
 	require.Equal(t, 200, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 
 	desc, ok := out["StreamDescription"].(map[string]any)
 	require.True(t, ok)
@@ -301,7 +302,7 @@ func TestHandler_DescribeStream_CreationRequestDateTime(t *testing.T) {
 	require.Equal(t, 200, resp.Code)
 
 	var rawOut map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &rawOut))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &rawOut, jsonx.V1()))
 
 	desc, ok := rawOut["StreamDescription"].(map[string]any)
 	require.True(t, ok)
@@ -326,7 +327,7 @@ func TestHandler_ListStreams_StreamLabel(t *testing.T) {
 	require.Equal(t, 200, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 
 	streams, ok := out["Streams"].([]any)
 	require.True(t, ok)
@@ -402,7 +403,7 @@ func TestHandler_DescribeStream_StreamARNConsistency(t *testing.T) {
 	require.Equal(t, 200, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 
 	desc, ok := out["StreamDescription"].(map[string]any)
 	require.True(t, ok)

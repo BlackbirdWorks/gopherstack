@@ -2,7 +2,7 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -29,11 +29,11 @@ func (b *InMemoryBackend) WebACLARN(name, id, scope string) string {
 func (b *InMemoryBackend) CreateWebACL(
 	ctx context.Context,
 	name, scope, description string,
-	defaultAction, visibilityConfig json.RawMessage,
+	defaultAction, visibilityConfig jsontext.Value,
 	rules []map[string]any,
 	tokenDomains []string,
-	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
-	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig jsontext.Value,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig jsontext.Value,
 	tags map[string]string,
 ) (*WebACL, error) {
 	b.mu.Lock("CreateWebACL")
@@ -134,11 +134,11 @@ func (b *InMemoryBackend) GetWebACLByARN(ctx context.Context, webACLARN string) 
 func (b *InMemoryBackend) UpdateWebACL(
 	ctx context.Context,
 	id, description, lockToken string,
-	defaultAction, visibilityConfig json.RawMessage,
+	defaultAction, visibilityConfig jsontext.Value,
 	rules []map[string]any,
 	tokenDomains []string,
-	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
-	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig jsontext.Value,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig jsontext.Value,
 ) (*WebACL, error) {
 	b.mu.Lock("UpdateWebACL")
 	defer b.mu.Unlock()
@@ -195,8 +195,8 @@ func (b *InMemoryBackend) UpdateWebACL(
 // Extracted from UpdateWebACL to keep its cyclomatic complexity down.
 func applyOptionalWebACLConfigs(
 	w *WebACL,
-	customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
-	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+	customResponseBodies, associationConfig, captchaConfig, challengeConfig jsontext.Value,
+	monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig jsontext.Value,
 ) {
 	if len(customResponseBodies) > 0 {
 		w.CustomResponseBodies = customResponseBodies
@@ -302,61 +302,61 @@ func cloneWebACL(w *WebACL) *WebACL {
 
 	// Clone RawMessage fields (byte slices).
 	if w.DefaultAction != nil {
-		da := make(json.RawMessage, len(w.DefaultAction))
+		da := make(jsontext.Value, len(w.DefaultAction))
 		copy(da, w.DefaultAction)
 		cp.DefaultAction = da
 	}
 
 	if w.VisibilityConfig != nil {
-		vc := make(json.RawMessage, len(w.VisibilityConfig))
+		vc := make(jsontext.Value, len(w.VisibilityConfig))
 		copy(vc, w.VisibilityConfig)
 		cp.VisibilityConfig = vc
 	}
 
 	if w.CustomResponseBodies != nil {
-		crb := make(json.RawMessage, len(w.CustomResponseBodies))
+		crb := make(jsontext.Value, len(w.CustomResponseBodies))
 		copy(crb, w.CustomResponseBodies)
 		cp.CustomResponseBodies = crb
 	}
 
 	if w.AssociationConfig != nil {
-		ac := make(json.RawMessage, len(w.AssociationConfig))
+		ac := make(jsontext.Value, len(w.AssociationConfig))
 		copy(ac, w.AssociationConfig)
 		cp.AssociationConfig = ac
 	}
 
 	if w.CaptchaConfig != nil {
-		cc := make(json.RawMessage, len(w.CaptchaConfig))
+		cc := make(jsontext.Value, len(w.CaptchaConfig))
 		copy(cc, w.CaptchaConfig)
 		cp.CaptchaConfig = cc
 	}
 
 	if w.ChallengeConfig != nil {
-		chc := make(json.RawMessage, len(w.ChallengeConfig))
+		chc := make(jsontext.Value, len(w.ChallengeConfig))
 		copy(chc, w.ChallengeConfig)
 		cp.ChallengeConfig = chc
 	}
 
 	if w.MonetizationConfig != nil {
-		mc := make(json.RawMessage, len(w.MonetizationConfig))
+		mc := make(jsontext.Value, len(w.MonetizationConfig))
 		copy(mc, w.MonetizationConfig)
 		cp.MonetizationConfig = mc
 	}
 
 	if w.DataProtectionConfig != nil {
-		dpc := make(json.RawMessage, len(w.DataProtectionConfig))
+		dpc := make(jsontext.Value, len(w.DataProtectionConfig))
 		copy(dpc, w.DataProtectionConfig)
 		cp.DataProtectionConfig = dpc
 	}
 
 	if w.ApplicationConfig != nil {
-		ac := make(json.RawMessage, len(w.ApplicationConfig))
+		ac := make(jsontext.Value, len(w.ApplicationConfig))
 		copy(ac, w.ApplicationConfig)
 		cp.ApplicationConfig = ac
 	}
 
 	if w.OnSourceDDoSProtectionConfig != nil {
-		osdc := make(json.RawMessage, len(w.OnSourceDDoSProtectionConfig))
+		osdc := make(jsontext.Value, len(w.OnSourceDDoSProtectionConfig))
 		copy(osdc, w.OnSourceDDoSProtectionConfig)
 		cp.OnSourceDDoSProtectionConfig = osdc
 	}

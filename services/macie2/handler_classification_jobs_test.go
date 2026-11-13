@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -26,7 +27,7 @@ func TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	scopes, _ := listResp["classificationScopes"].([]any)
 	require.Len(t, scopes, 1)
 	scope0, _ := scopes[0].(map[string]any)
@@ -59,7 +60,7 @@ func TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	s3, ok := got["s3"].(map[string]any)
 	require.True(t, ok, "got %#v", got)
 	excludes, ok := s3["excludes"].(map[string]any)
@@ -79,7 +80,7 @@ func TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodGet, "/classification-scopes/"+scopeID, nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	s3, ok = got["s3"].(map[string]any)
 	require.True(t, ok)
 	excludes, ok = s3["excludes"].(map[string]any)
@@ -111,7 +112,7 @@ func TestClassificationJobs(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				jobID := createResp["jobId"]
 				assert.NotEmpty(t, jobID)
 				assert.Equal(t, "RUNNING", createResp["jobStatus"])
@@ -123,7 +124,7 @@ func TestClassificationJobs(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, jobID, descResp["jobId"])
 				assert.Equal(t, "ONE_TIME", descResp["jobType"])
 				assert.Equal(t, "test-job", descResp["name"])
@@ -135,7 +136,7 @@ func TestClassificationJobs(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				items, _ := listResp["items"].([]any)
 				require.Len(t, items, 1)
 				item0 := items[0].(map[string]any)
@@ -155,7 +156,7 @@ func TestClassificationJobs(t *testing.T) {
 				// Verify update
 				rec = doRequest(t, h, http.MethodGet, "/jobs/"+jobID, nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				assert.Equal(t, "CANCELLED", updated["jobStatus"])
 			},
 		},
@@ -184,11 +185,11 @@ func TestClassificationJobs(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				rec = doRequest(t, h, http.MethodGet, "/jobs/"+resp["jobId"], nil)
 				var desc map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 				assert.Equal(t, "IDLE", desc["jobStatus"])
 			},
 		},
@@ -219,7 +220,7 @@ func TestClassificationConfig(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				cfg, _ := getResp["configuration"].(map[string]any)
 				assert.Nil(t, cfg["s3Destination"])
 
@@ -238,7 +239,7 @@ func TestClassificationConfig(t *testing.T) {
 				// Verify
 				rec = doRequest(t, h, http.MethodGet, "/classification-export-configuration", nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				updCfg, _ := updated["configuration"].(map[string]any)
 				s3Dest, _ := updCfg["s3Destination"].(map[string]any)
 				assert.Equal(t, "my-export-bucket", s3Dest["bucketName"])
@@ -254,7 +255,7 @@ func TestClassificationConfig(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				scopes, _ := listResp["classificationScopes"].([]any)
 				require.Len(t, scopes, 1)
 
@@ -267,7 +268,7 @@ func TestClassificationConfig(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var scopeResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &scopeResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &scopeResp, jsonx.V1()))
 				assert.Equal(t, scopeID, scopeResp["id"])
 
 				// UpdateClassificationScope
@@ -321,7 +322,7 @@ func createTestJob(t *testing.T, h *macie2.Handler, name, jobType string) (strin
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["jobId"], resp["jobArn"]
 }
@@ -351,7 +352,7 @@ func TestListClassificationJobsFilterAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, ok := resp["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 1)
@@ -374,7 +375,7 @@ func TestListClassificationJobsFilterAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, ok := resp["items"].([]any)
 		require.True(t, ok)
 
@@ -393,7 +394,7 @@ func TestListClassificationJobsFilterAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, ok := resp["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 1)
@@ -406,7 +407,7 @@ func TestListClassificationJobsFilterAndPagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 
 		var resp2 map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 		items2, ok := resp2["items"].([]any)
 		require.True(t, ok)
 		require.Len(t, items2, 1)
@@ -431,7 +432,7 @@ func TestClassificationJobUserPausedDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var paused map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &paused))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &paused, jsonx.V1()))
 	details, ok := paused["userPausedDetails"].(map[string]any)
 	require.True(t, ok, "userPausedDetails must be present while USER_PAUSED")
 	assert.NotEmpty(t, details["jobPausedAt"])
@@ -444,7 +445,7 @@ func TestClassificationJobUserPausedDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resumed map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resumed))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resumed, jsonx.V1()))
 	assert.Nil(t, resumed["userPausedDetails"], "userPausedDetails must clear once no longer USER_PAUSED")
 }
 
@@ -544,7 +545,7 @@ func TestClassificationJobTagging(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tags, ok := resp["tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "test", tags["env"])
@@ -567,13 +568,13 @@ func TestClassificationJobCreateFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var al map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &al))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &al, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{"name": "cdi", "regex": `.+`})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cdi map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cdi))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cdi, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPost, "/jobs", map[string]any{
 		"name":    "full-field-job",
@@ -589,13 +590,13 @@ func TestClassificationJobCreateFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodGet, "/jobs/"+created["jobId"], nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 
 	allowListIDs, ok := desc["allowListIds"].([]any)
 	require.True(t, ok)

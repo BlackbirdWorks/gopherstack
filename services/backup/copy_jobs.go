@@ -1,7 +1,7 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"strings"
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) settleCopyJobLocked(job *CopyJob, now time.Time) {
 		return
 	}
 
-	var snapshot json.RawMessage
+	var snapshot jsontext.Value
 	if srcName, ok := b.vaultARNIndex[job.SourceBackupVaultArn]; ok {
 		if srcRP, rpFound := b.recoveryPoints.Get(recoveryPointKey(srcName, job.SourceRecoveryPointArn)); rpFound {
 			snapshot = srcRP.Snapshot

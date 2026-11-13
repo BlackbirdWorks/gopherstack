@@ -1,7 +1,8 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -82,7 +84,7 @@ func familyFor(id string) familyBuilder {
 }
 
 func parseBody(body []byte, v any) error {
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return malformed(err)
 	}
 
@@ -108,13 +110,13 @@ type anthropicBlock struct {
 	Source *struct {
 		Data string `json:"data"`
 	} `json:"source"`
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	ToolUseID string          `json:"tool_use_id"`
-	Input     json.RawMessage `json:"input"`
-	Content   json.RawMessage `json:"content"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	ToolUseID string         `json:"tool_use_id"`
+	Input     jsontext.Value `json:"input"`
+	Content   jsontext.Value `json:"content"`
 }
 
 type anthropicRequest struct {
@@ -125,36 +127,36 @@ type anthropicRequest struct {
 	TopK              *int     `json:"top_k"`
 	Prompt            string   `json:"prompt"`
 	Messages          []struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		Role    string         `json:"role"`
+		Content jsontext.Value `json:"content"`
 	} `json:"messages"`
-	System        json.RawMessage `json:"system"`
+	System        jsontext.Value  `json:"system"`
 	Tools         []anthropicTool `json:"tools"`
 	StopSequences []string        `json:"stop_sequences"`
 }
 
 type anthropicTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema jsontext.Value `json:"input_schema"`
 }
 
 // anthropicBlocks reads a content value that is either a string or an array of blocks.
-func anthropicBlocks(raw json.RawMessage) ([]anthropicBlock, error) {
+func anthropicBlocks(raw jsontext.Value) ([]anthropicBlock, error) {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonx.V1()) == nil {
 		return []anthropicBlock{{Type: typeText, Text: s}}, nil
 	}
 
 	var blocks []anthropicBlock
-	if err := json.Unmarshal(raw, &blocks); err != nil {
+	if err := json.Unmarshal(raw, &blocks, jsonx.V1()); err != nil {
 		return nil, malformed(err)
 	}
 
 	return blocks, nil
 }
 
-func anthropicToCv(role string, raw json.RawMessage) (cvMessage, error) {
+func anthropicToCv(role string, raw jsontext.Value) (cvMessage, error) {
 	blocks, err := anthropicBlocks(raw)
 	if err != nil {
 		return cvMessage{}, err
@@ -188,8 +190,8 @@ func anthropicToCv(role string, raw json.RawMessage) (cvMessage, error) {
 			for _, ib := range inner {
 				t := ib.Text
 				res.Content = append(res.Content, struct {
-					Text *string         `json:"text"`
-					JSON json.RawMessage `json:"json"`
+					Text *string        `json:"text"`
+					JSON jsontext.Value `json:"json"`
 				}{Text: &t})
 			}
 
@@ -202,7 +204,7 @@ func anthropicToCv(role string, raw json.RawMessage) (cvMessage, error) {
 	return m, nil
 }
 
-func anthropicSystem(raw json.RawMessage) ([]cvSystemBlock, error) {
+func anthropicSystem(raw jsontext.Value) ([]cvSystemBlock, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -907,7 +909,7 @@ func (h *Handler) handleOllamaInvoke(c *echo.Context, o *ollamaBackend, modelID 
 		return writeInvokeError(c, err)
 	}
 
-	out, err := json.Marshal(plan.render(res))
+	out, err := json.Marshal(plan.render(res), jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -952,7 +954,7 @@ func (h *Handler) handleOllamaInvokeStream(c *echo.Context, o *ollamaBackend, mo
 		}
 
 		for _, ch := range chunks {
-			emit("chunk", json.RawMessage(modelResponsePayloadPart(mustJSON(ch))))
+			emit("chunk", jsontext.Value(modelResponsePayloadPart(mustJSON(ch))))
 		}
 	}
 

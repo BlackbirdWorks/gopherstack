@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -120,13 +121,13 @@ func TestAzureAKSProxy(t *testing.T) {
 		require.NoError(t, h.Handler()(echo.NewContext(httptest.NewRequest(http.MethodGet, pool, nil), rec)))
 
 		var doc map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()))
 
 		props, ok := doc["properties"].(map[string]any)
 		require.True(t, ok)
 
 		props["count"] = 5
-		body, err := json.Marshal(map[string]any{"properties": props})
+		body, err := json.Marshal(map[string]any{"properties": props}, jsonx.V1())
 		require.NoError(t, err)
 
 		runGCPSteps(t, h, []gcpStep{

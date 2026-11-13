@@ -2,20 +2,21 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/crc32"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // WriteJSON marshals the payload to JSON, sets standard headers, and writes the response.
 // Sets Content-Type to "application/json" and Content-Length.
 func WriteJSON(w http.ResponseWriter, code int, payload any) error {
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -33,7 +34,7 @@ func WriteJSON(w http.ResponseWriter, code int, payload any) error {
 // and writes the response. The checksum is required by the DynamoDB wire protocol.
 // Sets Content-Type to "application/x-amz-json-1.0" and X-Amz-Crc32.
 func WriteJSONWithChecksum(w http.ResponseWriter, code int, payload any) error {
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return err
 	}

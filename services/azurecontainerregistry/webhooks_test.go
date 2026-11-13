@@ -1,7 +1,7 @@
 package azurecontainerregistry_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 )
@@ -44,7 +45,7 @@ func newReceiver(t *testing.T) *receiver {
 		var d delivery
 
 		d.header = req.Header.Clone()
-		_ = json.Unmarshal(raw, &d.content)
+		_ = json.Unmarshal(raw, &d.content, jsonx.V1())
 
 		r.mu.Lock()
 		r.got = append(r.got, d)
@@ -88,7 +89,7 @@ func pushHelmChart(t *testing.T, c ocitest.Client, repo, tag string) ocitest.Ima
 			"mediaType": "application/vnd.cncf.helm.chart.content.v1.tar+gzip", "size": len(layer),
 			"digest": layerDigest,
 		}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	put := c.Do(http.MethodPut, "/v2/"+repo+"/manifests/"+tag, body,

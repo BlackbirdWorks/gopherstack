@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http/httptest"
@@ -23,6 +23,7 @@ import (
 
 	dockerapibuild "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/build"
 	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -384,7 +385,7 @@ func buildRotationLambdaImage(ctx context.Context, t *testing.T) {
 			Error string `json:"error"`
 		}
 
-		if jsonErr := json.Unmarshal([]byte(line), &event); jsonErr == nil && event.Error != "" {
+		if jsonErr := json.Unmarshal([]byte(line), &event, jsonx.V1()); jsonErr == nil && event.Error != "" {
 			buildErrorMsg = event.Error
 
 			break

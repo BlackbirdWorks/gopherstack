@@ -1,12 +1,14 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Condition represents a single finding-criteria condition, matching
@@ -45,13 +47,13 @@ func conditionsFromRaw(raw map[string]any) map[string]Condition {
 		return nil
 	}
 
-	data, err := json.Marshal(raw)
+	data, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var fc FindingCriteria
-	if unmarshalErr := json.Unmarshal(data, &fc); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &fc, jsonx.V1()); unmarshalErr != nil {
 		return nil
 	}
 
@@ -71,13 +73,13 @@ type SortCriteria struct {
 // resolved the same way a real GuardDuty backend would resolve them against
 // the finding document.
 func findingToFieldMap(f *Finding) map[string]any {
-	data, marshalErr := json.Marshal(f)
+	data, marshalErr := json.Marshal(f, jsonx.V1())
 	if marshalErr != nil {
 		return map[string]any{}
 	}
 
 	var m map[string]any
-	if unmarshalErr := json.Unmarshal(data, &m); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &m, jsonx.V1()); unmarshalErr != nil {
 		return map[string]any{}
 	}
 

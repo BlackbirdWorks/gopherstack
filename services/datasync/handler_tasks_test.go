@@ -1,13 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
 
@@ -53,7 +54,7 @@ func TestDataSync_Task(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				tasks, ok := resp["Tasks"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, tasks)
@@ -91,7 +92,7 @@ func TestDataSync_TaskCRUD(t *testing.T) {
 	rec := doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", descResp["Status"])
 	assert.Equal(t, "test-task", descResp["Name"])
 
@@ -101,14 +102,14 @@ func TestDataSync_TaskCRUD(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "renamed-task", descResp["Name"])
 
 	// List
 	rec = doRequest(t, h, "ListTasks", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Tasks"], 1)
 
 	// Delete
@@ -131,7 +132,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	rec := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn, ok := startResp["TaskExecutionArn"].(string)
 	require.True(t, ok)
 	assert.Contains(t, execArn, "/execution/")
@@ -144,7 +145,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["TaskExecutions"], 1)
 
 	// CancelTaskExecution on an execution already settled into SUCCESS (by
@@ -155,7 +156,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 
 	// List after the rejected cancel - execution is unchanged, still SUCCESS.
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	execs, ok := listResp["TaskExecutions"].([]any)
 	require.True(t, ok)
 	require.Len(t, execs, 1)
@@ -186,7 +187,7 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	tests := []struct {
@@ -237,7 +238,7 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var startResp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &startResp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &startResp2, jsonx.V1()))
 	execArn2 := startResp2["TaskExecutionArn"].(string)
 
 	updRec := doRequest(t, h, "UpdateTaskExecution", map[string]any{
@@ -253,7 +254,7 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 		Options map[string]any `json:"Options"`
 	}
 
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.InDelta(t, float64(2097152), descResp.Options["BytesPerSecond"], 0)
 
 	for _, tc := range tests {
@@ -280,7 +281,7 @@ func TestDataSync_CancelTaskExecutionStatusChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	// Cancel.
@@ -292,7 +293,7 @@ func TestDataSync_CancelTaskExecutionStatusChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	execs, ok := listResp["TaskExecutions"].([]any)
 	require.True(t, ok)
@@ -351,7 +352,7 @@ func TestDataSync_CancelTaskExecution_RejectsTerminal(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			execArn := startResp["TaskExecutionArn"].(string)
 
 			tt.settle(t, h, execArn)
@@ -365,7 +366,7 @@ func TestDataSync_CancelTaskExecution_RejectsTerminal(t *testing.T) {
 			rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.wantErr, descResp["Status"])
 		})
 	}
@@ -385,7 +386,7 @@ func TestDataSync_DescribeTaskExecutionLazyAdvance(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	// Before describe: execution exists as LAUNCHING in list.
@@ -393,7 +394,7 @@ func TestDataSync_DescribeTaskExecutionLazyAdvance(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	execs := listResp["TaskExecutions"].([]any)
 	require.Len(t, execs, 1)
@@ -431,7 +432,7 @@ func TestDataSync_StartTaskExecutionRejectsConcurrent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	// Second start while the first execution is still LAUNCHING must fail.
@@ -462,24 +463,24 @@ func TestDataSync_TaskStatusRunningWhileExecuting(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var taskResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", taskResp["Status"])
 
 	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["TaskExecutionArn"].(string)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp, jsonx.V1()))
 	assert.Equal(t, "RUNNING", taskResp["Status"])
 
 	settleExecution(t, h, execArn)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp, jsonx.V1()))
 	assert.Equal(t, "AVAILABLE", taskResp["Status"])
 }
 
@@ -522,14 +523,14 @@ func TestDataSync_TaskSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	taskArn := createResp["TaskArn"].(string)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	opts, ok := descResp["Options"].(map[string]any)
 	require.True(t, ok)
@@ -571,7 +572,7 @@ func TestDataSync_TaskSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "settings-task-renamed", descResp["Name"])
 	opts, ok = descResp["Options"].(map[string]any)
 	require.True(t, ok)
@@ -587,7 +588,7 @@ func TestDataSync_TaskSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	excludes, ok = descResp["Excludes"].([]any)
 	require.True(t, ok)
 	require.Len(t, excludes, 1)
@@ -609,7 +610,7 @@ func TestDataSync_TaskModeDefaultsToBasic(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "BASIC", descResp["TaskMode"])
 }
 
@@ -635,7 +636,7 @@ func TestDataSync_ListTaskExecutionsAllTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	execs, ok := listResp["TaskExecutions"].([]any)
 	require.True(t, ok)
@@ -651,7 +652,7 @@ func settleExecution(t *testing.T, h *datasync.Handler, execArn string) map[stri
 		rec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 		require.Equal(t, http.StatusOK, rec.Code)
 		out = map[string]any{}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		if out["Status"] == "SUCCESS" {
 			break
@@ -670,7 +671,7 @@ func TestDataSync_TaskExecutionPhases(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var start map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 	execArn := start["TaskExecutionArn"].(string)
 
 	got := make([]string, 0, 5)
@@ -678,7 +679,7 @@ func TestDataSync_TaskExecutionPhases(t *testing.T) {
 	for range 5 {
 		rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 		var d map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &d))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &d, jsonx.V1()))
 		got = append(got, d["Status"].(string))
 	}
 

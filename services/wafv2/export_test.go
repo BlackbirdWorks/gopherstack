@@ -2,7 +2,7 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // CreateWebACLSimple is a test helper that creates a WebACL with minimal parameters,
@@ -13,11 +13,11 @@ func CreateWebACLSimple(
 	name, scope, description, defaultAction string,
 	tags map[string]string,
 ) (*WebACL, error) {
-	var da json.RawMessage
+	var da jsontext.Value
 	if defaultAction == "BLOCK" {
-		da = json.RawMessage(`{"Block":{}}`)
+		da = jsontext.Value(`{"Block":{}}`)
 	} else {
-		da = json.RawMessage(`{"Allow":{}}`)
+		da = jsontext.Value(`{"Allow":{}}`)
 	}
 
 	return b.CreateWebACL(

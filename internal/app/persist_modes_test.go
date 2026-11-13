@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -48,7 +49,7 @@ func (k *kvPersistSvc) Snapshot(context.Context) []byte {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	b, _ := json.Marshal(k.vals)
+	b, _ := json.Marshal(k.vals, jsonx.V1())
 
 	return b
 }
@@ -57,7 +58,7 @@ func (k *kvPersistSvc) Restore(_ context.Context, data []byte) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	return json.Unmarshal(data, &k.vals)
+	return json.Unmarshal(data, &k.vals, jsonx.V1())
 }
 
 func (k *kvPersistSvc) getA() string {

@@ -1,10 +1,12 @@
 package gcpcompute
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -74,7 +76,7 @@ func labelFP(labels map[string]string) string {
 		pairs[i] = [2]string{k, labels[k]}
 	}
 
-	data, _ := json.Marshal(pairs)
+	data, _ := json.Marshal(pairs, jsonx.V1())
 
 	return fingerprint(string(data))
 }

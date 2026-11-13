@@ -5,9 +5,10 @@
 package tags
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
@@ -153,7 +154,7 @@ func MapToKV(m map[string]string) []KV {
 // MarshalJSON implements [json.Marshaler].
 // Tags serialises as a plain JSON object (e.g. {"env":"prod","team":"platform"}).
 func (t *Tags) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Clone()) //nolint:wrapcheck // thin delegation
+	return json.Marshal(t.Clone(), jsonx.V1()) //nolint:wrapcheck // thin delegation
 }
 
 // UnmarshalJSON implements [json.Unmarshaler].
@@ -164,7 +165,7 @@ func (t *Tags) MarshalJSON() ([]byte, error) {
 // so the result matches the JSON payload exactly.
 func (t *Tags) UnmarshalJSON(data []byte) error {
 	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return err //nolint:wrapcheck // thin delegation
 	}
 

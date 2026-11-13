@@ -2,7 +2,7 @@ package autoscaling
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -35,7 +35,7 @@ const autoscalingSnapshotVersion = 1
 // map[string][]T/[]*T fields -- see store_setup.go's registerAllTables doc
 // for why those three are not store.Table-backed.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage              `json:"tables"`
+	Tables              map[string]jsontext.Value               `json:"tables"`
 	Activities          map[string][]ScalingActivity            `json:"activities"`
 	InstanceRefreshes   map[string][]*InstanceRefresh           `json:"instanceRefreshes"`
 	NotificationConfigs map[string][]*NotificationConfiguration `json:"notificationConfigs"`

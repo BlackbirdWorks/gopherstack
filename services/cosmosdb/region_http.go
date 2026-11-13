@@ -3,7 +3,7 @@ package cosmosdb
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -398,7 +399,7 @@ func (h *Handler) putAdminTopology(c *echo.Context) error {
 	}
 
 	var req adminTopology
-	if jsonErr := json.Unmarshal(raw, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(raw, &req, jsonx.V1()); jsonErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 

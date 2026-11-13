@@ -2,7 +2,7 @@ package gcpcloudtasks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -20,22 +20,22 @@ import (
 const snapshotVersion = 1
 
 type queueSnap struct {
-	Tasks map[string]json.RawMessage `json:"tasks,omitempty"`
-	Queue json.RawMessage            `json:"queue"`
+	Tasks map[string]jsontext.Value `json:"tasks,omitempty"`
+	Queue jsontext.Value            `json:"queue"`
 }
 
 type backendSnapshot struct {
-	Queues     map[string]queueSnap       `json:"queues"`
-	Tombstones map[string]time.Time       `json:"tombstones"`
-	Policies   map[string]json.RawMessage `json:"policies"`
-	Cmek       map[string]json.RawMessage `json:"cmek"`
-	Ops        map[string]json.RawMessage `json:"operations,omitempty"`
-	EtagSeq    uint64                     `json:"etagSeq"`
-	TaskSeq    uint64                     `json:"taskSeq"`
-	Version    int                        `json:"version"`
+	Queues     map[string]queueSnap      `json:"queues"`
+	Tombstones map[string]time.Time      `json:"tombstones"`
+	Policies   map[string]jsontext.Value `json:"policies"`
+	Cmek       map[string]jsontext.Value `json:"cmek"`
+	Ops        map[string]jsontext.Value `json:"operations,omitempty"`
+	EtagSeq    uint64                    `json:"etagSeq"`
+	TaskSeq    uint64                    `json:"taskSeq"`
+	Version    int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -44,7 +44,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
@@ -59,12 +59,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TaskSeq:    b.taskSeq,
 		Queues:     make(map[string]queueSnap, len(b.queues)),
 		Tombstones: make(map[string]time.Time, len(b.tombstones)),
-		Policies:   make(map[string]json.RawMessage, len(b.policies)),
-		Cmek:       make(map[string]json.RawMessage, len(b.cmek)),
+		Policies:   make(map[string]jsontext.Value, len(b.policies)),
+		Cmek:       make(map[string]jsontext.Value, len(b.cmek)),
 	}
 
 	for name, q := range b.queues {
-		qs := queueSnap{Queue: marshalPB(q.pb), Tasks: make(map[string]json.RawMessage, len(q.tasks))}
+		qs := queueSnap{Queue: marshalPB(q.pb), Tasks: make(map[string]jsontext.Value, len(q.tasks))}
 		for tn, t := range q.tasks {
 			qs.Tasks[tn] = marshalPB(t.pb)
 		}

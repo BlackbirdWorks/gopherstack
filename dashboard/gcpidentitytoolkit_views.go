@@ -1,9 +1,11 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type idpProvider struct {
@@ -45,7 +47,7 @@ func idpUsersView(raw []byte) (any, error) {
 		Users        []idpUserWire `json:"userInfo"`
 	}
 
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // surfaced as a 502 by the caller
 	}
 
@@ -73,7 +75,7 @@ func idpLocalIDView(raw []byte) (any, error) {
 		LocalID string `json:"localId"`
 	}
 
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // surfaced as a 502 by the caller
 	}
 
@@ -92,7 +94,7 @@ func idpOOBView(raw []byte) (any, error) {
 		} `json:"oobCodes"`
 	}
 
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // surfaced as a 502 by the caller
 	}
 
@@ -123,7 +125,7 @@ func idpTenantsView(raw []byte) (any, error) {
 		} `json:"tenants"`
 	}
 
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // surfaced as a 502 by the caller
 	}
 
@@ -164,7 +166,7 @@ func idpConfigView(raw []byte) (any, error) {
 		} `json:"signIn"`
 	}
 
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // surfaced as a 502 by the caller
 	}
 

@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateGetListDeleteDestination(t *testing.T) {
@@ -40,7 +42,7 @@ func TestHandler_CreateGetListDeleteDestination(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			assert.Equal(t, tt.destName, createResp["Name"])
 
 			// Get
@@ -48,7 +50,7 @@ func TestHandler_CreateGetListDeleteDestination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.destName, getResp["Name"])
 			assert.Equal(t, tt.expression, getResp["Expression"])
 
@@ -57,7 +59,7 @@ func TestHandler_CreateGetListDeleteDestination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			dests, ok := listResp["DestinationList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, dests, 1)
@@ -103,6 +105,6 @@ func TestHandler_UpdateDestination(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "rule/updated", getResp["Expression"])
 }

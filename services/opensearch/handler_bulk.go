@@ -2,13 +2,15 @@ package opensearch
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // bulkActionMeta is the per-action metadata object documented for every
@@ -38,9 +40,9 @@ type bulkActionEnvelope struct {
 // scripting engine, so a non-empty Script is rejected (see
 // handleBulkUpdate).
 type bulkUpdateBody struct {
-	Doc         map[string]any  `json:"doc,omitempty"`
-	Script      json.RawMessage `json:"script,omitempty"`
-	DocAsUpsert bool            `json:"doc_as_upsert,omitempty"`
+	Doc         map[string]any `json:"doc,omitempty"`
+	Script      jsontext.Value `json:"script,omitempty"`
+	DocAsUpsert bool           `json:"doc_as_upsert,omitempty"`
 }
 
 // bulkAction is one parsed action line plus its source (nil for "delete").
@@ -48,7 +50,7 @@ type bulkAction struct {
 	Op     string
 	Index  string
 	ID     string
-	Source json.RawMessage
+	Source jsontext.Value
 }
 
 const (
@@ -186,7 +188,7 @@ func parseBulkActions(body []byte) ([]bulkAction, error) {
 
 	for i := 0; i < len(lines); i++ {
 		var env bulkActionEnvelope
-		if err := json.Unmarshal(lines[i], &env); err != nil {
+		if err := json.Unmarshal(lines[i], &env, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("malformed action line %d: %w", i+1, err)
 		}
 
@@ -238,7 +240,7 @@ func (h *Handler) processBulkAction(domainName, defaultIndex string, act bulkAct
 	}
 }
 
-func (h *Handler) processBulkIndex(domainName, index, id string, source json.RawMessage) (map[string]any, bool) {
+func (h *Handler) processBulkIndex(domainName, index, id string, source jsontext.Value) (map[string]any, bool) {
 	doc, err := unmarshalBulkSource(source)
 	if err != nil {
 		return bulkErrorItem(bulkOpIndex, index, id, http.StatusBadRequest,
@@ -258,7 +260,7 @@ func (h *Handler) processBulkIndex(domainName, index, id string, source json.Raw
 	return bulkSuccessItem(bulkOpIndex, index, newID, result, meta), false
 }
 
-func (h *Handler) processBulkCreate(domainName, index, id string, source json.RawMessage) (map[string]any, bool) {
+func (h *Handler) processBulkCreate(domainName, index, id string, source jsontext.Value) (map[string]any, bool) {
 	doc, err := unmarshalBulkSource(source)
 	if err != nil {
 		return bulkErrorItem(bulkOpCreate, index, id, http.StatusBadRequest,
@@ -273,7 +275,7 @@ func (h *Handler) processBulkCreate(domainName, index, id string, source json.Ra
 	return bulkSuccessItem(bulkOpCreate, index, newID, docResultCreated, meta), false
 }
 
-func (h *Handler) processBulkUpdate(domainName, index, id string, source json.RawMessage) (map[string]any, bool) {
+func (h *Handler) processBulkUpdate(domainName, index, id string, source jsontext.Value) (map[string]any, bool) {
 	if id == "" {
 		return bulkErrorItem(bulkOpUpdate, index, id, http.StatusBadRequest,
 			"illegal_argument_exception", "_id is required for the update action"), true
@@ -281,7 +283,7 @@ func (h *Handler) processBulkUpdate(domainName, index, id string, source json.Ra
 
 	var body bulkUpdateBody
 	if len(source) > 0 {
-		if err := json.Unmarshal(source, &body); err != nil {
+		if err := json.Unmarshal(source, &body, jsonx.V1()); err != nil {
 			return bulkErrorItem(bulkOpUpdate, index, id, http.StatusBadRequest,
 				"illegal_argument_exception", "invalid update body"), true
 		}
@@ -339,13 +341,13 @@ func (h *Handler) processBulkDelete(domainName, index, id string) (map[string]an
 // unmarshalBulkSource decodes a bulk action's source line, tolerating an
 // absent one (an empty document, matching IndexDocument's own handling of a
 // missing body).
-func unmarshalBulkSource(source json.RawMessage) (map[string]any, error) {
+func unmarshalBulkSource(source jsontext.Value) (map[string]any, error) {
 	if len(source) == 0 {
 		return map[string]any{}, nil
 	}
 
 	doc := map[string]any{}
-	if err := json.Unmarshal(source, &doc); err != nil {
+	if err := json.Unmarshal(source, &doc, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

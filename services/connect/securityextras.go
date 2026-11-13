@@ -2,18 +2,21 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxSecurityExtras = 100
 
 // securityExtras are the Applications, AllowedFlowModules and AllowedAIAgents of a security profile.
 type securityExtras struct {
-	AIAgents     json.RawMessage `json:"aiAgents,omitempty"`
-	Applications json.RawMessage `json:"applications,omitempty"`
-	FlowModules  json.RawMessage `json:"flowModules,omitempty"`
+	AIAgents     jsontext.Value `json:"aiAgents,omitempty"`
+	Applications jsontext.Value `json:"applications,omitempty"`
+	FlowModules  jsontext.Value `json:"flowModules,omitempty"`
 }
 
 type entityProfilesRec struct {
@@ -23,7 +26,7 @@ type entityProfilesRec struct {
 }
 
 // checkSecurityExtras validates the three lists and returns them ready to store; nil inputs stay nil.
-func (b *Backend) checkSecurityExtras(inst string, aiAgents, apps, modules json.RawMessage) (securityExtras, error) {
+func (b *Backend) checkSecurityExtras(inst string, aiAgents, apps, modules jsontext.Value) (securityExtras, error) {
 	var out securityExtras
 
 	if present(aiAgents) {
@@ -53,9 +56,9 @@ func (b *Backend) checkSecurityExtras(inst string, aiAgents, apps, modules json.
 	return out, nil
 }
 
-func present(raw json.RawMessage) bool { return len(raw) > 0 && string(raw) != jsonNull }
+func present(raw jsontext.Value) bool { return len(raw) > 0 && string(raw) != jsonNull }
 
-func checkAIAgents(raw json.RawMessage) error {
+func checkAIAgents(raw jsontext.Value) error {
 	var items []struct {
 		Arn  string `json:"Arn"`
 		Type string `json:"Type"`
@@ -77,7 +80,7 @@ func checkAIAgents(raw json.RawMessage) error {
 	return nil
 }
 
-func checkApplications(raw json.RawMessage) error {
+func checkApplications(raw jsontext.Value) error {
 	var items []struct {
 		Namespace              string   `json:"Namespace"`
 		Type                   string   `json:"Type"`
@@ -100,7 +103,7 @@ func checkApplications(raw json.RawMessage) error {
 	return nil
 }
 
-func (b *Backend) checkFlowModules(inst string, raw json.RawMessage) error {
+func (b *Backend) checkFlowModules(inst string, raw jsontext.Value) error {
 	var items []struct {
 		FlowModuleID string `json:"FlowModuleId"`
 		Type         string `json:"Type"`
@@ -123,13 +126,13 @@ func (b *Backend) checkFlowModules(inst string, raw json.RawMessage) error {
 	return nil
 }
 
-func decodeBounded(raw json.RawMessage, dst any, field string) error {
-	if err := json.Unmarshal(raw, dst); err != nil {
+func decodeBounded(raw jsontext.Value, dst any, field string) error {
+	if err := json.Unmarshal(raw, dst, jsonx.V1()); err != nil {
 		return invalidParamErr("%s is not valid", field)
 	}
 
-	var list []json.RawMessage
-	if json.Unmarshal(raw, &list) == nil && len(list) > maxSecurityExtras {
+	var list []jsontext.Value
+	if json.Unmarshal(raw, &list, jsonx.V1()) == nil && len(list) > maxSecurityExtras {
 		return invalidParamErr("%s can hold at most %d entries", field, maxSecurityExtras)
 	}
 
@@ -172,10 +175,10 @@ type SecurityListInput struct {
 type SecurityListOut map[string]any
 
 func (b *Backend) listSecurityExtra(
-	op, key string, in *SecurityListInput, pick func(*securityExtras) json.RawMessage,
+	op, key string, in *SecurityListInput, pick func(*securityExtras) jsontext.Value,
 ) (*SecurityListOut, error) {
 	var (
-		items []json.RawMessage
+		items []jsontext.Value
 		stamp Stamp
 	)
 
@@ -188,7 +191,7 @@ func (b *Backend) listSecurityExtra(
 		stamp = p.Profile.Stamp
 
 		if raw := pick(&p.Extras); raw != nil {
-			err = json.Unmarshal(raw, &items)
+			err = json.Unmarshal(raw, &items, jsonx.V1())
 		}
 
 		return &empty{}, err
@@ -216,19 +219,19 @@ func (b *Backend) listSecurityExtra(
 // ListSecurityProfileApplications lists the applications a security profile grants.
 func (b *Backend) ListSecurityProfileApplications(in *SecurityListInput) (*SecurityListOut, error) {
 	return b.listSecurityExtra("ListSecurityProfileApplications", "Applications", in,
-		func(e *securityExtras) json.RawMessage { return e.Applications })
+		func(e *securityExtras) jsontext.Value { return e.Applications })
 }
 
 // ListSecurityProfileFlowModules lists the flow modules a security profile allows.
 func (b *Backend) ListSecurityProfileFlowModules(in *SecurityListInput) (*SecurityListOut, error) {
 	return b.listSecurityExtra("ListSecurityProfileFlowModules", "AllowedFlowModules", in,
-		func(e *securityExtras) json.RawMessage { return e.FlowModules })
+		func(e *securityExtras) jsontext.Value { return e.FlowModules })
 }
 
 // ListSecurityProfileAIAgents lists the AI agents a security profile allows.
 func (b *Backend) ListSecurityProfileAIAgents(in *SecurityListInput) (*SecurityListOut, error) {
 	return b.listSecurityExtra("ListSecurityProfileAIAgents", "AllowedAIAgents", in,
-		func(e *securityExtras) json.RawMessage { return e.AIAgents })
+		func(e *securityExtras) jsontext.Value { return e.AIAgents })
 }
 
 // EntityProfilesInput is the Associate/Disassociate/ListEntitySecurityProfiles request.

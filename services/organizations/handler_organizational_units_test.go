@@ -1,13 +1,16 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_CreateOrganizationalUnit tests the HTTP handler for CreateOrganizationalUnit.
@@ -38,7 +41,7 @@ func TestHandler_CreateOrganizationalUnit(t *testing.T) {
 			require.Equal(t, http.StatusOK, rootsRec.Code)
 
 			var rootsResp map[string]any
-			require.NoError(t, json.NewDecoder(rootsRec.Body).Decode(&rootsResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rootsRec.Body), &rootsResp, jsonx.V1()))
 			roots := rootsResp["Roots"].([]any)
 			rootID := roots[0].(map[string]any)["Id"].(string)
 
@@ -50,7 +53,7 @@ func TestHandler_CreateOrganizationalUnit(t *testing.T) {
 
 			if tt.wantOU {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				ou, ok := resp["OrganizationalUnit"].(map[string]any)
 				require.True(t, ok, "response should contain OrganizationalUnit")
 				assert.NotEmpty(t, ou["Id"])
@@ -90,7 +93,7 @@ func TestHandler_ListParents(t *testing.T) {
 			require.Equal(t, http.StatusOK, acctRec.Code)
 
 			var acctResp map[string]any
-			require.NoError(t, json.NewDecoder(acctRec.Body).Decode(&acctResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(acctRec.Body), &acctResp, jsonx.V1()))
 			status := acctResp["CreateAccountStatus"].(map[string]any)
 			accountID := status["AccountId"].(string)
 
@@ -99,7 +102,7 @@ func TestHandler_ListParents(t *testing.T) {
 
 			if tt.wantParents {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				parents, ok := resp["Parents"].([]any)
 				require.True(t, ok, "response should contain Parents")
 				assert.NotEmpty(t, parents)
@@ -164,7 +167,7 @@ func TestOUDepth_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var rootsResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&rootsResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &rootsResp, jsonx.V1()))
 	roots := rootsResp["Roots"].([]any)
 	rootID := roots[0].(map[string]any)["Id"].(string)
 
@@ -179,7 +182,7 @@ func TestOUDepth_ViaHandler(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, "depth %d should succeed", d)
 
 		var ouResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&ouResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ouResp, jsonx.V1()))
 		parentID = ouResp["OrganizationalUnit"].(map[string]any)["Id"].(string)
 	}
 
@@ -205,7 +208,7 @@ func TestOUNameUniqueness_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var rootsResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&rootsResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &rootsResp, jsonx.V1()))
 	roots := rootsResp["Roots"].([]any)
 	rootID := roots[0].(map[string]any)["Id"].(string)
 
@@ -258,7 +261,7 @@ func TestHandler_DescribeOrganizationalUnit(t *testing.T) {
 			require.Equal(t, http.StatusOK, ouRec.Code)
 
 			var ouResp map[string]any
-			require.NoError(t, json.NewDecoder(ouRec.Body).Decode(&ouResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ouRec.Body), &ouResp, jsonx.V1()))
 			ou := ouResp["OrganizationalUnit"].(map[string]any)
 			ouID := ou["Id"].(string)
 
@@ -295,7 +298,7 @@ func TestHandler_DeleteOrganizationalUnit(t *testing.T) {
 			require.Equal(t, http.StatusOK, ouRec.Code)
 
 			var ouResp map[string]any
-			require.NoError(t, json.NewDecoder(ouRec.Body).Decode(&ouResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ouRec.Body), &ouResp, jsonx.V1()))
 			ou := ouResp["OrganizationalUnit"].(map[string]any)
 			ouID := ou["Id"].(string)
 
@@ -332,7 +335,7 @@ func TestHandler_UpdateOrganizationalUnit(t *testing.T) {
 			require.Equal(t, http.StatusOK, ouRec.Code)
 
 			var ouResp map[string]any
-			require.NoError(t, json.NewDecoder(ouRec.Body).Decode(&ouResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ouRec.Body), &ouResp, jsonx.V1()))
 			ou := ouResp["OrganizationalUnit"].(map[string]any)
 			ouID := ou["Id"].(string)
 

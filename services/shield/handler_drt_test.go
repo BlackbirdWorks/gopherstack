@@ -1,13 +1,14 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -150,7 +151,7 @@ func TestHandler_DescribeDRTAccess(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 			if tt.wantRoleArn != "" {
 				assert.Equal(t, tt.wantRoleArn, result["RoleArn"])

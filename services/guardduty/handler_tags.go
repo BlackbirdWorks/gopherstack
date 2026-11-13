@@ -1,10 +1,12 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int, error) {
@@ -44,7 +46,7 @@ func (h *Handler) handleTagResource(resourceARN string, body []byte) (int, error
 		Tags map[string]string `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

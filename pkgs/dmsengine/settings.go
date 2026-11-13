@@ -1,10 +1,12 @@
 package dmsengine
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrInvalidSettings reports an unusable ReplicationTaskSettings document.
@@ -34,7 +36,7 @@ func ParseTaskSettings(doc string) (TaskSettings, error) {
 		} `json:"FullLoadSettings"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &raw); err != nil {
+	if err := json.Unmarshal([]byte(doc), &raw, jsonx.V1()); err != nil {
 		return ts, fmt.Errorf("%w: %w", ErrInvalidSettings, err)
 	}
 

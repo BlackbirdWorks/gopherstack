@@ -34,6 +34,7 @@ func TestRDSDataDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("text=RDS Data").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -71,6 +72,7 @@ func TestRDSDataDashboard_SQLRunner(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.GetByRole("tab", playwright.PageGetByRoleOptions{Name: "Query Console"}).
 		WaitFor(playwright.LocatorWaitForOptions{

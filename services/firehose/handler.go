@@ -2,7 +2,7 @@ package firehose
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -145,7 +146,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req deliveryStreamNameInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return req.DeliveryStreamName
 }
@@ -195,13 +196,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	respond := func(status int, errType string) error {
 		msg := strings.TrimPrefix(err.Error(), errType+": ")
 
@@ -218,7 +216,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, errUnknownAction):
 		return respond(http.StatusBadRequest, "UnknownOperationException")
 	case errors.Is(err, errInvalidRequest), errors.Is(err, awserr.ErrInvalidParameter),
-		errors.Is(err, ErrValidation), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		errors.Is(err, ErrValidation), jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return respond(http.StatusBadRequest, "InvalidArgumentException")
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{errFieldMessage: err.Error()})

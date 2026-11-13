@@ -2,7 +2,8 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -1126,5 +1128,5 @@ func TestNetworkSDK_Protocol(t *testing.T) {
 }
 
 func jsonDecode(resp *http.Response, v any) error {
-	return json.NewDecoder(resp.Body).Decode(v)
+	return json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), v, jsonx.V1())
 }

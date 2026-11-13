@@ -1,9 +1,10 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -49,7 +50,7 @@ func TestSDKJSONMarshaling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b, err := json.Marshal(tt.input)
+			b, err := json.Marshal(tt.input, jsonx.V1())
 			require.NoError(t, err)
 			require.NotEmpty(t, b)
 			t.Logf("%s JSON: %s", tt.name, string(b))

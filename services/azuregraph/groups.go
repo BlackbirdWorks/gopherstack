@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 )
@@ -55,7 +55,7 @@ func validateGroup(g *Group) error {
 }
 
 // CreateGroup creates a group; members@odata.bind and owners@odata.bind add references atomically.
-func (b *Backend) CreateGroup(body map[string]json.RawMessage) (Group, error) {
+func (b *Backend) CreateGroup(body map[string]jsontext.Value) (Group, error) {
 	if err := requireProps("Group", body, "displayName", "mailEnabled", "mailNickname", "securityEnabled"); err != nil {
 		return Group{}, err
 	}
@@ -119,7 +119,7 @@ func (b *Backend) ListGroups() []Group {
 }
 
 // UpdateGroup applies a PATCH body. isAssignableToRole can only be set at creation.
-func (b *Backend) UpdateGroup(r Ref, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateGroup(r Ref, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 

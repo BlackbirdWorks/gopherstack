@@ -5,7 +5,8 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -347,11 +349,10 @@ func decodeContent(encoding string, data []byte) ([]byte, *apiError) {
 }
 
 func parseRecords(data []byte) ([]map[string]any, *apiError) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
 
 	var records []map[string]any
-	if err := dec.Decode(&records); err != nil {
+	if err := json.UnmarshalDecode(dec, &records, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, newErr(http.StatusBadRequest, "InvalidPayload",
 			"The request body must be a JSON array of objects: %v", err)
 	}
@@ -398,7 +399,7 @@ func parseQueryRequest(r *http.Request) (QueryRequest, bool, *apiError) {
 			return req, false, newErr(http.StatusBadRequest, "BadArgumentError", "The request body could not be read.")
 		}
 
-		if err = json.Unmarshal(data, &req); err != nil {
+		if err = json.Unmarshal(data, &req, jsonx.V1()); err != nil {
 			return req, false, newErr(http.StatusBadRequest, "BadArgumentError",
 				"The request body is not valid JSON: %v", err)
 		}
@@ -440,7 +441,7 @@ func (h *Handler) handleBatch(c *echo.Context) error {
 	}
 
 	var req batchRequest
-	if err = json.Unmarshal(data, &req); err != nil || len(req.Requests) == 0 {
+	if err = json.Unmarshal(data, &req, jsonx.V1()); err != nil || len(req.Requests) == 0 {
 		return writeAPIError(c, newErr(http.StatusBadRequest, "BadArgumentError",
 			"The batch must contain a non-empty 'requests' array."))
 	}

@@ -2,9 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -19,7 +20,7 @@ func (h *Handler) handleCreateWorkspaceServiceAccount(_ context.Context, r *http
 	segs := rawPathSegments(r)
 
 	var req createWorkspaceServiceAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -33,7 +34,7 @@ func (h *Handler) handleCreateWorkspaceServiceAccount(_ context.Context, r *http
 		"name":         sa.Name,
 		"grafanaRole":  sa.GrafanaRole,
 		keyWorkspaceID: sa.WorkspaceID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteWorkspaceServiceAccount(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -47,7 +48,7 @@ func (h *Handler) handleDeleteWorkspaceServiceAccount(_ context.Context, r *http
 	return json.Marshal(map[string]any{
 		keyServiceAccountID: serviceAccountID,
 		keyWorkspaceID:      workspaceID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleListWorkspaceServiceAccounts(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -74,5 +75,5 @@ func (h *Handler) handleListWorkspaceServiceAccounts(_ context.Context, r *http.
 		out["nextToken"] = p.Next
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }

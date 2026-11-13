@@ -2,10 +2,11 @@ package resourcegroups
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -167,7 +168,7 @@ func typeAllowed(want map[string]bool, resType string) bool {
 
 func evalTagFilterQuery(ctx context.Context, src ResourceSource, queryJSON string) []ResourceIdentifier {
 	var q tagFilterQuery
-	if err := json.Unmarshal([]byte(queryJSON), &q); err != nil {
+	if err := json.Unmarshal([]byte(queryJSON), &q, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -190,7 +191,7 @@ func evalStackQuery(
 	ctx context.Context, src ResourceSource, queryJSON string,
 ) ([]ResourceIdentifier, []queryErrorWire) {
 	var q cfnQuery
-	if err := json.Unmarshal([]byte(queryJSON), &q); err != nil {
+	if err := json.Unmarshal([]byte(queryJSON), &q, jsonx.V1()); err != nil {
 		return nil, nil
 	}
 

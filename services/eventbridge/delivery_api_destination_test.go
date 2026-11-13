@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -333,7 +334,7 @@ func TestAPIDestinationDelivery_BodyMerge(t *testing.T) {
 	require.Len(t, reqs, 1)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal([]byte(reqs[0].body), &got))
+	require.NoError(t, json.Unmarshal([]byte(reqs[0].body), &got, jsonx.V1()))
 	assert.Equal(t, "world", got["hello"])
 	assert.Equal(t, "yes", got["injected"])
 }

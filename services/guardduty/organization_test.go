@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -34,7 +35,7 @@ func TestOrganization(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				accounts, _ := listResp["adminAccounts"].([]any)
 				assert.Len(t, accounts, 1)
 
@@ -46,7 +47,7 @@ func TestOrganization(t *testing.T) {
 
 				// List after disable
 				rec = doRequest(t, h, http.MethodGet, "/admin", nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				accounts2, _ := listResp["adminAccounts"].([]any)
 				assert.Empty(t, accounts2)
 			},
@@ -63,7 +64,7 @@ func TestOrganization(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.NotNil(t, descResp["autoEnable"])
 
 				// UpdateOrganizationConfiguration
@@ -74,7 +75,7 @@ func TestOrganization(t *testing.T) {
 
 				// Verify update
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/admin", nil)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, true, descResp["autoEnable"])
 			},
 		},

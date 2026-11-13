@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -48,7 +49,7 @@ func TestCreateIdentityProvider_Duplicate_ReturnsDuplicateProviderException(t *t
 				var errResp struct {
 					Code string `json:"__type,omitempty"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "DuplicateProviderException", errResp.Code)
 			} else {
 				b := newTestBackend()
@@ -123,7 +124,7 @@ func TestUpdateIdentityProvider_ReplacesProviderDetails(t *testing.T) {
 						ProviderDetails map[string]string `json:"ProviderDetails,omitempty"`
 					} `json:"IdentityProvider"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.IdentityProvider)
 
 				assert.Equal(t, "https://new.example.com/metadata", out.IdentityProvider.ProviderDetails["MetadataURL"])
@@ -195,7 +196,7 @@ func TestIdentityProvider_SAML_WithAttributeMapping(t *testing.T) {
 			CreationDate     float64           `json:"CreationDate,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	require.NotNil(t, createOut.IdentityProvider)
 	assert.Equal(t, "MySAML", createOut.IdentityProvider.ProviderName)
 	assert.Equal(t, "SAML", createOut.IdentityProvider.ProviderType)
@@ -235,7 +236,7 @@ func TestIdentityProvider_OIDC_WithScopes(t *testing.T) {
 			ProviderType     string            `json:"ProviderType,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.IdentityProvider)
 	assert.Equal(t, "MyOIDC", out.IdentityProvider.ProviderName)
 	assert.Equal(t, "email", out.IdentityProvider.AttributeMapping["email"])
@@ -280,7 +281,7 @@ func TestIdentityProvider_Social_Google(t *testing.T) {
 			ProviderDetails  map[string]string `json:"ProviderDetails,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.IdentityProvider)
 	assert.Equal(t, "email", descOut.IdentityProvider.AttributeMapping["email"])
 	assert.Equal(t, "google-app-id", descOut.IdentityProvider.ProviderDetails["client_id"])
@@ -324,7 +325,7 @@ func TestIdentityProvider_Update_AttributeMapping(t *testing.T) {
 			IdpIdentifiers   []string          `json:"IdpIdentifiers,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updOut, jsonx.V1()))
 	require.NotNil(t, updOut.IdentityProvider)
 	assert.Equal(t, "id", updOut.IdentityProvider.AttributeMapping["username"])
 	assert.Contains(t, updOut.IdentityProvider.IdpIdentifiers, "facebook.com")
@@ -364,7 +365,7 @@ func TestIdentityProvider_GetByIdentifier(t *testing.T) {
 			CreationDate     float64           `json:"CreationDate,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.IdentityProvider)
 	assert.Equal(t, "LoginWithAmazon", out.IdentityProvider.ProviderName)
 	// AttributeMapping/IdpIdentifiers/CreationDate only appear on the "Full"
@@ -414,7 +415,7 @@ func TestIdentityProvider_List_WithTimestamps(t *testing.T) {
 			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"Providers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Providers, 3)
 
 	for _, p := range out.Providers {
@@ -544,7 +545,7 @@ func TestIdentityProvider_CRUD(t *testing.T) {
 			ProviderType string `json:"ProviderType,omitempty"`
 		} `json:"IdentityProvider"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Equal(t, "Google", createResp.IdentityProvider.ProviderName)
 	assert.Equal(t, "Google", createResp.IdentityProvider.ProviderType)
 
@@ -573,7 +574,7 @@ func TestIdentityProvider_CRUD(t *testing.T) {
 			ProviderName string `json:"ProviderName,omitempty"`
 		} `json:"Providers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Providers, 1)
 	assert.Equal(t, "Google", listResp.Providers[0].ProviderName)
 
@@ -597,7 +598,7 @@ func TestIdentityProvider_CRUD(t *testing.T) {
 		"UserPoolId": poolID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.Providers)
 }
 
@@ -689,7 +690,7 @@ func TestHandler_AdminDisableProviderForUser(t *testing.T) {
 			if poolID == "" {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "provider-pool"})
 				var poolResp map[string]any
-				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 				poolID = poolResp["UserPool"].(map[string]any)["Id"].(string)
 				createProviderViaHandler(t, h, poolID, "Google", "Google")
 				_, err := h.Backend.CreateFederatedUserForTest(poolID, "Google", "google-123")
@@ -743,7 +744,7 @@ func TestListIdentityProviders_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
 
 	var page1 listOut
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Providers, 2)
 	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more providers remain")
 
@@ -755,7 +756,7 @@ func TestListIdentityProviders_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
 
 	var page2 listOut
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.Providers, 1)
 	require.Empty(t, page2.NextToken)
 

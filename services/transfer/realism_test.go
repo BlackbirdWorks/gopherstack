@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const realismRole = "arn:aws:iam::123456789012:role/TransferUserRole"
@@ -18,7 +20,7 @@ func transferErr(t *testing.T, body []byte) (string, string) {
 		Type    string `json:"__type"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out.Type, out.Message
 }

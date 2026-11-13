@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -73,7 +74,7 @@ func (keepOrDropLambdaInvoker) InvokeFunction(
 	payload []byte,
 ) ([]byte, int, error) {
 	var event transformEvent
-	if err := json.Unmarshal(payload, &event); err != nil {
+	if err := json.Unmarshal(payload, &event, jsonx.V1()); err != nil {
 		return nil, 500, err
 	}
 
@@ -87,7 +88,7 @@ func (keepOrDropLambdaInvoker) InvokeFunction(
 		out[i] = transformRecord{RecordID: rec.RecordID, Result: result, Data: rec.Data}
 	}
 
-	resp, err := json.Marshal(map[string]any{"records": out})
+	resp, err := json.Marshal(map[string]any{"records": out}, jsonx.V1())
 	if err != nil {
 		return nil, 500, err
 	}
@@ -440,7 +441,7 @@ func TestIntegration_Firehose_HTTP_UpdateDestination(t *testing.T) {
 
 	doPost := func(action string, body any) (int, string) {
 		t.Helper()
-		bodyBytes, marshalErr := json.Marshal(body)
+		bodyBytes, marshalErr := json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 		req, reqCreateErr := http.NewRequestWithContext(
 			t.Context(), http.MethodPost, srv.URL,

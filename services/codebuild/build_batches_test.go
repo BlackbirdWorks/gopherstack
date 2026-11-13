@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCodeBuild_BuildBatch covers RetryBuildBatch, StopBuildBatch, ListBuildBatchesForProject.
@@ -27,7 +30,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"buildBatch"`
 		}
-		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 		batchID := startOut.BuildBatch.ID
 
 		stopRec := doRequest(t, h, "StopBuildBatch", map[string]any{"id": batchID})
@@ -38,7 +41,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 				BuildBatchStatus string `json:"buildBatchStatus"`
 			} `json:"buildBatch"`
 		}
-		require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&stopOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &stopOut, jsonx.V1()))
 		assert.Equal(t, "STOPPED", stopOut.BuildBatch.BuildBatchStatus)
 	})
 
@@ -64,7 +67,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"buildBatch"`
 		}
-		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 		batchID := startOut.BuildBatch.ID
 		require.Equal(t, http.StatusOK, doRequest(t, h, "StopBuildBatch", map[string]any{"id": batchID}).Code)
 
@@ -78,7 +81,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 				ProjectName      string `json:"projectName"`
 			} `json:"buildBatch"`
 		}
-		require.NoError(t, json.NewDecoder(retryRec.Body).Decode(&retryOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(retryRec.Body), &retryOut, jsonx.V1()))
 		assert.NotEqual(t, batchID, retryOut.BuildBatch.ID)
 		assert.Equal(t, "IN_PROGRESS", retryOut.BuildBatch.BuildBatchStatus)
 		assert.Equal(t, "batch-retry-proj", retryOut.BuildBatch.ProjectName)
@@ -110,7 +113,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 		var out struct {
 			IDs []string `json:"ids"`
 		}
-		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.IDs, 2)
 	})
 
@@ -166,7 +169,7 @@ func TestHandler_DeleteBuildBatch_RemovesBatch(t *testing.T) {
 						ID string `json:"id"`
 					} `json:"buildBatch"`
 				}
-				require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 				batchID = startOut.BuildBatch.ID
 			} else {
 				batchID = "ghost-proj:ghost-batch-id"
@@ -187,7 +190,7 @@ func TestHandler_DeleteBuildBatch_RemovesBatch(t *testing.T) {
 				var listOut struct {
 					IDs []string `json:"ids"`
 				}
-				require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 				assert.NotContains(t, listOut.IDs, batchID, "batch should be removed after delete")
 			}
 		})
@@ -226,7 +229,7 @@ func TestHandler_StartBuildBatch_SetsInProgress(t *testing.T) {
 					StartTime        float64 `json:"startTime"`
 				} `json:"buildBatch"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, out.BuildBatch.BuildBatchStatus)
 			if tt.wantStartTimeSet {
 				assert.Greater(t, out.BuildBatch.StartTime, float64(0))
@@ -266,7 +269,7 @@ func TestHandler_StopBuildBatch_SetsEndTime(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"buildBatch"`
 			}
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 
 			stopRec := doRequest(t, h, "StopBuildBatch", map[string]any{"id": startOut.BuildBatch.ID})
 			require.Equal(t, http.StatusOK, stopRec.Code)
@@ -277,7 +280,7 @@ func TestHandler_StopBuildBatch_SetsEndTime(t *testing.T) {
 					EndTime          float64 `json:"endTime"`
 				} `json:"buildBatch"`
 			}
-			require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, out.BuildBatch.BuildBatchStatus)
 			if tt.wantEndTimeSet {
 				assert.Greater(t, out.BuildBatch.EndTime, float64(0))
@@ -300,7 +303,7 @@ func TestHandler_StartBuildBatch_ArnSet(t *testing.T) {
 	var out struct {
 		BuildBatch map[string]any `json:"buildBatch"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	batchArn, _ := out.BuildBatch["arn"].(string)
 	assert.NotEmpty(t, batchArn, "StartBuildBatch must return a non-empty arn")
 	assert.Contains(t, batchArn, "arn:aws:codebuild", "arn must be a valid ARN format")
@@ -319,7 +322,7 @@ func TestHandler_RetryBuildBatch_ArnSet(t *testing.T) {
 	var startOut struct {
 		BuildBatch map[string]any `json:"buildBatch"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	batchID, _ := startOut.BuildBatch["id"].(string)
 	require.NotEmpty(t, batchID)
 	require.Equal(t, http.StatusOK, doRequest(t, h, "StopBuildBatch", map[string]any{"id": batchID}).Code)
@@ -330,7 +333,7 @@ func TestHandler_RetryBuildBatch_ArnSet(t *testing.T) {
 	var retryOut struct {
 		BuildBatch map[string]any `json:"buildBatch"`
 	}
-	require.NoError(t, json.Unmarshal(retryRec.Body.Bytes(), &retryOut))
+	require.NoError(t, json.Unmarshal(retryRec.Body.Bytes(), &retryOut, jsonx.V1()))
 	arn, _ := retryOut.BuildBatch["arn"].(string)
 	assert.NotEmpty(t, arn, "RetryBuildBatch must return a non-empty arn")
 }

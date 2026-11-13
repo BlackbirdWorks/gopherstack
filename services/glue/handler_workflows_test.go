@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -74,7 +75,7 @@ func TestWorkflow_CRUD(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.op == "GetWorkflow" && tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				wf := out["Workflow"].(map[string]any)
 				assert.Equal(t, "wf1", wf["Name"])
 			}
@@ -131,7 +132,7 @@ func TestWorkflow_DeleteAndList(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		wfs := out["Workflows"].([]any)
 		assert.Len(t, wfs, 2)
 		missing := out["MissingWorkflows"].([]any)
@@ -150,7 +151,7 @@ func TestWorkflow_RunLifecycle(t *testing.T) {
 		rec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "wf-run"})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.NotEmpty(t, out["RunId"])
 	})
 
@@ -171,20 +172,20 @@ func TestWorkflow_GetRunAndProperties(t *testing.T) {
 	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "wf-props"})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"].(string)
 
 	getRunRec := doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": "wf-props", "RunId": runID})
 	require.Equal(t, http.StatusOK, getRunRec.Code)
 	var getRunOut map[string]any
-	require.NoError(t, json.Unmarshal(getRunRec.Body.Bytes(), &getRunOut))
+	require.NoError(t, json.Unmarshal(getRunRec.Body.Bytes(), &getRunOut, jsonx.V1()))
 	run := getRunOut["Run"].(map[string]any)
 	assert.Equal(t, runID, run["WorkflowRunId"])
 
 	getRunsRec := doGlueRequest(t, h, "GetWorkflowRuns", map[string]any{"Name": "wf-props"})
 	require.Equal(t, http.StatusOK, getRunsRec.Code)
 	var getRunsOut map[string]any
-	require.NoError(t, json.Unmarshal(getRunsRec.Body.Bytes(), &getRunsOut))
+	require.NoError(t, json.Unmarshal(getRunsRec.Body.Bytes(), &getRunsOut, jsonx.V1()))
 	runs := getRunsOut["Runs"].([]any)
 	assert.Len(t, runs, 1)
 
@@ -206,7 +207,7 @@ func TestWorkflow_GetRunAndProperties(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, getPropsRec.Code)
 	var getPropsOut map[string]any
-	require.NoError(t, json.Unmarshal(getPropsRec.Body.Bytes(), &getPropsOut))
+	require.NoError(t, json.Unmarshal(getPropsRec.Body.Bytes(), &getPropsOut, jsonx.V1()))
 	props := getPropsOut["RunProperties"].(map[string]any)
 	assert.Equal(t, "staging", props["env"])
 
@@ -235,7 +236,7 @@ func TestWorkflow_UpdateDefaultRunProperties(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetWorkflow", map[string]any{"Name": "wf-drp"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	wf, ok := out["Workflow"].(map[string]any)
 	require.True(t, ok)
 	props, ok := wf["DefaultRunProperties"].(map[string]any)
@@ -351,7 +352,7 @@ func TestResumeWorkflowRun_Stateful(t *testing.T) {
 				RunID   string   `json:"RunId"`
 				NodeIDs []string `json:"NodeIds"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.RunID)
 			assert.NotEqual(t, runID, out.RunID, "resume must mint a new RunId, not echo the original")
 			assert.Equal(t, []string{"node-a"}, out.NodeIDs)
@@ -373,7 +374,7 @@ func startedWorkflowRun(t *testing.T, h *glue.Handler, name string) (string, str
 	var startOut struct {
 		RunID string `json:"RunId"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 
 	return name, startOut.RunID
 }
@@ -407,7 +408,7 @@ func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
 		RunID   string   `json:"RunId"`
 		NodeIDs []string `json:"NodeIds"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, []string{"node-a", "node-b"}, out.NodeIDs)
 	assert.NotEqual(t, runID, out.RunID)
 }
@@ -502,7 +503,7 @@ func TestWorkflow_Graph(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			wf := out["Workflow"].(map[string]any)
 
 			if !tt.includeGraph {
@@ -547,19 +548,19 @@ func TestWorkflow_LastRun(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotContains(t, out["Workflow"].(map[string]any), "LastRun")
 
 	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "graphwf"})
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"].(string)
 
 	rec = doGlueRequest(t, h, "GetWorkflow", map[string]any{"Name": "graphwf"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	wf := out["Workflow"].(map[string]any)
 	assert.NotContains(t, wf, "Graph")
@@ -587,7 +588,7 @@ func TestStopWorkflowRun_StateGuard(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "RUNNING", getOut["Run"].(map[string]any)["Status"])
 
 	stopRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
@@ -595,20 +596,20 @@ func TestStopWorkflowRun_StateGuard(t *testing.T) {
 
 	getRec = doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
 	require.Equal(t, http.StatusOK, getRec.Code)
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "STOPPED", getOut["Run"].(map[string]any)["Status"])
 
 	// Stopping again must fail: the run is no longer RUNNING.
 	stopAgainRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
 	assert.Equal(t, http.StatusBadRequest, stopAgainRec.Code)
 	var errOut map[string]string
-	require.NoError(t, json.Unmarshal(stopAgainRec.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(stopAgainRec.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "IllegalWorkflowStateException", errOut["__type"])
 
 	// Stopping a nonexistent run is EntityNotFoundException, not the state error.
 	missingRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": "no-such-run"})
 	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
-	require.NoError(t, json.Unmarshal(missingRec.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(missingRec.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "EntityNotFoundException", errOut["__type"])
 }
 
@@ -667,7 +668,7 @@ func TestSDKRoundTrip_GetWorkflowRuns_Pagination(t *testing.T) {
 		var out struct {
 			RunID string `json:"RunId"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		wantIDs[out.RunID] = true
 	}
 	require.Len(t, wantIDs, numRuns)

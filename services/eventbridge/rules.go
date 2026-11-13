@@ -2,11 +2,13 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // checkManagedRule returns ManagedRuleException if rule is owned by an AWS
@@ -379,7 +381,7 @@ func (b *InMemoryBackend) TestEventPattern(
 func isValidJSON(s string) bool {
 	var v any
 
-	return json.Unmarshal([]byte(s), &v) == nil
+	return json.Unmarshal([]byte(s), &v, jsonx.V1()) == nil
 }
 
 var ruleNamePattern = regexp.MustCompile(`^[.\-_A-Za-z0-9]+$`)

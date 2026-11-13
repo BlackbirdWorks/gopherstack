@@ -2,7 +2,8 @@ package dynamodb
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -117,7 +119,7 @@ func TestAppendJSONString_MatchesEncodingJSON(t *testing.T) {
 	}
 
 	for _, s := range corpus {
-		want, err := json.Marshal(s)
+		want, err := json.Marshal(s, jsonx.V1())
 		require.NoError(t, err)
 		assert.Equal(t, string(want), string(appendJSONString(nil, s)), "input %q", s)
 	}
@@ -243,7 +245,7 @@ func TestEncoders_MatchLegacyMarshal(t *testing.T) {
 					items[i] = randItem(rng, 0)
 				}
 
-				want, err := json.Marshal(tt.legacy(it, items))
+				want, err := json.Marshal(tt.legacy(it, items), jsonx.V1())
 				require.NoError(t, err)
 
 				got, release, err := marshalResponse(tt.fast(it, items))
@@ -294,7 +296,7 @@ func TestEncoders_EmptyAndNilOutputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			want, err := json.Marshal(tt.legacy())
+			want, err := json.Marshal(tt.legacy(), jsonx.V1())
 			require.NoError(t, err)
 
 			got, release, err := marshalResponse(tt.fast())
@@ -307,7 +309,7 @@ func TestEncoders_EmptyAndNilOutputs(t *testing.T) {
 
 func legacyDecode[In, SDK any](body string, toSDK func(*In) (*SDK, error)) (*SDK, error) {
 	var in In
-	if err := json.Unmarshal([]byte(body), &in); err != nil {
+	if err := json.Unmarshal([]byte(body), &in, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -499,10 +501,15 @@ func TestDecoders_RandomItemsMatchLegacy(t *testing.T) {
 		item := randItem(rng, 0)
 		wireItem := models.FromSDKItem(item)
 
-		raw, err := json.Marshal(map[string]any{"TableName": "t", "Item": wireItem})
+		raw, err := json.Marshal(map[string]any{"TableName": "t", "Item": wireItem}, jsonx.V1())
 		require.NoError(t, err)
 
-		indented, err := json.MarshalIndent(map[string]any{"TableName": "t", "Item": wireItem}, "", "  ")
+		indented, err := json.Marshal(
+			map[string]any{"TableName": "t", "Item": wireItem},
+			jsonx.V1(),
+			jsontext.Multiline(true),
+			jsontext.WithIndent("  "),
+		)
 		require.NoError(t, err)
 
 		for _, body := range [][]byte{raw, indented, pythonEscape(raw)} {
@@ -562,7 +569,7 @@ func TestTopLevelStrings_MatchesStructDecode(t *testing.T) {
 			BackupArn string `json:"BackupArn"`
 		}
 
-		legacyErr := json.Unmarshal([]byte(body), &data)
+		legacyErr := json.Unmarshal([]byte(body), &data, jsonx.V1())
 		table, backup, ok := topLevelStrings([]byte(body))
 
 		if !ok {
@@ -580,7 +587,7 @@ func legacyWireBytes(t *testing.T, item map[string]any) []byte {
 	t.Helper()
 
 	sdk, _ := models.ToSDKItem(item)
-	out, err := json.Marshal(models.FromSDKItem(sdk))
+	out, err := json.Marshal(models.FromSDKItem(sdk), jsonx.V1())
 	require.NoError(t, err)
 
 	return out
@@ -590,11 +597,11 @@ func TestAppendWireItem_MatchesLegacyPipeline(t *testing.T) {
 	t.Parallel()
 
 	jsonRoundTrip := func(item map[string]any) map[string]any {
-		raw, err := json.Marshal(item)
+		raw, err := json.Marshal(item, jsonx.V1())
 		require.NoError(t, err)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(raw, &out))
+		require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 		return out
 	}

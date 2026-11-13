@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -41,7 +43,7 @@ func TestInboundConnections_DescribeRejectDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	conns, ok := dOut["Connections"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, conns)
@@ -57,7 +59,7 @@ func TestInboundConnections_DescribeRejectDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.StatusCode)
 
 	var rOut map[string]any
-	require.NoError(t, json.NewDecoder(rr.Body).Decode(&rOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rr.Body), &rOut, jsonx.V1()))
 	rConn := rOut["Connection"].(map[string]any)
 	assert.Equal(t, "REJECTED", rConn["ConnectionStatus"].(map[string]any)["StatusCode"])
 
@@ -68,7 +70,7 @@ func TestInboundConnections_DescribeRejectDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, del.StatusCode)
 
 	var delOut map[string]any
-	require.NoError(t, json.NewDecoder(del.Body).Decode(&delOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(del.Body), &delOut, jsonx.V1()))
 	delConn := delOut["Connection"].(map[string]any)
 	assert.Equal(t, "conn-inb-1", delConn["ConnectionId"])
 }
@@ -164,7 +166,7 @@ func TestOutboundConnection_CreateThenAcceptMirrorsBothSides(t *testing.T) {
 	require.Equal(t, http.StatusOK, cr.StatusCode)
 
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	connID := cOut["ConnectionId"].(string)
 
 	// Accepting the mirrored inbound connection also activates the outbound side.
@@ -174,7 +176,7 @@ func TestOutboundConnection_CreateThenAcceptMirrorsBothSides(t *testing.T) {
 	require.Equal(t, http.StatusOK, ar.StatusCode)
 
 	var aOut map[string]any
-	require.NoError(t, json.NewDecoder(ar.Body).Decode(&aOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ar.Body), &aOut, jsonx.V1()))
 	aConn := aOut["Connection"].(map[string]any)
 	assert.Equal(t, "ACTIVE", aConn["ConnectionStatus"].(map[string]any)["StatusCode"])
 
@@ -182,7 +184,7 @@ func TestOutboundConnection_CreateThenAcceptMirrorsBothSides(t *testing.T) {
 	defer dr.Body.Close()
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	conns := dOut["Connections"].([]any)
 	require.Len(t, conns, 1)
 	outConn := conns[0].(map[string]any)

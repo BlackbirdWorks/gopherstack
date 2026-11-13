@@ -1,7 +1,7 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -30,7 +31,7 @@ func TestServiceLinkedAnalyzerLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.True(t, strings.HasPrefix(resp["arn"], "arn:aws:access-analyzer:"))
 			},
 		},
@@ -112,7 +113,7 @@ func TestUpdateAnalyzer(t *testing.T) {
 			// UpdateAnalyzerOutput carries only "configuration" -- unlike
 			// CreateAnalyzer/CreateServiceLinkedAnalyzer, it has no "arn" member.
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasArn := resp["arn"]
 			assert.False(t, hasArn, `UpdateAnalyzerOutput has no "arn" member`)
 		})
@@ -145,7 +146,7 @@ func TestAnalyzerConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var getResp map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 		analyzer, ok := getResp["analyzer"].(map[string]any)
 		require.True(t, ok)
 
@@ -160,7 +161,7 @@ func TestAnalyzerConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 		analyzers, ok := listResp["analyzers"].([]any)
 		require.True(t, ok)
 		require.Len(t, analyzers, 1)
@@ -185,7 +186,7 @@ func TestAnalyzerConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		cfg, ok := resp["configuration"].(map[string]any)
 		require.True(t, ok)
 		unused, ok := cfg["unusedAccess"].(map[string]any)

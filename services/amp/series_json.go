@@ -1,9 +1,10 @@
 package amp
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -20,7 +21,7 @@ type seriesWithStale struct {
 // MarshalJSON writes stale markers as timestamps because JSON cannot carry NaN; other series are unchanged.
 func (r SeriesRecord) MarshalJSON() ([]byte, error) {
 	if !slices.ContainsFunc(r.Samples, func(s promql.Sample) bool { return promql.IsStale(s.V) }) {
-		return json.Marshal(seriesPlain(r))
+		return json.Marshal(seriesPlain(r), jsonx.V1())
 	}
 
 	out := seriesWithStale{seriesPlain: seriesPlain(r)}
@@ -33,13 +34,13 @@ func (r SeriesRecord) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 // UnmarshalJSON restores stale markers in time order.
 func (r *SeriesRecord) UnmarshalJSON(data []byte) error {
 	var in seriesWithStale
-	if err := json.Unmarshal(data, &in); err != nil {
+	if err := json.Unmarshal(data, &in, jsonx.V1()); err != nil {
 		return err
 	}
 

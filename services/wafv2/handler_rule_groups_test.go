@@ -2,13 +2,14 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -56,7 +57,7 @@ func TestHandler_CheckCapacity(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				consumed, ok := result["Capacity"].(float64)
 				require.True(t, ok)
 				assert.GreaterOrEqual(t, int(consumed), tt.wantMinCap)
@@ -106,7 +107,7 @@ func TestHandler_CreateRuleGroup(t *testing.T) {
 
 			if tt.wantID {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				summary, ok := result["Summary"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, summary["Id"])
@@ -136,7 +137,7 @@ func TestHandler_CreateRuleGroup_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var result map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
 }
 
@@ -190,7 +191,7 @@ func TestHandler_DeleteFirewallManagerRuleGroups(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				assert.NotEmpty(t, result["NextWebACLLockToken"])
 			}
 		})
@@ -266,7 +267,7 @@ func TestDeleteRuleGroupReferencedByWebACL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rgRec.Code)
 
 	var rgResp map[string]any
-	require.NoError(t, json.Unmarshal(rgRec.Body.Bytes(), &rgResp))
+	require.NoError(t, json.Unmarshal(rgRec.Body.Bytes(), &rgResp, jsonx.V1()))
 	summary := rgResp["Summary"].(map[string]any)
 	rgID := summary["Id"].(string)
 	rgARN := summary["ARN"].(string)
@@ -304,7 +305,7 @@ func TestDeleteRuleGroupReferencedByWebACL(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, delRec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp, jsonx.V1()))
 	assert.Equal(t, "WAFAssociatedItemException", delResp["__type"])
 }
 
@@ -323,7 +324,7 @@ func TestRuleGroupScopeValidationOnGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Get with wrong scope should fail.
@@ -369,7 +370,7 @@ func TestRuleGroup_UpdateRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	rgID := createResp["Summary"].(map[string]any)["Id"].(string)
 	rgLock := createResp["Summary"].(map[string]any)["LockToken"].(string)
 
@@ -411,7 +412,7 @@ func TestRuleGroup_UpdateRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["RuleGroup"].(map[string]any)["Rules"].([]any)
 	assert.Len(t, rules, 2)
 }
@@ -437,7 +438,7 @@ func TestListRuleGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page1Rec.Code)
 
 	var page1Resp map[string]any
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1Resp, jsonx.V1()))
 
 	groups1, _ := page1Resp["RuleGroups"].([]any)
 	assert.Len(t, groups1, 3)
@@ -453,7 +454,7 @@ func TestListRuleGroups_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page2Rec.Code)
 
 	var page2Resp map[string]any
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2Resp))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2Resp, jsonx.V1()))
 
 	groups2, _ := page2Resp["RuleGroups"].([]any)
 	assert.Len(t, groups2, 2)
@@ -476,7 +477,7 @@ func createRuleGroupHelper(t *testing.T, h *wafv2.Handler, name string) (string,
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summary, ok := resp["Summary"].(map[string]any)
 	require.True(t, ok)
@@ -541,7 +542,7 @@ func TestHandler_GetRuleGroup(t *testing.T) {
 
 			if tt.wantField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantField)
 			}
 		})
@@ -599,7 +600,7 @@ func TestHandler_ListRuleGroups(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, ok := resp["RuleGroups"].([]any)
 			require.True(t, ok)
@@ -666,7 +667,7 @@ func TestHandler_UpdateRuleGroup(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "NextLockToken")
 			}
 		})
@@ -764,7 +765,7 @@ func TestCheckCapacity_EdgeCases(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 				consumed, ok := result["Capacity"].(float64)
 				require.True(t, ok)
@@ -787,7 +788,7 @@ func TestCheckCapacity_NilRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	capacity, _ := resp["Capacity"].(float64)
 	assert.InDelta(t, float64(0), capacity, 0, "nil rules capacity should be 0")
 
@@ -798,7 +799,7 @@ func TestCheckCapacity_NilRules(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	capacity, _ = resp["Capacity"].(float64)
 	assert.InDelta(t, float64(0), capacity, 0, "empty rules capacity should be 0")
 }

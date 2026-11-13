@@ -1,13 +1,15 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // cosmosDBDevMasterKey is the real Cosmos DB Local Emulator's published
@@ -81,7 +83,7 @@ func TestIntegration_CosmosDB_DatabaseContainerDocumentLifecycle(t *testing.T) {
 	}
 
 	doc := testDoc{ID: "doc1", PK: "partA", Value: 42}
-	body, err := json.Marshal(doc)
+	body, err := json.Marshal(doc, jsonx.V1())
 	require.NoError(t, err)
 
 	pk := azcosmos.NewPartitionKeyString("partA")
@@ -95,7 +97,7 @@ func TestIntegration_CosmosDB_DatabaseContainerDocumentLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	var gotDoc testDoc
-	require.NoError(t, json.Unmarshal(readResp.Value, &gotDoc))
+	require.NoError(t, json.Unmarshal(readResp.Value, &gotDoc, jsonx.V1()))
 	assert.Equal(t, doc, gotDoc)
 
 	// Query via SQL.
@@ -113,7 +115,7 @@ func TestIntegration_CosmosDB_DatabaseContainerDocumentLifecycle(t *testing.T) {
 
 		for _, item := range page.Items {
 			var qd testDoc
-			require.NoError(t, json.Unmarshal(item, &qd))
+			require.NoError(t, json.Unmarshal(item, &qd, jsonx.V1()))
 
 			if qd.ID == "doc1" {
 				found = true
@@ -125,7 +127,7 @@ func TestIntegration_CosmosDB_DatabaseContainerDocumentLifecycle(t *testing.T) {
 
 	// UpsertItem (replaces existing doc1).
 	upserted := testDoc{ID: "doc1", PK: "partA", Value: 100}
-	upsertBody, err := json.Marshal(upserted)
+	upsertBody, err := json.Marshal(upserted, jsonx.V1())
 	require.NoError(t, err)
 
 	_, err = containerClient.UpsertItem(ctx, pk, upsertBody, nil)
@@ -135,7 +137,7 @@ func TestIntegration_CosmosDB_DatabaseContainerDocumentLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	var afterUpsert testDoc
-	require.NoError(t, json.Unmarshal(readResp.Value, &afterUpsert))
+	require.NoError(t, json.Unmarshal(readResp.Value, &afterUpsert, jsonx.V1()))
 	assert.Equal(t, 100, afterUpsert.Value)
 
 	// DeleteItem.

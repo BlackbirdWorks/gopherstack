@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -371,7 +372,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	}
 
 	var input CreateFunctionInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
@@ -589,7 +590,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 	}
 
 	var input UpdateFunctionCodeInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
@@ -765,7 +766,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	}
 
 	var input UpdateFunctionConfigurationInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 

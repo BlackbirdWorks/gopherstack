@@ -1,7 +1,7 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -49,7 +50,7 @@ func TestDurableExecution_GetHistory(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetDurableExecutionHistoryOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Events, 3)
 	assert.Equal(t, "ExecutionStarted", out.Events[0].EventType)
 	assert.Equal(t, "StepStarted", out.Events[1].EventType)
@@ -81,7 +82,7 @@ func TestDurableExecution_GetState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetDurableExecutionStateOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Operations, 1)
 	assert.Equal(t, "execution", out.Operations[0].ID)
 	assert.Equal(t, lambda.DurableOperationTypeExecution, out.Operations[0].Type)
@@ -111,7 +112,7 @@ func TestDurableExecution_Stop(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var stopOut lambda.StopDurableExecutionOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopOut, jsonx.V1()))
 	assert.Positive(t, stopOut.StopTimestamp)
 
 	rec = callInMemoryHandler(t, h, http.MethodGet, durableExecURL(""), "{}")
@@ -212,7 +213,7 @@ func TestDurableExecution_ListByFunction(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DurableExecutions")
 
 	var out lambda.ListDurableExecutionsByFunctionOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	// Neither exec-1 nor exec-2 is associated with "some-func": checkpoint-only
 	// auto-creation has no function-association entry point (see
 	// durableExecutionStore's doc comment) — the correctly wired, correctly
@@ -275,7 +276,7 @@ func TestDurableExecution_WireShapeFields(t *testing.T) {
 				rec := callInMemoryHandler(t, h, http.MethodGet, durableExecURL(""), "{}")
 
 				var out lambda.GetDurableExecutionOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, durableExecARN, out.DurableExecutionArn)
 				assert.Equal(t, "test-exec-1", out.DurableExecutionName)
 				assert.NotEqual(t, out.DurableExecutionArn, out.DurableExecutionName)
@@ -306,7 +307,7 @@ func TestDurableExecution_WireShapeFields(t *testing.T) {
 				rec := callInMemoryHandler(t, h, http.MethodGet, durableExecURL("")+"?IncludeExecutionData=false", "{}")
 
 				var out lambda.GetDurableExecutionOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.ExecutionDataIncluded)
 				assert.False(t, *out.ExecutionDataIncluded)
 				assert.Nil(t, out.InputPayload)
@@ -323,7 +324,7 @@ func TestDurableExecution_WireShapeFields(t *testing.T) {
 				rec := callInMemoryHandler(t, h, http.MethodGet, durableExecURL(""), "{}")
 
 				var out lambda.GetDurableExecutionOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.ExecutionDataIncluded)
 				assert.True(t, *out.ExecutionDataIncluded)
 			},
@@ -346,7 +347,7 @@ func TestDurableExecution_WireShapeFields(t *testing.T) {
 			check: func(t *testing.T, _ *lambda.Handler) {
 				t.Helper()
 
-				b, err := json.Marshal(lambda.DurableExecutionStatusTimedOut)
+				b, err := json.Marshal(lambda.DurableExecutionStatusTimedOut, jsonx.V1())
 				require.NoError(t, err)
 				assert.JSONEq(t, `"TIMED_OUT"`, string(b))
 			},
@@ -400,7 +401,7 @@ func TestDurableExecution_CheckpointUpdatesOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var checkpointOut lambda.CheckpointDurableExecutionOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &checkpointOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &checkpointOut, jsonx.V1()))
 			require.NotNil(t, checkpointOut.NewExecutionState)
 			require.Len(t, checkpointOut.NewExecutionState.Operations, 1)
 			assert.Equal(t, opID, checkpointOut.NewExecutionState.Operations[0].ID)
@@ -411,7 +412,7 @@ func TestDurableExecution_CheckpointUpdatesOperations(t *testing.T) {
 
 			histRec := callInMemoryHandler(t, h, http.MethodGet, durableExecURL("/history"), "{}")
 			var histOut lambda.GetDurableExecutionHistoryOutput
-			require.NoError(t, json.Unmarshal(histRec.Body.Bytes(), &histOut))
+			require.NoError(t, json.Unmarshal(histRec.Body.Bytes(), &histOut, jsonx.V1()))
 
 			eventTypes := make([]string, 0, len(histOut.Events))
 			for _, ev := range histOut.Events {
@@ -422,7 +423,7 @@ func TestDurableExecution_CheckpointUpdatesOperations(t *testing.T) {
 
 			stateRec := callInMemoryHandler(t, h, http.MethodGet, durableExecURL("/state"), "{}")
 			var stateOut lambda.GetDurableExecutionStateOutput
-			require.NoError(t, json.Unmarshal(stateRec.Body.Bytes(), &stateOut))
+			require.NoError(t, json.Unmarshal(stateRec.Body.Bytes(), &stateOut, jsonx.V1()))
 			require.Len(t, stateOut.Operations, 2) // implicit root EXECUTION + this one
 
 			var found bool
@@ -506,7 +507,7 @@ func TestDurableExecution_ListByFunctionQueryParams(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out lambda.ListDurableExecutionsByFunctionOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		})
 	}
 }
@@ -562,7 +563,7 @@ func TestDurableExecution_StopVariants(t *testing.T) {
 
 			if tt.name == "with_custom_error" {
 				var out lambda.GetDurableExecutionOutput
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotNil(t, out.Error)
 				require.NotNil(t, out.Error.ErrorMessage)
 				assert.Equal(t, "cancelled by operator", *out.Error.ErrorMessage)

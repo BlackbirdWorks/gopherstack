@@ -2,8 +2,11 @@ package pods
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type scopeKey struct{ account, region string }
@@ -107,11 +110,10 @@ func mergeValue(cur, inc any, scopes map[scopeKey]bool) any {
 }
 
 func decodeJSON(raw []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 
@@ -140,7 +142,7 @@ func MergeScoped(current, incoming []byte) ([]byte, bool, error) {
 		return nil, false, err
 	}
 
-	merged, err := json.Marshal(mergeValue(cur, inc, scopes))
+	merged, err := json.Marshal(mergeValue(cur, inc, scopes), jsonx.V1())
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal merged snapshot: %w", err)
 	}

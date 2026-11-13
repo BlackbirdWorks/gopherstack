@@ -2,7 +2,8 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -385,7 +387,7 @@ func TestCancelCommand_Success(t *testing.T) {
 			require.Equal(t, http.StatusOK, sendRec.Code)
 
 			var sendResp map[string]any
-			require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+			require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp, jsonx.V1()))
 
 			cmd, ok := sendResp["Command"].(map[string]any)
 			require.True(t, ok)
@@ -454,13 +456,13 @@ func TestCancelCommand_CancelsInvocations(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 
-			instanceIDsJSON, _ := json.Marshal(tt.instanceIDs)
+			instanceIDsJSON, _ := json.Marshal(tt.instanceIDs, jsonx.V1())
 			sendBody := `{"DocumentName":"AWS-RunShellScript","InstanceIds":` + string(instanceIDsJSON) + `}`
 			sendRec := doRequest(t, h, "SendCommand", sendBody)
 			require.Equal(t, http.StatusOK, sendRec.Code)
 
 			var sendResp map[string]any
-			require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+			require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp, jsonx.V1()))
 			cmd := sendResp["Command"].(map[string]any)
 			cmdID := cmd["CommandId"].(string)
 
@@ -473,7 +475,7 @@ func TestCancelCommand_CancelsInvocations(t *testing.T) {
 				require.Equal(t, http.StatusOK, invRec.Code)
 
 				var invResp map[string]any
-				require.NoError(t, json.Unmarshal(invRec.Body.Bytes(), &invResp))
+				require.NoError(t, json.Unmarshal(invRec.Body.Bytes(), &invResp, jsonx.V1()))
 				assert.Equal(t, tt.wantInvocStatus, invResp["Status"])
 				assert.Equal(t, tt.wantInvocStatus, invResp["StatusDetails"])
 			}
@@ -498,7 +500,7 @@ func TestCancelCommand_ScopedToInstanceIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, sendRec.Code)
 
 	var sendResp map[string]any
-	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp, jsonx.V1()))
 	cmdID := sendResp["Command"].(map[string]any)["CommandId"].(string)
 
 	cancelRec := doRequest(t, h, "CancelCommand", `{"CommandId":"`+cmdID+`","InstanceIds":["i-001"]}`)
@@ -508,14 +510,14 @@ func TestCancelCommand_ScopedToInstanceIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, invRec.Code)
 
 	var cancelledInv map[string]any
-	require.NoError(t, json.Unmarshal(invRec.Body.Bytes(), &cancelledInv))
+	require.NoError(t, json.Unmarshal(invRec.Body.Bytes(), &cancelledInv, jsonx.V1()))
 	assert.Equal(t, "Cancelled", cancelledInv["Status"])
 
 	otherRec := doRequest(t, h, "GetCommandInvocation", `{"CommandId":"`+cmdID+`","InstanceId":"i-002"}`)
 	require.Equal(t, http.StatusOK, otherRec.Code)
 
 	var otherInv map[string]any
-	require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherInv))
+	require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherInv, jsonx.V1()))
 	assert.NotEqual(t, "Cancelled", otherInv["Status"], "un-named instance's invocation must not be cancelled")
 }
 
@@ -887,7 +889,7 @@ func TestHandler_SendCommand(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.Command.CommandID)
 				assert.Equal(t, "AWS-RunShellScript", out.Command.DocumentName)
 			}
@@ -936,7 +938,7 @@ func TestHandler_ListCommands(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out ssm.ListCommandsOutput
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Commands, tt.wantCount)
 		})
 	}
@@ -957,7 +959,7 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 				t.Helper()
 				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
 				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 				return out.Command.CommandID
 			},
@@ -973,7 +975,7 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 				t.Helper()
 				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
 				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 				return out.Command.CommandID
 			},
@@ -1007,7 +1009,7 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 
 			if tt.wantCommandStatus != "" {
 				var out ssm.GetCommandInvocationOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantCommandStatus, out.Status)
 				assert.Equal(t, tt.wantCommandStatus, out.StatusDetails)
 			}
@@ -1055,7 +1057,7 @@ func TestHandler_ListCommandInvocations(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out ssm.ListCommandInvocationsOutput
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.CommandInvocations, tt.wantCount)
 		})
 	}

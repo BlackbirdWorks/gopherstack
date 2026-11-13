@@ -2,7 +2,7 @@ package redshiftdata_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshiftdata"
 )
 
@@ -27,7 +28,7 @@ func TestCancelStatement_SuccessStatusBoolean(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	status, ok := resp["Status"].(bool)
 	require.True(t, ok, "Status should be a boolean")
@@ -50,7 +51,7 @@ func TestBatchExecuteStatement_QueryStringIsFirstSQL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -58,7 +59,7 @@ func TestBatchExecuteStatement_QueryStringIsFirstSQL(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "SELECT 1", resp["QueryString"], "QueryString should equal the first SQL")
 }
@@ -78,7 +79,7 @@ func TestDescribeStatement_ResultSizeAndRows(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -86,7 +87,7 @@ func TestDescribeStatement_ResultSizeAndRows(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotNil(t, resp["ResultRows"], "ResultRows should be present")
 	assert.NotNil(t, resp["ResultSize"], "ResultSize should be present")
@@ -109,7 +110,7 @@ func TestDescribeStatement_SubStatements(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -117,7 +118,7 @@ func TestDescribeStatement_SubStatements(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	subs, ok := resp["SubStatements"].([]any)
 	require.True(t, ok, "SubStatements should be present")
@@ -143,7 +144,7 @@ func TestGetStatementResult_ReturnsDemoRow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -151,7 +152,7 @@ func TestGetStatementResult_ReturnsDemoRow(t *testing.T) {
 	require.Equal(t, http.StatusOK, resultRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(resultRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(resultRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	records, ok := resp["Records"].([]any)
 	require.True(t, ok, "Records should be a slice")
@@ -191,7 +192,7 @@ func TestListStatements_MaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	assert.Len(t, stmts, testMaxResultsLimit, "should be truncated to MaxResults")
@@ -212,7 +213,7 @@ func TestListStatements_MaxResultsTooLarge(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -239,7 +240,7 @@ func TestWithEvent_AcceptedButNotEchoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotContains(t, createResp, "WithEvent")
 
 	id := createResp["Id"].(string)
@@ -248,7 +249,7 @@ func TestWithEvent_AcceptedButNotEchoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotContains(t, resp, "WithEvent")
 }
@@ -270,7 +271,7 @@ func TestListStatements_StatusFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	require.Len(t, stmts, 1)
@@ -373,7 +374,7 @@ func TestListStatements_WorkgroupFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	require.Len(t, stmts, 1, "should only return statements for wg-a")
@@ -396,7 +397,7 @@ func TestGetStatementResultV2_DemoRow(t *testing.T) {
 	require.Equal(t, http.StatusOK, execRec.Code)
 
 	var execResp map[string]any
-	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp, jsonx.V1()))
 
 	id := execResp["Id"].(string)
 
@@ -404,7 +405,7 @@ func TestGetStatementResultV2_DemoRow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	records, ok := resp["Records"].([]any)
 	require.True(t, ok, "Records should be present")
@@ -427,7 +428,7 @@ func TestCancelStatement_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -442,7 +443,7 @@ func TestGetStatementResult_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -460,7 +461,7 @@ func TestBatchExecuteStatement_EmptySqls(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -475,7 +476,7 @@ func TestDescribeStatement_MissingID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -494,7 +495,7 @@ func TestDescribeStatement_RedshiftQueryId(t *testing.T) {
 	require.Equal(t, http.StatusOK, execRec.Code)
 
 	var execResp map[string]any
-	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp, jsonx.V1()))
 
 	id := execResp["Id"].(string)
 
@@ -502,7 +503,7 @@ func TestDescribeStatement_RedshiftQueryId(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["RedshiftQueryId"]
 	assert.True(t, ok, "RedshiftQueryId should be present in DescribeStatement response")
@@ -547,7 +548,7 @@ func TestGetStatementResult_HasNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, execRec.Code)
 
 	var execResp map[string]any
-	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+	require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp, jsonx.V1()))
 
 	id := execResp["Id"].(string)
 
@@ -555,7 +556,7 @@ func TestGetStatementResult_HasNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["NextToken"]
 	assert.True(t, ok, "NextToken field should always be present in GetStatementResult response")

@@ -2,13 +2,14 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -199,7 +200,7 @@ func TestHandleIncreaseStreamRetentionPeriod(t *testing.T) {
 			RetentionPeriodHours int `json:"RetentionPeriodHours"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, 48, descResp.StreamDescription.RetentionPeriodHours)
 }
 
@@ -231,7 +232,7 @@ func TestHandleDecreaseStreamRetentionPeriod(t *testing.T) {
 			RetentionPeriodHours int `json:"RetentionPeriodHours"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, 24, descResp.StreamDescription.RetentionPeriodHours)
 }
 

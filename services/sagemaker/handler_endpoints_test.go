@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DescribeEndpoint_FullResponse(t *testing.T) {
@@ -44,7 +46,7 @@ func TestHandler_DescribeEndpoint_FullResponse(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "ep1", descResp["EndpointName"])
 	assert.NotEmpty(t, descResp["EndpointArn"])
 	// Status is Creating initially (FSM transitions async)
@@ -94,7 +96,7 @@ func TestHandler_DescribeEndpoint_DataCaptureAndAsyncInferenceConfig(t *testing.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dcc, ok := resp["DataCaptureConfig"].(map[string]any)
 	require.True(t, ok, "DataCaptureConfig must be surfaced from the active EndpointConfig")
@@ -137,7 +139,7 @@ func TestHandler_CreateEndpoint_DeploymentConfigEchoedOnDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	lastDeploymentConfig, ok := resp["LastDeploymentConfig"].(map[string]any)
 	require.True(t, ok, "LastDeploymentConfig must echo the DeploymentConfig sent to Create/UpdateEndpoint")
@@ -186,7 +188,7 @@ func TestHandler_UpdateEndpoint_RetainAllVariantProperties(t *testing.T) {
 
 		rec = doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{"EndpointName": "ep-retain"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		variant := resp["ProductionVariants"].([]any)[0].(map[string]any)
 		assert.InDelta(t, float64(5), variant["DesiredInstanceCount"], 0)
 		assert.InDelta(t, 9.0, variant["DesiredWeight"], 0.0001)
@@ -207,7 +209,7 @@ func TestHandler_UpdateEndpoint_RetainAllVariantProperties(t *testing.T) {
 
 		rec = doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{"EndpointName": "ep-retain-true"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		variant := resp["ProductionVariants"].([]any)[0].(map[string]any)
 		assert.InDelta(t, float64(1), variant["DesiredInstanceCount"], 0)
 		assert.InDelta(t, 1.0, variant["DesiredWeight"], 0.0001)
@@ -229,7 +231,7 @@ func TestHandler_UpdateEndpoint_RetainAllVariantProperties(t *testing.T) {
 
 		rec = doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{"EndpointName": "ep-retain-exclude"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		variant := resp["ProductionVariants"].([]any)[0].(map[string]any)
 		// Excluded, so takes the new config's value instead of retaining.
 		assert.InDelta(t, float64(5), variant["DesiredInstanceCount"], 0)
@@ -298,7 +300,7 @@ func TestHandler_ListEndpoints_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			endpoints, _ := resp["Endpoints"].([]any)
 			assert.Len(t, endpoints, tc.wantCount)
 		})
@@ -329,7 +331,7 @@ func TestHandler_ListEndpoints_SortByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints, ok := resp["Endpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 2)
@@ -348,7 +350,7 @@ func TestHandler_CreateEndpoint_UnknownEndpointConfig(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errResp["__type"])
 
 	rec = doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{
@@ -389,7 +391,7 @@ func TestHandler_DescribeEndpoint_EventuallyInService(t *testing.T) {
 		rec := doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{
 			"EndpointName": "ep2",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	})
 
 	require.Equal(t, "InService", descResp["EndpointStatus"])
@@ -434,7 +436,7 @@ func TestHandler_EndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["EndpointArn"])
 
 	// Describe endpoint.
@@ -451,7 +453,7 @@ func TestHandler_EndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["Endpoints"].([]any), 1)
 
 	// Update endpoint.

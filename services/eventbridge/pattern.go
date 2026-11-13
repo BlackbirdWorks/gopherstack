@@ -1,14 +1,14 @@
 package eventbridge
 
 import (
-	"encoding/json"
-	"errors"
+	"encoding/json/v2"
 	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -32,7 +32,7 @@ func compilePattern(patternJSON string) (*compiledPattern, error) {
 	}
 
 	var pattern map[string]any
-	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
+	if err := json.Unmarshal([]byte(patternJSON), &pattern, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -268,7 +268,7 @@ func matchCompiledPattern(compiled *compiledPattern, event string) bool {
 	}
 
 	var eventData map[string]any
-	if err := json.Unmarshal([]byte(event), &eventData); err != nil {
+	if err := json.Unmarshal([]byte(event), &eventData, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -682,12 +682,9 @@ func matchWildcard(pattern, s string) bool {
 func invalidPatternErr(err error) error {
 	reason := "Invalid JSON"
 
-	var syn *json.SyntaxError
-	var typ *json.UnmarshalTypeError
-
 	switch {
-	case errors.As(err, &syn):
-	case errors.As(err, &typ):
+	case jsonx.IsSyntaxError(err):
+	case jsonx.IsTypeError(err):
 		reason = "Filter is not an object"
 	default:
 		reason = strings.TrimPrefix(err.Error(), ErrInvalidParameter.Error()+": ")

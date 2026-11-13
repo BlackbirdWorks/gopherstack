@@ -1,7 +1,8 @@
 package quicksight
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -971,7 +973,7 @@ func classifyRestorePaths(method string, segs []string, n int) (string, string) 
 
 func readBody(c *echo.Context) (map[string]any, error) {
 	var body map[string]any
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -1090,7 +1092,7 @@ func writeJSON(c *echo.Context, code int, body any) error {
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().WriteHeader(code)
 
-	return json.NewEncoder(c.Response()).Encode(body)
+	return json.MarshalEncode(jsontext.NewEncoder(c.Response(), jsonx.V1()), body)
 }
 
 func writeError(c *echo.Context, code int, errCode, msg string) error {

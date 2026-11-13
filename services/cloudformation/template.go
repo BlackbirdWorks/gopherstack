@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 )
 
@@ -106,7 +107,7 @@ func (t *Template) fromPlain(p templatePlain) {
 // the real CloudFormation template schema.
 func (t *Template) UnmarshalJSON(data []byte) error {
 	var p templatePlain
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := json.Unmarshal(data, &p, jsonx.V1()); err != nil {
 		return err
 	}
 	t.fromPlain(p)
@@ -189,7 +190,7 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 	}
 
 	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := json.Unmarshal(data, &p, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -301,7 +302,7 @@ func ParseTemplate(body string) (*Template, error) {
 	}
 
 	var tmpl Template
-	if err := json.Unmarshal([]byte(body), &tmpl); err != nil {
+	if err := json.Unmarshal([]byte(body), &tmpl, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON template: %w", err)
 	}
 
@@ -360,7 +361,7 @@ func yamlToJSON(body string) (string, error) {
 		return "", err
 	}
 
-	out, err := json.Marshal(val)
+	out, err := json.Marshal(val, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("failed to serialise normalised YAML template: %w", err)
 	}
@@ -492,7 +493,7 @@ func expandLanguageExtensions(body string) (string, error) {
 	}
 	doc["Resources"] = expanded
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("failed to serialise expanded template: %w", err)
 	}
@@ -513,7 +514,7 @@ func parseGenericTemplate(body string) (map[string]any, error) {
 	}
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON template: %w", err)
 	}
 
@@ -1073,7 +1074,7 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 
 	// Fn::ToJsonString: serialize value to JSON string (#13)
 	if jsonVal, hasJSON := val["Fn::ToJsonString"]; hasJSON {
-		data, err := json.Marshal(jsonVal)
+		data, err := json.Marshal(jsonVal, jsonx.V1())
 		if err != nil {
 			return ""
 		}
@@ -1914,7 +1915,7 @@ func invokeMacroTransform(macroName string, transformSpec map[string]any, ctx re
 	}
 
 	// Build a minimal fragment from the transform spec parameters.
-	fragmentJSON, err := json.Marshal(resolvedParams)
+	fragmentJSON, err := json.Marshal(resolvedParams, jsonx.V1())
 	if err != nil {
 		return ""
 	}

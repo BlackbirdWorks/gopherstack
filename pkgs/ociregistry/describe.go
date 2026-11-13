@@ -2,8 +2,10 @@ package ociregistry
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxConfigBytes = 1 << 20
@@ -44,7 +46,7 @@ func (c Client) Describe(ctx context.Context, repo string, m Manifest) Info {
 	info := Info{Digest: m.Digest, MediaType: m.MediaType}
 
 	var doc manifestDoc
-	if json.Unmarshal(m.Body, &doc) != nil {
+	if json.Unmarshal(m.Body, &doc, jsonx.V1()) != nil {
 		return info
 	}
 
@@ -85,7 +87,7 @@ func (c Client) platform(ctx context.Context, repo, configDigest string) (string
 		OS           string `json:"os"`
 	}
 
-	if json.Unmarshal(raw, &cfg) != nil {
+	if json.Unmarshal(raw, &cfg, jsonx.V1()) != nil {
 		return "", ""
 	}
 

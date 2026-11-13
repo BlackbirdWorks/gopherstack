@@ -1,7 +1,7 @@
 package azuretable_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
@@ -60,11 +61,11 @@ func TestEntityProperty_JSONRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(tt.prop)
+			data, err := json.Marshal(tt.prop, jsonx.V1())
 			require.NoError(t, err, tt.name)
 
 			var got azuretable.EntityProperty
-			require.NoError(t, json.Unmarshal(data, &got), tt.name)
+			require.NoError(t, json.Unmarshal(data, &got, jsonx.V1()), tt.name)
 
 			assert.Equal(t, tt.prop.Type, got.Type, tt.name)
 
@@ -113,7 +114,7 @@ func TestEntityProperty_MarshalJSON_TypeMismatchErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := json.Marshal(tt.prop)
+			_, err := json.Marshal(tt.prop, jsonx.V1())
 			require.Error(t, err, tt.name)
 		})
 	}
@@ -147,7 +148,7 @@ func TestEntityProperty_UnmarshalJSON_MalformedValueErrors(t *testing.T) {
 			t.Parallel()
 
 			var p azuretable.EntityProperty
-			err := json.Unmarshal([]byte(tt.json), &p)
+			err := json.Unmarshal([]byte(tt.json), &p, jsonx.V1())
 			require.Error(t, err, tt.name)
 		})
 	}

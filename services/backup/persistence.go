@@ -2,7 +2,7 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -33,15 +33,15 @@ const backupSnapshotVersion = 1
 // indexes (vaultARNIndex etc.) are NOT included here; they are rebuilt from
 // the restored tables by rebuildARNIndexes instead of persisted.
 type backendSnapshot struct {
-	GlobalSettingsLastUpdate time.Time                  `json:"globalSettingsLastUpdate,omitzero"`
-	Tables                   map[string]json.RawMessage `json:"tables"`
-	MpaApprovals             map[string]string          `json:"mpaApprovals,omitempty"`
-	GlobalSettings           map[string]string          `json:"globalSettings,omitempty"`
-	RecoveryPointIndexStatus map[string]string          `json:"recoveryPointIndexStatus,omitempty"`
-	RegionSettings           *RegionSettings            `json:"regionSettings,omitempty"`
-	AccountID                string                     `json:"accountID"`
-	Region                   string                     `json:"region"`
-	Version                  int                        `json:"version"`
+	GlobalSettingsLastUpdate time.Time                 `json:"globalSettingsLastUpdate,omitzero"`
+	Tables                   map[string]jsontext.Value `json:"tables"`
+	MpaApprovals             map[string]string         `json:"mpaApprovals,omitempty"`
+	GlobalSettings           map[string]string         `json:"globalSettings,omitempty"`
+	RecoveryPointIndexStatus map[string]string         `json:"recoveryPointIndexStatus,omitempty"`
+	RegionSettings           *RegionSettings           `json:"regionSettings,omitempty"`
+	AccountID                string                    `json:"accountID"`
+	Region                   string                    `json:"region"`
+	Version                  int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

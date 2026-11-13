@@ -2,12 +2,13 @@ package elasticache_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
@@ -205,10 +206,10 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 	// current elasticacheSnapshotVersion constant.
 	var raw map[string]any
 
-	require.NoError(t, json.Unmarshal(original.Snapshot(ctx), &raw))
+	require.NoError(t, json.Unmarshal(original.Snapshot(ctx), &raw, jsonx.V1()))
 	raw["version"] = -1
 
-	badSnap, err := json.Marshal(raw)
+	badSnap, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	fresh := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)

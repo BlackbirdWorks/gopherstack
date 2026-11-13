@@ -2,7 +2,8 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -26,7 +28,7 @@ func iotRequest(t *testing.T, method, path string, body any) *http.Response {
 	var reqBody io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		reqBody = bytes.NewReader(b)
@@ -93,7 +95,7 @@ func TestIntegration_IoT_ThingLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 				var out map[string]string
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				assert.Equal(t, thingName, out["thingName"])
 				assert.NotEmpty(t, out["thingArn"])
 				assert.NotEmpty(t, out["thingId"])
@@ -110,7 +112,7 @@ func TestIntegration_IoT_ThingLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				assert.Equal(t, thingName, out["thingName"])
 			},
 		},
@@ -197,7 +199,7 @@ func TestIntegration_IoT_PolicyAndRule(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				// AWS GetTopicRule wraps fields under a "rule" object with "ruleArn" at top level.
 				rule, ok := out["rule"].(map[string]any)
 				require.True(t, ok, "response should contain a 'rule' object")
@@ -246,7 +248,7 @@ func TestIntegration_IoT_DescribeEndpoint(t *testing.T) {
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]string
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out["endpointAddress"])
 		})
 	}

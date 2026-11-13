@@ -1,7 +1,8 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -39,7 +41,7 @@ func TestGetCostCategories_MultiRuleCategory(t *testing.T) {
 		ReturnSize         int      `json:"ReturnSize"`
 		TotalSize          int      `json:"TotalSize"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.CostCategoryValues, 3)
 	assert.Equal(t, 3, out.ReturnSize)
 	assert.Equal(t, 3, out.TotalSize)
@@ -60,7 +62,7 @@ func TestListCostCategoryResourceAssociations(t *testing.T) {
 	var out struct {
 		CostCategoryResourceAssociations []map[string]any `json:"CostCategoryResourceAssociations"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Empty(t, out.CostCategoryResourceAssociations)
 }
 
@@ -79,7 +81,7 @@ func TestDescribeCostCategory_HasProcessingStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	catARN := createOut["CostCategoryArn"].(string)
 
 	descRec := doRequest(t, h, "DescribeCostCategoryDefinition", map[string]any{
@@ -95,7 +97,7 @@ func TestDescribeCostCategory_HasProcessingStatus(t *testing.T) {
 			} `json:"ProcessingStatus"`
 		} `json:"CostCategory"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotEmpty(t, descOut.CostCategory.ProcessingStatus, "ProcessingStatus must be present")
 	ps := descOut.CostCategory.ProcessingStatus[0]
 	assert.Equal(t, "COST_EXPLORER", ps.Component)
@@ -123,7 +125,7 @@ func TestListCostCategoryDefinitions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1 := out1["CostCategoryReferences"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["NextPageToken"].(string)
@@ -136,7 +138,7 @@ func TestListCostCategoryDefinitions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2 := out2["CostCategoryReferences"].([]any)
 	assert.Len(t, page2, 2)
 }
@@ -160,7 +162,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["CostCategoryArn"])
 				assert.NotEmpty(t, out["EffectiveStart"])
 			},
@@ -180,7 +182,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				refs, ok := out["CostCategoryReferences"].([]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, refs)
@@ -199,7 +201,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				arn := createOut["CostCategoryArn"].(string)
 
 				// Describe
@@ -209,7 +211,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var describeOut map[string]any
-				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&describeOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &describeOut, jsonx.V1()))
 				cat := describeOut["CostCategory"].(map[string]any)
 				assert.Equal(t, "DescribeCategory", cat["Name"])
 			},
@@ -227,7 +229,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				arn := createOut["CostCategoryArn"].(string)
 
 				// Update
@@ -239,7 +241,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var updateOut map[string]any
-				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&updateOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &updateOut, jsonx.V1()))
 				assert.Equal(t, arn, updateOut["CostCategoryArn"])
 			},
 		},
@@ -256,7 +258,7 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				arn := createOut["CostCategoryArn"].(string)
 
 				// Delete
@@ -343,7 +345,7 @@ func TestCEHandler_UpdateCostCategoryDefinition_DeepCopy(t *testing.T) {
 			var createOut struct {
 				CostCategoryArn string `json:"CostCategoryArn"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			updateRec := doRequest(t, h, "UpdateCostCategoryDefinition", map[string]any{
 				"CostCategoryArn": createOut.CostCategoryArn,
@@ -363,7 +365,7 @@ func TestCEHandler_UpdateCostCategoryDefinition_DeepCopy(t *testing.T) {
 				} `json:"CostCategory"`
 			}
 
-			require.NoError(t, json.NewDecoder(describeRec.Body).Decode(&describeOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(describeRec.Body), &describeOut, jsonx.V1()))
 			assert.Len(t, describeOut.CostCategory.Rules, tt.wantRulesAfterGet)
 		})
 	}
@@ -451,7 +453,7 @@ func TestHandler_GetCostCategories(t *testing.T) {
 				ReturnSize         int      `json:"ReturnSize"`
 				TotalSize          int      `json:"TotalSize"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantLen, out.ReturnSize)
 			assert.Equal(t, tt.wantLen, out.TotalSize)
 
@@ -523,7 +525,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 						Name string `json:"Name"`
 					} `json:"CostCategoryReferences"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				require.Len(t, out.CostCategoryReferences, 3)
 				assert.Equal(t, "Alpha", out.CostCategoryReferences[0].Name)
 				assert.Equal(t, "Mango", out.CostCategoryReferences[1].Name)
@@ -555,7 +557,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 				var out struct {
 					CostCategoryValues []string `json:"CostCategoryValues"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				require.Len(t, out.CostCategoryValues, 3)
 				assert.Equal(t, []string{"Alpha", "Mike", "Zulu"}, out.CostCategoryValues)
 			},
@@ -592,7 +594,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 						Key string `json:"Key"`
 					} `json:"ResourceTags"`
 				}
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				require.Len(t, out.ResourceTags, 3)
 				assert.Equal(t, "Alpha", out.ResourceTags[0].Key)
 				assert.Equal(t, "Mike", out.ResourceTags[1].Key)
@@ -634,7 +636,7 @@ func TestHandler_DuplicateCostCategory_WireStatusIs400(t *testing.T) {
 	var out struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out, jsonx.V1()))
 	assert.Equal(t, "ServiceQuotaExceededException", out.Type)
 }
 
@@ -734,7 +736,7 @@ func TestHandler_UpdateCostCategoryDefinition_RequiredFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createOut map[string]any
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 			tt.update["CostCategoryArn"] = createOut["CostCategoryArn"]
 
 			rec := doRequest(t, h, "UpdateCostCategoryDefinition", tt.update)

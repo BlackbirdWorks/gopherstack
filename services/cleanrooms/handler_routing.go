@@ -1,9 +1,12 @@
 package cleanrooms
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // classifyPath maps (method, path) to an operation name and primary resource.
@@ -643,17 +646,17 @@ func injectPathParams(path, _ string, body []byte) []byte {
 	path = strings.TrimPrefix(path, "/")
 	segs := strings.Split(path, "/")
 
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &m)
+		_ = json.Unmarshal(body, &m, jsonx.V1())
 	}
 	if m == nil {
-		m = make(map[string]json.RawMessage)
+		m = make(map[string]jsontext.Value)
 	}
 
 	setStr := func(key, val string) {
 		if val != "" {
-			b, _ := json.Marshal(val)
+			b, _ := json.Marshal(val, jsonx.V1())
 			m[key] = b
 		}
 	}
@@ -673,7 +676,7 @@ func injectPathParams(path, _ string, body []byte) []byte {
 		setStr("resourceArn", arnVal)
 	}
 
-	out, _ := json.Marshal(m)
+	out, _ := json.Marshal(m, jsonx.V1())
 
 	return out
 }

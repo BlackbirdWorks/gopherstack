@@ -2,7 +2,7 @@ package gcpsecretmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -18,16 +18,16 @@ import (
 const snapshotVersion = 1
 
 type versionSnap struct {
-	Version json.RawMessage `json:"version"`
-	Data    []byte          `json:"data,omitempty"`
-	Num     int64           `json:"num"`
+	Version jsontext.Value `json:"version"`
+	Data    []byte         `json:"data,omitempty"`
+	Num     int64          `json:"num"`
 }
 
 type secretSnap struct {
-	Secret   json.RawMessage `json:"secret"`
-	Policy   json.RawMessage `json:"policy,omitempty"`
-	Versions []versionSnap   `json:"versions,omitempty"`
-	NextVer  int64           `json:"nextVer"`
+	Secret   jsontext.Value `json:"secret"`
+	Policy   jsontext.Value `json:"policy,omitempty"`
+	Versions []versionSnap  `json:"versions,omitempty"`
+	NextVer  int64          `json:"nextVer"`
 }
 
 type backendSnapshot struct {
@@ -36,7 +36,7 @@ type backendSnapshot struct {
 	Version int                   `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -45,7 +45,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 

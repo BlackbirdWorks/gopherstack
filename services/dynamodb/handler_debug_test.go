@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -98,7 +99,7 @@ func TestDebugLogging(t *testing.T) {
 			echoHandler := h.Handler()
 
 			if tt.setupTarget != "" {
-				setupBody, err := json.Marshal(tt.setupInput)
+				setupBody, err := json.Marshal(tt.setupInput, jsonx.V1())
 				require.NoError(t, err)
 
 				setupReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(setupBody))
@@ -115,7 +116,7 @@ func TestDebugLogging(t *testing.T) {
 				logBuffer.Reset()
 			}
 
-			body, err := json.Marshal(tt.input)
+			body, err := json.Marshal(tt.input, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))

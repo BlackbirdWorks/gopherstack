@@ -2,7 +2,7 @@ package asl
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/recolabs/gnata"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -114,13 +116,13 @@ func normalizeJSONata(v any) (any, error) {
 		return v, nil
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, queryEvalError(fmt.Errorf("%w: result is not valid JSON: %w", errJSONataEval, err))
 	}
 
 	var out any
-	if err = json.Unmarshal(b, &out); err != nil {
+	if err = json.Unmarshal(b, &out, jsonx.V1()); err != nil {
 		return nil, queryEvalError(err)
 	}
 

@@ -1,12 +1,13 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseRevealCfgPath(method string, _ []string) (string, string) {
@@ -57,7 +58,7 @@ func (h *Handler) handleUpdateRevealConfiguration(body []byte) (any, int, error)
 		} `json:"retrievalConfiguration"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

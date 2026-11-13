@@ -2,7 +2,9 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- PutMetricFilter ---.
@@ -53,7 +55,7 @@ type testMetricFilterOutput struct {
 
 func (h *Handler) handlePutMetricFilter(ctx context.Context, b []byte) (any, error) {
 	var input putMetricFilterInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.PutMetricFilterWithOptions(
@@ -76,7 +78,7 @@ func (h *Handler) handlePutMetricFilter(ctx context.Context, b []byte) (any, err
 
 func (h *Handler) handleDescribeMetricFilters(ctx context.Context, b []byte) (any, error) {
 	var input describeMetricFiltersInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	filters, next, err := h.Backend.DescribeMetricFilters(
@@ -97,7 +99,7 @@ func (h *Handler) handleDescribeMetricFilters(ctx context.Context, b []byte) (an
 
 func (h *Handler) handleDeleteMetricFilter(ctx context.Context, b []byte) (any, error) {
 	var input deleteMetricFilterInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteMetricFilter(ctx, input.LogGroupName, input.FilterName); err != nil {
@@ -112,7 +114,7 @@ func (h *Handler) handleTestMetricFilter(
 	b []byte,
 ) (any, error) {
 	var input testMetricFilterInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	matches, err := h.Backend.TestMetricFilter(input.FilterPattern, input.LogEventMessages)

@@ -2,13 +2,15 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -162,16 +164,16 @@ func statementCoversAction(s *policyStatement, action string) bool {
 
 func keyPolicyAllows(policy string, p *awsmeta.Principal, action string) bool {
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
-	if json.Unmarshal([]byte(policy), &doc) != nil {
+	if json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil {
 		return false
 	}
 
 	var stmts []policyStatement
-	if json.Unmarshal(doc.Statement, &stmts) != nil {
+	if json.Unmarshal(doc.Statement, &stmts, jsonx.V1()) != nil {
 		var one policyStatement
-		if json.Unmarshal(doc.Statement, &one) != nil {
+		if json.Unmarshal(doc.Statement, &one, jsonx.V1()) != nil {
 			return false
 		}
 

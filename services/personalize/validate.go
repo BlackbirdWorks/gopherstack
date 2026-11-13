@@ -2,11 +2,13 @@ package personalize
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -44,7 +46,7 @@ func validateSchemaDocument(schema string) error {
 	}
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(schema), &doc); err != nil {
+	if err := json.Unmarshal([]byte(schema), &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: schema is not valid JSON", ErrValidation)
 	}
 

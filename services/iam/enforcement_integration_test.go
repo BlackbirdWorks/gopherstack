@@ -2,7 +2,7 @@ package iam_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -202,7 +203,7 @@ func TestEnforcement_ConditionOperators_SDKIntegration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			policyBytes, marshalErr := json.Marshal(tt.policy)
+			policyBytes, marshalErr := json.Marshal(tt.policy, jsonx.V1())
 			require.NoError(t, marshalErr)
 
 			const (
@@ -260,7 +261,7 @@ func TestEnforcement_MultiServiceSDKIntegration(t *testing.T) {
 			},
 		},
 	}
-	analystPolicyBytes, marshalErr := json.Marshal(analystPolicy)
+	analystPolicyBytes, marshalErr := json.Marshal(analystPolicy, jsonx.V1())
 	require.NoError(t, marshalErr)
 	analystPolicyDoc := string(analystPolicyBytes)
 

@@ -2,13 +2,14 @@ package appsync_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -123,7 +124,7 @@ type Mutation { putTodo(id: ID!, title: String): Todo }`)
 			require.Len(t, out, 1)
 
 			for _, v := range out {
-				got, mErr := json.Marshal(v)
+				got, mErr := json.Marshal(v, jsonx.V1())
 				require.NoError(t, mErr)
 				assert.JSONEq(t, tt.want, string(got))
 			}
@@ -182,7 +183,7 @@ type Query { todo: Todo todos: [Todo] }`)
 			out, err := b.ExecuteGraphQL(t.Context(), api.APIID, tt.query, "", nil, appsync.GraphQLAuth{APIKey: key.ID})
 			require.NoError(t, err)
 
-			got, mErr := json.Marshal(out)
+			got, mErr := json.Marshal(out, jsonx.V1())
 			require.NoError(t, mErr)
 			assert.JSONEq(t, tt.want, string(got))
 		})

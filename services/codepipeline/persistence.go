@@ -2,7 +2,7 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -96,14 +96,14 @@ type conditionRunEntry struct {
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage `json:"tables"`
-	AccountID        string                     `json:"accountID"`
-	Region           string                     `json:"region"`
-	Executions       []executionEntry           `json:"executions"`
-	ActionExecutions []actionExecutionEntry     `json:"actionExecutions"`
-	ActionRevisions  []actionRevisionEntry      `json:"actionRevisions"`
-	ConditionRuns    []conditionRunEntry        `json:"conditionRuns,omitempty"`
-	Version          int                        `json:"version"`
+	Tables           map[string]jsontext.Value `json:"tables"`
+	AccountID        string                    `json:"accountID"`
+	Region           string                    `json:"region"`
+	Executions       []executionEntry          `json:"executions"`
+	ActionExecutions []actionExecutionEntry    `json:"actionExecutions"`
+	ActionRevisions  []actionRevisionEntry     `json:"actionRevisions"`
+	ConditionRuns    []conditionRunEntry       `json:"conditionRuns,omitempty"`
+	Version          int                       `json:"version"`
 }
 
 // customActionTypeKey.String returns a unique string for use as the DTO id
@@ -352,7 +352,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreResourceTables rebuilds the five resource store.Table values from
 // snap's per-table JSON, factored out of Restore to keep Restore's own
 // cognitive complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtoReg, pipelineDTOs, catDTOs, jobDTOs, webhookDTOs, transitionDTOs := buildPersistenceDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

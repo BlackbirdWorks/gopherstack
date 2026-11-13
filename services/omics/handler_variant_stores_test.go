@@ -1,13 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -31,7 +32,7 @@ func TestOmics_VariantStore(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "var-store", resp["name"])
 				assert.NotEmpty(t, resp["id"])
 				assert.NotContains(t, resp, "storeArn")
@@ -82,7 +83,7 @@ func TestCreateVariantStoreStoresReference(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["reference"])
 	assert.Equal(t, "CREATING", resp["status"])
 }
@@ -106,7 +107,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusCreated, jobRec.Code)
 
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job, jsonx.V1()))
 	jobID := job["jobId"].(string)
 
 	rec := doRequest(t, h, http.MethodPost, "/import/variants",
@@ -114,7 +115,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobs, ok := resp["variantImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs)
@@ -123,7 +124,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	jobs2, ok := resp2["variantImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
@@ -142,7 +143,7 @@ func createVariantStorePair(t *testing.T, h *omics.Handler) map[string]string {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ids[name], _ = resp["id"].(string)
 	}
 
@@ -231,7 +232,7 @@ func TestListVariantStores_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.ElementsMatch(t, tc.wantNames, variantStoreNames(t, resp["variantStores"]))
 		})
 	}

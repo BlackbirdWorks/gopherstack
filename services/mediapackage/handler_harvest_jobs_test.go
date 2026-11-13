@@ -1,7 +1,7 @@
 package mediapackage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediapackage"
 )
 
@@ -22,7 +23,7 @@ func createTestOriginEndpointForHarvest(t *testing.T, h *mediapackage.Handler, c
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -61,7 +62,7 @@ func TestHarvestJob_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "job-1", resp["id"])
 				assert.Equal(t, "IN_PROGRESS", resp["status"])
 				assert.NotEmpty(t, resp["arn"])
@@ -175,7 +176,7 @@ func TestHarvestJob_Describe(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "job-desc", resp["id"])
 				assert.Equal(t, "IN_PROGRESS", resp["status"])
 				assert.NotEmpty(t, resp["arn"])
@@ -238,7 +239,7 @@ func TestHarvestJob_List(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				jobs := resp["harvestJobs"].([]any)
 				assert.Len(t, jobs, 4)
 			},
@@ -251,7 +252,7 @@ func TestHarvestJob_List(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				jobs := resp["harvestJobs"].([]any)
 				assert.Len(t, jobs, 3)
 				for _, j := range jobs {
@@ -269,7 +270,7 @@ func TestHarvestJob_List(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				jobs := resp["harvestJobs"].([]any)
 				assert.Len(t, jobs, 4)
 				for _, j := range jobs {
@@ -360,7 +361,7 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	assert.Equal(t, 1, mediapackage.HarvestJobCount(backend))
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, "cycle-job", created["id"])
 	assert.Contains(t, created["arn"].(string), "harvest_jobs/cycle-job")
 
@@ -369,7 +370,7 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &described, jsonx.V1()))
 	assert.Equal(t, "cycle-job", described["id"])
 	assert.Equal(t, created["arn"], described["arn"])
 	assert.Equal(t, "2024-06-01T00:00:00Z", described["startTime"])
@@ -380,7 +381,7 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var listed map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listed))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listed, jsonx.V1()))
 	jobs := listed["harvestJobs"].([]any)
 	assert.Len(t, jobs, 1)
 
@@ -418,7 +419,7 @@ func TestHarvestJob_Create_NeverClaimsSuccessBeforeWorkHappens(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "IN_PROGRESS", resp["status"])
 }
 

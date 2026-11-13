@@ -4,7 +4,7 @@ import (
 	"crypto/rsa"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // findUserByAccessTokenLocked finds the live *User for a given access token.
@@ -104,7 +106,7 @@ func tokenHeaderKID(token string) string {
 	var hdr struct {
 		Kid string `json:"kid"`
 	}
-	if json.Unmarshal(raw, &hdr) != nil {
+	if json.Unmarshal(raw, &hdr, jsonx.V1()) != nil {
 		return ""
 	}
 

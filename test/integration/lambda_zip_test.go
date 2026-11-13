@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -75,7 +76,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 		"Handler":      "index.handler",
 		"Code":         map[string]string{"ZipFile": zipB64},
 		"Role":         "arn:aws:iam::000000000000:role/test",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -87,7 +88,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	var created lambdapkg.FunctionConfiguration
 	body, err := io.ReadAll(createResp.Body)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(body, &created))
+	require.NoError(t, json.Unmarshal(body, &created, jsonx.V1()))
 	assert.Equal(t, "zip-crud-fn", created.FunctionName)
 	assert.Equal(t, lambdapkg.PackageTypeZip, created.PackageType)
 	assert.Equal(t, "python3.12", created.Runtime)
@@ -103,7 +104,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	getBody, err := io.ReadAll(getResp.Body)
 	require.NoError(t, err)
 	var getOut lambdapkg.GetFunctionOutput
-	require.NoError(t, json.Unmarshal(getBody, &getOut))
+	require.NoError(t, json.Unmarshal(getBody, &getOut, jsonx.V1()))
 	assert.Equal(t, lambdapkg.PackageTypeZip, getOut.Configuration.PackageType)
 	require.NotNil(t, getOut.Code)
 	assert.Equal(t, "S3", getOut.Code.RepositoryType) // Zip locations use S3 repository type
@@ -120,7 +121,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	}
 	listBody, err := io.ReadAll(listResp.Body)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(listBody, &listOut))
+	require.NoError(t, json.Unmarshal(listBody, &listOut, jsonx.V1()))
 	require.Len(t, listOut.Functions, 1)
 	assert.Equal(t, "zip-crud-fn", listOut.Functions[0].FunctionName)
 
@@ -128,7 +129,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	newZipB64 := makeZipPayload(t, "index.py", `def handler(event, context): return "v2"`)
 	updateCodeBody, err := json.Marshal(map[string]any{
 		"ZipFile": newZipB64,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	updateCodeResp, err := doLambdaRequest(ctx, http.MethodPut,
 		server.URL+"/2015-03-31/functions/zip-crud-fn/code", "application/json",
@@ -142,7 +143,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 		"Runtime":     "python3.13",
 		"Handler":     "main.handler",
 		"Description": "updated",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	updateCfgResp, err := doLambdaRequest(ctx, http.MethodPut,
 		server.URL+"/2015-03-31/functions/zip-crud-fn/configuration", "application/json",
@@ -154,7 +155,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	var updatedCfg lambdapkg.FunctionConfiguration
 	cfgBody, err := io.ReadAll(updateCfgResp.Body)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(cfgBody, &updatedCfg))
+	require.NoError(t, json.Unmarshal(cfgBody, &updatedCfg, jsonx.V1()))
 	assert.Equal(t, "python3.13", updatedCfg.Runtime)
 	assert.Equal(t, "main.handler", updatedCfg.Handler)
 
@@ -235,7 +236,7 @@ func TestIntegration_Lambda_Zip_ValidationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyJSON, err := json.Marshal(tt.body)
+			bodyJSON, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			resp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -278,7 +279,7 @@ func TestIntegration_Lambda_Zip_S3Code(t *testing.T) {
 			"S3Key":    "functions/my-fn.zip",
 		},
 		"Role": "arn:aws:iam::000000000000:role/test",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -297,7 +298,7 @@ func TestIntegration_Lambda_Zip_S3Code(t *testing.T) {
 	getBody, err := io.ReadAll(getResp.Body)
 	require.NoError(t, err)
 	var getOut lambdapkg.GetFunctionOutput
-	require.NoError(t, json.Unmarshal(getBody, &getOut))
+	require.NoError(t, json.Unmarshal(getBody, &getOut, jsonx.V1()))
 	assert.Equal(t, "nodejs20.x", getOut.Configuration.Runtime)
 	require.NotNil(t, getOut.Code)
 	assert.Equal(t, "S3", getOut.Code.RepositoryType)

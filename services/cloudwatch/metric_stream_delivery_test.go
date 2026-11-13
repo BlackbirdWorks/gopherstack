@@ -2,13 +2,15 @@ package cloudwatch_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // mockFirehosePutter captures PutRecordBatch calls for assertions.
@@ -111,7 +113,7 @@ func TestMetricStream_DeliversToFirehose(t *testing.T) {
 			require.Len(t, calls[0].records, 1)
 
 			var rec2 map[string]any
-			require.NoError(t, json.Unmarshal(calls[0].records[0], &rec2))
+			require.NoError(t, json.Unmarshal(calls[0].records[0], &rec2, jsonx.V1()))
 			assert.Equal(t, tt.wantMetricName, rec2["metric_name"])
 			assert.Equal(t, "AWS/EC2", rec2["namespace"])
 			value := rec2["value"].(map[string]any)

@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -12,7 +12,7 @@ func (b *InMemoryBackend) meshARN(meshName string) string {
 	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s", meshName))
 }
 
-func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map[string]string) (*Mesh, error) {
+func (b *InMemoryBackend) CreateMesh(name string, spec jsontext.Value, tags map[string]string) (*Mesh, error) {
 	b.mu.Lock("CreateMesh")
 	defer b.mu.Unlock()
 	if err := validateMeshSpec(spec); err != nil {
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
 	return m, nil
 }
 
-func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, error) {
+func (b *InMemoryBackend) UpdateMesh(name string, spec jsontext.Value) (*Mesh, error) {
 	b.mu.Lock("UpdateMesh")
 	defer b.mu.Unlock()
 	if err := validateMeshSpec(spec); err != nil {

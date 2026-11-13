@@ -1,10 +1,12 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *ServerlessHandler) handleGetResourcePolicySL(c *echo.Context, body []byte) error {
@@ -12,7 +14,7 @@ func (h *ServerlessHandler) handleGetResourcePolicySL(c *echo.Context, body []by
 		ResourceArn string `json:"resourceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -34,7 +36,7 @@ func (h *ServerlessHandler) handlePutResourcePolicySL(c *echo.Context, body []by
 		Policy      string `json:"policy"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -55,7 +57,7 @@ func (h *ServerlessHandler) handleDeleteResourcePolicySL(c *echo.Context, body [
 		ResourceArn string `json:"resourceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 

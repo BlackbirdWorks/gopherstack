@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http/httptest"
 	"strconv"
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -207,7 +208,7 @@ func TestIntegration_Lambda_SQS_ESM(t *testing.T) {
 		"Code":         map[string]string{"ImageUri": lambdaEchoImage},
 		"Role":         "arn:aws:iam::000000000000:role/lambda-test",
 		"Timeout":      int(esmInvokeTimeout.Seconds()),
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createFnResp, err := doLambdaRequest(ctx, "POST",

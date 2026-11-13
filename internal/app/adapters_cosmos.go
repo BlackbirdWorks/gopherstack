@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 
@@ -106,9 +106,9 @@ func (a *azureCosmosAdapter) DeleteDatabase(id string) error {
 func containerSpec(c azurearm.CosmosContainer) cosmosdb.ContainerSpec {
 	return cosmosdb.ContainerSpec{
 		ID: c.ID, PartitionKeyPaths: c.PartitionKeyPaths, DefaultTTL: c.DefaultTTL,
-		IndexingPolicy:           json.RawMessage(c.IndexingPolicy),
-		ConflictResolutionPolicy: json.RawMessage(c.ConflictResolutionPolicy),
-		UniqueKeyPolicy:          json.RawMessage(c.UniqueKeyPolicy),
+		IndexingPolicy:           jsontext.Value(c.IndexingPolicy),
+		ConflictResolutionPolicy: jsontext.Value(c.ConflictResolutionPolicy),
+		UniqueKeyPolicy:          jsontext.Value(c.UniqueKeyPolicy),
 	}
 }
 

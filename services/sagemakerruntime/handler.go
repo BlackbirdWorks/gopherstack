@@ -3,7 +3,7 @@ package sagemakerruntime
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/crc32"
 	"math"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -266,7 +267,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 		acc.FailureLocation,
 	)
 
-	out, err := json.Marshal(map[string]string{"InferenceId": acc.InferenceID})
+	out, err := json.Marshal(map[string]string{"InferenceId": acc.InferenceID}, jsonx.V1())
 	if err != nil {
 		return err
 	}

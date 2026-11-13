@@ -1,6 +1,10 @@
 package cloudformation
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 func samTableAllowed() map[string]bool {
 	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, "Tags", "SSESpecification",
@@ -134,7 +138,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 func smDefinition(id string, props, sm map[string]any) error {
 	switch {
 	case props["Definition"] != nil:
-		raw, err := json.Marshal(props["Definition"])
+		raw, err := json.Marshal(props["Definition"], jsonx.V1())
 		if err != nil {
 			return samErr(id, "Definition is not valid JSON: %v", err)
 		}

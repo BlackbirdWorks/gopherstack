@@ -1,12 +1,15 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // stripOldShapeVaultFields simulates a snapshot taken before gopherstack-x8em/
@@ -17,14 +20,14 @@ import (
 func stripOldShapeVaultFields(t *testing.T, snap []byte) []byte {
 	t.Helper()
 
-	var top map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &top))
+	var top map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &top, jsonx.V1()))
 
-	var tables map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(top["tables"], &tables))
+	var tables map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(top["tables"], &tables, jsonx.V1()))
 
 	var vaults []map[string]any
-	require.NoError(t, json.Unmarshal(tables["vaults"], &vaults))
+	require.NoError(t, json.Unmarshal(tables["vaults"], &vaults, jsonx.V1()))
 
 	for _, v := range vaults {
 		delete(v, "numberOfArchivesAtLastInventory")
@@ -32,15 +35,15 @@ func stripOldShapeVaultFields(t *testing.T, snap []byte) []byte {
 		delete(v, "writeSinceLastInventory")
 	}
 
-	vaultsRaw, err := json.Marshal(vaults)
+	vaultsRaw, err := json.Marshal(vaults, jsonx.V1())
 	require.NoError(t, err)
 	tables["vaults"] = vaultsRaw
 
-	tablesRaw, err := json.Marshal(tables)
+	tablesRaw, err := json.Marshal(tables, jsonx.V1())
 	require.NoError(t, err)
 	top["tables"] = tablesRaw
 
-	out, err := json.Marshal(top)
+	out, err := json.Marshal(top, jsonx.V1())
 	require.NoError(t, err)
 
 	return out
@@ -75,7 +78,7 @@ func TestRestoreOldShapeSnapshot_DeleteVaultGuard(t *testing.T) {
 		t.Logf("DescribeVault on restored old-shape vault: %s", rec.Body.String())
 
 		var describeResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 		assert.NotEmpty(t, describeResp["LastInventoryDate"], "LastInventoryDate must survive restore")
 		_, hasNumArchives := describeResp["NumberOfArchives"]
 		assert.False(t, hasNumArchives,

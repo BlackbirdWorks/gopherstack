@@ -1,12 +1,15 @@
 package ssoadmin_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestApplicationAuthMethodStructured verifies PutApplicationAuthenticationMethod stores structured body.
@@ -41,13 +44,13 @@ func TestApplicationAuthMethodStructured(t *testing.T) {
 			instanceArn := createInstance(t, h, "auth-method-inst")
 			appArn := createApplication(t, h, instanceArn, "AuthMethodApp")
 
-			bodyBytes, err := json.Marshal(tt.authBody)
+			bodyBytes, err := json.Marshal(tt.authBody, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "PutApplicationAuthenticationMethod", map[string]any{
 				"ApplicationArn":           appArn,
 				"AuthenticationMethodType": tt.authMethodType,
-				"AuthenticationMethod":     json.RawMessage(bodyBytes),
+				"AuthenticationMethod":     jsontext.Value(bodyBytes),
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})

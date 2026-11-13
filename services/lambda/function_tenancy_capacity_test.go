@@ -1,12 +1,14 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateFunction_TenancyAndCapacityProviderConfig(t *testing.T) {
@@ -52,7 +54,7 @@ func TestCreateFunction_TenancyAndCapacityProviderConfig(t *testing.T) {
 			}
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			assert.Equal(t, "PER_TENANT", created["TenancyConfig"].(map[string]any)["TenantIsolationMode"])
 
 			rec = callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/tenant-fn/versions", `{}`)
@@ -68,7 +70,7 @@ func TestCreateFunction_TenancyAndCapacityProviderConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 
 			cp, _ := got["CapacityProviderConfig"].(map[string]any)
 			require.NotNil(t, cp, "published version keeps the capacity provider config")

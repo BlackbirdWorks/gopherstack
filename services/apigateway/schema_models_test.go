@@ -1,13 +1,16 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAPIGW_Models covers GetModel, GetModels, CreateModel, DeleteModel.
@@ -21,7 +24,7 @@ func TestAPIGW_Models(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "expected 2xx")
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -90,7 +93,7 @@ func TestGetModel_Flatten(t *testing.T) {
 			var got struct {
 				Schema string `json:"schema"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &got, jsonx.V1()))
 			assert.JSONEq(t, tt.wantSchema, got.Schema)
 		})
 	}
@@ -117,7 +120,7 @@ func TestGetModel_FlattenSelfCycle(t *testing.T) {
 	var got struct {
 		Schema string `json:"schema"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &got, jsonx.V1()))
 	assert.JSONEq(t, `{"$ref":"https://apigateway.amazonaws.com/restapis/{restApiId}/models/Node"}`, got.Schema)
 }
 

@@ -1,13 +1,15 @@
 package account_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/account"
 )
 
@@ -21,14 +23,14 @@ func TestHandler_GetAccountInformation(t *testing.T) {
 	respBody := rec.Body.Bytes()
 
 	var out account.Info
-	require.NoError(t, json.Unmarshal(respBody, &out))
+	require.NoError(t, json.Unmarshal(respBody, &out, jsonx.V1()))
 	assert.NotEmpty(t, out.AccountID)
 	assert.NotEmpty(t, out.AccountCreatedDate)
 	assert.Equal(t, account.StateActive, out.AccountState)
 
 	// Response is a flat object, not wrapped like most other operations.
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(respBody, &raw))
+	require.NoError(t, json.Unmarshal(respBody, &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "Account")
 }
 
@@ -63,7 +65,7 @@ func TestHandler_PutAccountName(t *testing.T) {
 				require.Equal(t, http.StatusOK, infoRec.Code)
 
 				var out account.Info
-				require.NoError(t, json.NewDecoder(infoRec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(infoRec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.accountName, out.AccountName)
 			}
 		})
@@ -78,7 +80,7 @@ func TestHandler_PrimaryEmail_GetDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["PrimaryEmail"])
 }
 
@@ -114,7 +116,7 @@ func TestHandler_PrimaryEmail_UpdateFlow(t *testing.T) {
 			require.Equal(t, http.StatusOK, startRec.Code)
 
 			var startOut map[string]any
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 			assert.Equal(t, "PENDING", startOut["Status"])
 
 			acceptRec := doRequest(t, h, "/acceptPrimaryEmailUpdate", map[string]any{
@@ -125,14 +127,14 @@ func TestHandler_PrimaryEmail_UpdateFlow(t *testing.T) {
 			require.Equal(t, http.StatusOK, acceptRec.Code)
 
 			var acceptOut map[string]any
-			require.NoError(t, json.NewDecoder(acceptRec.Body).Decode(&acceptOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(acceptRec.Body), &acceptOut, jsonx.V1()))
 			assert.Equal(t, "ACCEPTED", acceptOut["Status"])
 
 			getRec := doRequest(t, h, "/getPrimaryEmail", map[string]any{"AccountId": "000000000000"})
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getOut map[string]any
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 			assert.Equal(t, tc.newEmail, getOut["PrimaryEmail"])
 		})
 	}
@@ -206,7 +208,7 @@ func TestHandler_PrimaryEmail_StartConflictsOnCurrentEmail(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 	currentEmail, ok := getOut["PrimaryEmail"].(string)
 	require.True(t, ok)
 
@@ -217,7 +219,7 @@ func TestHandler_PrimaryEmail_StartConflictsOnCurrentEmail(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, "ConflictException", out["__type"])
 	assert.Equal(t, "ConflictException", rec.Header().Get("X-Amzn-Errortype"))
 }
@@ -262,7 +264,7 @@ func TestHandler_GetPrimaryEmailUpdateStatus(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantBody, out["Status"])
 			assert.NotZero(t, out["UpdatedAt"])
 		})
@@ -277,7 +279,7 @@ func TestHandler_GetGovCloudAccountInformation_NotLinked(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", out["__type"])
 	assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
 }

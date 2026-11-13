@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_Nfs covers the NFS location lifecycle.
@@ -29,7 +31,7 @@ func TestDataSync_Nfs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -37,7 +39,7 @@ func TestDataSync_Nfs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "nfs://")
 	assert.NotNil(t, descResp["MountOptions"])
 	assert.NotNil(t, descResp["OnPremConfig"])
@@ -58,7 +60,7 @@ func TestDataSync_Nfs(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeLocationNfs", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	mo := descResp["MountOptions"].(map[string]any)
 	assert.Equal(t, "NFS4_1", mo["Version"])
 
@@ -120,7 +122,7 @@ func TestDataSync_UpdateLocationNfs_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -132,7 +134,7 @@ func TestDataSync_UpdateLocationNfs_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.wantURI, descResp["LocationUri"])
 		})
 	}

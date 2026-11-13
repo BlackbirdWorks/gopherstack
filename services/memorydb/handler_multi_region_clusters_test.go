@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -59,7 +60,7 @@ func TestHandler_DescribeMultiRegionParameters_WithGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["MultiRegionParameters"])
 }
 
@@ -75,7 +76,7 @@ func TestHandler_ListAllowedMultiRegionClusterUpdates_OK(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var mrcOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mrcOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mrcOut, jsonx.V1()))
 	mrc := mrcOut["MultiRegionCluster"].(map[string]any)
 	mrcName := mrc["MultiRegionClusterName"].(string)
 
@@ -126,7 +127,7 @@ func TestHandler_UpdateMultiRegionCluster_OK(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var mrcOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mrcOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mrcOut, jsonx.V1()))
 	mrc := mrcOut["MultiRegionCluster"].(map[string]any)
 	mrcName := mrc["MultiRegionClusterName"].(string)
 
@@ -137,7 +138,7 @@ func TestHandler_UpdateMultiRegionCluster_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	updated := out["MultiRegionCluster"].(map[string]any)
 	assert.Equal(t, "updated description", updated["Description"])
 }
@@ -224,7 +225,7 @@ func TestHandler_CreateMultiRegionCluster(t *testing.T) {
 
 			if tt.wantMRC {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				mrc, ok := resp["MultiRegionCluster"]
 				require.True(t, ok)
 				mrcMap := mrc.(map[string]any)
@@ -272,7 +273,7 @@ func TestHandler_DeleteMultiRegionCluster(t *testing.T) {
 				var createResp map[string]any
 
 				createRec := doRequest(t, h, "DescribeMultiRegionClusters", map[string]any{})
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				clusters := createResp["MultiRegionClusters"].([]any)
 				require.Len(t, clusters, 1)
 				clusterName := clusters[0].(map[string]any)["MultiRegionClusterName"].(string)
@@ -342,7 +343,7 @@ func TestHandler_DescribeMultiRegionClusters(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				clusters := resp["MultiRegionClusters"].([]any)
 				assert.Len(t, clusters, tt.wantCount)
 			}
@@ -382,7 +383,7 @@ func TestHandler_DescribeMultiRegionParameterGroups(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				groups := resp["MultiRegionParameterGroups"].([]any)
 				assert.Len(t, groups, tt.wantCount)
 			}
@@ -414,7 +415,7 @@ func TestHandler_MultiRegionParameterGroups_DefaultSeeded(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			groups, _ := resp["MultiRegionParameterGroups"].([]any)
 			assert.NotEmpty(t, groups, "multi-region parameter group %q should be seeded", tt.pgName)
 		})
@@ -430,7 +431,7 @@ func TestHandler_MultiRegionParameterGroups_DefaultCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups, _ := resp["MultiRegionParameterGroups"].([]any)
 	assert.GreaterOrEqual(t, len(groups), 4, "at least 4 default multi-region parameter groups expected")
 }
@@ -457,7 +458,7 @@ func TestHandler_MultiRegionParameters_DefaultNonEmpty(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			params, _ := resp["MultiRegionParameters"].([]any)
 			assert.NotEmpty(t, params, "multi-region parameters should be non-empty for %q", tt.pgName)
 		})
@@ -481,7 +482,7 @@ func TestHandler_MultiRegionParameters_HaveSourceField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	params, _ := resp["MultiRegionParameters"].([]any)
 	require.NotEmpty(t, params)
 
@@ -593,7 +594,7 @@ func TestHandler_DescribeMultiRegionParameterGroups_FilteredAndNotFound(t *testi
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				groups := resp["MultiRegionParameterGroups"].([]any)
 				assert.Len(t, groups, tt.wantCount)
 			}

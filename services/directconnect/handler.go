@@ -2,7 +2,8 @@ package directconnect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -186,8 +188,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var m map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(body, &m); unmarshalErr != nil {
+	var m map[string]jsontext.Value
+	if unmarshalErr := json.Unmarshal(body, &m, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -199,11 +201,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // extractFirstResourceByKeys returns the first string resource found for the provided JSON field names.
-func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string) string {
+func extractFirstResourceByKeys(body map[string]jsontext.Value, keys ...string) string {
 	for _, key := range keys {
 		if raw, ok := body[key]; ok {
 			var resourceID string
-			if err := json.Unmarshal(raw, &resourceID); err == nil && resourceID != "" {
+			if err := json.Unmarshal(raw, &resourceID, jsonx.V1()); err == nil && resourceID != "" {
 				return resourceID
 			}
 		}
@@ -281,7 +283,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	}
 
 	body := map[string]string{"__type": errType, "message": err.Error()}
-	payload, _ := json.Marshal(body)
+	payload, _ := json.Marshal(body, jsonx.V1())
 
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
@@ -316,7 +318,7 @@ func decodeBody[T any](body []byte) (*T, error) {
 	var v T
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &v); err != nil {
+		if err := json.Unmarshal(body, &v, jsonx.V1()); err != nil {
 			return nil, clientError("malformed request body: " + err.Error())
 		}
 	}
@@ -328,7 +330,7 @@ func decodeBody[T any](body []byte) (*T, error) {
 // exception (marshaling our own well-typed wire structs should never
 // fail).
 func marshalResponse(v any) ([]byte, error) {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, serverError("directconnect: marshal response: " + err.Error())
 	}

@@ -2,13 +2,14 @@ package kinesisanalytics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 )
 
@@ -237,7 +238,7 @@ func TestAddOutputRoundTrip(t *testing.T) {
 
 	rec2 := doRequest(t, h, "DescribeApplication", map[string]any{"ApplicationName": app.ApplicationName})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	detail := resp["ApplicationDetail"].(map[string]any)
 	outList := detail["OutputDescriptions"].([]any)
 	assert.Len(t, outList, 1)

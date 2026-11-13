@@ -1,13 +1,15 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestConfigureLogsForChannel(t *testing.T) {
@@ -30,7 +32,7 @@ func TestConfigureLogsForChannel(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "ch1", resp["ChannelName"])
 				logTypes, _ := resp["LogTypes"].([]any)
 				assert.Len(t, logTypes, 1)
@@ -83,7 +85,7 @@ func TestConfigureLogsForPlaybackConfiguration(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "pc1", resp["PlaybackConfigurationName"])
 				assert.InDelta(t, float64(60), resp["PercentEnabled"], 0.0001)
 			},
@@ -196,7 +198,7 @@ func TestConfigureLogsForChannel_PersistsToDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	logCfg, ok := resp["LogConfiguration"].(map[string]any)
 	require.True(t, ok, "DescribeChannel must include LogConfiguration")
@@ -225,7 +227,7 @@ func TestConfigureLogsForPlaybackConfiguration_PersistsToGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	logCfg, ok := resp["LogConfiguration"].(map[string]any)
 	require.True(t, ok, "GetPlaybackConfiguration must include LogConfiguration")
@@ -328,7 +330,7 @@ func TestConfigureLogsForPlaybackConfiguration_SurvivesRePut(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	logCfg, ok := resp["LogConfiguration"].(map[string]any)
 	require.True(t, ok)

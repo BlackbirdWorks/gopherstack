@@ -3,7 +3,7 @@ package sagemaker_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -62,7 +63,7 @@ func TestHandler_CreateModel(t *testing.T) {
 
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -82,7 +83,7 @@ func TestHandler_CreateModel(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["ModelArn"], "arn:aws:sagemaker")
 				assert.Contains(t, resp["ModelArn"], "model/my-model")
 			}
@@ -140,7 +141,7 @@ func TestHandler_DescribeModel(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["ModelName"])
 			}
 		})
@@ -176,7 +177,7 @@ func TestHandler_ListModels(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	models, ok := resp["Models"].([]any)
 	require.True(t, ok)
@@ -277,7 +278,7 @@ func TestHandler_ListModelsPagination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			models, modelsOK := resp["Models"].([]any)
 			require.True(t, modelsOK)
@@ -298,7 +299,7 @@ func TestHandler_ListModelsPagination(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 				models2, models2OK := resp2["Models"].([]any)
 				require.True(t, models2OK)
@@ -432,7 +433,7 @@ func TestHandler_ListModels_FilterSort(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["Models"].([]any)
 	require.True(t, ok)
@@ -497,7 +498,7 @@ func TestHandler_ListModels_CreationTimeAfterInclusive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	models, ok := resp["Models"].([]any)
 	require.True(t, ok)
 	require.Len(t, models, 1)

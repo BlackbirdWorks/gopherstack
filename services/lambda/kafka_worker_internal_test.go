@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errKafkaTestFunction = errors.New("boom")
@@ -202,7 +204,7 @@ func TestKafkaWorkerBatching(t *testing.T) {
 						Records map[string][]struct{} `json:"records"`
 					}
 
-					require.NoError(t, json.Unmarshal(payload, &ev))
+					require.NoError(t, json.Unmarshal(payload, &ev, jsonx.V1()))
 
 					n := 0
 					for _, rs := range ev.Records {

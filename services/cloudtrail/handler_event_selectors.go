@@ -1,12 +1,13 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -53,7 +54,7 @@ type putEventSelectorsBody struct {
 
 func (h *Handler) handlePutEventSelectors(c *echo.Context, body []byte) error {
 	var in putEventSelectorsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -95,7 +96,7 @@ type getEventSelectorsBody struct {
 
 func (h *Handler) handleGetEventSelectors(c *echo.Context, body []byte) error {
 	var in getEventSelectorsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -133,7 +134,7 @@ type putInsightSelectorsBody struct {
 
 func (h *Handler) handlePutInsightSelectors(c *echo.Context, body []byte) error {
 	var in putInsightSelectorsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -182,7 +183,7 @@ type getInsightSelectorsBody struct {
 
 func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error {
 	var in getInsightSelectorsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -229,7 +230,7 @@ type getEventConfigurationBody struct {
 
 func (h *Handler) handleGetEventConfiguration(c *echo.Context, body []byte) error {
 	var in getEventConfigurationBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -255,7 +256,7 @@ type putEventConfigurationBody struct {
 
 func (h *Handler) handlePutEventConfiguration(c *echo.Context, body []byte) error {
 	var in putEventConfigurationBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -336,7 +337,7 @@ type listInsightsDataBody struct {
 func (h *Handler) handleListInsightsData(c *echo.Context, body []byte) error {
 	var in listInsightsDataBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -382,7 +383,7 @@ type listInsightsMetricDataBody struct {
 
 func (h *Handler) handleListInsightsMetricData(c *echo.Context, body []byte) error {
 	var in listInsightsMetricDataBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 	if in.EventName == "" {

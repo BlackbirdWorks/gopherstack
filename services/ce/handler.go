@@ -2,7 +2,7 @@ package ce
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -196,19 +197,16 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrUnknownMonitor):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "UnknownMonitorException",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		// Real AWS CE returns HTTP 400 for every modeled client-fault exception (verified
 		// against API_DeleteAnomalyMonitor/API_UpdateAnomalyMonitor/API_GetAnomalyMonitors),
@@ -218,21 +216,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidNextTokenException",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrUnknownSubscription):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "UnknownSubscriptionException",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ResourceNotFoundException",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		// See API_DescribeCostCategoryDefinition: ResourceNotFoundException is documented
 		// as HTTP 400, not 404.
@@ -241,7 +239,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ServiceQuotaExceededException",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		// See API_CreateCostCategoryDefinition: ServiceQuotaExceededException is documented
 		// as HTTP 400, not 409.
@@ -250,18 +248,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ValidationError",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	// "ValidationError" is CE's documented CommonErrors type for malformed/
 	// missing-required-member requests (see ErrValidation above) -- it is not
 	// tied to any one operation's model, so it fits here too.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ValidationError",
 			Message: err.Error(),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:

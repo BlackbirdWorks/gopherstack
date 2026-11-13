@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -30,7 +31,7 @@ func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				buckets, _ := resp["buckets"].([]any)
 				assert.Empty(t, buckets)
 			},
@@ -44,7 +45,7 @@ func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				count, _ := resp["bucketCount"].(float64)
 				assert.InDelta(t, 0, count, 0.0001)
 			},
@@ -62,7 +63,7 @@ func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				cdiID := createResp["customDataIdentifierId"]
 
 				// BatchGetCustomDataIdentifiers
@@ -72,7 +73,7 @@ func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var batchResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp, jsonx.V1()))
 				items, _ := batchResp["customDataIdentifiers"].([]any)
 				assert.Len(t, items, 1)
 			},
@@ -88,7 +89,7 @@ func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				results, _ := resp["matchingResources"].([]any)
 				assert.Empty(t, results)
 			},
@@ -156,7 +157,7 @@ func describeBuckets(t *testing.T, h *macie2.Handler, criteria map[string]any) [
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	buckets, ok := resp["buckets"].([]any)
 	if !ok {
@@ -173,7 +174,7 @@ func getBucketStatistics(t *testing.T, h *macie2.Handler) map[string]any {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }

@@ -1,11 +1,13 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListConfiguredTableAssociations_SummaryHasAnalysisRuleTypes proves
@@ -30,14 +32,14 @@ func TestListConfiguredTableAssociations_SummaryHasAnalysisRuleTypes(t *testing.
 		"members":                []any{}, "queryLogStatus": "DISABLED",
 	})
 	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(colRec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(colRec.Body.Bytes(), &colResp, jsonx.V1()))
 	collabID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	memRec := doRequest(t, e, http.MethodPost, "/memberships", map[string]any{
 		"collaborationIdentifier": collabID, "queryLogStatus": "DISABLED",
 	})
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &memResp, jsonx.V1()))
 	memID := memResp["membership"].(map[string]any)["id"].(string)
 
 	ctRec := doRequest(t, e, http.MethodPost, "/configuredTables", map[string]any{
@@ -46,7 +48,7 @@ func TestListConfiguredTableAssociations_SummaryHasAnalysisRuleTypes(t *testing.
 		"allowedColumns": []string{"id"}, "analysisMethod": "DIRECT_QUERY",
 	})
 	var ctResp map[string]any
-	require.NoError(t, json.Unmarshal(ctRec.Body.Bytes(), &ctResp))
+	require.NoError(t, json.Unmarshal(ctRec.Body.Bytes(), &ctResp, jsonx.V1()))
 	ctID := ctResp["configuredTable"].(map[string]any)["id"].(string)
 
 	ctaRec := doRequest(t, e, http.MethodPost, "/memberships/"+memID+"/configuredTableAssociations", map[string]any{
@@ -56,7 +58,7 @@ func TestListConfiguredTableAssociations_SummaryHasAnalysisRuleTypes(t *testing.
 	})
 	require.Equal(t, http.StatusOK, ctaRec.Code)
 	var ctaResp map[string]any
-	require.NoError(t, json.Unmarshal(ctaRec.Body.Bytes(), &ctaResp))
+	require.NoError(t, json.Unmarshal(ctaRec.Body.Bytes(), &ctaResp, jsonx.V1()))
 	ctaID := ctaResp["configuredTableAssociation"].(map[string]any)["id"].(string)
 
 	ruleRec := doRequest(
@@ -74,7 +76,7 @@ func TestListConfiguredTableAssociations_SummaryHasAnalysisRuleTypes(t *testing.
 	var listResp struct {
 		Summaries []map[string]any `json:"configuredTableAssociationSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Summaries, 1)
 
 	ruleTypes, ok := listResp.Summaries[0]["analysisRuleTypes"].([]any)

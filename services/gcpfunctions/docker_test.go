@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"log/slog"
 	"net/http"
 	"os"
@@ -109,7 +109,7 @@ func TestDocker_StorageTriggeredFunction(t *testing.T) {
 	}
 
 	gcs := gcpstorage.NewInMemoryBackend()
-	_, err = gcs.CreateBucket("test-project", gcpstorage.Patch{"name": json.RawMessage(`"inbox"`)})
+	_, err = gcs.CreateBucket("test-project", gcpstorage.Patch{"name": jsontext.Value(`"inbox"`)})
 	require.NoError(t, err)
 
 	e := newEnv(t, false)

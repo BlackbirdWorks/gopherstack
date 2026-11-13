@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -100,7 +101,7 @@ func Test_TableStorageDescriptor_RoundTrip(t *testing.T) {
 			Retention int `json:"Retention"`
 		} `json:"Table"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "hive", out.Table.Owner)
 	assert.Equal(t, 7, out.Table.Retention)
@@ -212,7 +213,7 @@ func TestAuditGlue_GetTables_Expression(t *testing.T) {
 					Name string `json:"Name"`
 				} `json:"TableList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			gotNames := make([]string, len(out.TableList))
 			for i, tbl := range out.TableList {
@@ -253,7 +254,7 @@ func TestHTTPBatchDeleteTable(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	errs, ok := out["Errors"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, errs)
@@ -299,7 +300,7 @@ func TestCloneTableWithColumns(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			tbl := out["Table"].(map[string]any)
 			assert.NotNil(t, tbl)
 
@@ -356,7 +357,7 @@ func TestSearchTables_EmptyFilter(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"TableList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.TableList, 2)
 }
 
@@ -382,7 +383,7 @@ func TestSearchTables_WithFilter(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"TableList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.TableList, 1)
 	assert.Equal(t, "orders", out.TableList[0].Name)
 }

@@ -2,7 +2,7 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -248,7 +249,7 @@ func TestLambda_BuildSQSEventPayload(t *testing.T) {
 			EventSourceARN         string                                `json:"eventSourceARN"`
 		} `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(payload, &event))
+	require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 	require.Len(t, event.Records, 1)
 
 	rec := event.Records[0]

@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -280,7 +281,7 @@ func TestRotateSecret_Backend(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.RotateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "rotate-secret", out.Name)
 	assert.NotEmpty(t, out.VersionID)
 
@@ -335,7 +336,7 @@ func TestRotateSecret_WithLambda(t *testing.T) {
 		assert.Equal(t, "my-rotator", call.name)
 		assert.Equal(t, "RequestResponse", call.invocationType)
 		var event map[string]string
-		require.NoError(t, json.Unmarshal(call.payload, &event))
+		require.NoError(t, json.Unmarshal(call.payload, &event, jsonx.V1()))
 		assert.Equal(t, "lambda-rotate-secret", event["SecretId"])
 		assert.Equal(t, steps[i], event["Step"])
 		assert.NotEmpty(t, event["ClientRequestToken"])
@@ -394,7 +395,7 @@ func TestRotateSecret_OmittedARNUsesStoredLambda(t *testing.T) {
 		assert.Equal(t, "my-rotator", call.name)
 		assert.Equal(t, steps[i], func() string {
 			var event map[string]string
-			require.NoError(t, json.Unmarshal(call.payload, &event))
+			require.NoError(t, json.Unmarshal(call.payload, &event, jsonx.V1()))
 
 			return event["Step"]
 		}())
@@ -448,7 +449,7 @@ func TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe(t *tes
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.RotateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.VersionID, "no permanent version is created by a test probe")
 
 	// Exactly one Lambda invocation: the testSecret step.
@@ -456,7 +457,7 @@ func TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe(t *tes
 	assert.Equal(t, "probe-rotator", mock.calls[0].name)
 
 	var event map[string]string
-	require.NoError(t, json.Unmarshal(mock.calls[0].payload, &event))
+	require.NoError(t, json.Unmarshal(mock.calls[0].payload, &event, jsonx.V1()))
 	assert.Equal(t, "probe-secret", event["SecretId"])
 	assert.Equal(t, "testSecret", event["Step"])
 
@@ -546,7 +547,7 @@ func TestRotateSecret_NoLambdaInvoker(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.RotateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.VersionID)
 }
 
@@ -668,7 +669,7 @@ func TestRotateSecret_InvalidDays(t *testing.T) {
 			rotBody, _ := json.Marshal(map[string]any{
 				"SecretId":      "days-validation",
 				"RotationRules": map[string]any{"AutomaticallyAfterDays": tt.days},
-			})
+			}, jsonx.V1())
 			rotRec := doR1Request(t, h, "secretsmanager.RotateSecret", string(rotBody))
 			assert.Equal(t, http.StatusBadRequest, rotRec.Code)
 		})

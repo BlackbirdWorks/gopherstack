@@ -2,7 +2,7 @@ package securityhub_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -77,6 +78,6 @@ func TestMalformedJSONBody_DoesNotDoubleWrite(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	err := json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1())
 	require.NoError(t, err, "a single write must produce one well-formed JSON body, got: %s", rec.Body.String())
 }

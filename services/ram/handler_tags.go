@@ -2,8 +2,10 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type tagResourceRequest struct {
@@ -14,7 +16,7 @@ type tagResourceRequest struct {
 
 func (h *Handler) handleTagResource(_ context.Context, body []byte) error {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -42,7 +44,7 @@ type untagResourceRequest struct {
 
 func (h *Handler) handleUntagResource(_ context.Context, body []byte) error {
 	var req untagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -73,7 +75,7 @@ type listTagsForResourceResponse struct {
 
 func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
 	var req listTagsForResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -91,5 +93,5 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(listTagsForResourceResponse{Tags: toTagObjects(tags)})
+	return json.Marshal(listTagsForResourceResponse{Tags: toTagObjects(tags)}, jsonx.V1())
 }

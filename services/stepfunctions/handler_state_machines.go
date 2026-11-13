@@ -2,9 +2,11 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createStateMachineInput struct {
@@ -89,7 +91,7 @@ type updateStateMachineOutput struct {
 // configuration and inline tags when supplied in the request body.
 func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, error) {
 	var input createStateMachineInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -153,7 +155,7 @@ func (h *Handler) createStateMachineAction(ctx context.Context, b []byte) (any, 
 // configuration when supplied in the request body.
 func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 	var input updateStateMachineInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +213,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 		// CreateStateMachine and ListStateMachines are handled in dispatch (ctx-aware).
 		"DeleteStateMachine": func(b []byte) (any, error) {
 			var input deleteStateMachineInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DeleteStateMachine(input.StateMachineArn); err != nil {
@@ -230,7 +232,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 		},
 		"DescribeStateMachine": func(b []byte) (any, error) {
 			var input describeStateMachineInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

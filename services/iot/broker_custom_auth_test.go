@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"net/url"
@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -40,7 +41,7 @@ type fakeAuthLambda struct {
 
 func (f *fakeAuthLambda) RequestLambda(_ context.Context, _, _ string, payload []byte) ([]byte, error) {
 	var ev map[string]any
-	if err := json.Unmarshal(payload, &ev); err != nil {
+	if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -49,7 +50,7 @@ func (f *fakeAuthLambda) RequestLambda(_ context.Context, _, _ string, payload [
 	respond := f.respond
 	f.mu.Unlock()
 
-	return json.Marshal(respond(ev))
+	return json.Marshal(respond(ev), jsonx.V1())
 }
 
 func (f *fakeAuthLambda) calls() []map[string]any {
@@ -68,7 +69,7 @@ func (f *fakeAuthLambda) setRespond(r func(map[string]any) any) {
 
 func authzResponse(principal string, refresh, disconnect int, statements ...string) map[string]any {
 	var doc any
-	_ = json.Unmarshal([]byte(authPolicy(statements...)), &doc)
+	_ = json.Unmarshal([]byte(authPolicy(statements...)), &doc, jsonx.V1())
 
 	out := map[string]any{"isAuthenticated": true, "principalId": principal, "policyDocuments": []any{doc}}
 	if refresh > 0 {

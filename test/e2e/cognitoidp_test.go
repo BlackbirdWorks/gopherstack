@@ -38,6 +38,7 @@ func TestCognitoIDPDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -72,6 +73,7 @@ func TestCognitoIDPDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -106,6 +108,7 @@ func TestCognitoIDPDashboard_CreateAndDeleteUserPool(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/cognitoidp")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

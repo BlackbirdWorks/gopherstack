@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -515,7 +516,7 @@ func TestUpdateSecretVersionStage_CannotRemoveAWSCURRENT_HTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp secretsmanager.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, errResp.Type)
 		})
 	}
@@ -560,7 +561,7 @@ func TestUpdateSecretVersionStage_HTTP(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.UpdateSecretVersionStageOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "stage-secret", out.Name)
 				assert.NotEmpty(t, out.ARN)
 			},
@@ -592,7 +593,7 @@ func TestUpdateSecretVersionStage_HTTP(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.UpdateSecretVersionStageOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "stage-remove", out.Name)
 			},
 		},

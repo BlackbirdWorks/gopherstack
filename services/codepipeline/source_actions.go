@@ -2,11 +2,12 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -65,7 +66,7 @@ func (b *InMemoryBackend) runECRSourceAction(
 		RepositoryName:   img.RepositoryName,
 		ImageURI:         uri,
 		ImageTags:        img.Tags,
-	})
+	}, jsonx.V1())
 	if err == nil {
 		err = b.putOutputFiles(ctx, p, execID, action, map[string][]byte{imageDetailFile: detail})
 	}

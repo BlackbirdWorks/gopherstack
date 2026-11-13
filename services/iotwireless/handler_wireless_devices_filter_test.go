@@ -1,13 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
 )
 
@@ -25,7 +26,7 @@ func listWirelessDevicesNames(t *testing.T, h *iotwireless.Handler, rawQuery str
 			Name string `json:"Name"`
 		} `json:"WirelessDeviceList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	names := make([]string, 0, len(resp.WirelessDeviceList))
 	for _, d := range resp.WirelessDeviceList {

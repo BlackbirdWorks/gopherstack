@@ -1,13 +1,15 @@
 package cloudfront
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // storeKVS adapts the backend's Key Value Stores to a running function.
@@ -74,7 +76,7 @@ func (b *InMemoryBackend) ExecuteFunction(name, stage string, event any) (*Funct
 
 func (h *Handler) runTestFunction(c *echo.Context, name, stage string, eventObject []byte) error {
 	var event any
-	if err := json.Unmarshal(eventObject, &event); err != nil {
+	if err := json.Unmarshal(eventObject, &event, jsonx.V1()); err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "EventObject must be valid JSON"))
 	}
 

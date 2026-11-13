@@ -1,12 +1,13 @@
 package ec2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- IPAM Routing Policy Registrations ----
@@ -40,7 +41,7 @@ func (b *InMemoryBackend) newRoutingPolicyDeltaLocked(
 	assocID string,
 	doc routingPolicyDeltaDoc,
 ) *IpamRoutingPolicyRegistrationDelta {
-	body, _ := json.Marshal(doc)
+	body, _ := json.Marshal(doc, jsonx.V1())
 
 	delta := &IpamRoutingPolicyRegistrationDelta{
 		DeltaID:                           awsid.New("ipam-rpr-delta-"),
@@ -294,7 +295,7 @@ func (b *InMemoryBackend) BatchModifyIpamRoutingPolicyRegistrations(
 	}
 
 	var entries []routingPolicyBatchEntry
-	if err := json.Unmarshal([]byte(deltaJSON), &entries); err != nil {
+	if err := json.Unmarshal([]byte(deltaJSON), &entries, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: DeltaJson is not a valid batch document: %w", ErrInvalidParameter, err)
 	}
 

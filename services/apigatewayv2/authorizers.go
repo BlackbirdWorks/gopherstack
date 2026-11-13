@@ -1,7 +1,7 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sort"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -211,7 +212,7 @@ func (f *flexibleStrings) UnmarshalJSON(data []byte) error {
 
 	if strings.HasPrefix(trimmed, "[") {
 		var arr []string
-		if err := json.Unmarshal(data, &arr); err != nil {
+		if err := json.Unmarshal(data, &arr, jsonx.V1()); err != nil {
 			return err
 		}
 
@@ -221,7 +222,7 @@ func (f *flexibleStrings) UnmarshalJSON(data []byte) error {
 	}
 
 	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := json.Unmarshal(data, &s, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -375,7 +376,7 @@ func buildAuthorizerPayload(
 			},
 		}
 
-		return json.Marshal(event)
+		return json.Marshal(event, jsonx.V1())
 	}
 
 	event := requestAuthorizerEventV2{
@@ -403,7 +404,7 @@ func buildAuthorizerPayload(
 		},
 	}
 
-	return json.Marshal(event)
+	return json.Marshal(event, jsonx.V1())
 }
 
 // authorizerUsesV1Payload reports whether the authorizer expects the 1.0 event
@@ -418,7 +419,7 @@ func evaluateAuthorizerResponse(respBytes []byte, auth *Authorizer, routeArn str
 	// Simple response: only valid with payload 2.0 + EnableSimpleResponses.
 	if auth.EnableSimpleResponses && !authorizerUsesV1Payload(auth) {
 		var simple simpleAuthorizerResponse
-		if err := json.Unmarshal(respBytes, &simple); err == nil {
+		if err := json.Unmarshal(respBytes, &simple, jsonx.V1()); err == nil {
 			return simple.IsAuthorized, false
 		}
 
@@ -427,7 +428,7 @@ func evaluateAuthorizerResponse(respBytes []byte, auth *Authorizer, routeArn str
 
 	// IAM policy response.
 	var policy iamPolicyResponse
-	if err := json.Unmarshal(respBytes, &policy); err != nil {
+	if err := json.Unmarshal(respBytes, &policy, jsonx.V1()); err != nil {
 		return false, false
 	}
 

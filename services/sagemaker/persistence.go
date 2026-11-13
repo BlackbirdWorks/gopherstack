@@ -2,11 +2,13 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -158,7 +160,7 @@ func hubContentKeyString(k hubContentKey) string {
 // each one doesn't fit the Table[V] keyed-by-string-derived-from-V model —
 // so they are persisted directly here instead of via Tables.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage                  `json:"tables"`
+	Tables                 map[string]jsontext.Value                   `json:"tables"`
 	ImageVersions          map[string]map[string]map[int]*ImageVersion `json:"imageVersions,omitempty"`
 	ImageVersionCounts     map[string]map[string]int                   `json:"imageVersionCounts,omitempty"`
 	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry   `json:"monitoringAlertHistory,omitempty"`
@@ -193,7 +195,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			dtos[i] = toPersistedCluster(c)
 		}
 
-		data, marshalErr := json.Marshal(dtos)
+		data, marshalErr := json.Marshal(dtos, jsonx.V1())
 		if marshalErr != nil {
 			logger.Load(ctx).WarnContext(ctx,
 				"sagemaker: snapshot cluster table marshal failed", "region", region, "error", marshalErr)
@@ -256,7 +258,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// b.clusters here; RestoreAll's "reset tables absent from data" behavior
 	// (since we've stripped every "clusters:*" key from snap.Tables) clears
 	// any such region's table if it was already registered.
-	clusterTables := make(map[string]json.RawMessage)
+	clusterTables := make(map[string]jsontext.Value)
 
 	for name, raw := range snap.Tables {
 		if region, ok := strings.CutPrefix(name, clusterTablePrefix); ok {
@@ -281,7 +283,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	for region, raw := range clusterTables {
 		var dtos []*persistedCluster
 
-		if err := json.Unmarshal(raw, &dtos); err != nil {
+		if err := json.Unmarshal(raw, &dtos, jsonx.V1()); err != nil {
 			return fmt.Errorf("sagemaker: restore cluster table %q: %w", region, err)
 		}
 
@@ -543,7 +545,7 @@ var tableRegistrars = map[string]func(*InMemoryBackend, string){
 // key present in raw — see tableRegistrars — so the subsequent
 // registry.RestoreAll call actually receives every table the snapshot
 // contains, not just whichever ones happen to already be registered.
-func (b *InMemoryBackend) ensureTablesRegistered(raw map[string]json.RawMessage) {
+func (b *InMemoryBackend) ensureTablesRegistered(raw map[string]jsontext.Value) {
 	for name := range raw {
 		field, region, cut := strings.Cut(name, ":")
 		if !cut {

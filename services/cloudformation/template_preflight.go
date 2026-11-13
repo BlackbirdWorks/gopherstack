@@ -1,13 +1,14 @@
 package cloudformation
 
 import (
-	"encoding/json"
 	"errors"
 	"reflect"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrTemplateFormat is the "Template format error: ..." family real
@@ -65,18 +66,18 @@ func lineColumn(body string, offset int64) (int, int) {
 // templateParseFormatErr maps a ParseTemplate failure to AWS's synchronous
 // "Template format error" wording; non-syntax failures pass through unchanged.
 func templateParseFormatErr(body string, err error) error {
-	if syn, ok := errors.AsType[*json.SyntaxError](err); ok {
-		line, col := lineColumn(strings.TrimSpace(body), syn.Offset)
+	if offset, ok := jsonx.SyntaxError(err); ok {
+		line, col := lineColumn(strings.TrimSpace(body), offset)
 
 		return templateFormatErr("JSON not well-formed. (line %d, column %d)", line, col)
 	}
 
-	if typ, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
-		if strings.HasSuffix(typ.Field, "Description") {
+	if field, ok := jsonx.TypeError(err); ok {
+		if strings.HasSuffix(field, "Description") {
 			return templateFormatErr("Every Description member must be a string.")
 		}
 
-		return templateFormatErr("%s has an invalid type", typ.Field)
+		return templateFormatErr("%s has an invalid type", field)
 	}
 
 	if strings.Contains(err.Error(), "failed to parse YAML template") {

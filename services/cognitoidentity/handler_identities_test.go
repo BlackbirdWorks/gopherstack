@@ -1,13 +1,16 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetID_UnauthDisabled_EmptyLogins(t *testing.T) {
@@ -22,7 +25,7 @@ func TestHandler_GetID_UnauthDisabled_EmptyLogins(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",
@@ -43,7 +46,7 @@ func TestHandler_ListIdentities_MaxResultsZero(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -64,7 +67,7 @@ func TestHandler_GetID(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",
@@ -74,7 +77,7 @@ func TestHandler_GetID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["IdentityId"])
 }
 
@@ -139,7 +142,7 @@ func TestHandler_DeleteIdentities(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 				idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 					"AccountId":      "000000000000",
@@ -148,7 +151,7 @@ func TestHandler_DeleteIdentities(t *testing.T) {
 				require.Equal(t, http.StatusOK, idRec.Code)
 
 				var idOut map[string]any
-				require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+				require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 				body = map[string]any{
 					"IdentityIdsToDelete": []string{idOut["IdentityId"].(string)},
@@ -160,7 +163,7 @@ func TestHandler_DeleteIdentities(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				unprocessed, _ := out["UnprocessedIdentityIds"].([]any)
 				assert.Len(t, unprocessed, tt.wantLen)
 			}
@@ -195,7 +198,7 @@ func TestHandler_DescribeIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 				idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 					"AccountId":      "000000000000",
@@ -207,7 +210,7 @@ func TestHandler_DescribeIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, idRec.Code)
 
 				var idOut map[string]any
-				require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+				require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 				identityID = idOut["IdentityId"].(string)
 			}
 
@@ -219,7 +222,7 @@ func TestHandler_DescribeIdentity(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, identityID, out["IdentityId"])
 				assert.NotEmpty(t, out["CreationDate"])
 				logins, _ := out["Logins"].([]any)
@@ -257,7 +260,7 @@ func TestHandler_ListIdentities(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID = created["IdentityPoolId"].(string)
 
 				for _, login := range []map[string]string{
@@ -282,7 +285,7 @@ func TestHandler_ListIdentities(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, poolID, out["IdentityPoolId"])
 
 				identities, _ := out["Identities"].([]any)
@@ -304,7 +307,7 @@ func TestSortedListIdentities(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	for _, login := range []map[string]string{
@@ -327,7 +330,7 @@ func TestSortedListIdentities(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 
 	identities, _ := listOut["Identities"].([]any)
 	require.Len(t, identities, 3)
@@ -389,7 +392,7 @@ func TestListIdentities_MaxResultsValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 			rec := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
 				"IdentityPoolId": created["IdentityPoolId"],
@@ -425,7 +428,7 @@ func TestSortedLogins(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
@@ -440,7 +443,7 @@ func TestSortedLogins(t *testing.T) {
 	require.Equal(t, http.StatusOK, idRec.Code)
 
 	var idOut map[string]any
-	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 	identityID := idOut["IdentityId"].(string)
 
 	rec := doCognitoIdentityRequest(t, h, "DescribeIdentity", map[string]any{
@@ -449,7 +452,7 @@ func TestSortedLogins(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	logins, _ := descOut["Logins"].([]any)
 	require.Len(t, logins, 3)
@@ -498,7 +501,7 @@ func TestHandler_GetID_MergesLoginProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	poolID := createOut["IdentityPoolId"].(string)
 
 	// First call: only google.
@@ -509,7 +512,7 @@ func TestHandler_GetID_MergesLoginProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &out1, jsonx.V1()))
 	id1 := out1["IdentityId"].(string)
 
 	// Second call: same google + new facebook → must return same ID.
@@ -523,7 +526,7 @@ func TestHandler_GetID_MergesLoginProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out2, jsonx.V1()))
 	id2 := out2["IdentityId"].(string)
 
 	assert.Equal(t, id1, id2, "GetId must return the same identity when any login provider matches")
@@ -541,7 +544,7 @@ func TestHandler_ListIdentities_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	poolID := createOut["IdentityPoolId"].(string)
 
 	for i := range 3 {
@@ -559,7 +562,7 @@ func TestHandler_ListIdentities_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &out1, jsonx.V1()))
 	assert.Len(t, out1["Identities"], 2)
 	nextToken, _ := out1["NextToken"].(string)
 	assert.NotEmpty(t, nextToken)
@@ -573,6 +576,6 @@ func TestHandler_ListIdentities_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out2, jsonx.V1()))
 	assert.Len(t, out2["Identities"], 1)
 }

@@ -2,7 +2,8 @@ package apigatewaymanagementapi_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
@@ -325,8 +327,8 @@ func TestHandler_GetConnection(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				var body map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				var body map[string]jsontext.Value
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Contains(t, body, "connectedAt")
 				assert.Contains(t, body, "identity")
 				assert.Contains(t, body, "lastActiveAt")
@@ -362,8 +364,8 @@ func TestHandler_GetConnection_NoConnectionIDField(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, "/@connections/"+tt.connectionID, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var body map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			var body map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.NotContains(t, body, "connectionId",
 				"GetConnectionOutput has no ConnectionId member on the real API")
 		})
@@ -398,15 +400,15 @@ func TestHandler_GetConnection_IdentityShape(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, "/@connections/conn-identity", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var body map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			var body map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 			// AWS shape: identity must be a nested object.
 			identityRaw, ok := body["identity"]
 			require.True(t, ok, "response must include 'identity' field")
 
 			var identity map[string]string
-			require.NoError(t, json.Unmarshal(identityRaw, &identity))
+			require.NoError(t, json.Unmarshal(identityRaw, &identity, jsonx.V1()))
 			assert.Equal(t, tt.sourceIP, identity["sourceIp"], "identity.sourceIp must match")
 			assert.Equal(t, tt.userAgent, identity["userAgent"], "identity.userAgent must match")
 
@@ -440,7 +442,7 @@ func TestHandler_GetConnection_TimestampFields(t *testing.T) {
 		ConnectedAt  string `json:"connectedAt"`
 		LastActiveAt string `json:"lastActiveAt"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.NotEmpty(t, body.ConnectedAt, "connectedAt must be non-empty")
 	assert.NotEmpty(t, body.LastActiveAt, "lastActiveAt must be non-empty")
 }
@@ -533,7 +535,7 @@ func TestHandler_GoneExceptionWireShape(t *testing.T) {
 			assert.Equal(t, "GoneException", rec.Header().Get("X-Amzn-Errortype"))
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "GoneException", body["__type"])
 			assert.NotEqual(t, "GoneException", body["message"],
 				"message must be a human-readable string, not the error type")
@@ -563,7 +565,7 @@ func TestHandler_PostToConnection_LimitExceeded(t *testing.T) {
 	assert.Equal(t, "LimitExceededException", rec.Header().Get("X-Amzn-Errortype"))
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", body["__type"])
 	assert.NotEmpty(t, body["message"])
 
@@ -588,7 +590,7 @@ func TestHandler_PostToConnection_PayloadTooLarge_WireShape(t *testing.T) {
 	assert.Equal(t, "PayloadTooLargeException", rec.Header().Get("X-Amzn-Errortype"))
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "PayloadTooLargeException", body["__type"])
 	assert.NotEmpty(t, body["message"])
 }

@@ -2,7 +2,7 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -74,13 +74,13 @@ func newDirtyDTORegistry() (
 // they do not fit store.Table's keyed-by-identity-value shape and are
 // unaffected by this conversion.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage            `json:"tables"`
-	LoggingConfigs     map[string]map[string]json.RawMessage `json:"loggingConfigs,omitempty"`
-	PermissionPolicies map[string]map[string]string          `json:"permissionPolicies,omitempty"`
-	Associations       map[string]map[string]string          `json:"associations,omitempty"`
-	AccountID          string                                `json:"accountID"`
-	Region             string                                `json:"region"`
-	Version            int                                   `json:"version"`
+	Tables             map[string]jsontext.Value            `json:"tables"`
+	LoggingConfigs     map[string]map[string]jsontext.Value `json:"loggingConfigs,omitempty"`
+	PermissionPolicies map[string]map[string]string         `json:"permissionPolicies,omitempty"`
+	Associations       map[string]map[string]string         `json:"associations,omitempty"`
+	AccountID          string                               `json:"accountID"`
+	Region             string                               `json:"region"`
+	Version            int                                  `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON.
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", wafv2SnapshotVersion)
 
 		b.resetTablesLocked()
-		b.loggingConfigs = make(map[string]map[string]json.RawMessage)
+		b.loggingConfigs = make(map[string]map[string]jsontext.Value)
 		b.permissionPolicies = make(map[string]map[string]string)
 		b.associations = make(map[string]map[string]string)
 
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if snap.LoggingConfigs != nil {
 		b.loggingConfigs = snap.LoggingConfigs
 	} else {
-		b.loggingConfigs = make(map[string]map[string]json.RawMessage)
+		b.loggingConfigs = make(map[string]map[string]jsontext.Value)
 	}
 
 	if snap.PermissionPolicies != nil {

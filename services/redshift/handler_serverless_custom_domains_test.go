@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestServerless_CustomDomainAssociationCRUD covers Create/Get/List/Update/
@@ -29,7 +32,7 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	assert.Equal(t, "db.example.com", createResp["customDomainName"])
 	assert.Equal(t, "cd-wg", createResp["workgroupName"])
 	assert.NotContains(t, createResp, "association", "response is flat, not wrapped in an envelope key")
@@ -39,7 +42,7 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var wgResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&wgResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &wgResp, jsonx.V1()))
 	wgData, _ := wgResp["workgroup"].(map[string]any)
 	require.NotNil(t, wgData)
 	assert.Equal(t, "db.example.com", wgData["customDomainName"])
@@ -56,7 +59,7 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	assocs, _ := listResp["associations"].([]any)
 	require.Len(t, assocs, 1)
 
@@ -65,7 +68,7 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var credResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&credResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &credResp, jsonx.V1()))
 	dbUser, _ := credResp["dbUser"].(string)
 	assert.NotEmpty(t, dbUser)
 
@@ -77,7 +80,7 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	assert.Equal(t, "arn:aws:acm:us-east-1:000000000000:certificate/def", updateResp["customDomainCertificateArn"])
 
 	rec = doServerlessOp(t, h, "DeleteCustomDomainAssociation", map[string]any{
@@ -87,13 +90,13 @@ func TestServerless_CustomDomainAssociationCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&deleteResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &deleteResp, jsonx.V1()))
 	assert.Empty(t, deleteResp, "DeleteCustomDomainAssociationResponse has zero members on the real wire")
 
 	// The mirrored workgroup fields are cleared too.
 	rec = doServerlessOp(t, h, "GetWorkgroup", map[string]any{"workgroupName": "cd-wg"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&wgResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &wgResp, jsonx.V1()))
 	wgData, _ = wgResp["workgroup"].(map[string]any)
 	assert.NotContains(t, wgData, "customDomainName")
 
@@ -143,7 +146,7 @@ func TestServerless_CustomDomainAssociation_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -172,7 +175,7 @@ func TestServerless_CustomDomainAssociation_Errors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 		assert.Equal(t, "ConflictException", errResp["__type"])
 	})
 
@@ -185,7 +188,7 @@ func TestServerless_CustomDomainAssociation_Errors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 		assert.Equal(t, "ValidationException", errResp["__type"])
 	})
 
@@ -198,7 +201,7 @@ func TestServerless_CustomDomainAssociation_Errors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 		assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 	})
 }

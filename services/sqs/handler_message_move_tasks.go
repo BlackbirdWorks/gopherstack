@@ -2,8 +2,10 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonStartMessageMoveTaskReq struct {
@@ -54,7 +56,7 @@ func (h *Handler) handleStartMessageMoveTask(
 	body []byte,
 ) (any, error) {
 	var req jsonStartMessageMoveTaskReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -76,7 +78,7 @@ func (h *Handler) handleCancelMessageMoveTask(
 	body []byte,
 ) (any, error) {
 	var req jsonCancelMessageMoveTaskReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -99,7 +101,7 @@ func (h *Handler) handleListMessageMoveTasks(
 ) (any, error) {
 	var req jsonListMessageMoveTasksReq
 	// Body may be empty; ignore unmarshal errors.
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	out, err := h.Backend.ListMessageMoveTasks(&ListMessageMoveTasksInput{
 		SourceArn:  req.SourceArn,

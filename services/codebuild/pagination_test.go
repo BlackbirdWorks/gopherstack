@@ -1,13 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
 
@@ -27,7 +29,7 @@ func TestHandler_ListProjects_SortOrderDescending(t *testing.T) {
 	var out struct {
 		Projects []string `json:"projects"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, []string{"sort-c", "sort-b", "sort-a"}, out.Projects)
 }
 
@@ -70,7 +72,7 @@ func TestHandler_ListFleets_MaxResultsPagination(t *testing.T) {
 		NextToken string   `json:"nextToken"`
 		Fleets    []string `json:"fleets"`
 	}
-	require.NoError(t, json.NewDecoder(firstRec.Body).Decode(&firstPage))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(firstRec.Body), &firstPage, jsonx.V1()))
 	assert.Len(t, firstPage.Fleets, 2)
 	require.NotEmpty(t, firstPage.NextToken, "a partial page must carry a nextToken")
 
@@ -84,7 +86,7 @@ func TestHandler_ListFleets_MaxResultsPagination(t *testing.T) {
 		NextToken string   `json:"nextToken"`
 		Fleets    []string `json:"fleets"`
 	}
-	require.NoError(t, json.NewDecoder(secondRec.Body).Decode(&secondPage))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(secondRec.Body), &secondPage, jsonx.V1()))
 	assert.Len(t, secondPage.Fleets, 1)
 	assert.Empty(t, secondPage.NextToken, "the final page must not carry a nextToken")
 
@@ -110,7 +112,7 @@ func TestHandler_ListBuildBatches_FilterByStatus(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"buildBatch"`
 	}
-	require.NoError(t, json.NewDecoder(startRec1.Body).Decode(&started1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec1.Body), &started1, jsonx.V1()))
 
 	stopRec := doRequest(t, h, "StopBuildBatch", map[string]any{"id": started1.BuildBatch.ID})
 	require.Equal(t, http.StatusOK, stopRec.Code)
@@ -126,7 +128,7 @@ func TestHandler_ListBuildBatches_FilterByStatus(t *testing.T) {
 	var out struct {
 		IDs []string `json:"ids"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, []string{started1.BuildBatch.ID}, out.IDs)
 }
 
@@ -165,7 +167,7 @@ func TestHandler_ListReports_FilterByStatus(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Equal(t, []string{"arn:aws:codebuild:us-east-1:000000000000:report/filter-rg:bad"}, out.Reports)
 	})
 
@@ -181,7 +183,7 @@ func TestHandler_ListReports_FilterByStatus(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Equal(t, []string{"arn:aws:codebuild:us-east-1:000000000000:report/filter-rg:ok"}, out.Reports)
 	})
 }

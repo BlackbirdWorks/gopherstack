@@ -1,13 +1,15 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_NameAndAddressValidation(t *testing.T) {
@@ -110,7 +112,7 @@ func extractFirstID(t *testing.T, body string) string {
 			ID string `json:"Id"`
 		} `json:"Namespaces"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Namespaces)
 
 	return out.Namespaces[0].ID
@@ -124,7 +126,7 @@ func extractServiceID(t *testing.T, body string) string {
 			ID string `json:"Id"`
 		} `json:"Service"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 
 	return out.Service.ID
 }

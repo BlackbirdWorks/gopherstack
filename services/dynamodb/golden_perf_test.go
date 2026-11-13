@@ -11,7 +11,8 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -32,9 +34,9 @@ func goldenPath(name string) string {
 func checkGolden(t *testing.T, name string, got []byte) {
 	t.Helper()
 
-	var buf bytes.Buffer
-	require.NoError(t, json.Indent(&buf, got, "", "  "))
-	pretty := buf.Bytes()
+	indented := jsontext.Value(bytes.Clone(got))
+	require.NoError(t, indented.Indent(jsonx.V1(), jsontext.WithIndent("  ")))
+	pretty := []byte(indented)
 
 	path := goldenPath(name)
 	if os.Getenv("DYNAMODB_GOLDEN_UPDATE") != "" {
@@ -114,7 +116,7 @@ func TestGolden_QueryKeyConditionFilterProjection(t *testing.T) {
 	})
 	require.Equal(t, 200, code, "Query: %v", resp)
 
-	raw, err := json.Marshal(resp)
+	raw, err := json.Marshal(resp, jsonx.V1())
 	require.NoError(t, err)
 	checkGolden(t, "golden_query.json", raw)
 }
@@ -141,7 +143,7 @@ func TestGolden_ScanFilter(t *testing.T) {
 	})
 	require.Equal(t, 200, code, "Scan: %v", resp)
 
-	raw, err := json.Marshal(resp)
+	raw, err := json.Marshal(resp, jsonx.V1())
 	require.NoError(t, err)
 	checkGolden(t, "golden_scan.json", raw)
 }
@@ -184,7 +186,7 @@ func TestGolden_TransactWriteItems(t *testing.T) {
 	})
 	require.Equal(t, 200, code, "TransactWriteItems: %v", resp)
 
-	raw, err := json.Marshal(resp)
+	raw, err := json.Marshal(resp, jsonx.V1())
 	require.NoError(t, err)
 	checkGolden(t, "golden_transact.json", raw)
 }

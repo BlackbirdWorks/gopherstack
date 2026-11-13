@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -339,7 +341,7 @@ func clientMetadataParam(form url.Values) (map[string]string, *oauthError) {
 	}
 
 	var metadata map[string]string
-	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+	if err := json.Unmarshal([]byte(raw), &metadata, jsonx.V1()); err != nil {
 		return nil, newOAuthError(errInvalidRequest, "aws_client_metadata must be a JSON object of strings")
 	}
 

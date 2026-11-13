@@ -2,7 +2,7 @@ package marketplacemetering_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	mm "github.com/blackbirdworks/gopherstack/services/marketplacemetering"
 )
 
@@ -87,7 +88,7 @@ func TestRegisterUsage(t *testing.T) {
 			require.NoError(t, decErr)
 
 			var claims map[string]any
-			require.NoError(t, json.Unmarshal(raw, &claims))
+			require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
 			assert.Equal(t, tt.product, claims["productCode"])
 			assert.Equal(t, "n-1", claims["nonce"])
 			assert.Equal(t, testAccount, claims["customerAWSAccountId"])

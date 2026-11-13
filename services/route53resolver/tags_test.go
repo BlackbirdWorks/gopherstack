@@ -1,12 +1,14 @@
 package route53resolver_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTagResource(t *testing.T) {
@@ -72,7 +74,7 @@ func TestListTagsForResource(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			ep := createResp["ResolverEndpoint"].(map[string]any)
 			epARN := ep["Arn"].(string)
 
@@ -90,7 +92,7 @@ func TestListTagsForResource(t *testing.T) {
 			assert.Equal(t, tt.wantCode, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 			tags := resp["Tags"].([]any)
 			assert.Len(t, tags, tt.wantTags)
 		})
@@ -115,7 +117,7 @@ func TestListTagsForResource_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	epARN := createResp["ResolverEndpoint"].(map[string]any)["Arn"].(string)
 
 	tagRec := doRequest(t, h, "TagResource", map[string]any{
@@ -134,7 +136,7 @@ func TestListTagsForResource_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, page1Rec.Code)
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1, jsonx.V1()))
 	page1Tags := page1["Tags"].([]any)
 	assert.Len(t, page1Tags, 2)
 	nextToken, ok := page1["NextToken"].(string)
@@ -148,7 +150,7 @@ func TestListTagsForResource_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, page2Rec.Code)
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2, jsonx.V1()))
 	page2Tags := page2["Tags"].([]any)
 	assert.Len(t, page2Tags, 1)
 	_, hasNext := page2["NextToken"]
@@ -192,7 +194,7 @@ func TestUntagResource(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			ep := createResp["ResolverEndpoint"].(map[string]any)
 			epARN := ep["Arn"].(string)
 
@@ -220,7 +222,7 @@ func TestUntagResource(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 			tags := resp["Tags"].([]any)
 			assert.Len(t, tags, tt.wantTags)
 		})

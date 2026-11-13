@@ -1,6 +1,10 @@
 package networkmanager
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // This file implements PARITY.md family W: a resource-based IAM-style JSON
 // policy document attached to a NetworkManager resource ARN (used for
@@ -16,7 +20,7 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policyDocument string) 
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
-	if !json.Valid([]byte(policyDocument)) {
+	if !jsontext.Value([]byte(policyDocument)).IsValid(jsonx.V1()) {
 		return validationError("PolicyDocument is not valid JSON")
 	}
 

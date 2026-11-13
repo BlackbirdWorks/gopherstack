@@ -2,12 +2,13 @@ package bcmdataexports
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"hash/fnv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -35,7 +36,7 @@ func jsonMap(kv ...string) string {
 		m[kv[i]] = kv[i+1]
 	}
 
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(m, jsonx.V1())
 
 	return string(b)
 }

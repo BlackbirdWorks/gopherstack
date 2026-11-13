@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // pageTokenLifetime is the documented lifetime of ListShards and
@@ -34,7 +36,7 @@ func encodePageToken(kind string, stream *Stream, cursor string, now time.Time) 
 		Cursor:   cursor,
 		IssuedAt: now.UnixNano(),
 		Created:  stream.CreatedAt.UnixNano(),
-	})
+	}, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
@@ -48,7 +50,7 @@ func decodePageToken(kind, token string, now time.Time) (pageToken, error) {
 	}
 
 	var pt pageToken
-	if err = json.Unmarshal(raw, &pt); err != nil || pt.Kind != kind || pt.Stream == "" {
+	if err = json.Unmarshal(raw, &pt, jsonx.V1()); err != nil || pt.Kind != kind || pt.Stream == "" {
 		return pageToken{}, ErrInvalidArgument
 	}
 

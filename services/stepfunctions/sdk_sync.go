@@ -2,10 +2,11 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -172,7 +173,7 @@ func runTaskFailures(call asl.SDKCall, out any) error {
 		return nil
 	}
 
-	cause, _ := json.Marshal(failures)
+	cause, _ := json.Marshal(failures, jsonx.V1())
 
 	return &asl.FailError{ErrCode: "AmazonECS.Unknown", Cause: string(cause)}
 }
@@ -186,7 +187,7 @@ func executionSyncResult(p map[string]any, pattern string) any {
 
 	if s, ok := p["Output"].(string); ok {
 		var parsed any
-		if json.Unmarshal([]byte(s), &parsed) == nil {
+		if json.Unmarshal([]byte(s), &parsed, jsonx.V1()) == nil {
 			p["Output"] = parsed
 		}
 	}
@@ -257,7 +258,7 @@ func finishSync(req syncRequest, poll map[string]any, state string) (any, error)
 		return result, nil
 	}
 
-	cause, _ := json.Marshal(result)
+	cause, _ := json.Marshal(result, jsonx.V1())
 
 	return nil, &asl.FailError{ErrCode: errCodeTaskFailed, Cause: string(cause)}
 }

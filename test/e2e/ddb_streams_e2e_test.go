@@ -57,6 +57,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	// deleted the orphaned /dynamodb/table/[tableName] route in favor of it.
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=" + tableName)
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// 3. Verify initial Streams status (DISABLED)
 	streamsCard := page.Locator("div.grid > div:has-text('Streams')")

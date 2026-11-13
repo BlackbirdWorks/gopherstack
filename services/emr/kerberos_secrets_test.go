@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDescribeCluster_KerberosAttributesOmitPasswords(t *testing.T) {
@@ -41,7 +43,7 @@ func TestDescribeCluster_KerberosAttributesOmitPasswords(t *testing.T) {
 			var create struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 			desc := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 			require.Equal(t, http.StatusOK, desc.Code)
@@ -51,7 +53,7 @@ func TestDescribeCluster_KerberosAttributesOmitPasswords(t *testing.T) {
 					KerberosAttributes map[string]any `json:"KerberosAttributes"`
 				} `json:"Cluster"`
 			}
-			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &out, jsonx.V1()))
 
 			ka := out.Cluster.KerberosAttributes
 			assert.Equal(t, "EC2.INTERNAL", ka["Realm"])

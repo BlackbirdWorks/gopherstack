@@ -1,12 +1,15 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListRoots tests the HTTP handler for ListRoots.
@@ -38,7 +41,7 @@ func TestHandler_ListRoots(t *testing.T) {
 
 			if tt.wantRoots {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				roots, ok := resp["Roots"].([]any)
 				require.True(t, ok, "response should contain Roots")
 				assert.NotEmpty(t, roots)

@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonMergeShardsReq struct {
@@ -40,7 +42,7 @@ func (h *Handler) handleMergeShards(
 	body []byte,
 ) (any, error) {
 	var req jsonMergeShardsReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -62,7 +64,7 @@ func (h *Handler) handleSplitShard(
 	body []byte,
 ) (any, error) {
 	var req jsonSplitShardReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -84,7 +86,7 @@ func (h *Handler) handleUpdateShardCount(
 	body []byte,
 ) (any, error) {
 	var req jsonUpdateShardCountReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

@@ -2,7 +2,8 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -32,7 +34,7 @@ func fisRequest(
 	var bodyReader *bytes.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyReader = bytes.NewReader(b)
 	} else {
@@ -55,7 +57,7 @@ func fisBody(t *testing.T, resp *http.Response, out any) {
 
 	defer func() { _ = resp.Body.Close() }()
 
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), out, jsonx.V1()))
 }
 
 // ----------------------------------------
@@ -309,7 +311,7 @@ func TestIntegration_FIS_ExperimentLifecycle(t *testing.T) {
 
 		defer func() { _ = getResp.Body.Close() }()
 
-		if err := json.NewDecoder(getResp.Body).Decode(&getResult); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(getResp.Body), &getResult, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -591,7 +593,11 @@ func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
 			return false
 		}
 
-		if decodeErr := json.NewDecoder(getResp.Body).Decode(&getResult); decodeErr != nil {
+		if decodeErr := json.UnmarshalDecode(
+			jsontext.NewDecoder(getResp.Body),
+			&getResult,
+			jsonx.V1(),
+		); decodeErr != nil {
 			return false
 		}
 
@@ -642,7 +648,11 @@ func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
 			return false
 		}
 
-		if decodeErr := json.NewDecoder(getResp.Body).Decode(&getResult); decodeErr != nil {
+		if decodeErr := json.UnmarshalDecode(
+			jsontext.NewDecoder(getResp.Body),
+			&getResult,
+			jsonx.V1(),
+		); decodeErr != nil {
 			return false
 		}
 

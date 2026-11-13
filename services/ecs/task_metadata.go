@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net/http"
 	"strconv"
@@ -24,7 +24,7 @@ var ErrContainerStatsUnavailable = errors.New("container stats unavailable")
 
 // containerStatsRunner is implemented by runners that can report a container's resource stats.
 type containerStatsRunner interface {
-	ContainerStatsJSON(ctx context.Context, containerID string) (json.RawMessage, error)
+	ContainerStatsJSON(ctx context.Context, containerID string) (jsontext.Value, error)
 }
 
 type metadataLimits struct {
@@ -298,7 +298,7 @@ func (b *InMemoryBackend) TaskMetadataFor(taskID string, withTags bool) (TaskMet
 	return doc, true
 }
 
-func (b *InMemoryBackend) containerStats(ctx context.Context, containerID string) (json.RawMessage, error) {
+func (b *InMemoryBackend) containerStats(ctx context.Context, containerID string) (jsontext.Value, error) {
 	r, ok := b.runner.(containerStatsRunner)
 	if !ok {
 		return nil, ErrContainerStatsUnavailable
@@ -412,7 +412,7 @@ func (h *Handler) serveStats(c *echo.Context, bk *InMemoryBackend, containers []
 	ctx, cancel := context.WithTimeout(c.Request().Context(), statsTimeout)
 	defer cancel()
 
-	all := make(map[string]json.RawMessage, len(containers))
+	all := make(map[string]jsontext.Value, len(containers))
 
 	for _, cm := range containers {
 		raw, err := bk.containerStats(ctx, cm.DockerID)

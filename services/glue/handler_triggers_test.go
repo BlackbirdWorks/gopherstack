@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -22,7 +23,7 @@ func triggerState(t *testing.T, h *glue.Handler, name string) string {
 			State string `json:"State"`
 		} `json:"Trigger"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out.Trigger.State
 }
@@ -174,7 +175,7 @@ func TestTrigger_GetTrigger(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				trig, ok := out["Trigger"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "my-trigger", trig["Name"])
@@ -278,7 +279,7 @@ func TestTrigger_StartStopActivate(t *testing.T) {
 			if tt.wantCode == http.StatusOK && tt.wantState != "" {
 				get := doGlueRequest(t, h, "GetTrigger", map[string]any{"Name": "t1"})
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 				trig := out["Trigger"].(map[string]any)
 				assert.Equal(t, tt.wantState, trig["State"])
 			}
@@ -305,7 +306,7 @@ func TestTrigger_BatchGetAndList(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		triggers := out["Triggers"].([]any)
 		assert.Len(t, triggers, 2)
 		missing := out["TriggersNotFound"].([]any)
@@ -352,7 +353,7 @@ func TestTrigger_WithActions(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetTrigger", map[string]any{"Name": "trig-actions"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	trig := out["Trigger"].(map[string]any)
 	actions := trig["Actions"].([]any)
 	assert.Len(t, actions, 2)

@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
@@ -39,7 +40,7 @@ func doKafkaRequest(t *testing.T, h *kafka.Handler, method, path string, body an
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -68,7 +69,7 @@ func decodeJSONResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -88,7 +89,7 @@ func doKafkaRequestJSON(
 
 	var resp map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 	}
 
 	return resp, rec.Code

@@ -1,16 +1,18 @@
 package iotanalytics
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 	var req createPipelineRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) handleUpdatePipeline(c *echo.Context, name string, body []byte
 	var req updatePipelineRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(
 				c,
 				http.StatusBadRequest,
@@ -126,7 +128,7 @@ func (h *Handler) handleStartPipelineReprocessing(c *echo.Context, pipelineName 
 	var req startPipelineReprocessingRequest
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(
 				c,
 				http.StatusBadRequest,
@@ -162,7 +164,7 @@ func (h *Handler) handleCancelPipelineReprocessing(c *echo.Context, resource str
 
 func (h *Handler) handleRunPipelineActivity(c *echo.Context, body []byte) error {
 	var req runPipelineActivityRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

@@ -2,10 +2,12 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,7 +22,7 @@ func (h *Handler) handleStartIngestionJob(
 		ClientToken string `json:"clientToken"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	job, err := h.Backend.StartIngestionJob(ctx, kbID, dsID, req.Description, req.ClientToken)
 	if err != nil {
@@ -70,7 +72,7 @@ func (h *Handler) handleListIngestionJobs(
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return handleErr(c, err)
 		}
 	}

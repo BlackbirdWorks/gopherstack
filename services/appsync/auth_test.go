@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
@@ -136,7 +137,7 @@ func TestHandleGraphQL_APIKeyAuth_HTTPShape(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		// Real AppSync's transport-level auth failure body is exactly
 		// {"message":"Unauthorized"} -- no "code"/"__type" field, unlike this
 		// package's control-plane errorResponse() convention.
@@ -182,7 +183,7 @@ func TestExecuteGraphQL_LambdaAuth(t *testing.T) {
 			} `json:"requestContext"`
 			AuthorizationToken string `json:"authorizationToken"`
 		}
-		require.NoError(t, json.Unmarshal(mock.calls[0].payload, &event))
+		require.NoError(t, json.Unmarshal(mock.calls[0].payload, &event, jsonx.V1()))
 		assert.Equal(t, "secret-tok", event.AuthorizationToken)
 		assert.Equal(t, api.APIID, event.RequestContext.APIID)
 		assert.Contains(t, event.RequestContext.QueryString, "hello")

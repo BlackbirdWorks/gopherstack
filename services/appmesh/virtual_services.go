@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"time"
@@ -15,7 +15,7 @@ func (b *InMemoryBackend) virtualServiceARN(meshName, name string) string {
 
 //nolint:dupl // create pattern (incl. spec validation call) is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualService(
-	meshName, name string, spec json.RawMessage, tags map[string]string,
+	meshName, name string, spec jsontext.Value, tags map[string]string,
 ) (*VirtualService, error) {
 	b.mu.Lock("CreateVirtualService")
 	defer b.mu.Unlock()
@@ -59,7 +59,7 @@ func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*Virtua
 	return vs, nil
 }
 
-func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.RawMessage) (*VirtualService, error) {
+func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec jsontext.Value) (*VirtualService, error) {
 	b.mu.Lock("UpdateVirtualService")
 	defer b.mu.Unlock()
 	if err := validateVirtualServiceSpec(spec); err != nil {

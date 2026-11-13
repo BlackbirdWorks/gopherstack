@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -234,7 +235,7 @@ func cosmosDo(t *testing.T, h *azurearm.Handler, method, path string, body any) 
 	if body != nil {
 		var err error
 
-		raw, err = json.Marshal(body)
+		raw, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -734,9 +735,9 @@ func TestCosmos_LegacyThroughputSnapshotMigrates(t *testing.T) {
 	putCosmosAccount(t, h, map[string]any{})
 
 	var env map[string]any
-	require.NoError(t, json.Unmarshal(h.Snapshot(context.Background()), &env))
+	require.NoError(t, json.Unmarshal(h.Snapshot(context.Background()), &env, jsonx.V1()))
 	inject(t, env, map[string]any{"acct1/db1": map[string]any{"autoscaleMax": 4000}})
-	raw, err := json.Marshal(env)
+	raw, err := json.Marshal(env, jsonx.V1())
 	require.NoError(t, err)
 
 	h2, fake2 := newCosmosHandler()

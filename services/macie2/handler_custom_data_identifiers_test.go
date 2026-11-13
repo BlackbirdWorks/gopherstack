@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -35,7 +36,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["customDataIdentifierId"])
 			},
 		},
@@ -50,7 +51,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 					"keywords":    []string{"phone", "tel"},
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["customDataIdentifierId"]
 			},
@@ -59,7 +60,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "phone-detector", resp["name"])
 				assert.Equal(t, "detects phone numbers", resp["description"])
 				assert.NotEmpty(t, resp["arn"])
@@ -78,7 +79,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.InDelta(t, float64(2), resp["matchCount"], 0.001)
 			},
 		},
@@ -91,7 +92,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "items")
 			},
 		},
@@ -104,7 +105,7 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 					"regex": `.+`,
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["customDataIdentifierId"]
 			},
@@ -208,7 +209,7 @@ func TestMacie2_CustomDataIdentifierWireShape(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id := resp["customDataIdentifierId"]
 
 				doRequest(t, h, http.MethodDelete, "/custom-data-identifiers/"+id, nil)
@@ -267,14 +268,14 @@ func TestCustomDataIdentifierDeletedField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["customDataIdentifierId"]
 
 	rec2 := doRequest(t, h, http.MethodGet, "/custom-data-identifiers/"+id, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	deleted, hasDeleted := resp["deleted"]
 	require.True(t, hasDeleted, "GetCustomDataIdentifier must include a 'deleted' field")
 	assert.Equal(t, false, deleted)
@@ -286,7 +287,7 @@ func TestCustomDataIdentifierDeletedField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code, "Get on a soft-deleted identifier must not 404")
 
 	var afterDelete map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &afterDelete))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &afterDelete, jsonx.V1()))
 	assert.Equal(t, true, afterDelete["deleted"])
 
 	// BatchGetCustomDataIdentifiers must also return the soft-deleted
@@ -297,7 +298,7 @@ func TestCustomDataIdentifierDeletedField(t *testing.T) {
 	require.Equal(t, http.StatusOK, batchRec.Code)
 
 	var batchResp map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp, jsonx.V1()))
 	items, ok := batchResp["customDataIdentifiers"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
@@ -328,13 +329,13 @@ func TestCustomDataIdentifierSeverityLevels(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec2 := doRequest(t, h, http.MethodGet, "/custom-data-identifiers/"+created["customDataIdentifierId"], nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	levels, ok := resp["severityLevels"].([]any)
 	require.True(t, ok)
 	require.Len(t, levels, 2)
@@ -355,7 +356,7 @@ func TestListCustomDataIDsEmptyNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, ok := resp["items"]
 	require.True(t, ok, "response must contain items key")

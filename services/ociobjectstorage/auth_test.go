@@ -1,7 +1,7 @@
 package ociobjectstorage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -114,14 +115,17 @@ func TestAdminKeyRegistration(t *testing.T) {
 	_, err := e.client.GetNamespace(t.Context(), objectstorage.GetNamespaceRequest{})
 	assert.Equal(t, 401, svcErr(t, err).GetHTTPStatusCode())
 
-	payload, _ := json.Marshal(map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.keys.pubPEM})
+	payload, _ := json.Marshal(
+		map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.keys.pubPEM},
+		jsonx.V1(),
+	)
 	code, body := rawDo(t, http.MethodPost, e.baseURL+"/_gopherstack/oci/keys", string(payload))
 	require.Equal(t, http.StatusCreated, code, body)
 
 	var out struct {
 		KeyID string `json:"keyId"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, testTenancy+"/"+testUser+"/"+e.keys.fprint, out.KeyID)
 
 	resp, err := e.client.GetNamespace(t.Context(), objectstorage.GetNamespaceRequest{})

@@ -1,10 +1,12 @@
 package glue
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // glueAccountIDLen is the number of digits in an AWS account ID.
@@ -34,14 +36,14 @@ type stringOrSlice []string
 
 func (s *stringOrSlice) UnmarshalJSON(data []byte) error {
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := json.Unmarshal(data, &str, jsonx.V1()); err == nil {
 		*s = []string{str}
 
 		return nil
 	}
 
 	var slice []string
-	if err := json.Unmarshal(data, &slice); err != nil {
+	if err := json.Unmarshal(data, &slice, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -59,19 +61,19 @@ type policyPrincipal struct {
 
 func (p *policyPrincipal) UnmarshalJSON(data []byte) error {
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := json.Unmarshal(data, &str, jsonx.V1()); err == nil {
 		p.IsWildcard = str == "*"
 
 		return nil
 	}
 
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return err
 	}
 
 	if v, ok := m["AWS"]; ok {
-		_ = json.Unmarshal(v, &p.AWS)
+		_ = json.Unmarshal(v, &p.AWS, jsonx.V1())
 	}
 
 	return nil
@@ -112,7 +114,7 @@ func isAllDigits(s string) bool {
 // specific principals, so a public ("*") or same-account-only grant creates no share.
 func crossAccountGrant(policyJSON, ownerAccountID string) ([]string, []string) {
 	var doc policyDoc
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return nil, nil
 	}
 

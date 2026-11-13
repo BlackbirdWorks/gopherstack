@@ -2,13 +2,14 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrTrainingPlanNotFound is returned when a training plan does not exist.
@@ -48,7 +49,7 @@ func (r *ReservedCapacitySummary) MarshalJSON() ([]byte, error) {
 		alias:     (*alias)(r),
 		StartTime: epochSecondsPtr(r.StartTime),
 		EndTime:   epochSecondsPtr(r.EndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ReservedCapacitySummary.MarshalJSON],
@@ -62,7 +63,7 @@ func (r *ReservedCapacitySummary) UnmarshalJSON(data []byte) error {
 		EndTime   *float64 `json:"EndTime,omitempty"`
 	}{alias: (*alias)(r)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -142,7 +143,7 @@ func (e TrainingPlanExtension) MarshalJSON() ([]byte, error) {
 		ExtendedAt: epochSeconds(e.ExtendedAt),
 		StartDate:  epochSeconds(e.StartDate),
 		EndDate:    epochSeconds(e.EndDate),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [TrainingPlanExtension.MarshalJSON], read
@@ -157,7 +158,7 @@ func (e *TrainingPlanExtension) UnmarshalJSON(data []byte) error {
 		EndDate    float64 `json:"EndDate"`
 	}{alias: (*alias)(e)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -184,7 +185,7 @@ func (t *TrainingPlan) MarshalJSON() ([]byte, error) {
 		CreationTime: epochSeconds(t.CreationTime),
 		StartTime:    epochSecondsPtr(t.StartTime),
 		EndTime:      epochSecondsPtr(t.EndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [TrainingPlan.MarshalJSON], read by
@@ -199,7 +200,7 @@ func (t *TrainingPlan) UnmarshalJSON(data []byte) error {
 		CreationTime float64  `json:"CreationTime"`
 	}{alias: (*alias)(t)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

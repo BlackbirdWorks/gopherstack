@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -37,7 +38,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["arn"])
 				assert.NotEmpty(t, resp["id"])
 				assert.Contains(t, resp["arn"], "arn:aws:macie2:")
@@ -54,7 +55,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 					"description": "my desc",
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["id"]
 			},
@@ -63,7 +64,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "my-list", resp["name"])
 				assert.Equal(t, "my desc", resp["description"])
 				assert.NotNil(t, resp["criteria"])
@@ -89,7 +90,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 					"criteria":    map[string]any{"regex": "orig"},
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["id"]
 			},
@@ -103,7 +104,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["arn"])
 				assert.NotEmpty(t, resp["id"])
 			},
@@ -116,7 +117,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "allowLists")
 			},
 		},
@@ -130,7 +131,7 @@ func TestMacie2_AllowLists(t *testing.T) {
 					"criteria":    map[string]any{"regex": ".+"},
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["id"]
 			},
@@ -173,7 +174,7 @@ func createTestAllowListARN(t *testing.T, h *macie2.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["arn"]
 }
@@ -195,7 +196,7 @@ func TestAllowListARNShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn := resp["arn"]
 	require.NotEmpty(t, arn, "CreateAllowList must return arn")
@@ -213,7 +214,7 @@ func TestListAllowListsEmptyNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, ok := resp["allowLists"]
 	require.True(t, ok, "response must contain allowLists key")

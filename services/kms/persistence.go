@@ -2,10 +2,12 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -33,7 +35,7 @@ const kmsSnapshotVersion = 1
 // keyMaterialsStore/keyMaterialHistoryStore in backend.go), so neither can be
 // expressed as a store.Table.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage                    `json:"tables"`
+	Tables             map[string]jsontext.Value                     `json:"tables"`
 	Policies           map[string]map[string]string                  `json:"policies"`
 	KeyMaterials       map[string]map[string]serializedKeyMaterial   `json:"key_materials,omitempty"`
 	KeyMaterialHistory map[string]map[string][]serializedKeyMaterial `json:"key_material_history,omitempty"`
@@ -262,7 +264,7 @@ func warnMissingKeyMaterials(
 // have no registered table for RestoreAll to find -- store.Registry.RestoreAll
 // only restores tables already known to the registry, silently ignoring any
 // snapshot entry whose name isn't registered.
-func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]json.RawMessage) {
+func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]jsontext.Value) {
 	for name := range tables {
 		kind, region, ok := strings.Cut(name, ":")
 		if !ok {
@@ -375,7 +377,7 @@ const handlerSnapshotFormat = 1
 // `tags` attribute of `aws_kms_key` after a restart.
 type handlerSnapshot struct {
 	Tags          map[string]map[string]string `json:"tags,omitempty"`
-	Backend       json.RawMessage              `json:"backend,omitempty"`
+	Backend       jsontext.Value               `json:"backend,omitempty"`
 	HandlerFormat int                          `json:"handlerFormat"`
 }
 
@@ -469,7 +471,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		Tags:          h.snapshotTags(),
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "kms: handler snapshot marshal failed", "error", err)
 
@@ -489,7 +491,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		HandlerFormat int `json:"handlerFormat"`
 	}
 
-	if err := json.Unmarshal(data, &peek); err != nil {
+	if err := json.Unmarshal(data, &peek, jsonx.V1()); err != nil {
 		return fmt.Errorf("kms: restore handler snapshot: %w", err)
 	}
 
@@ -500,7 +502,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	var snap handlerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := json.Unmarshal(data, &snap, jsonx.V1()); err != nil {
 		return fmt.Errorf("kms: restore handler snapshot: %w", err)
 	}
 

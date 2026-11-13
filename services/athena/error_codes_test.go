@@ -1,12 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_DistinctErrorCodes verifies that Athena operations surface the
@@ -110,7 +112,7 @@ func TestHandler_DistinctErrorCodes(t *testing.T) {
 				"Athena client errors are HTTP 400")
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 
 			assert.Equal(t, tt.wantType, errResp["__type"],
 				"error __type must be AWS-accurate for %s", tt.action)

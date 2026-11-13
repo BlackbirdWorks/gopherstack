@@ -3,13 +3,15 @@ package cloudfront
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -246,7 +248,7 @@ func (h *Handler) edgeInvoke(
 		}
 	}
 
-	payload, _ := json.Marshal(map[string]any{"Records": []any{map[string]any{"cf": cf}}})
+	payload, _ := json.Marshal(map[string]any{"Records": []any{map[string]any{"cf": cf}}}, jsonx.V1())
 
 	res, fnErr, err := edge.InvokeEdge(ctx, arn.name, arn.version, payload)
 
@@ -264,7 +266,7 @@ func (h *Handler) edgeInvoke(
 	}
 
 	var out map[string]any
-	if json.Unmarshal(res, &out) != nil || out == nil {
+	if json.Unmarshal(res, &out, jsonx.V1()) != nil || out == nil {
 		return nil, edgeValidation(
 			"The Lambda function returned a value that is not a valid request or response object.",
 		)

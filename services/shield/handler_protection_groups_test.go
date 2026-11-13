@@ -1,7 +1,7 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -181,7 +182,7 @@ func TestHandler_ListProtectionGroupsOpaquePageToken(t *testing.T) {
 		NextToken string `json:"NextToken"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.NextToken)
 
 	offset := opaqueOffset(t, out.NextToken)
@@ -213,7 +214,7 @@ func TestHandler_ListProtectionGroupsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ProtectionGroups"].([]any)
 	assert.Len(t, groups, 2)
@@ -247,7 +248,7 @@ func TestHandler_ListProtectionGroupsDefaultMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ProtectionGroups"].([]any)
 	assert.Len(t, groups, 20, "omitted MaxResults must default to 20 per the documented default")
@@ -281,7 +282,7 @@ func TestHandler_ListProtectionGroupsInclusionFilterByPattern(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ProtectionGroups"].([]any)
 	assert.Len(t, groups, 1)
@@ -311,7 +312,7 @@ func TestHandler_ListProtectionGroupsInclusionFilterByAggregation(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ProtectionGroups"].([]any)
 	assert.Len(t, groups, 1)
@@ -346,7 +347,7 @@ func TestHandler_ListResourcesInProtectionGroupPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns := resp["ResourceArns"].([]any)
 	assert.Len(t, arns, 20, "omitted MaxResults must default to 20 per the documented default")
@@ -363,7 +364,7 @@ func TestHandler_ListResourcesInProtectionGroupPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2["ResourceArns"].([]any), 5, "the remaining 5 of 25 members must be on the next page")
 	assert.NotContains(t, resp2, "NextToken", "no further page should be signaled once all members are returned")
 }

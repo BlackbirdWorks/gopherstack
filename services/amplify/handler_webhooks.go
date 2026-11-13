@@ -2,12 +2,13 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // JSON response key used by the webhook handlers.
@@ -51,7 +52,7 @@ func (h *Handler) createWebhook(ctx context.Context, c *echo.Context, appID stri
 		Description string `json:"description"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -106,7 +107,7 @@ func (h *Handler) updateWebhook(ctx context.Context, c *echo.Context, webhookID 
 		BranchName  string  `json:"branchName"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 

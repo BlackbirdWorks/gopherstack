@@ -1,7 +1,7 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -216,7 +217,7 @@ func (e *runtimeEnv) exec(t *testing.T, query string) gqlReply {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out gqlReply
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()), rec.Body.String())
 
 	return out
 }

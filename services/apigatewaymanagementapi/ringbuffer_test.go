@@ -1,13 +1,14 @@
 package apigatewaymanagementapi_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
 
@@ -211,7 +212,7 @@ func TestBackend_SnapshotPreservesEverything(t *testing.T) {
 
 	// Verify well-formed JSON
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(data, &raw))
+	require.NoError(t, json.Unmarshal(data, &raw, jsonx.V1()))
 
 	fresh := apigatewaymanagementapi.NewInMemoryBackend()
 	require.NoError(t, fresh.Restore(t.Context(), data))

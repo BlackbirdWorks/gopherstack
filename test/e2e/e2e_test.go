@@ -84,6 +84,15 @@ func waitForSPA(t *testing.T, page playwright.Page) {
 	}))
 }
 
+// waitHydrated blocks until the SvelteKit client router is attached, so clicks
+// after Goto cannot fall through to a full-page navigation.
+func waitHydrated(t *testing.T, page playwright.Page) {
+	t.Helper()
+	_, err := page.WaitForFunction(`document.documentElement.dataset.hydrated === "true"`, nil,
+		playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(30000)})
+	require.NoError(t, err)
+}
+
 func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
@@ -107,6 +116,7 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// The dashboard now defaults to Region: All, which renders a flat,
@@ -173,6 +183,7 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Region: All's cross-region list has no #table-{name} ids -- see the
@@ -246,6 +257,7 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Open create modal
@@ -301,6 +313,7 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Wait for bucket to appear
@@ -361,6 +374,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Open bucket detail
@@ -440,6 +454,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Region: All's cross-region list has no #table-{name} ids -- see the
@@ -538,6 +553,7 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Open the bucket
@@ -609,6 +625,7 @@ func TestE2E_DynamoDB_Search(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Region: All's cross-region list has no search box filtering and no
@@ -660,6 +677,7 @@ func TestE2E_S3_Search(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("text=bucket-alpha").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -702,6 +720,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Click metrics link using ID
@@ -756,6 +775,7 @@ func TestE2E_Console(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Click console link using ID
@@ -815,6 +835,7 @@ func TestE2E_DynamoDB_Pagination(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Region: All's cross-region list has no pagination -- see the comment
@@ -875,6 +896,7 @@ func TestE2E_S3_Pagination(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("text=page-bucket-01").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -926,6 +948,7 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// purgeAll() only iterates the single-region table list -- under
@@ -989,6 +1012,7 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("text=purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -1044,6 +1068,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Default theme should be light (no dark class)
@@ -1145,6 +1170,7 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Verify sidebar is present

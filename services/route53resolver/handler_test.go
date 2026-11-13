@@ -2,7 +2,8 @@ package route53resolver_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -34,7 +36,7 @@ func doRequest(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -309,7 +311,7 @@ func TestHandlerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints, ok := resp["ResolverEndpoints"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, endpoints)
@@ -326,7 +328,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &m, jsonx.V1()))
 
 	return m
 }

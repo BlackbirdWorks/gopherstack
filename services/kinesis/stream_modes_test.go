@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -155,7 +156,7 @@ func TestUpdateStreamMode_Valid(t *testing.T) {
 						StreamARN string `json:"StreamARN"`
 					} `json:"StreamDescription"`
 				}
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 
 				rec3 := doRequest(t, h, "UpdateStreamMode", map[string]any{
 					"StreamARN": descResp.StreamDescription.StreamARN,
@@ -174,7 +175,7 @@ func TestUpdateStreamMode_Valid(t *testing.T) {
 						} `json:"StreamModeDetails"`
 					} `json:"StreamDescription"`
 				}
-				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &verifyResp))
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &verifyResp, jsonx.V1()))
 				require.NotNil(t, verifyResp.StreamDescription.StreamModeDetails)
 				assert.Equal(t, tt.wantMode, verifyResp.StreamDescription.StreamModeDetails.StreamMode)
 			})

@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -64,7 +66,7 @@ func (h *Handler) vpcLinkActions() map[string]actionFn {
 
 func (h *Handler) createVpcLinkAction(b []byte) (int, any, error) {
 	var input CreateVpcLinkInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) createVpcLinkAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteVpcLinkAction(b []byte) (int, any, error) {
 	var input deleteVpcLinkInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -91,7 +93,7 @@ func (h *Handler) deleteVpcLinkAction(b []byte) (int, any, error) {
 
 func (h *Handler) getVpcLinkAction(b []byte) (int, any, error) {
 	var input getVpcLinkInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -105,7 +107,7 @@ func (h *Handler) getVpcLinkAction(b []byte) (int, any, error) {
 
 func (h *Handler) getVpcLinksAction(b []byte) (int, any, error) {
 	var input getVpcLinksInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	links, err := h.Backend.GetVpcLinks()
@@ -126,7 +128,7 @@ func (h *Handler) getVpcLinksAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateVpcLinkAction(b []byte) (int, any, error) {
 	var input UpdateVpcLinkInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 

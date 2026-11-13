@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPagination_GetDatabases(t *testing.T) {
@@ -90,7 +92,7 @@ func TestPagination_GetDatabases(t *testing.T) {
 				NextToken    string `json:"NextToken"`
 				DatabaseList []any  `json:"DatabaseList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.DatabaseList, tc.wantCount)
 			if tc.wantHasNext {
 				assert.NotEmpty(t, out.NextToken)
@@ -188,7 +190,7 @@ func TestPagination_GetTables(t *testing.T) {
 				NextToken string `json:"NextToken"`
 				TableList []any  `json:"TableList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.TableList, tc.wantCount)
 			if tc.wantHasNext {
 				assert.NotEmpty(t, out.NextToken)
@@ -281,7 +283,7 @@ func TestPagination_GetPartitions(t *testing.T) {
 				NextToken  string `json:"NextToken"`
 				Partitions []any  `json:"Partitions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Partitions, tc.wantCount)
 			if tc.wantHasNext {
 				assert.NotEmpty(t, out.NextToken)

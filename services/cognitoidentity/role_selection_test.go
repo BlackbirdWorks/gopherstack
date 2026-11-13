@@ -7,7 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 )
 
@@ -302,10 +303,10 @@ func signedLogin(t *testing.T, key *rsa.PrivateKey, claims map[string]any) strin
 	t.Helper()
 
 	enc := base64.RawURLEncoding
-	hdr, err := json.Marshal(map[string]string{"alg": "RS256", "kid": "k1"})
+	hdr, err := json.Marshal(map[string]string{"alg": "RS256", "kid": "k1"}, jsonx.V1())
 	require.NoError(t, err)
 
-	body, err := json.Marshal(claims)
+	body, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	signing := enc.EncodeToString(hdr) + "." + enc.EncodeToString(body)

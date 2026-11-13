@@ -1,12 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
@@ -29,7 +32,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, cr.StatusCode)
 
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	connID := cOut["ConnectionId"].(string)
 	assert.NotEmpty(t, connID)
 	assert.Equal(t, "my-alias", cOut["ConnectionAlias"])
@@ -44,7 +47,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
 	var dOut map[string]any
-	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &dOut, jsonx.V1()))
 	conns, ok := dOut["Connections"].([]any)
 	require.True(t, ok)
 	assert.Len(t, conns, 1)
@@ -55,7 +58,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, ir.StatusCode)
 
 	var iOut map[string]any
-	require.NoError(t, json.NewDecoder(ir.Body).Decode(&iOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ir.Body), &iOut, jsonx.V1()))
 	inConns, ok := iOut["Connections"].([]any)
 	require.True(t, ok)
 	require.Len(t, inConns, 1)
@@ -71,7 +74,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, del.StatusCode)
 
 	var delOut map[string]any
-	require.NoError(t, json.NewDecoder(del.Body).Decode(&delOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(del.Body), &delOut, jsonx.V1()))
 	conn := delOut["Connection"].(map[string]any)
 	assert.Equal(t, connID, conn["ConnectionId"])
 }

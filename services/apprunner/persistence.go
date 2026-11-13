@@ -2,7 +2,7 @@ package apprunner
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -37,7 +37,7 @@ const apprunnerSnapshotVersion = 1
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables        map[string]json.RawMessage       `json:"tables"`
+	Tables        map[string]jsontext.Value        `json:"tables"`
 	CustomDomains map[string][]*storedCustomDomain `json:"customDomains"`
 	Tags          map[string]map[string]string     `json:"tags"`
 	Version       int                              `json:"version"`

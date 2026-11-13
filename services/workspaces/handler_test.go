@@ -3,7 +3,7 @@ package workspaces_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -59,7 +60,7 @@ func doTargetRequest(
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -79,7 +80,7 @@ func doTargetRequest(
 func decodeJSON(t *testing.T, body []byte, dst any) {
 	t.Helper()
 
-	if err := json.Unmarshal(body, dst); err != nil {
+	if err := json.Unmarshal(body, dst, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal response: %v (body=%s)", err, body)
 	}
 }
@@ -122,7 +123,7 @@ func createWorkspace(t *testing.T, h *workspaces.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	pending, ok := resp["PendingRequests"].([]any)
 	require.True(t, ok, "PendingRequests missing from response")
@@ -173,7 +174,7 @@ func createWorkspaceWithRunningMode(t *testing.T, h *workspaces.Handler, running
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	pending, ok := resp["PendingRequests"].([]any)
 	require.True(t, ok, "PendingRequests missing from response")
@@ -204,7 +205,7 @@ func createImage(t *testing.T, h *workspaces.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	id, ok := resp["ImageId"].(string)
 	require.True(t, ok)
@@ -267,7 +268,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				pending, ok := resp["PendingRequests"].([]any)
 				require.True(t, ok)
 				assert.Len(t, pending, 1)
@@ -291,7 +292,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				wsList, ok := resp["Workspaces"].([]any)
 				require.True(t, ok)
 				assert.Len(t, wsList, 1)
@@ -308,7 +309,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				wsList, ok := resp["Workspaces"].([]any)
 				require.True(t, ok)
 				assert.Len(t, wsList, 1)
@@ -329,7 +330,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				statuses, ok := resp["WorkspacesConnectionStatus"].([]any)
 				require.True(t, ok)
 				assert.Len(t, statuses, 1)
@@ -418,7 +419,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, failures)
@@ -438,7 +439,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Len(t, failures, 1)
@@ -461,7 +462,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, failures)
@@ -478,7 +479,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 				require.Equal(t, http.StatusOK, stopRec.Code)
 
 				var stopResp map[string]any
-				require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+				require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 				stopFailures, _ := stopResp["FailedRequests"].([]any)
 				require.Empty(t, stopFailures, "setup: StopWorkspaces must succeed to reach STOPPED")
 
@@ -495,7 +496,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, failures)
@@ -518,7 +519,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, failures)
@@ -541,7 +542,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, failures)
@@ -561,7 +562,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				failures, ok := resp["FailedRequests"].([]any)
 				require.True(t, ok)
 				assert.Len(t, failures, 1)
@@ -624,7 +625,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				tagList, ok := resp["TagList"].([]any)
 				require.True(t, ok)
 				assert.Len(t, tagList, 1)
@@ -641,7 +642,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bundles, ok := resp["Bundles"].([]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, bundles)
@@ -655,7 +656,7 @@ func TestWorkSpaces_Operations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				dirs, ok := resp["Directories"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, dirs)

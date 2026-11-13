@@ -1,12 +1,14 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestConfiguredTables_Handlers(t *testing.T) {
@@ -23,7 +25,7 @@ func TestConfiguredTables_Handlers(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.Code)
 
 	var ctResp map[string]any
-	json.Unmarshal(res.Body.Bytes(), &ctResp)
+	json.Unmarshal(res.Body.Bytes(), &ctResp, jsonx.V1())
 	ct := ctResp["configuredTable"].(map[string]any)
 	id := ct["id"].(string)
 

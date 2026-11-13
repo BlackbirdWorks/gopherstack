@@ -1,10 +1,12 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Stack policy evaluation semantics below are transcribed from AWS's
@@ -59,14 +61,14 @@ type stackPolicyStringSet []string
 
 func (s *stackPolicyStringSet) UnmarshalJSON(data []byte) error {
 	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
+	if err := json.Unmarshal(data, &single, jsonx.V1()); err == nil {
 		*s = stackPolicyStringSet{single}
 
 		return nil
 	}
 
 	var multi []string
-	if err := json.Unmarshal(data, &multi); err != nil {
+	if err := json.Unmarshal(data, &multi, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -91,7 +93,7 @@ const (
 // rather than silently never enforcing anything at UpdateStack time.
 func parseStackPolicyDocument(policy string) (*stackPolicyDocument, error) {
 	var doc stackPolicyDocument
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("malformed stack policy: %w", err)
 	}
 

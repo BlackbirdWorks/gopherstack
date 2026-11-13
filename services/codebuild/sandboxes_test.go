@@ -1,13 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
 
@@ -59,7 +61,7 @@ func TestHandler_BatchGetSandboxes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			sandboxes, _ := out["sandboxes"].([]any)
 			assert.Len(t, sandboxes, tt.wantFound)
@@ -88,7 +90,7 @@ func TestCodeBuild_Sandbox(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"sandbox"`
 		}
-		require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 		sandboxID := startOut.Sandbox.ID
 
 		stopRec := doRequest(t, h, "StopSandbox", map[string]any{"id": sandboxID})
@@ -99,7 +101,7 @@ func TestCodeBuild_Sandbox(t *testing.T) {
 				Status string `json:"status"`
 			} `json:"sandbox"`
 		}
-		require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&stopOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &stopOut, jsonx.V1()))
 		assert.Equal(t, "STOPPED", stopOut.Sandbox.Status)
 	})
 
@@ -128,7 +130,7 @@ func TestCodeBuild_Sandbox(t *testing.T) {
 		var out struct {
 			IDs []string `json:"ids"`
 		}
-		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.IDs, 2)
 	})
 
@@ -177,7 +179,7 @@ func TestHandler_StartSandbox_Schema(t *testing.T) {
 					StartTime float64 `json:"startTime"`
 				} `json:"sandbox"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, out.Sandbox.Status)
 			if tt.wantArnSet {
 				assert.NotEmpty(t, out.Sandbox.Arn)
@@ -219,7 +221,7 @@ func TestHandler_StopSandbox_SetsEndTime(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"sandbox"`
 			}
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &startOut, jsonx.V1()))
 
 			stopRec := doRequest(t, h, "StopSandbox", map[string]any{"id": startOut.Sandbox.ID})
 			require.Equal(t, http.StatusOK, stopRec.Code)
@@ -230,7 +232,7 @@ func TestHandler_StopSandbox_SetsEndTime(t *testing.T) {
 					EndTime float64 `json:"endTime"`
 				} `json:"sandbox"`
 			}
-			require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stopRec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, out.Sandbox.Status)
 			if tt.wantEndTimeSet {
 				assert.Greater(t, out.Sandbox.EndTime, float64(0))

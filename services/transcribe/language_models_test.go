@@ -1,13 +1,15 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -289,7 +291,7 @@ func TestDescribeLanguageModel_TimeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	lm, _ := raw["LanguageModel"].(map[string]any)
 	require.NotNil(t, lm, "LanguageModel must be present")
 
@@ -320,7 +322,7 @@ func TestDescribeLanguageModel_UpgradeAvailability(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	lm, _ := raw["LanguageModel"].(map[string]any)
 	require.NotNil(t, lm)
 
@@ -354,16 +356,16 @@ func TestDescribeLanguageModel_TimestampFieldsAreJSONNumbers(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		LanguageModel map[string]json.RawMessage `json:"LanguageModel"`
+		LanguageModel map[string]jsontext.Value `json:"LanguageModel"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	for _, field := range []string{"CreateTime", "LastModifiedTime"} {
 		val, ok := out.LanguageModel[field]
 		require.True(t, ok, "expected field %s in response %s", field, rec.Body.String())
 
-		var num json.Number
-		err := json.Unmarshal(val, &num)
+		var num jsonx.Number
+		err := json.Unmarshal(val, &num, jsonx.V1())
 		assert.NoError(t, err, "field %s must decode as a JSON number (epoch seconds), got %s", field, val)
 	}
 }
@@ -436,7 +438,7 @@ func TestCreateLanguageModel_EchoesInputDataConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	cfg, ok := raw["InputDataConfig"].(map[string]any)
 	require.True(t, ok, "CreateLanguageModelOutput must echo InputDataConfig")
 	assert.Equal(t, "s3://my-bucket/training/", cfg["S3Uri"])

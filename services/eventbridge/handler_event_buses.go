@@ -2,8 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -116,7 +117,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 
 func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, error) {
 	var input createEventBusInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	bus, err := h.Backend.CreateEventBus(ctx, CreateEventBusParams{
@@ -149,7 +150,7 @@ func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleDeleteEventBus(ctx context.Context, b []byte) (any, error) {
 	var input deleteEventBusInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	// Capture ARN before deletion so we can clean up tags.
@@ -166,7 +167,7 @@ func (h *Handler) handleDeleteEventBus(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleListEventBuses(ctx context.Context, b []byte) (any, error) {
 	var input listEventBusesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	buses, next, err := h.Backend.ListEventBuses(ctx, input.NamePrefix, input.NextToken, input.Limit)
@@ -184,7 +185,7 @@ func (h *Handler) handleListEventBuses(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleDescribeEventBus(ctx context.Context, b []byte) (any, error) {
 	var input describeEventBusInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	bus, err := h.Backend.DescribeEventBus(ctx, input.Name)
@@ -202,7 +203,7 @@ func (h *Handler) eventBusManagementActions() map[string]actionFn {
 	return map[string]actionFn{
 		"UpdateEventBus": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateEventBusInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			bus, err := h.Backend.UpdateEventBus(ctx, input)
@@ -228,7 +229,7 @@ func (h *Handler) eventBusManagementActions() map[string]actionFn {
 		},
 		"PutPermission": func(ctx context.Context, b []byte) (any, error) {
 			var input PutPermissionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -236,7 +237,7 @@ func (h *Handler) eventBusManagementActions() map[string]actionFn {
 		},
 		"RemovePermission": func(ctx context.Context, b []byte) (any, error) {
 			var input RemovePermissionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -249,7 +250,7 @@ func (h *Handler) policyActions() map[string]actionFn {
 	return map[string]actionFn{
 		"GetEventBusPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input GetEventBusPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			policy, err := h.Backend.GetEventBusPolicy(ctx, input.EventBusName)
@@ -263,7 +264,7 @@ func (h *Handler) policyActions() map[string]actionFn {
 		},
 		"PutEventBusPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input PutEventBusPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

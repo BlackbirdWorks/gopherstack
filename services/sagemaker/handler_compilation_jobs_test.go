@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -32,7 +33,7 @@ func TestHandler_CreateCompilationJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["CompilationJobArn"], "my-compile")
 }
 
@@ -103,7 +104,7 @@ func TestHandler_DescribeCompilationJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "cj-1", resp["CompilationJobName"])
 	assert.Equal(t, "INPROGRESS", resp["CompilationJobStatus"])
 }
@@ -138,14 +139,14 @@ func TestHandler_StopCompilationJob(t *testing.T) {
 
 		rec = doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{"CompilationJobName": "cj-stop"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "STOPPING", resp["CompilationJobStatus"])
 
 		time.Sleep(time.Second)
 		synctest.Wait()
 
 		rec = doSageMakerRequest(t, h, "DescribeCompilationJob", map[string]any{"CompilationJobName": "cj-stop"})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "STOPPED", resp["CompilationJobStatus"])
 	})
 }
@@ -174,7 +175,7 @@ func TestHandler_ListCompilationJobs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["CompilationJobSummaries"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -264,7 +265,7 @@ func TestCompilationJob_HandlerCapturesInputOutputConfig(t *testing.T) {
 			MaxRuntimeInSeconds int32 `json:"MaxRuntimeInSeconds"`
 		} `json:"StoppingCondition"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.NotNil(t, out.InputConfig, "InputConfig must be returned by DescribeCompilationJob")
 	assert.Equal(t, "s3://bucket/model.tar.gz", out.InputConfig.S3Uri)
@@ -301,7 +302,7 @@ func TestCompilationJob_InitialStatus_InProgress(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "INPROGRESS", resp["CompilationJobStatus"])
 }
 
@@ -384,7 +385,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				assert.Contains(t, createResp["AIBenchmarkJobArn"], "bench-2")
 
 				rec = doSageMakerRequest(
@@ -396,7 +397,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "InProgress", descResp["AIBenchmarkJobStatus"])
 				assert.Equal(t, "wc-1", descResp["AIWorkloadConfigIdentifier"])
 				assert.NotEmpty(t, descResp["BenchmarkTarget"])
@@ -411,7 +412,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 					"DescribeAIBenchmarkJob",
 					map[string]any{"AIBenchmarkJobName": "bench-2"},
 				)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "Stopping", descResp["AIBenchmarkJobStatus"])
 			},
 		},
@@ -472,7 +473,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items := resp["AIBenchmarkJobs"].([]any)
 				require.Len(t, items, 1)
 				item := items[0].(map[string]any)

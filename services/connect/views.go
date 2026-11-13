@@ -2,13 +2,15 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -113,7 +115,7 @@ func checkViewContent(c *ViewInputContent) (*ViewContent, error) {
 		return nil, invalidParamErr("Content.Template is required")
 	}
 
-	if !json.Valid([]byte(c.Template)) {
+	if !jsontext.Value([]byte(c.Template)).IsValid(jsonx.V1()) {
 		return nil, invalidParamErr("Content.Template must be valid JSON")
 	}
 
@@ -137,7 +139,7 @@ func viewSchema(template string) string {
 
 	raw, _ := json.Marshal(map[string]any{
 		"$schema": "http://json-schema.org/draft-07/schema#", fieldType: "object", "properties": props,
-	})
+	}, jsonx.V1())
 
 	return string(raw)
 }

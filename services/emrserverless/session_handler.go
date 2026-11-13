@@ -1,7 +1,7 @@
 package emrserverless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type startSessionBody struct {
@@ -23,7 +25,7 @@ type startSessionBody struct {
 func (h *Handler) handleStartSession(c *echo.Context, applicationID string, body []byte) error {
 	var in startSessionBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}

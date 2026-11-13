@@ -1,7 +1,8 @@
 package gcpmonitoring
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -69,7 +71,7 @@ type promResponse struct {
 func writePromJSON(w http.ResponseWriter, code int, body promResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(body)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), body)
 }
 
 func promError(w http.ResponseWriter, code int, errType, msg string) {

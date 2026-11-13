@@ -2,7 +2,8 @@ package managedblockchain_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -75,7 +77,7 @@ func TestHandler_CreateProposal(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantKey)
 			}
 		})
@@ -104,7 +106,7 @@ func TestCreateProposal_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	proposalID, _ := resp["ProposalId"].(string)
 	require.NotEmpty(t, proposalID)
 
@@ -112,7 +114,7 @@ func TestCreateProposal_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	proposal := getResp["Proposal"].(map[string]any)
 	proposalArn, _ := proposal["Arn"].(string)
 	require.NotEmpty(t, proposalArn)
@@ -158,7 +160,7 @@ func TestHandler_GetProposal(t *testing.T) {
 			var createOut struct {
 				ProposalID string `json:"ProposalId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			pid := tt.proposalID
 			if pid == "" {
@@ -170,7 +172,7 @@ func TestHandler_GetProposal(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "Proposal")
 			}
 		})
@@ -210,7 +212,7 @@ func TestHandler_ListProposals(t *testing.T) {
 			var resp struct {
 				Proposals []map[string]any `json:"Proposals"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			assert.Len(t, resp.Proposals, tt.wantLen)
 		})
 	}
@@ -243,7 +245,7 @@ func TestHandler_ListProposalVotes(t *testing.T) {
 			var createOut struct {
 				ProposalID string `json:"ProposalId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 
 			path := fmt.Sprintf("/networks/%s/proposals/%s/votes", netID, createOut.ProposalID)
 			rec := doRequest(t, h, http.MethodGet, path, nil)
@@ -252,7 +254,7 @@ func TestHandler_ListProposalVotes(t *testing.T) {
 			var resp struct {
 				ProposalVotes []map[string]any `json:"ProposalVotes"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			assert.Len(t, resp.ProposalVotes, tt.wantLen)
 		})
 	}
@@ -314,7 +316,7 @@ func TestHandler_ProposalRoundTrip(t *testing.T) {
 			var createOut struct {
 				ProposalID string `json:"ProposalId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 			assert.NotEmpty(t, createOut.ProposalID)
 
 			// Get.
@@ -325,7 +327,7 @@ func TestHandler_ProposalRoundTrip(t *testing.T) {
 			var getOut struct {
 				Proposal map[string]any `json:"Proposal"`
 			}
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 			assert.Equal(t, "IN_PROGRESS", getOut.Proposal["Status"])
 
 			// List votes.
@@ -336,7 +338,7 @@ func TestHandler_ProposalRoundTrip(t *testing.T) {
 			var votesOut struct {
 				ProposalVotes []map[string]any `json:"ProposalVotes"`
 			}
-			require.NoError(t, json.NewDecoder(votesRec.Body).Decode(&votesOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(votesRec.Body), &votesOut, jsonx.V1()))
 			assert.Empty(t, votesOut.ProposalVotes)
 		})
 	}
@@ -442,7 +444,7 @@ func TestHandler_ProposalActionsStoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			proposalID := createResp["ProposalId"].(string)
 
@@ -450,7 +452,7 @@ func TestHandler_ProposalActionsStoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			proposal := getResp["Proposal"].(map[string]any)
 
@@ -498,7 +500,7 @@ func TestHandler_ProposalSummaryOmitsNetworkID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	proposals := resp["Proposals"].([]any)
 	require.Len(t, proposals, 1)
@@ -535,7 +537,7 @@ func TestHandler_ListProposalsStatusFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	proposals, _ := listResp["Proposals"].([]any)
 	assert.Len(t, proposals, 2,
@@ -548,7 +550,7 @@ func TestHandler_ListProposalsStatusFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, listApprovedRec.Code)
 
 	var listApprovedResp map[string]any
-	require.NoError(t, json.Unmarshal(listApprovedRec.Body.Bytes(), &listApprovedResp))
+	require.NoError(t, json.Unmarshal(listApprovedRec.Body.Bytes(), &listApprovedResp, jsonx.V1()))
 
 	approvedProposals, _ := listApprovedResp["Proposals"].([]any)
 	assert.Empty(t, approvedProposals,
@@ -579,7 +581,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, netRec.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 
 	netID := netResp["NetworkId"].(string)
 	ownerID := netResp["MemberId"].(string)
@@ -590,7 +592,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, propRec1.Code)
 
 	var prop1 map[string]any
-	require.NoError(t, json.Unmarshal(propRec1.Body.Bytes(), &prop1))
+	require.NoError(t, json.Unmarshal(propRec1.Body.Bytes(), &prop1, jsonx.V1()))
 
 	propID1 := prop1["ProposalId"].(string)
 
@@ -609,7 +611,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	proposals, _ := listResp["Proposals"].([]any)
 	assert.Len(t, proposals, 2, "listing without status filter must return all proposals")
@@ -629,7 +631,7 @@ func TestHandler_ListProposalsNoStatusFilterReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, listApprovedRec.Code)
 
 	var listApprovedResp map[string]any
-	require.NoError(t, json.Unmarshal(listApprovedRec.Body.Bytes(), &listApprovedResp))
+	require.NoError(t, json.Unmarshal(listApprovedRec.Body.Bytes(), &listApprovedResp, jsonx.V1()))
 
 	approvedProposals, _ := listApprovedResp["Proposals"].([]any)
 	assert.Len(t, approvedProposals, 1, "filtering by APPROVED must return only approved proposals")
@@ -671,7 +673,7 @@ func TestHandler_ProposalExpirationDateViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	proposalID, _ := createResp["ProposalId"].(string)
 	require.NotEmpty(t, proposalID)
@@ -680,7 +682,7 @@ func TestHandler_ProposalExpirationDateViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 	proposal := getResp["Proposal"].(map[string]any)
 	assert.NotEmpty(t, proposal["ExpirationDate"])
@@ -706,7 +708,7 @@ func TestHandler_ProposalLifecycleViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	proposalID, _ := createResp["ProposalId"].(string)
 	require.NotEmpty(t, proposalID)
@@ -716,7 +718,7 @@ func TestHandler_ProposalLifecycleViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 	proposal := getResp["Proposal"].(map[string]any)
 	assert.Equal(t, proposalID, proposal["ProposalId"])
@@ -728,7 +730,7 @@ func TestHandler_ProposalLifecycleViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 	proposals := listResp["Proposals"].([]any)
 	assert.Len(t, proposals, 1)
 
@@ -737,7 +739,7 @@ func TestHandler_ProposalLifecycleViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var votesResp map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &votesResp))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &votesResp, jsonx.V1()))
 	votes := votesResp["ProposalVotes"].([]any)
 	assert.Empty(t, votes)
 }

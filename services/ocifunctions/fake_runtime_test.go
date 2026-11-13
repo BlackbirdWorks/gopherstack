@@ -2,7 +2,8 @@ package ocifunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errNoSocketDir = errors.New("no socket directory mounted at /tmp/iofs")
@@ -99,8 +101,10 @@ func (f *fakeRuntime) handler(id string, spec container.Spec) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Fn-Http-Status", "200")
 			w.Header().Set("Fn-Http-H-X-Echo", "1")
-			_ = json.NewEncoder(w).
-				Encode(map[string]any{"body": string(body), "env": specEnv(spec), "path": r.URL.Path})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				map[string]any{"body": string(body), "env": specEnv(spec), "path": r.URL.Path},
+			)
 		}
 	})
 }

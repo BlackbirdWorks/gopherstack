@@ -2,9 +2,10 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -66,7 +67,7 @@ type listTagsForResourceOutput struct {
 
 func (h *Handler) jsonListTagsForResource(ctx context.Context, body []byte) (any, error) {
 	var input listTagsForResourceInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -86,7 +87,7 @@ type tagResourceOutput struct{}
 
 func (h *Handler) jsonTagResource(ctx context.Context, body []byte) (any, error) {
 	var input tagResourceInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -119,7 +120,7 @@ type untagResourceOutput struct{}
 
 func (h *Handler) jsonUntagResource(ctx context.Context, body []byte) (any, error) {
 	var input untagResourceInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

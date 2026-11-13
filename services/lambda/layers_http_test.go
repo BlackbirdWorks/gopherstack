@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -50,7 +52,7 @@ func TestLayer_PublishAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, pubRec.Code)
 
 	var pub lambda.PublishLayerVersionOutput
-	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&pub))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pubRec.Body), &pub, jsonx.V1()))
 	assert.Equal(t, int64(1), pub.Version)
 	assert.Equal(t, "v1", pub.Description)
 	assert.Equal(t, []string{"python3.12", "python3.11"}, pub.CompatibleRuntimes)
@@ -63,7 +65,7 @@ func TestLayer_PublishAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got lambda.GetLayerVersionOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &got, jsonx.V1()))
 	assert.Equal(t, int64(1), got.Version)
 }
 
@@ -79,7 +81,7 @@ func TestLayer_MultipleVersions(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var pub lambda.PublishLayerVersionOutput
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&pub))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &pub, jsonx.V1()))
 		assert.Equal(t, int64(i+1), pub.Version)
 	}
 }
@@ -99,7 +101,7 @@ func TestLayer_ListVersions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.ListLayerVersionsOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.LayerVersions, 2)
 }
 
@@ -134,7 +136,7 @@ func TestLayer_ListLayers(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.ListLayersOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.GreaterOrEqual(t, len(out.Layers), 2)
 }
 
@@ -149,14 +151,14 @@ func TestLayer_GetVersionByArn(t *testing.T) {
 	require.Equal(t, http.StatusCreated, pubRec.Code)
 
 	var pub lambda.PublishLayerVersionOutput
-	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&pub))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pubRec.Body), &pub, jsonx.V1()))
 
 	rec := callInMemoryHandler(t, h, http.MethodGet,
 		"/2018-10-31/layers?find=LayerVersion&Arn="+pub.LayerVersionArn, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var got lambda.GetLayerVersionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &got, jsonx.V1()))
 	assert.Equal(t, pub.LayerVersionArn, got.LayerVersionArn)
 }
 
@@ -229,7 +231,7 @@ func TestListLayers_CompatibleRuntimeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			layers, _ := out["Layers"].([]any)
 			assert.Len(t, layers, tc.wantCount, "layer count mismatch for runtime=%q", tc.compatibleRuntime)
 		})

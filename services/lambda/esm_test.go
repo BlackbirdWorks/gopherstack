@@ -2,7 +2,7 @@ package lambda_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -37,7 +38,7 @@ func doESMRequest(t *testing.T, h *lambda.Handler, method, path string, body any
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -87,7 +88,7 @@ func TestLambda_ESM_FilterCriteria_RoundTrip(t *testing.T) {
 			} `json:"Filters"`
 		} `json:"FilterCriteria"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	require.NotEmpty(t, createResp.UUID)
 	require.Len(t, createResp.FilterCriteria.Filters, 1)
 	assert.JSONEq(t, `{"data":{"orderType":["premium"]}}`, createResp.FilterCriteria.Filters[0].Pattern)
@@ -113,7 +114,7 @@ func TestLambda_ESM_FilterCriteria_RoundTrip(t *testing.T) {
 			} `json:"Filters"`
 		} `json:"FilterCriteria"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	require.Len(t, getResp.FilterCriteria.Filters, 1)
 	assert.JSONEq(t, `{"data":{"orderType":["standard"]}}`, getResp.FilterCriteria.Filters[0].Pattern)
 }
@@ -144,7 +145,7 @@ func TestLambda_ESM_CRUD(t *testing.T) {
 		State          string `json:"State"`
 		BatchSize      int    `json:"BatchSize"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotEmpty(t, createResp.UUID)
 	assert.Equal(t, streamARN, createResp.EventSourceARN)
 	assert.Equal(t, "Enabled", createResp.State)
@@ -160,7 +161,7 @@ func TestLambda_ESM_CRUD(t *testing.T) {
 		UUID  string `json:"UUID"`
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, esmUUID, getResp.UUID)
 
 	// ListEventSourceMappings
@@ -172,7 +173,7 @@ func TestLambda_ESM_CRUD(t *testing.T) {
 			UUID string `json:"UUID"`
 		} `json:"EventSourceMappings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.EventSourceMappings, 1)
 	assert.Equal(t, esmUUID, listResp.EventSourceMappings[0].UUID)
 
@@ -204,7 +205,7 @@ func TestLambda_ESM_CreateDisabled(t *testing.T) {
 	var resp struct {
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Disabled", resp.State)
 }
 
@@ -226,7 +227,7 @@ func TestLambda_ESM_CreateNilEnabled(t *testing.T) {
 	var resp struct {
 		State string `json:"State"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Enabled", resp.State)
 }
 
@@ -256,7 +257,7 @@ func TestLambda_ESM_ListByFunctionName(t *testing.T) {
 	var allResp struct {
 		EventSourceMappings []any `json:"EventSourceMappings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &allResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &allResp, jsonx.V1()))
 	assert.Len(t, allResp.EventSourceMappings, 2)
 
 	// List for function-a only
@@ -268,7 +269,7 @@ func TestLambda_ESM_ListByFunctionName(t *testing.T) {
 			FunctionARN string `json:"FunctionArn"`
 		} `json:"EventSourceMappings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtResp, jsonx.V1()))
 	assert.Len(t, filtResp.EventSourceMappings, 1)
 	assert.Contains(t, filtResp.EventSourceMappings[0].FunctionARN, "function-a")
 }

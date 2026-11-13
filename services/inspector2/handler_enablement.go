@@ -1,7 +1,7 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"slices"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -35,7 +36,7 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -123,7 +124,7 @@ func (h *Handler) handleBatchGetAccountStatus(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
@@ -196,7 +197,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 		}
 	}
@@ -245,7 +246,7 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -293,7 +294,7 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),

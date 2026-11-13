@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTags(t *testing.T) {
@@ -31,7 +33,7 @@ func TestTags(t *testing.T) {
 	var listResp struct {
 		Tags map[string]string `json:"Tags,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Equal(t, "prod", listResp.Tags["env"])
 	assert.Equal(t, "platform", listResp.Tags["team"])
 
@@ -49,7 +51,7 @@ func TestTags(t *testing.T) {
 	var afterUntagResp struct {
 		Tags map[string]string `json:"Tags,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterUntagResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterUntagResp, jsonx.V1()))
 	assert.NotContains(t, afterUntagResp.Tags, "env")
 	assert.Equal(t, "platform", afterUntagResp.Tags["team"])
 }

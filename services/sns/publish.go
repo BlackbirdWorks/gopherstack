@@ -2,7 +2,7 @@ package sns
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // buildMessageResolver returns a function that picks the correct message body for a given protocol,
@@ -152,7 +153,7 @@ func validateStructuredMessage(message, messageStructure string) error {
 	}
 
 	var pm map[string]string
-	if err := json.Unmarshal([]byte(message), &pm); err != nil {
+	if err := json.Unmarshal([]byte(message), &pm, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: Invalid JSON in Message when MessageStructure is json: %s",
 			ErrInvalidParameter,
@@ -179,7 +180,7 @@ func parsePerProtocolMessages(message, messageStructure string) map[string]strin
 	}
 
 	var pm map[string]string
-	if err := json.Unmarshal([]byte(message), &pm); err != nil {
+	if err := json.Unmarshal([]byte(message), &pm, jsonx.V1()); err != nil {
 		return nil
 	}
 

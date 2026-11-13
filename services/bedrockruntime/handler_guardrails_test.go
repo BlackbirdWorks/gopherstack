@@ -1,12 +1,14 @@
 package bedrockruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- ApplyGuardrail tests ---
@@ -51,7 +53,7 @@ func TestHandler_ApplyGuardrail(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "action")
 			assert.Contains(t, out, "assessments")
 			assert.Contains(t, out, "outputs")
@@ -124,7 +126,7 @@ func TestApplyGuardrail_NoneForSafeContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "NONE", out["action"])
 }
 
@@ -143,7 +145,7 @@ func TestApplyGuardrail_BlockedForHarmfulContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "GUARDRAIL_INTERVENED", out["action"])
 }
 
@@ -162,7 +164,7 @@ func TestApplyGuardrail_BlockedForToxicContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "GUARDRAIL_INTERVENED", out["action"])
 }
 
@@ -182,7 +184,7 @@ func TestApplyGuardrail_OutputsReflectsInput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	outputs, ok := out["outputs"].([]any)
 	require.True(t, ok)
@@ -231,7 +233,7 @@ func TestApplyGuardrail_ResponseShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantAction, out["action"])
 			assert.Contains(t, out, "outputs")
 			assert.Contains(t, out, "usage")
@@ -269,7 +271,7 @@ func TestApplyGuardrail_OutputsMirrorInput(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			outputs := out["outputs"].([]any)
 			assert.Len(t, outputs, tt.wantLen)
 
@@ -296,7 +298,7 @@ func TestApplyGuardrail_AssessmentsReflectBlockedMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Equal(t, "GUARDRAIL_INTERVENED", out["action"])
 
 	assessments, ok := out["assessments"].([]any)
@@ -335,7 +337,7 @@ func TestApplyGuardrail_AssessmentsEmptyForNoneAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Equal(t, "NONE", out["action"])
 
 	assessments, ok := out["assessments"].([]any)
@@ -453,7 +455,7 @@ func TestHandler_InvokeGuardrailChecks(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "results")
 			assert.Contains(t, out, "usage")
 		})
@@ -486,7 +488,7 @@ func TestInvokeGuardrailChecks_ContentFilterNeverFabricatesSeverityScore(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	results, ok := out["results"].(map[string]any)
 	require.True(t, ok)
@@ -557,7 +559,7 @@ func TestInvokeGuardrailChecks_SensitiveInformation_RealRegexDetection(t *testin
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			results := out["results"].(map[string]any)
 			sensitive := results["sensitiveInformation"].(map[string]any)

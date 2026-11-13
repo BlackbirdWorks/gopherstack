@@ -2,7 +2,8 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (b *InMemoryBackend) buildRuleGroupARN(name, id, scope, region string) string {
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 	name, scope, description, visibilityConfig string,
 	capacity int64,
 	rules []map[string]any,
-	customResponseBodies, monetizationConfig json.RawMessage,
+	customResponseBodies, monetizationConfig jsontext.Value,
 	tags map[string]string,
 ) (*RuleGroup, error) {
 	b.mu.Lock("CreateRuleGroup")
@@ -197,7 +199,7 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 	ctx context.Context,
 	id, description, visibilityConfig, lockToken string,
 	rules []map[string]any,
-	customResponseBodies, monetizationConfig json.RawMessage,
+	customResponseBodies, monetizationConfig jsontext.Value,
 ) (*RuleGroup, error) {
 	b.mu.Lock("UpdateRuleGroup")
 	defer b.mu.Unlock()
@@ -242,13 +244,13 @@ func cloneRuleGroup(rg *RuleGroup) *RuleGroup {
 	cp.Rules = cloneRules(rg.Rules)
 
 	if rg.CustomResponseBodies != nil {
-		crb := make(json.RawMessage, len(rg.CustomResponseBodies))
+		crb := make(jsontext.Value, len(rg.CustomResponseBodies))
 		copy(crb, rg.CustomResponseBodies)
 		cp.CustomResponseBodies = crb
 	}
 
 	if rg.MonetizationConfig != nil {
-		mc := make(json.RawMessage, len(rg.MonetizationConfig))
+		mc := make(jsontext.Value, len(rg.MonetizationConfig))
 		copy(mc, rg.MonetizationConfig)
 		cp.MonetizationConfig = mc
 	}
@@ -278,13 +280,13 @@ func cloneRules(rules []map[string]any) []map[string]any {
 		return []map[string]any{}
 	}
 
-	data, marshalErr := json.Marshal(rules)
+	data, marshalErr := json.Marshal(rules, jsonx.V1())
 	if marshalErr != nil {
 		return shallowCopyRules(rules)
 	}
 
 	var out []map[string]any
-	if unmarshalErr := json.Unmarshal(data, &out); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &out, jsonx.V1()); unmarshalErr != nil {
 		return shallowCopyRules(rules)
 	}
 

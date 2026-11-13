@@ -2,7 +2,7 @@ package sdkwire_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
 )
 
@@ -85,7 +86,7 @@ func TestCall_Request(t *testing.T) {
 			require.NoError(t, err)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(seen, &got))
+			require.NoError(t, json.Unmarshal(seen, &got, jsonx.V1()))
 
 			for k, v := range tt.wantJSON {
 				assert.Equal(t, v, got[k], k)
@@ -107,7 +108,7 @@ func TestCall_IdempotencyToken(t *testing.T) {
 	require.NoError(t, err)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(seen, &got))
+	require.NoError(t, json.Unmarshal(seen, &got, jsonx.V1()))
 	assert.NotEmpty(t, got["clientToken"])
 }
 

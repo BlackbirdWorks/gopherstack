@@ -2,7 +2,7 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -69,7 +70,7 @@ func TestHandler_CreateRepositoryLink(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			info, ok := out["RepositoryLinkInfo"].(map[string]any)
 			require.True(t, ok)
 			assert.NotEmpty(t, info["RepositoryLinkId"])
@@ -138,7 +139,7 @@ func TestHandler_GetRepositoryLink(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			info, ok := out["RepositoryLinkInfo"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "my-owner", info["OwnerId"])
@@ -226,7 +227,7 @@ func TestHandler_ListRepositoryLinks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	links, ok := out["RepositoryLinks"].([]any)
 	require.True(t, ok)
 	assert.Len(t, links, 2)

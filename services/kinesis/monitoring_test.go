@@ -1,12 +1,14 @@
 package kinesis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEnhancedMonitoring(t *testing.T) {
@@ -33,7 +35,7 @@ func TestEnhancedMonitoring(t *testing.T) {
 		CurrentShardLevelMetrics []string `json:"CurrentShardLevelMetrics"`
 		DesiredShardLevelMetrics []string `json:"DesiredShardLevelMetrics"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &enableResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &enableResp, jsonx.V1()))
 	assert.Equal(t, streamName, enableResp.StreamName)
 	assert.Empty(t, enableResp.CurrentShardLevelMetrics)
 	assert.ElementsMatch(t, []string{"IncomingBytes", "OutgoingRecords"}, enableResp.DesiredShardLevelMetrics)
@@ -50,7 +52,7 @@ func TestEnhancedMonitoring(t *testing.T) {
 		CurrentShardLevelMetrics []string `json:"CurrentShardLevelMetrics"`
 		DesiredShardLevelMetrics []string `json:"DesiredShardLevelMetrics"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &disableResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &disableResp, jsonx.V1()))
 	assert.ElementsMatch(t, []string{"IncomingBytes", "OutgoingRecords"}, disableResp.CurrentShardLevelMetrics)
 	assert.Equal(t, []string{"OutgoingRecords"}, disableResp.DesiredShardLevelMetrics)
 }
@@ -91,7 +93,7 @@ func TestEnhancedMonitoring_StreamARN(t *testing.T) {
 			var resp struct {
 				StreamARN string `json:"StreamARN"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.StreamARN)
 			assert.Contains(t, resp.StreamARN, streamName)
 		})

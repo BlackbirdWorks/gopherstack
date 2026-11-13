@@ -2,13 +2,15 @@ package cleanrooms_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cleanrooms"
 )
 
@@ -32,7 +34,7 @@ func doRequest(
 	var reqBody []byte
 	if body != nil {
 		var err error
-		reqBody, err = json.Marshal(body)
+		reqBody, err = json.Marshal(body, jsonx.V1())
 		if err != nil {
 			t.Fatalf("marshal request: %v", err)
 		}
@@ -65,7 +67,7 @@ func TestCollaborationCRUD(t *testing.T) {
 		t.Fatalf("create: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var createResp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&createResp); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
 	if _, ok := createResp["collaboration"]; !ok {
@@ -79,7 +81,7 @@ func TestCollaborationCRUD(t *testing.T) {
 		t.Fatalf("list: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var listResp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&listResp); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
 	if _, ok := listResp["collaborationList"]; !ok {
@@ -126,7 +128,7 @@ func TestConfiguredTableCRUD(t *testing.T) {
 		t.Fatalf("create: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var createResp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&createResp); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	ctID := createResp["configuredTable"].(map[string]any)["id"].(string)
@@ -173,7 +175,7 @@ func TestMembershipCRUD(t *testing.T) {
 		t.Fatalf("create collab: %s", colRec.Body.String())
 	}
 	var colResp map[string]any
-	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(colRec.Body), &colResp, jsonx.V1())
 	colID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	createBody := map[string]any{
@@ -187,7 +189,7 @@ func TestMembershipCRUD(t *testing.T) {
 		t.Fatalf("create: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var createResp map[string]any
-	_ = json.NewDecoder(rec.Body).Decode(&createResp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1())
 	mID := createResp["membership"].(map[string]any)["id"].(string)
 
 	// List memberships
@@ -223,7 +225,7 @@ func TestTagOperations(t *testing.T) {
 		"creatorMemberAbilities": []string{}, "members": []any{}, "queryLogStatus": "DISABLED",
 	})
 	var colResp map[string]any
-	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(colRec.Body), &colResp, jsonx.V1())
 	testARN := colResp["collaboration"].(map[string]any)["arn"].(string)
 
 	// Tag resource
@@ -293,14 +295,14 @@ func TestProtectedQueryLifecycle(t *testing.T) {
 		"creatorMemberAbilities": []string{}, "members": []any{}, "queryLogStatus": "DISABLED",
 	})
 	var colResp map[string]any
-	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(colRec.Body), &colResp, jsonx.V1())
 	colID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	// Create membership
 	memRec := doRequest(t, e, http.MethodPost, "/memberships",
 		map[string]any{"collaborationIdentifier": colID, "queryLogStatus": "DISABLED"})
 	var memResp map[string]any
-	_ = json.NewDecoder(memRec.Body).Decode(&memResp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(memRec.Body), &memResp, jsonx.V1())
 	mID := memResp["membership"].(map[string]any)["id"].(string)
 
 	// Start protected query
@@ -313,7 +315,7 @@ func TestProtectedQueryLifecycle(t *testing.T) {
 		t.Fatalf("start query: status %d: %s", rec.Code, rec.Body.String())
 	}
 	var resp map[string]any
-	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1())
 	if _, ok := resp["protectedQuery"]; !ok {
 		t.Fatal("missing protectedQuery in response")
 	}

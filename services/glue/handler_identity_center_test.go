@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGlueIdentityCenter(t *testing.T) {
@@ -48,7 +50,7 @@ func TestGlueIdentityCenter_Stateful(t *testing.T) {
 	var getOut struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "arn:aws:sso:::instance/ssoins-1234", getOut.InstanceArn)
 
 	updateRec := doGlueRequest(t, h, "UpdateGlueIdentityCenterConfiguration", map[string]any{

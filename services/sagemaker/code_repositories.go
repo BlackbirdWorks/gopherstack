@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrCodeRepositoryNotFound is returned when a code repository does not exist.
@@ -55,7 +56,7 @@ func (r *CodeRepository) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(r),
 		CreationTime:     epochSeconds(r.CreationTime),
 		LastModifiedTime: epochSeconds(r.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [CodeRepository.MarshalJSON], read by
@@ -69,7 +70,7 @@ func (r *CodeRepository) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(r)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

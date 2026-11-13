@@ -1,13 +1,14 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -74,7 +75,7 @@ func testPortalIncludedPortalProductArnsPresent(t *testing.T, h *apigatewayv2.Ha
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created, jsonx.V1()))
 	arns, ok := created["includedPortalProductArns"]
 	assert.True(t, ok, "includedPortalProductArns key must be present on Create")
 	assert.Equal(t, []any{}, arns)
@@ -85,7 +86,7 @@ func testPortalIncludedPortalProductArnsPresent(t *testing.T, h *apigatewayv2.Ha
 	var listed struct {
 		Items []map[string]any `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed, jsonx.V1()))
 	require.Len(t, listed.Items, 1)
 
 	arns, ok = listed.Items[0]["includedPortalProductArns"]
@@ -100,7 +101,7 @@ func testPortalProductDescriptionPresent(t *testing.T, h *apigatewayv2.Handler) 
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created, jsonx.V1()))
 	desc, ok := created["description"]
 	assert.True(t, ok, "description key must be present on Create")
 	assert.Empty(t, desc)
@@ -111,7 +112,7 @@ func testPortalProductDescriptionPresent(t *testing.T, h *apigatewayv2.Handler) 
 	var listed struct {
 		Items []map[string]any `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed, jsonx.V1()))
 	require.Len(t, listed.Items, 1)
 
 	desc, ok = listed.Items[0]["description"]
@@ -126,7 +127,7 @@ func testProductPageArnAndTitlePresent(t *testing.T, h *apigatewayv2.Handler) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var product map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product, jsonx.V1()))
 	portalProductID, _ := product["portalProductId"].(string)
 	require.NotEmpty(t, portalProductID)
 
@@ -137,7 +138,7 @@ func testProductPageArnAndTitlePresent(t *testing.T, h *apigatewayv2.Handler) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created, jsonx.V1()))
 	assert.NotEmpty(t, created["productPageArn"])
 	assert.Equal(t, "My Page", created["pageTitle"])
 
@@ -147,7 +148,7 @@ func testProductPageArnAndTitlePresent(t *testing.T, h *apigatewayv2.Handler) {
 	var listed struct {
 		Items []map[string]any `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &listed, jsonx.V1()))
 	require.Len(t, listed.Items, 1)
 	assert.NotEmpty(t, listed.Items[0]["productPageArn"])
 	assert.Equal(t, "My Page", listed.Items[0]["pageTitle"])

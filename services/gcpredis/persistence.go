@@ -2,7 +2,7 @@ package gcpredis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/redis/apiv1/redispb"
@@ -18,15 +18,15 @@ import (
 const snapshotVersion = 1
 
 type instSnap struct {
-	Instance   json.RawMessage `json:"instance"`
-	AuthString string          `json:"authString,omitempty"`
-	Keyspace   []byte          `json:"keyspace,omitempty"`
+	Instance   jsontext.Value `json:"instance"`
+	AuthString string         `json:"authString,omitempty"`
+	Keyspace   []byte         `json:"keyspace,omitempty"`
 }
 
 type backendSnapshot struct {
-	Instances  map[string]instSnap        `json:"instances"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	Version    int                        `json:"version"`
+	Instances  map[string]instSnap       `json:"instances"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	Version    int                       `json:"version"`
 }
 
 // Snapshot serialises every instance with its keyspace; Redis servers and TLS CAs are rebuilt on restore.

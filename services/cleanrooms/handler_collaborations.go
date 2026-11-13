@@ -2,12 +2,14 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // collaborationWire shadows the embedded Members tag at depth 0 so the
@@ -38,7 +40,7 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		AllowedResultRegions        []string                `json:"allowedResultRegions"`
 		IsMetricsEnabled            bool                    `json:"isMetricsEnabled"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := firstErr(
 		checkEnumList[crtypes.MemberAbility]("creatorMemberAbilities", req.CreatorMemberAbilities),
 		checkEnum("queryLogStatus", crtypes.CollaborationQueryLogStatus(req.QueryLogStatus)),
@@ -86,7 +88,7 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	c, err := h.Backend.GetCollaboration(req.CollaborationIdentifier)
 	if err != nil {
 		return nil, declaredCollaborationError(err)
@@ -119,7 +121,7 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		Description             string `json:"description"`
 		AnalyticsEngine         string `json:"analyticsEngine"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	col, err := h.Backend.UpdateCollaboration(
 		req.CollaborationIdentifier,
 		req.Name,
@@ -137,7 +139,7 @@ func (h *Handler) handleDeleteCollaboration(_ context.Context, body []byte) ([]b
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteCollaboration(req.CollaborationIdentifier)
 }
@@ -150,7 +152,7 @@ func (h *Handler) handleListMembers(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListMembers(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
@@ -177,7 +179,7 @@ func (h *Handler) handleDeleteMember(_ context.Context, body []byte) ([]byte, er
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		AccountID               string `json:"accountId"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteMember(req.CollaborationIdentifier, req.AccountID)
 }
@@ -190,7 +192,7 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 		CollaborationIdentifier string   `json:"collaborationIdentifier"`
 		Changes                 []Change `json:"changes"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	r, err := h.Backend.CreateCollaborationChangeRequest(
 		req.CollaborationIdentifier,
 		req.Changes,
@@ -210,7 +212,7 @@ func (h *Handler) handleGetCollaborationChangeRequest(
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		ChangeRequestIdentifier string `json:"changeRequestIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	r, err := h.Backend.GetCollaborationChangeRequest(
 		req.CollaborationIdentifier,
 		req.ChangeRequestIdentifier,
@@ -230,7 +232,7 @@ func (h *Handler) handleListCollaborationChangeRequests(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationChangeRequests(
 		req.CollaborationIdentifier,
 		qp(c, "status"),
@@ -257,7 +259,7 @@ func (h *Handler) handleUpdateCollaborationChangeRequest(
 		ChangeRequestIdentifier string `json:"changeRequestIdentifier"`
 		Action                  string `json:"action"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	r, err := h.Backend.UpdateCollaborationChangeRequest(
 		req.CollaborationIdentifier,
 		req.ChangeRequestIdentifier,

@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerAgentCRUD(t *testing.T) {
@@ -31,7 +33,7 @@ func TestHandlerAgentCRUD(t *testing.T) {
 	}
 
 	var createResp map[string]map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &createResp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal create response: %v", err)
 	}
 
@@ -74,7 +76,7 @@ func TestHandlerAgentCRUD(t *testing.T) {
 			}
 
 			var sr map[string]map[string]any
-			_ = json.Unmarshal(r.Body.Bytes(), &sr)
+			_ = json.Unmarshal(r.Body.Bytes(), &sr, jsonx.V1())
 			aid := sr["agent"]["agentId"].(string)
 
 			path := tc.path
@@ -122,7 +124,7 @@ func TestHandlerAgentVersions(t *testing.T) {
 	rec := doRequest(t, h, e, http.MethodPut, "/agents", createBody)
 
 	var createResp map[string]map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
+	_ = json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1())
 	agentID := createResp["agent"]["agentId"].(string)
 
 	// Prepare first so we can create a version
@@ -138,7 +140,7 @@ func TestHandlerAgentVersions(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPut, "/agents", createBody)
 
 		var resp map[string]map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		aid := resp["agent"]["agentId"].(string)
 		doRequest(t, h2, e2, http.MethodPost, "/agents/"+aid+"/prepare", nil)
 
@@ -148,7 +150,7 @@ func TestHandlerAgentVersions(t *testing.T) {
 		}
 
 		var listResp map[string]any
-		_ = json.Unmarshal(rec2.Body.Bytes(), &listResp)
+		_ = json.Unmarshal(rec2.Body.Bytes(), &listResp, jsonx.V1())
 
 		if _, ok := listResp["agentVersionSummaries"]; !ok {
 			t.Errorf("response missing agentVersionSummaries: %s", rec2.Body.String())
@@ -181,7 +183,7 @@ func TestCreateAgent_DefaultIdleSessionTTL(t *testing.T) {
 	}
 
 	var resp map[string]map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -208,7 +210,7 @@ func TestCreateAgent_CustomIdleSessionTTL(t *testing.T) {
 	}
 
 	var resp map[string]map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -230,7 +232,7 @@ func TestUpdateAgent_IdleSessionTTL(t *testing.T) {
 	})
 
 	var createResp map[string]map[string]any
-	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp); err != nil {
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -248,7 +250,7 @@ func TestUpdateAgent_IdleSessionTTL(t *testing.T) {
 	}
 
 	var updateResp map[string]map[string]any
-	if err := json.Unmarshal(updateRec.Body.Bytes(), &updateResp); err != nil {
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -277,7 +279,7 @@ func TestAgentVersionsPOST_IsListNotCreate(t *testing.T) {
 	})
 
 	var createResp map[string]map[string]any
-	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp); err != nil {
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -290,7 +292,7 @@ func TestAgentVersionsPOST_IsListNotCreate(t *testing.T) {
 	}
 
 	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -315,7 +317,7 @@ func TestCreateAgentAlias_NoRoutingConfig_AutoCreatesVersion(t *testing.T) {
 	})
 
 	var createResp map[string]map[string]any
-	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp); err != nil {
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -330,7 +332,7 @@ func TestCreateAgentAlias_NoRoutingConfig_AutoCreatesVersion(t *testing.T) {
 	}
 
 	var aliasResp map[string]map[string]any
-	if err := json.Unmarshal(aliasRec.Body.Bytes(), &aliasResp); err != nil {
+	if err := json.Unmarshal(aliasRec.Body.Bytes(), &aliasResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -342,7 +344,7 @@ func TestCreateAgentAlias_NoRoutingConfig_AutoCreatesVersion(t *testing.T) {
 	listRec := doRequest(t, h, e, http.MethodGet, "/agents/"+agentID+"/agentversions", nil)
 
 	var listResp map[string]any
-	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -364,7 +366,7 @@ func TestPrepareAgent_ResponseIncludesPreparedAt(t *testing.T) {
 	})
 
 	var createResp map[string]map[string]any
-	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp); err != nil {
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -377,7 +379,7 @@ func TestPrepareAgent_ResponseIncludesPreparedAt(t *testing.T) {
 	}
 
 	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 

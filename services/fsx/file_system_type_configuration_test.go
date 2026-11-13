@@ -1,12 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestFSx_FileSystem_WindowsConfiguration locks the wire shape of the
@@ -31,7 +33,7 @@ func TestFSx_FileSystem_WindowsConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	fs := out["FileSystem"].(map[string]any)
 
 	require.Contains(t, fs, "WindowsConfiguration")
@@ -62,7 +64,7 @@ func TestFSx_FileSystem_OntapConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	fs := out["FileSystem"].(map[string]any)
 
 	require.Contains(t, fs, "OntapConfiguration")
@@ -96,7 +98,7 @@ func TestFSx_FileSystem_OpenZFSConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	fs := out["FileSystem"].(map[string]any)
 
 	require.Contains(t, fs, "OpenZFSConfiguration")
@@ -114,7 +116,7 @@ func TestFSx_FileSystem_OpenZFSConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut, jsonx.V1()))
 	volumes := describeOut["Volumes"].([]any)
 	require.Len(t, volumes, 1)
 	assert.Equal(t, "fsx", volumes[0].(map[string]any)["Name"])
@@ -150,7 +152,7 @@ func TestFSx_CreateFileSystem_MissingConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "MissingFileSystemConfiguration", out["__type"])
 		})
 	}
@@ -210,7 +212,7 @@ func TestFSx_CreateFileSystem_RequiredConfigMembers(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "BadRequest", out["__type"])
 		})
 	}
@@ -235,7 +237,7 @@ func TestFSx_UpdateFileSystem_TypeSpecificConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	fs := out["FileSystem"].(map[string]any)
 	winCfg := fs["WindowsConfiguration"].(map[string]any)
 	assert.InEpsilon(t, float64(32), winCfg["ThroughputCapacity"], 0)
@@ -257,7 +259,7 @@ func TestFSx_CreateFileSystemFromBackup_CarriesTypeConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, backupRec.Code)
 
 	var backupOut map[string]any
-	require.NoError(t, json.Unmarshal(backupRec.Body.Bytes(), &backupOut))
+	require.NoError(t, json.Unmarshal(backupRec.Body.Bytes(), &backupOut, jsonx.V1()))
 	backupID := backupOut["Backup"].(map[string]any)["BackupId"].(string)
 
 	restoreRec := doFSxRequest(
@@ -269,7 +271,7 @@ func TestFSx_CreateFileSystemFromBackup_CarriesTypeConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, restoreRec.Code)
 
 	var restoreOut map[string]any
-	require.NoError(t, json.Unmarshal(restoreRec.Body.Bytes(), &restoreOut))
+	require.NoError(t, json.Unmarshal(restoreRec.Body.Bytes(), &restoreOut, jsonx.V1()))
 	restoredFS := restoreOut["FileSystem"].(map[string]any)
 
 	require.Contains(t, restoredFS, "WindowsConfiguration")

@@ -1,13 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -28,7 +29,7 @@ func TestProjects(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["ProjectArn"], "arn:aws:rekognition:")
 				assert.Contains(t, resp["ProjectArn"], "project/my-project")
 			},
@@ -51,7 +52,7 @@ func TestProjects(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["message"])
 			},
 		},
@@ -72,7 +73,7 @@ func TestProjects(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				descriptions, ok := resp["ProjectDescriptions"].([]any)
 				require.True(t, ok)
 				assert.GreaterOrEqual(t, len(descriptions), 1)
@@ -86,7 +87,7 @@ func TestProjects(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				descriptions, ok := resp["ProjectDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, descriptions)
@@ -119,7 +120,7 @@ func TestProject_DeleteSuccess(t *testing.T) { //nolint:paralleltest // existing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	projectARN := createResp["ProjectArn"].(string)
 
 	// Delete it
@@ -127,7 +128,7 @@ func TestProject_DeleteSuccess(t *testing.T) { //nolint:paralleltest // existing
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp, jsonx.V1()))
 	assert.Equal(t, "DELETING", deleteResp["Status"])
 
 	// DescribeProjects should no longer return it
@@ -135,7 +136,7 @@ func TestProject_DeleteSuccess(t *testing.T) { //nolint:paralleltest // existing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	descriptions := descResp["ProjectDescriptions"].([]any)
 	assert.Empty(t, descriptions)
 }
@@ -153,7 +154,7 @@ func TestProject_DeleteWithVersions_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
@@ -167,7 +168,7 @@ func TestProject_DeleteWithVersions_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUseException", errResp["__type"])
 }
 
@@ -179,7 +180,7 @@ func TestProjectPolicies(t *testing.T) { //nolint:paralleltest // existing issue
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	tests := []struct {
@@ -201,7 +202,7 @@ func TestProjectPolicies(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["PolicyRevisionId"])
 			},
 		},
@@ -213,7 +214,7 @@ func TestProjectPolicies(t *testing.T) { //nolint:paralleltest // existing issue
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				policies, ok := resp["ProjectPolicies"].([]any)
 				require.True(t, ok)
 				assert.Len(t, policies, 1)
@@ -254,7 +255,7 @@ func TestDeleteProject_CascadesProjectPolicies(t *testing.T) { //nolint:parallel
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "PutProjectPolicy", map[string]any{
@@ -271,7 +272,7 @@ func TestDeleteProject_CascadesProjectPolicies(t *testing.T) { //nolint:parallel
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	policies, ok := listResp["ProjectPolicies"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, policies, "ProjectPolicies must be cascade-deleted with the project")

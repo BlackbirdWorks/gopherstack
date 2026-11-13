@@ -2,11 +2,14 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxPatchOperations is the Cosmos limit on operations in one patch request.
@@ -24,10 +27,10 @@ const (
 )
 
 type patchOp struct {
-	Op    string          `json:"op"`
-	Path  string          `json:"path"`
-	From  string          `json:"from,omitempty"`
-	Value json.RawMessage `json:"value,omitempty"`
+	Op    string         `json:"op"`
+	Path  string         `json:"path"`
+	From  string         `json:"from,omitempty"`
+	Value jsontext.Value `json:"value,omitempty"`
 }
 
 type patchRequest struct {
@@ -43,8 +46,8 @@ func invalidPatchf(format string, args ...any) error {
 func parsePatchRequest(raw []byte) (patchRequest, error) {
 	var req patchRequest
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&req); err != nil || rejectTrailingJSON(dec) != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsonx.V1())
+	if err := json.UnmarshalDecode(dec, &req, jsonx.V1()); err != nil || rejectTrailingJSON(dec) != nil {
 		return patchRequest{}, invalidPatchf("the patch body is not valid JSON")
 	}
 
@@ -80,16 +83,15 @@ func patchPath(path string) ([]string, error) {
 	return segs, nil
 }
 
-func decodePatchValue(raw json.RawMessage) (any, error) {
+func decodePatchValue(raw jsontext.Value) (any, error) {
 	if len(raw) == 0 {
 		return nil, invalidPatchf("the operation requires a value")
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, invalidPatchf("invalid value: %v", err)
 	}
 
@@ -342,14 +344,14 @@ func incrValue(cur any, exists bool, delta any) (any, error) {
 	return addNumbers(c, d)
 }
 
-func addNumbers(a, b json.Number) (json.Number, error) {
+func addNumbers(a, b jsonx.Number) (jsonx.Number, error) {
 	x, errX := a.Int64()
 	y, errY := b.Int64()
 
 	if errX == nil && errY == nil {
 		sum := x + y
 		if (x >= 0) != (y >= 0) || (sum >= 0) == (x >= 0) {
-			return json.Number(strconv.FormatInt(sum, 10)), nil
+			return jsonx.Number(strconv.FormatInt(sum, 10)), nil
 		}
 	}
 
@@ -360,7 +362,7 @@ func addNumbers(a, b json.Number) (json.Number, error) {
 		return "", invalidPatchf("incr result is not a finite number")
 	}
 
-	return json.Number(strconv.FormatFloat(fx+fy, 'g', -1, 64)), nil
+	return jsonx.Number(strconv.FormatFloat(fx+fy, 'g', -1, 64)), nil
 }
 
 // evalPatchCondition runs a "from c where ..." predicate against one document.

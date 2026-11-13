@@ -2,10 +2,11 @@ package codedeploy
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -58,7 +59,7 @@ type autoScalingGroupEntry struct {
 // UnmarshalJSON accepts a bare name (SDK AutoScalingGroups []string) or the object form.
 func (e *autoScalingGroupEntry) UnmarshalJSON(data []byte) error {
 	var name string
-	if err := json.Unmarshal(data, &name); err == nil {
+	if err := json.Unmarshal(data, &name, jsonx.V1()); err == nil {
 		*e = autoScalingGroupEntry{Name: name}
 
 		return nil
@@ -67,7 +68,7 @@ func (e *autoScalingGroupEntry) UnmarshalJSON(data []byte) error {
 	type plain autoScalingGroupEntry
 
 	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := json.Unmarshal(data, &p, jsonx.V1()); err != nil {
 		return err
 	}
 

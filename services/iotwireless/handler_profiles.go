@@ -7,11 +7,12 @@ package iotwireless
 // grouped in one cohesive file instead.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -54,7 +55,7 @@ type listDeviceProfilesResponse struct {
 
 func (h *Handler) createDeviceProfile(c *echo.Context, body []byte) error {
 	var req createDeviceProfileRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -147,7 +148,7 @@ type listServiceProfilesResponse struct {
 
 func (h *Handler) createServiceProfile(c *echo.Context, body []byte) error {
 	var req createServiceProfileRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 

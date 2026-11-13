@@ -1,13 +1,15 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DetectDocumentText(t *testing.T) {
@@ -76,7 +78,7 @@ func TestHandler_StartAndGetDocumentTextDetection(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var startResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID := startResp["JobId"]
 			assert.NotEmpty(t, jobID)
 
@@ -85,7 +87,7 @@ func TestHandler_StartAndGetDocumentTextDetection(t *testing.T) {
 			assert.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 		})
 	}
@@ -143,7 +145,7 @@ func TestHandler_GetDocumentTextDetection_RejectsAnalysisJobID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidJobIdException", resp["__type"],
 		"cross-type access must return InvalidJobIdException")
 }
@@ -192,7 +194,7 @@ func TestHandler_DetectDocumentText_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "1.0", resp["DetectDocumentTextModelVersion"])
 }
 
@@ -212,7 +214,7 @@ func TestHandler_GetDocumentTextDetection_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	// Get first page with MaxResults=3.
@@ -223,7 +225,7 @@ func TestHandler_GetDocumentTextDetection_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec1.Code)
 
 	var getResp1 map[string]any
-	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
+	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1, jsonx.V1()))
 
 	blocks1, _ := getResp1["Blocks"].([]any)
 	assert.Len(t, blocks1, 3, "first page should have 3 blocks")
@@ -240,7 +242,7 @@ func TestHandler_GetDocumentTextDetection_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var getResp2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2, jsonx.V1()))
 
 	blocks2, _ := getResp2["Blocks"].([]any)
 	assert.NotEmpty(t, blocks2, "second page should have remaining blocks")
@@ -260,7 +262,7 @@ func TestHandler_DetectDocumentText_BlockIDsAreUUIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, ok := m["Blocks"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, blocks)
@@ -291,7 +293,7 @@ func TestHandler_DetectDocumentText_ConfidenceInRange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, _ := m["Blocks"].([]any)
 	require.NotEmpty(t, blocks)
 
@@ -325,7 +327,7 @@ func TestHandler_DetectDocumentText_WordHasTextType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, _ := m["Blocks"].([]any)
 	require.NotEmpty(t, blocks)
 
@@ -361,7 +363,7 @@ func TestHandler_DetectDocumentText_PageIsSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, _ := m["Blocks"].([]any)
 	require.NotEmpty(t, blocks)
 
@@ -392,7 +394,7 @@ func TestHandler_DetectDocumentText_GeometryBoundingBoxValid(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, _ := m["Blocks"].([]any)
 	require.NotEmpty(t, blocks)
 
@@ -439,7 +441,7 @@ func TestHandler_DetectDocumentText_DocumentMetadataPages(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	meta, ok := m["DocumentMetadata"].(map[string]any)
 	require.True(t, ok, "response must have DocumentMetadata")
 	pages, ok2 := meta["Pages"].(float64)
@@ -462,7 +464,7 @@ func TestHandler_DetectDocumentText_BytesInput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, ok := m["Blocks"].([]any)
 	assert.True(t, ok && len(blocks) > 0, "DetectDocumentText with Bytes must return Blocks")
 }
@@ -481,14 +483,14 @@ func TestHandler_GetDocumentTextDetection_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetDocumentTextDetection", map[string]string{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m, jsonx.V1()))
 	ver, ok := m["DetectDocumentTextModelVersion"].(string)
 	assert.True(t, ok, "GetDocumentTextDetection must have DetectDocumentTextModelVersion")
 	assert.Equal(t, "1.0", ver)
@@ -511,7 +513,7 @@ func TestHandler_StartDocumentTextDetection_ClientRequestTokenIdempotency(t *tes
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	jobID1 := resp1["JobId"]
 	require.NotEmpty(t, jobID1)
 
@@ -519,7 +521,7 @@ func TestHandler_StartDocumentTextDetection_ClientRequestTokenIdempotency(t *tes
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	assert.Equal(t, jobID1, resp2["JobId"], "same ClientRequestToken must return same JobId")
 }

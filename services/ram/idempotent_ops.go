@@ -2,11 +2,12 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func usesClientToken(op string) bool {
@@ -32,7 +33,7 @@ func (h *Handler) replayClientToken(
 	token := query.Get("clientToken")
 
 	var fields map[string]any
-	if len(body) > 0 && json.Unmarshal(body, &fields) == nil {
+	if len(body) > 0 && json.Unmarshal(body, &fields, jsonx.V1()) == nil {
 		if t, ok := fields["clientToken"].(string); ok && token == "" {
 			token = t
 		}

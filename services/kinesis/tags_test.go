@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -88,7 +89,7 @@ func TestListTagsForResource_SortedOutput(t *testing.T) {
 		} `json:"Tags"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Tags, 3)
 	assert.Equal(t, "apple", resp.Tags[0].Key)
 	assert.Equal(t, "a", resp.Tags[0].Value)
@@ -113,7 +114,7 @@ func TestAddTagsToStream_KeyTooLong(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
@@ -133,7 +134,7 @@ func TestAddTagsToStream_EmptyKey(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
@@ -154,7 +155,7 @@ func TestAddTagsToStream_ValueTooLong(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
@@ -188,7 +189,7 @@ func TestAddTagsToStream_StreamNotFound(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
@@ -213,7 +214,7 @@ func TestTagResource_KeyTooLong(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
@@ -238,7 +239,7 @@ func TestTagResource_ValueTooLong(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidArgumentException", resp.Type)
 }
 
@@ -321,7 +322,7 @@ func TestRemoveTagsFromStream_StreamNotFound(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
@@ -338,7 +339,7 @@ func TestListTagsForStream_StreamNotFound(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
@@ -372,7 +373,7 @@ func TestListTagsForStream_LimitRespected(t *testing.T) {
 		} `json:"Tags"`
 		HasMoreTags bool `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Tags, 5)
 	assert.True(t, resp.HasMoreTags)
 }
@@ -406,7 +407,7 @@ func TestListTagsForStream_LimitDefault(t *testing.T) {
 		} `json:"Tags"`
 		HasMoreTags bool `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Tags, 10)
 	assert.True(t, resp.HasMoreTags)
 }
@@ -455,7 +456,7 @@ func TestListTagsForResource(t *testing.T) {
 					} `json:"Tags"`
 				}
 
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp.Tags)
 			}
 		})
@@ -494,7 +495,7 @@ func TestHandleAddTagsToStream(t *testing.T) {
 		} `json:"Tags"`
 		HasMoreTags bool `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.False(t, listResp.HasMoreTags)
 	assert.Len(t, listResp.Tags, 2)
 
@@ -543,7 +544,7 @@ func TestHandleRemoveTagsFromStream(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp.Tags, 1)
 	assert.Equal(t, "team", listResp.Tags[0].Key)
 }
@@ -567,7 +568,7 @@ func TestHandleListTagsForStreamEmpty(t *testing.T) {
 		} `json:"Tags"`
 		HasMoreTags bool `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.Tags)
 	assert.False(t, listResp.HasMoreTags)
 }
@@ -616,7 +617,7 @@ func TestListTagsForResource_TagsFromCreate(t *testing.T) {
 					StreamARN string `json:"StreamARN"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 
 			rec3 := doRequest(t, h, "ListTagsForResource", map[string]any{
 				"ResourceARN": descResp.StreamDescription.StreamARN,
@@ -629,7 +630,7 @@ func TestListTagsForResource_TagsFromCreate(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			found := false
 			for _, kv := range tagsResp.Tags {

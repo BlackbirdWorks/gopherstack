@@ -2,7 +2,7 @@ package waf
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -33,7 +33,7 @@ const wafSnapshotVersion = 1
 // plain maps -- see store_setup.go's file doc comment for why they do not fit
 // store.Table's keyed-by-identity-value shape.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage   `json:"tables"`
+	Tables                 map[string]jsontext.Value    `json:"tables"`
 	ChangeTokens           map[string]string            `json:"changeTokens"`
 	RuleGroupRules         map[string][]ActivatedRule   `json:"ruleGroupRules"`
 	PermissionPolicies     map[string]string            `json:"permissionPolicies"`

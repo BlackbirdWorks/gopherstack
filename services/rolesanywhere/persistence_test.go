@@ -5,11 +5,13 @@ package rolesanywhere //nolint:testpackage // needs unexported Subject.region ac
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestPersistence_SnapshotRestoreRoundTrip proves that a full Snapshot →
@@ -247,10 +249,10 @@ func TestPersistence_RestoreVersionMismatch(t *testing.T) {
 			require.NoError(t, err)
 
 			var snapMap map[string]any
-			require.NoError(t, json.Unmarshal(donor.Snapshot(ctx), &snapMap))
+			require.NoError(t, json.Unmarshal(donor.Snapshot(ctx), &snapMap, jsonx.V1()))
 			tt.mutate(snapMap)
 
-			mutatedSnap, err := json.Marshal(snapMap)
+			mutatedSnap, err := json.Marshal(snapMap, jsonx.V1())
 			require.NoError(t, err)
 
 			// The restore target starts with its own, different state so we

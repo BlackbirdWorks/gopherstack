@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -36,7 +37,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["arn"])
 				assert.NotEmpty(t, resp["id"])
 				assert.Contains(t, resp["arn"], "findings-filter")
@@ -53,7 +54,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 					"position":    int32(3),
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["id"]
 			},
@@ -62,7 +63,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "test-filter", resp["name"])
 				assert.Equal(t, "NOOP", resp["action"])
 				assert.Equal(t, "test desc", resp["description"])
@@ -77,7 +78,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "findingsFilterListItems")
 			},
 		},
@@ -90,7 +91,7 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 					"action": "ARCHIVE",
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["id"]
 			},
@@ -130,7 +131,7 @@ func TestListFindingsFiltersEmptyNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, ok := resp["findingsFilterListItems"]
 	require.True(t, ok, "response must contain findingsFilterListItems key")

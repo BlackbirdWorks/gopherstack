@@ -2,8 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetTraceSegmentDestination(_ context.Context, _ []byte) ([]byte, error) {
@@ -12,7 +14,7 @@ func (h *Handler) handleGetTraceSegmentDestination(_ context.Context, _ []byte) 
 	return json.Marshal(map[string]any{
 		"Destination": dest,
 		"Status":      statusActive,
-	})
+	}, jsonx.V1())
 }
 
 type updateTraceSegmentDestinationInput struct {
@@ -22,7 +24,7 @@ type updateTraceSegmentDestinationInput struct {
 func (h *Handler) handleUpdateTraceSegmentDestination(_ context.Context, body []byte) ([]byte, error) {
 	var in updateTraceSegmentDestinationInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -44,5 +46,5 @@ func (h *Handler) handleUpdateTraceSegmentDestination(_ context.Context, body []
 	return json.Marshal(map[string]any{
 		"Destination": dest,
 		"Status":      statusActive,
-	})
+	}, jsonx.V1())
 }

@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -78,7 +80,7 @@ func TestHandler_CreateFunction(t *testing.T) {
 
 			if tt.wantFuncName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				fn, ok := resp["functionConfiguration"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantFuncName, fn["name"])
@@ -102,7 +104,7 @@ func TestHandler_ListFunctions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	fns := resp["functions"].([]any)
 	assert.Len(t, fns, 1)
 }
@@ -121,7 +123,7 @@ func TestHandler_GetFunction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["functionConfiguration"])
 }
 
@@ -158,7 +160,7 @@ func TestHandler_UpdateFunction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	fnConfig := resp["functionConfiguration"].(map[string]any)
 	assert.Equal(t, "updated fn", fnConfig["description"])
 }

@@ -1,11 +1,13 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // trustedTokenIssuerView is the wire shape for types.TrustedTokenIssuerMetadata
@@ -34,7 +36,7 @@ func (h *Handler) handleCreateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		ClientToken            string    `json:"ClientToken"`
 		Tags                   []tagView `json:"Tags"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -93,7 +95,7 @@ func (h *Handler) handleDeleteTrustedTokenIssuer(c *echo.Context, body []byte) e
 	var req struct {
 		TrustedTokenIssuerArn string `json:"TrustedTokenIssuerArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.TrustedTokenIssuerArn == "" {
@@ -110,7 +112,7 @@ func (h *Handler) handleDescribeTrustedTokenIssuer(c *echo.Context, body []byte)
 	var req struct {
 		TrustedTokenIssuerArn string `json:"TrustedTokenIssuerArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -153,7 +155,7 @@ func (h *Handler) handleListTrustedTokenIssuers(c *echo.Context, body []byte) er
 		NextToken   string `json:"NextToken"`
 		MaxResults  int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	issuers := h.Backend.ListTrustedTokenIssuers(req.InstanceArn)
@@ -189,7 +191,7 @@ func (h *Handler) handleUpdateTrustedTokenIssuer(c *echo.Context, body []byte) e
 		Name                   string `json:"Name"`
 		TrustedTokenIssuerType string `json:"TrustedTokenIssuerType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

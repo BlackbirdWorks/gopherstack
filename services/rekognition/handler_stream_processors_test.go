@@ -1,7 +1,8 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -31,7 +33,7 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["StreamProcessorArn"], "arn:aws:rekognition:")
 			},
 		},
@@ -46,7 +48,7 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				// AWS reports a duplicate stream processor name as
 				// ResourceInUseException, not ResourceAlreadyExistsException
 				// (verified against aws-sdk-go-v2/service/rekognition's
@@ -65,7 +67,7 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "STOPPED", resp["Status"])
 				assert.Contains(t, resp["StreamProcessorArn"], "arn:aws:rekognition:")
 			},
@@ -81,7 +83,7 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				procs, _ := resp["StreamProcessors"].([]any)
 				assert.Len(t, procs, 1)
 			},
@@ -122,7 +124,7 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 			},
 		},
@@ -176,7 +178,7 @@ func TestListStreamProcessors_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	procs1, _ := page1["StreamProcessors"].([]any)
 	require.Len(t, procs1, 2)
@@ -189,7 +191,7 @@ func TestListStreamProcessors_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	procs2, _ := page2["StreamProcessors"].([]any)
 	require.Len(t, procs2, 1)
@@ -207,14 +209,14 @@ func TestListStreamProcessors_EmptyReturnsNonNullSlice(t *testing.T) {
 	rec := doRequest(t, h, "ListStreamProcessors", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasProcs := raw["StreamProcessors"]
 	assert.True(t, hasProcs, "StreamProcessors field must be present")
 
 	var procs []any
-	require.NoError(t, json.Unmarshal(raw["StreamProcessors"], &procs))
+	require.NoError(t, json.Unmarshal(raw["StreamProcessors"], &procs, jsonx.V1()))
 	assert.NotNil(t, procs, "StreamProcessors must not be null")
 }
 
@@ -237,7 +239,7 @@ func TestStopStreamProcessor_AlreadyStopped_IsIdempotent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "STOPPED", desc["Status"])
 }
 
@@ -253,7 +255,7 @@ func TestStartStreamProcessor_Unknown_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -269,7 +271,7 @@ func TestUpdateStreamProcessor_Unknown_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -287,7 +289,7 @@ func TestStreamProcessor_StatusTransitions(t *testing.T) {
 		rec := doRequest(t, h, "DescribeStreamProcessor", map[string]any{"Name": "status-proc"})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		return resp["Status"].(string)
 	}
@@ -423,7 +425,7 @@ func TestCreateStreamProcessor_FullFieldsRoundTripThroughDescribe(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/abc", resp["KmsKeyId"])
 
@@ -488,7 +490,7 @@ func TestUpdateStreamProcessor_AppliesFields(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		return resp
 	}
@@ -566,7 +568,7 @@ func TestUpdateStreamProcessor_RegionsOfInterestForUpdate_Replaces(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rois, _ := resp["RegionsOfInterest"].([]any)
 	assert.Len(t, rois, 2)

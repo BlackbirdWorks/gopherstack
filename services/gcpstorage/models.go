@@ -1,7 +1,7 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"slices"
 	"time"
@@ -9,9 +9,9 @@ import (
 
 // IAMBinding is one role binding of a bucket IAM policy.
 type IAMBinding struct {
-	Condition json.RawMessage `json:"condition,omitempty"`
-	Role      string          `json:"role"`
-	Members   []string        `json:"members"`
+	Condition jsontext.Value `json:"condition,omitempty"`
+	Role      string         `json:"role"`
+	Members   []string       `json:"members"`
 }
 
 // IAMPolicy is a bucket IAM policy.
@@ -70,21 +70,21 @@ func (o *Object) clone() *Object {
 
 // Bucket is a bucket with all of its object versions.
 type Bucket struct {
-	Created               time.Time                  `json:"created"`
-	Updated               time.Time                  `json:"updated"`
-	Objects               map[string][]*Object       `json:"objects"`
-	Labels                map[string]string          `json:"labels,omitempty"`
-	Config                map[string]json.RawMessage `json:"config,omitempty"`
-	Project               string                     `json:"project"`
-	Name                  string                     `json:"name"`
-	Location              string                     `json:"location"`
-	StorageClass          string                     `json:"storageClass"`
-	ACL                   []ACLEntry                 `json:"acl,omitempty"`
-	DefaultObjectACL      []ACLEntry                 `json:"defaultObjectAcl,omitempty"`
-	IAM                   IAMPolicy                  `json:"iam"`
-	Metageneration        int64                      `json:"metageneration"`
-	Versioning            bool                       `json:"versioning,omitempty"`
-	DefaultEventBasedHold bool                       `json:"defaultEventBasedHold,omitempty"`
+	Created               time.Time                 `json:"created"`
+	Updated               time.Time                 `json:"updated"`
+	Objects               map[string][]*Object      `json:"objects"`
+	Labels                map[string]string         `json:"labels,omitempty"`
+	Config                map[string]jsontext.Value `json:"config,omitempty"`
+	Project               string                    `json:"project"`
+	Name                  string                    `json:"name"`
+	Location              string                    `json:"location"`
+	StorageClass          string                    `json:"storageClass"`
+	ACL                   []ACLEntry                `json:"acl,omitempty"`
+	DefaultObjectACL      []ACLEntry                `json:"defaultObjectAcl,omitempty"`
+	IAM                   IAMPolicy                 `json:"iam"`
+	Metageneration        int64                     `json:"metageneration"`
+	Versioning            bool                      `json:"versioning,omitempty"`
+	DefaultEventBasedHold bool                      `json:"defaultEventBasedHold,omitempty"`
 }
 
 // clone copies the bucket metadata without its objects.

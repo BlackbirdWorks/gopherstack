@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -135,7 +136,7 @@ func TestHandler_Integration(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -186,7 +187,7 @@ func TestHandler_AssociateSourceToS3TableIntegrationOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -194,7 +195,7 @@ func TestHandler_AssociateSourceToS3TableIntegrationOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {
@@ -252,7 +253,7 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeLogsRequest(t, tt.action, string(bodyBytes))
@@ -260,7 +261,7 @@ func TestHandler_S3TableIntegrationSourceOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				list, ok := resp[tt.wantListField].([]any)
 				require.True(t, ok, "expected list field %q in response", tt.wantListField)
 				assert.Empty(t, list)
@@ -280,7 +281,7 @@ func TestHandler_DisassociateSourceFromS3TableIntegration_RoundTrip(t *testing.T
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	identifier, ok := assocResp["identifier"].(string)
 	require.True(t, ok, "expected identifier in AssociateSourceToS3TableIntegration response")
 	require.NotEmpty(t, identifier)
@@ -290,7 +291,7 @@ func TestHandler_DisassociateSourceFromS3TableIntegration_RoundTrip(t *testing.T
 	require.Equal(t, http.StatusOK, disRec.Code)
 
 	var disResp map[string]any
-	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp, jsonx.V1()))
 	assert.Equal(t, identifier, disResp["identifier"])
 
 	// A second disassociate of the same identifier must now fail: the
@@ -340,13 +341,13 @@ func TestHandler_IntegrationResponseShape(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "response should contain field %q", field)
 			}

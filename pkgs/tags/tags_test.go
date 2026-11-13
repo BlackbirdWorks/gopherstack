@@ -1,11 +1,12 @@
 package tags_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"sync"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 
 	"github.com/stretchr/testify/assert"
@@ -332,7 +333,7 @@ func TestTags_MarshalJSON(t *testing.T) {
 				tt.setup(tg)
 			}
 
-			data, err := json.Marshal(tg)
+			data, err := json.Marshal(tg, jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(data))
 		})
@@ -351,7 +352,7 @@ func TestTags_MarshalJSON_InStruct(t *testing.T) {
 	tg.Set("team", "platform")
 
 	r := resource{Name: "bucket", Tags: tg}
-	data, err := json.Marshal(r)
+	data, err := json.Marshal(r, jsonx.V1())
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"bucket","tags":{"team":"platform"}}`, string(data))
 }
@@ -379,7 +380,7 @@ func TestTags_UnmarshalJSON(t *testing.T) {
 			t.Parallel()
 
 			tg := tags.New("test.unmarshal." + tt.name)
-			err := json.Unmarshal([]byte(tt.input), tg)
+			err := json.Unmarshal([]byte(tt.input), tg, jsonx.V1())
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -402,7 +403,7 @@ func TestTags_UnmarshalJSON_InStruct(t *testing.T) {
 	}
 
 	r := resource{Tags: tags.New("test.unmarshal.struct")}
-	err := json.Unmarshal([]byte(`{"name":"bucket","tags":{"env":"staging"}}`), &r)
+	err := json.Unmarshal([]byte(`{"name":"bucket","tags":{"env":"staging"}}`), &r, jsonx.V1())
 	require.NoError(t, err)
 	assert.Equal(t, "bucket", r.Name)
 	assert.Equal(t, map[string]string{"env": "staging"}, r.Tags.Clone())
@@ -415,11 +416,11 @@ func TestTags_RoundTrip(t *testing.T) {
 	tg.Set("env", "prod")
 	tg.Set("team", "platform")
 
-	data, err := json.Marshal(tg)
+	data, err := json.Marshal(tg, jsonx.V1())
 	require.NoError(t, err)
 
 	tg2 := tags.New("test.roundtrip2")
-	require.NoError(t, json.Unmarshal(data, tg2))
+	require.NoError(t, json.Unmarshal(data, tg2, jsonx.V1()))
 	assert.Equal(t, tg.Clone(), tg2.Clone())
 }
 
@@ -431,7 +432,7 @@ func TestTags_UnmarshalJSON_ClearsStaleKeys(t *testing.T) {
 	require.True(t, tg.HasTag("old-key"))
 
 	// Second unmarshal with a different payload must not leave "old-key" behind.
-	require.NoError(t, json.Unmarshal([]byte(`{"new-key":"new-value"}`), tg))
+	require.NoError(t, json.Unmarshal([]byte(`{"new-key":"new-value"}`), tg, jsonx.V1()))
 
 	assert.False(t, tg.HasTag("old-key"), "stale key must be removed on unmarshal")
 	v, ok := tg.Get("new-key")

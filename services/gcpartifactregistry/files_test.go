@@ -1,7 +1,7 @@
 package gcpartifactregistry_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 )
 
@@ -54,7 +55,7 @@ func configDigest(t *testing.T, img ocitest.Image) string {
 		} `json:"config"`
 	}
 
-	require.NoError(t, json.Unmarshal(img.Body, &doc))
+	require.NoError(t, json.Unmarshal(img.Body, &doc, jsonx.V1()))
 
 	return doc.Config.Digest
 }

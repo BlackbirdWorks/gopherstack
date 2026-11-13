@@ -1,13 +1,15 @@
 package glue
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errJSONSchema = errors.New("invalid JSON schema")
@@ -34,7 +36,7 @@ type jsonSchemaDoc map[string]any
 
 func parseJSONSchema(def string) (jsonSchemaDoc, error) {
 	var v any
-	if err := json.Unmarshal([]byte(def), &v); err != nil {
+	if err := json.Unmarshal([]byte(def), &v, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("schema is not valid JSON: %w", err)
 	}
 

@@ -1,13 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -31,7 +32,7 @@ func TestOmics_RunGroup(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
 			},
 		},
@@ -43,7 +44,7 @@ func TestOmics_RunGroup(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotNil(t, resp["items"])
 			},
 		},
@@ -100,7 +101,7 @@ func TestOmics_Run(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
 			},
 		},
@@ -153,7 +154,7 @@ func TestRunStartsAsPending(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PENDING", resp["status"])
 }
 
@@ -171,7 +172,7 @@ func TestStartRunReturnsPartialResponse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["arn"])
 	assert.NotEmpty(t, resp["id"])
 	assert.Equal(t, "PENDING", resp["status"])
@@ -192,7 +193,7 @@ func TestUpdateRunCachePersistsDescription(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	cacheID := createResp["id"].(string)
 
 	updateRec := doRequest(t, h, http.MethodPost, "/runCache/"+cacheID, map[string]any{
@@ -204,7 +205,7 @@ func TestUpdateRunCachePersistsDescription(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "updated description", getResp["description"])
 }
 
@@ -222,7 +223,7 @@ func TestListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batchResp map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp, jsonx.V1()))
 	batchID := batchResp["id"].(string)
 
 	// Start a second run explicitly associated with this batch via the
@@ -242,7 +243,7 @@ func TestListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	runs, ok := listResp["runs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, runs, 2)
@@ -265,11 +266,11 @@ func TestListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batch2Rec.Code)
 
 	var b1 map[string]any
-	require.NoError(t, json.Unmarshal(batch1Rec.Body.Bytes(), &b1))
+	require.NoError(t, json.Unmarshal(batch1Rec.Body.Bytes(), &b1, jsonx.V1()))
 	batchID1 := b1["id"].(string)
 
 	var b2 map[string]any
-	require.NoError(t, json.Unmarshal(batch2Rec.Body.Bytes(), &b2))
+	require.NoError(t, json.Unmarshal(batch2Rec.Body.Bytes(), &b2, jsonx.V1()))
 	batchID2 := b2["id"].(string)
 
 	// Associate a run with batch 1.
@@ -286,7 +287,7 @@ func TestListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	runs, ok := listResp["runs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, runs, 1)
@@ -317,7 +318,7 @@ func TestCancelRunGuardsTerminalState(t *testing.T) {
 			require.Equal(t, http.StatusCreated, startRec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 			runID := startResp["id"].(string)
 
 			// Cancel once.
@@ -349,7 +350,7 @@ func TestStartRun_ResponseIncludesOptionalFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["uuid"], "StartRunOutput.uuid must be populated")
 	assert.Equal(t, "VPC", resp["networkingMode"])
 	assert.Equal(t, "s3://bucket/output", resp["runOutputUri"])
@@ -367,7 +368,7 @@ func TestRun_BatchIDSerializedAsBatchIdKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
@@ -379,14 +380,14 @@ func TestRun_BatchIDSerializedAsBatchIdKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
 	var run map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run, jsonx.V1()))
 	runID := run["id"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/run/"+runID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, batchID, getResp["batchId"], "real wire key is batchId")
 	assert.Nil(t, getResp["runBatchId"], "runBatchId is not a real wire key")
 }
@@ -412,7 +413,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	runs, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, runs, 1)
@@ -422,7 +423,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	runs2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, runs2, 1)
@@ -432,7 +433,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 	runs3, ok := resp3["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, runs3, "no run has been cancelled yet")
@@ -450,7 +451,7 @@ func TestListRunTasks_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
 	var run map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run, jsonx.V1()))
 	runID := run["id"].(string)
 
 	// The auto-created task starts PENDING; filtering for RUNNING must exclude it.
@@ -458,7 +459,7 @@ func TestListRunTasks_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tasks, ok := resp["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, tasks)
@@ -467,7 +468,7 @@ func TestListRunTasks_FiltersByStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	tasks2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tasks2, 1)
@@ -486,7 +487,7 @@ func TestListRunGroups_FiltersByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, groups, 1)
@@ -508,7 +509,7 @@ func TestListRunBatches_FiltersByNameAndStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	batches, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, batches, 1)
@@ -520,7 +521,7 @@ func TestListRunBatches_FiltersByNameAndStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	batches2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, batches2, 2)
@@ -537,7 +538,7 @@ func TestListRunsInBatch_FiltersByRunID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
@@ -547,14 +548,14 @@ func TestListRunsInBatch_FiltersByRunID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
 	var run map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run, jsonx.V1()))
 	runID := run["id"].(string)
 
 	rec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID+"/run?runId=does-not-exist", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	runs, ok := resp["runs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, runs, "runId filter must exclude non-matching runs")
@@ -563,7 +564,7 @@ func TestListRunsInBatch_FiltersByRunID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	runs2, ok := resp2["runs"].([]any)
 	require.True(t, ok)
 	require.Len(t, runs2, 1)
@@ -587,7 +588,7 @@ func TestDeleteBatch_RequiresTerminalState(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	omics.SetRunBatchStatusForTest(backend, batchID, "SUBMITTING")

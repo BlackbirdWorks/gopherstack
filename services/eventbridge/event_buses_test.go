@@ -3,7 +3,7 @@ package eventbridge_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -166,7 +167,7 @@ func TestGetEventBusPolicy_IsPolicyDocumentNotBareArray(t *testing.T) {
 			Sid string `json:"Sid"`
 		} `json:"Statement"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(policy), &doc),
+	require.NoError(t, json.Unmarshal([]byte(policy), &doc, jsonx.V1()),
 		"Policy must be an IAM-style document (an object with a Statement array), not a bare array")
 	assert.Equal(t, "2012-10-17", doc.Version)
 	require.Len(t, doc.Statement, 1)

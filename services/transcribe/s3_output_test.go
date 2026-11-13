@@ -2,7 +2,8 @@ package transcribe_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -84,10 +86,10 @@ func TestTranscriptionJobWritesOutput(t *testing.T) {
 					Transcripts []struct {
 						Transcript string `json:"transcript"`
 					} `json:"transcripts"`
-					Items []json.RawMessage `json:"items"`
+					Items []jsontext.Value `json:"items"`
 				} `json:"results"`
 			}
-			require.NoError(t, json.Unmarshal(w.objects[tt.wantKey], &doc))
+			require.NoError(t, json.Unmarshal(w.objects[tt.wantKey], &doc, jsonx.V1()))
 			assert.Equal(t, "j", doc.JobName)
 			assert.Equal(t, "COMPLETED", doc.Status)
 			assert.NotEmpty(t, doc.Results.Transcripts)
@@ -146,7 +148,7 @@ func TestCallAnalyticsJobWritesOutput(t *testing.T) {
 			}
 
 			var doc map[string]any
-			require.NoError(t, json.Unmarshal(w.objects[tt.wantKey], &doc))
+			require.NoError(t, json.Unmarshal(w.objects[tt.wantKey], &doc, jsonx.V1()))
 			assert.Equal(t, "COMPLETED", doc["JobStatus"])
 			assert.NotEmpty(t, doc["Transcript"])
 			assert.NotEmpty(t, doc["Participants"])

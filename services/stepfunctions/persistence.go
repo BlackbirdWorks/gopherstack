@@ -2,9 +2,11 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -93,17 +95,17 @@ func (b *InMemoryBackend) newPersistedDTORegistry() (
 // guards against decoding a snapshot from an incompatible (older or newer)
 // build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // handlerSnapshot wraps the backend snapshot together with handler-level state
 // (tags) so both are persisted and restored together.
 type handlerSnapshot struct {
 	Tags    map[string]map[string]string `json:"tags,omitempty"`
-	Backend json.RawMessage              `json:"backend"`
+	Backend jsontext.Value               `json:"backend"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -329,7 +331,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		Snapshot(ctx context.Context) []byte
 	}
 
-	var backendBytes json.RawMessage
+	var backendBytes jsontext.Value
 	if s, ok := h.Backend.(snapshotter); ok {
 		backendBytes = s.Snapshot(ctx)
 	}
@@ -346,7 +348,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		Tags:    tagsData,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		return backendBytes
 	}

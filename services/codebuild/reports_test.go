@@ -1,13 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
 
@@ -103,7 +105,7 @@ func TestHandler_BatchGetReportGroups(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				rg, _ := out["reportGroup"].(map[string]any)
 				arns = append(arns, rg["arn"].(string))
 			}
@@ -116,7 +118,7 @@ func TestHandler_BatchGetReportGroups(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			groups, _ := out["reportGroups"].([]any)
 			assert.Len(t, groups, tt.wantFound)
@@ -177,7 +179,7 @@ func TestHandler_BatchGetReports(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			reports, _ := out["reports"].([]any)
 			assert.Len(t, reports, tt.wantFound)
@@ -202,7 +204,7 @@ func TestCodeBuild_Reports(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Empty(t, out.Reports)
 	})
 
@@ -225,7 +227,7 @@ func TestCodeBuild_Reports(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.Reports, 2)
 	})
 
@@ -247,7 +249,7 @@ func TestCodeBuild_Reports(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 		assert.Empty(t, out.Reports)
 	})
 
@@ -302,7 +304,7 @@ func TestCodeBuild_Reports(t *testing.T) {
 		var out struct {
 			Reports []string `json:"reports"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Len(t, out.Reports, 2)
 		for _, r := range out.Reports {
 			assert.Contains(t, r, "my-rg")
@@ -343,7 +345,7 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 				Arn string `json:"arn"`
 			} `json:"reportGroup"`
 		}
-		require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 		rgArn := createOut.ReportGroup.Arn
 
 		delRec := doRequest(t, h, "DeleteReportGroup", map[string]any{"arn": rgArn})
@@ -356,7 +358,7 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 		var batchOut struct {
 			ReportGroupsNotFound []string `json:"reportGroupsNotFound"`
 		}
-		require.NoError(t, json.NewDecoder(batchRec.Body).Decode(&batchOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(batchRec.Body), &batchOut, jsonx.V1()))
 		assert.Len(t, batchOut.ReportGroupsNotFound, 1)
 	})
 
@@ -390,7 +392,7 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 				Arn string `json:"arn"`
 			} `json:"reportGroup"`
 		}
-		require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 		rgArn := createOut.ReportGroup.Arn
 
 		updateRec := doRequest(t, h, "UpdateReportGroup", map[string]any{
@@ -408,7 +410,7 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 				} `json:"exportConfig"`
 			} `json:"reportGroup"`
 		}
-		require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &updateOut, jsonx.V1()))
 		assert.Equal(t, "S3", updateOut.ReportGroup.ExportConfig.ExportConfigType)
 	})
 
@@ -444,7 +446,7 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		var out struct {
 			CodeCoverages []any `json:"codeCoverages"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Empty(t, out.CodeCoverages)
 	})
 
@@ -470,7 +472,7 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		var out struct {
 			TestCases []any `json:"testCases"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Empty(t, out.TestCases)
 	})
 
@@ -502,7 +504,7 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		var out struct {
 			Stats map[string]any `json:"stats"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.NotNil(t, out.Stats)
 	})
 
@@ -543,7 +545,7 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		var out struct {
 			ReportGroups []string `json:"reportGroups"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Empty(t, out.ReportGroups)
 	})
 }

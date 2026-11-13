@@ -1,11 +1,14 @@
 package timestreaminfluxdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -220,13 +223,13 @@ func validateListArgs(maxResults int32) error {
 }
 
 // validateParameters checks the union shape: one engine key holding a parameter object.
-func validateParameters(raw json.RawMessage) error {
+func validateParameters(raw jsontext.Value) error {
 	if len(raw) == 0 {
 		return nil
 	}
 
-	var union map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &union); err != nil || len(union) != 1 {
+	var union map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &union, jsonx.V1()); err != nil || len(union) != 1 {
 		return invalid("parameters must set exactly one of %s", strings.Join(paramGroups(), ", "))
 	}
 
@@ -235,8 +238,8 @@ func validateParameters(raw json.RawMessage) error {
 			return invalid("parameters must set exactly one of %s", strings.Join(paramGroups(), ", "))
 		}
 
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(body, &fields); err != nil {
+		var fields map[string]jsontext.Value
+		if err := json.Unmarshal(body, &fields, jsonx.V1()); err != nil {
 			return invalid("%s parameters must be an object", engine)
 		}
 
@@ -248,7 +251,7 @@ func validateParameters(raw json.RawMessage) error {
 	return nil
 }
 
-func validateParameterFields(engine string, fields map[string]json.RawMessage) error {
+func validateParameterFields(engine string, fields map[string]jsontext.Value) error {
 	for name, val := range fields {
 		if !paramKeys[name] {
 			return invalid("%s has no parameter named %q", engine, name)
@@ -275,21 +278,21 @@ func validateParameterFields(engine string, fields map[string]json.RawMessage) e
 	return nil
 }
 
-func checkEnum(name string, raw json.RawMessage, allowed []string) error {
+func checkEnum(name string, raw jsontext.Value, allowed []string) error {
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return invalid("%s must be a string", name)
 	}
 
 	return oneOf(name, s, allowed)
 }
 
-func checkDuration(name string, raw json.RawMessage) error {
+func checkDuration(name string, raw jsontext.Value) error {
 	var d struct {
 		Value        *int64 `json:"value"`
 		DurationType string `json:"durationType"`
 	}
-	if err := json.Unmarshal(raw, &d); err != nil || d.Value == nil {
+	if err := json.Unmarshal(raw, &d, jsonx.V1()); err != nil || d.Value == nil {
 		return invalid("%s must be a duration with durationType and value", name)
 	}
 

@@ -1,7 +1,7 @@
 package ocicontainerengine
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -80,15 +80,15 @@ type TagCfg struct {
 
 // ClusterOptions is the cluster create and update options block.
 type ClusterOptions struct {
-	K8sNetwork        *NetworkConfig  `json:"kubernetesNetworkConfig,omitempty"`
-	AddOns            *AddOns         `json:"addOns,omitempty"`
-	Admission         *Admission      `json:"admissionControllerOptions,omitempty"`
-	PersistentVolume  *TagCfg         `json:"persistentVolumeConfig,omitempty"`
-	ServiceLb         *TagCfg         `json:"serviceLbConfig,omitempty"`
-	OIDCAuth          json.RawMessage `json:"openIdConnectTokenAuthenticationConfig,omitempty"`
-	OIDCDiscovery     json.RawMessage `json:"openIdConnectDiscovery,omitempty"`
-	ServiceLbSubnetID []string        `json:"serviceLbSubnetIds,omitempty"`
-	IPFamilies        []string        `json:"ipFamilies,omitempty"`
+	K8sNetwork        *NetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	AddOns            *AddOns        `json:"addOns,omitempty"`
+	Admission         *Admission     `json:"admissionControllerOptions,omitempty"`
+	PersistentVolume  *TagCfg        `json:"persistentVolumeConfig,omitempty"`
+	ServiceLb         *TagCfg        `json:"serviceLbConfig,omitempty"`
+	OIDCAuth          jsontext.Value `json:"openIdConnectTokenAuthenticationConfig,omitempty"`
+	OIDCDiscovery     jsontext.Value `json:"openIdConnectDiscovery,omitempty"`
+	ServiceLbSubnetID []string       `json:"serviceLbSubnetIds,omitempty"`
+	IPFamilies        []string       `json:"ipFamilies,omitempty"`
 }
 
 // KeyDetail references an image signing key.
@@ -144,11 +144,11 @@ type Cluster struct {
 
 // Placement is one nodeConfigDetails placement configuration.
 type Placement struct {
-	PreemptibleConfig json.RawMessage `json:"preemptibleNodeConfig,omitempty"`
-	AvailabilityDom   string          `json:"availabilityDomain"`
-	SubnetID          string          `json:"subnetId"`
-	CapacityReserveID string          `json:"capacityReservationId,omitempty"`
-	FaultDomains      []string        `json:"faultDomains,omitempty"`
+	PreemptibleConfig jsontext.Value `json:"preemptibleNodeConfig,omitempty"`
+	AvailabilityDom   string         `json:"availabilityDomain"`
+	SubnetID          string         `json:"subnetId"`
+	CapacityReserveID string         `json:"capacityReservationId,omitempty"`
+	FaultDomains      []string       `json:"faultDomains,omitempty"`
 }
 
 // NodeConfig is nodeConfigDetails.
@@ -205,8 +205,8 @@ type NodePool struct {
 	QuantityPerSub *int              `json:"quantityPerSubnet,omitempty"`
 	Tags           Tags              `json:"tags"`
 	NodeMetadata   map[string]string `json:"nodeMetadata,omitempty"`
-	Eviction       json.RawMessage   `json:"eviction,omitempty"`
-	Cycling        json.RawMessage   `json:"cycling,omitempty"`
+	Eviction       jsontext.Value    `json:"eviction,omitempty"`
+	Cycling        jsontext.Value    `json:"cycling,omitempty"`
 	ID             string            `json:"id"`
 	ClusterID      string            `json:"clusterId"`
 	CompartmentID  string            `json:"compartmentId"`

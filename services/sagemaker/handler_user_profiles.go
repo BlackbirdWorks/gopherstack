@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -17,18 +19,18 @@ import (
 // it — see gopherstack-oc9v). UserSettings is carried as opaque
 // json.RawMessage passthrough per this file's established convention.
 type createUserProfileInput struct {
-	DomainID                   string          `json:"DomainId"`
-	UserProfileName            string          `json:"UserProfileName"`
-	SingleSignOnUserIdentifier string          `json:"SingleSignOnUserIdentifier"`
-	SingleSignOnUserValue      string          `json:"SingleSignOnUserValue"`
-	UserSettings               json.RawMessage `json:"UserSettings"`
-	Tags                       []tagObject     `json:"Tags"`
+	DomainID                   string         `json:"DomainId"`
+	UserProfileName            string         `json:"UserProfileName"`
+	SingleSignOnUserIdentifier string         `json:"SingleSignOnUserIdentifier"`
+	SingleSignOnUserValue      string         `json:"SingleSignOnUserValue"`
+	UserSettings               jsontext.Value `json:"UserSettings"`
+	Tags                       []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateUserProfile(ctx context.Context, body []byte) ([]byte, error) {
 	var req createUserProfileInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -61,7 +63,7 @@ func (h *Handler) handleCreateUserProfile(ctx context.Context, body []byte) ([]b
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created user profile", "name", up.UserProfileName)
 
-	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn})
+	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn}, jsonx.V1())
 }
 
 type describeUserProfileInput struct {
@@ -72,7 +74,7 @@ type describeUserProfileInput struct {
 func (h *Handler) handleDescribeUserProfile(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeUserProfileInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -110,7 +112,7 @@ func (h *Handler) handleDescribeUserProfile(ctx context.Context, body []byte) ([
 		resp["UserSettings"] = up.UserSettings
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type userProfileSummary struct {
@@ -133,7 +135,7 @@ type listUserProfilesInput struct {
 func (h *Handler) handleListUserProfiles(ctx context.Context, body []byte) ([]byte, error) {
 	var req listUserProfilesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -155,7 +157,7 @@ func (h *Handler) handleListUserProfiles(ctx context.Context, body []byte) ([]by
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type deleteUserProfileInput struct {
@@ -166,7 +168,7 @@ type deleteUserProfileInput struct {
 func (h *Handler) handleDeleteUserProfile(ctx context.Context, body []byte) error {
 	var req deleteUserProfileInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -191,15 +193,15 @@ func (h *Handler) handleDeleteUserProfile(ctx context.Context, body []byte) erro
 // updateUserProfileInput mirrors UpdateUserProfileInput
 // (api_op_UpdateUserProfile.go:26-38).
 type updateUserProfileInput struct {
-	DomainID        string          `json:"DomainId"`
-	UserProfileName string          `json:"UserProfileName"`
-	UserSettings    json.RawMessage `json:"UserSettings"`
+	DomainID        string         `json:"DomainId"`
+	UserProfileName string         `json:"UserProfileName"`
+	UserSettings    jsontext.Value `json:"UserSettings"`
 }
 
 func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateUserProfileInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -222,5 +224,5 @@ func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn})
+	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn}, jsonx.V1())
 }

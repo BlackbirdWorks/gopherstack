@@ -2,7 +2,7 @@ package memorydb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -58,7 +59,7 @@ func TestHandler_CreateCluster(t *testing.T) {
 
 			if tt.name == "missing target header" {
 				e := echo.New()
-				bodyBytes, _ := json.Marshal(tt.body)
+				bodyBytes, _ := json.Marshal(tt.body, jsonx.V1())
 				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 				rec := httptest.NewRecorder()
 				c := e.NewContext(req, rec)
@@ -74,7 +75,7 @@ func TestHandler_CreateCluster(t *testing.T) {
 
 			if tt.wantCluster {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				clusterVal, ok := resp["Cluster"]
 				require.True(t, ok, "response should contain Cluster field")
 
@@ -137,7 +138,7 @@ func TestHandler_DescribeClusters(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				clusters, ok := resp["Clusters"].([]any)
 				require.True(t, ok)
 				assert.Len(t, clusters, tt.wantCount)
@@ -207,7 +208,7 @@ func TestHandler_ClusterResponse_ParameterGroupStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	clusters, _ := resp["Clusters"].([]any)
 	require.Len(t, clusters, 1)
 	cl, _ := clusters[0].(map[string]any)
@@ -228,7 +229,7 @@ func TestHandler_ClusterResponse_MultiRegionClusterName(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	cl, _ := createResp["Cluster"].(map[string]any)
 
 	// Field must be present (empty string is fine for a cluster not in multi-region).
@@ -250,7 +251,7 @@ func TestHandler_ClusterParameterGroupStatus_InSync(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp, jsonx.V1()))
 	cl, _ := resp["Cluster"].(map[string]any)
 	assert.Equal(t, "in-sync", cl["ParameterGroupStatus"],
 		"default ParameterGroupStatus must be in-sync")
@@ -343,7 +344,7 @@ func TestHandler_BatchUpdateCluster(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				processed := resp["ProcessedClusters"].([]any)
 				assert.Len(t, processed, tt.wantProcessed)
@@ -403,7 +404,7 @@ func TestHandler_UpdateCluster(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cluster := resp["Cluster"].(map[string]any)
 				assert.Equal(t, "updated", cluster["Description"])
 			}
@@ -562,7 +563,7 @@ func TestHandler_SnsTopicStatusStoredOnUpdate(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var updateResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 
 			cluster, _ := updateResp["Cluster"].(map[string]any)
 			gotStatus, _ := cluster["SnsTopicStatus"].(string)
@@ -733,7 +734,7 @@ func TestHandler_DeleteCluster_WithSnapshot_EmitsEvent(t *testing.T) {
 	require.Equal(t, http.StatusOK, evRec.Code)
 
 	var evResp map[string]any
-	require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &evResp))
+	require.NoError(t, json.Unmarshal(evRec.Body.Bytes(), &evResp, jsonx.V1()))
 	events, _ := evResp["Events"].([]any)
 	// At least create + delete events.
 	assert.GreaterOrEqual(t, len(events), 2, "expected create and delete events")
@@ -789,7 +790,7 @@ func TestHandler_BatchUpdateCluster_Extended(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			processed, _ := resp["ProcessedClusters"].([]any)
 			unprocessed, _ := resp["UnprocessedClusters"].([]any)
 			assert.Len(t, processed, tt.wantProcessed)
@@ -873,7 +874,7 @@ func TestHandler_EnginePatchVersion_AllFamilies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			cl, _ := resp["Cluster"].(map[string]any)
 
 			assert.Equal(t, tt.wantPatchVersion, cl["EnginePatchVersion"],

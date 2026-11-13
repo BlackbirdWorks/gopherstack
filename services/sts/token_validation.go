@@ -2,7 +2,7 @@ package sts
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // clockSkewLeeway is the tolerance applied to JWT/SAML temporal claims so that
@@ -87,7 +89,7 @@ func parseJWTPayloadClaims(token string) map[string]any {
 	}
 
 	var claims map[string]any
-	if err = json.Unmarshal(decoded, &claims); err != nil {
+	if err = json.Unmarshal(decoded, &claims, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -215,7 +217,7 @@ func jwtTimeClaim(claims map[string]any, key string) (time.Time, bool, error) {
 	switch n := v.(type) {
 	case float64:
 		return time.Unix(int64(n), 0).UTC(), true, nil
-	case json.Number:
+	case jsonx.Number:
 		secs, err := n.Int64()
 		if err != nil {
 			return time.Time{}, false, fmt.Errorf(

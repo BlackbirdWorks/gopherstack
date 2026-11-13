@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -51,7 +52,7 @@ func TestHandler_CreateCapacityReservation(t *testing.T) {
 
 			if tt.wantErr {
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.NotEmpty(t, errResp["__type"])
 			}
 		})
@@ -239,7 +240,7 @@ func TestHandler_CapacityReservation_LastAllocationStruct(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cr := resp["CapacityReservation"].(map[string]any)
 
 	assert.Equal(t, "ACTIVE", cr["Status"])
@@ -263,7 +264,7 @@ func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cr := resp["CapacityReservation"].(map[string]any)
 
 	assert.InDelta(t, float64(30), cr["TargetDpus"], 0.001)
@@ -330,7 +331,7 @@ func TestHandler_GetCapacityReservation_NoInventedTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasTags := resp["CapacityReservation"]["Tags"]
 	assert.False(t, hasTags, "CapacityReservation response must not carry an invented Tags field")
 
@@ -339,7 +340,7 @@ func TestHandler_GetCapacityReservation_NoInventedTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string][]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	require.Len(t, tagsResp["Tags"], 1, "the tag set at creation must still be visible via ListTagsForResource")
 	assert.Equal(t, "owner", tagsResp["Tags"][0]["Key"])
 }

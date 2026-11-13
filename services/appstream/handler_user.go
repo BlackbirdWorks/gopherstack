@@ -2,11 +2,12 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- User handlers ---
@@ -21,7 +22,7 @@ type createUserInput struct {
 
 func (h *Handler) opCreateUser(_ context.Context, body []byte) (any, error) {
 	var req createUserInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -57,7 +58,7 @@ type deleteUserInput struct {
 
 func (h *Handler) opDeleteUser(_ context.Context, body []byte) (any, error) {
 	var req deleteUserInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -76,7 +77,7 @@ type describeUsersInput struct {
 func (h *Handler) opDescribeUsers(_ context.Context, body []byte) (any, error) {
 	var req describeUsersInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -111,7 +112,7 @@ type userAuthInput struct {
 
 func (h *Handler) opDisableUser(_ context.Context, body []byte) (any, error) {
 	var req userAuthInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -124,7 +125,7 @@ func (h *Handler) opDisableUser(_ context.Context, body []byte) (any, error) {
 
 func (h *Handler) opEnableUser(_ context.Context, body []byte) (any, error) {
 	var req userAuthInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -157,7 +158,7 @@ func (h *Handler) opBatchAssociateUserStack( //nolint:dupl // existing issue.
 	body []byte,
 ) (any, error) {
 	var req batchAssociateUserStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -197,7 +198,7 @@ func (h *Handler) opBatchDisassociateUserStack( //nolint:dupl // existing issue.
 	body []byte,
 ) (any, error) {
 	var req batchAssociateUserStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -242,7 +243,7 @@ type describeUserStackAssociationsInput struct {
 func (h *Handler) opDescribeUserStackAssociations(_ context.Context, body []byte) (any, error) {
 	var req describeUserStackAssociationsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -286,7 +287,7 @@ type describeSessionsInput struct {
 func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error) {
 	var req describeSessionsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -321,7 +322,7 @@ type sessionIDInput struct {
 
 func (h *Handler) opDrainSessionInstance(_ context.Context, body []byte) (any, error) {
 	var req sessionIDInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -334,7 +335,7 @@ func (h *Handler) opDrainSessionInstance(_ context.Context, body []byte) (any, e
 
 func (h *Handler) opExpireSession(_ context.Context, body []byte) (any, error) {
 	var req sessionIDInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -354,7 +355,7 @@ type createStreamingURLInput struct {
 
 func (h *Handler) opCreateStreamingURL(_ context.Context, body []byte) (any, error) {
 	var req createStreamingURLInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -394,7 +395,7 @@ func (h *Handler) opDeleteUsageReportSubscription(_ context.Context, _ []byte) (
 func (h *Handler) opDescribeUsageReportSubscriptions(_ context.Context, body []byte) (any, error) {
 	var req pageReq
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -450,7 +451,7 @@ type createThemeForStackInput struct {
 
 func (h *Handler) opCreateThemeForStack(_ context.Context, body []byte) (any, error) {
 	var req createThemeForStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -473,7 +474,7 @@ func (h *Handler) opCreateThemeForStack(_ context.Context, body []byte) (any, er
 
 func (h *Handler) opDeleteThemeForStack(_ context.Context, body []byte) (any, error) {
 	var req themeStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -486,7 +487,7 @@ func (h *Handler) opDeleteThemeForStack(_ context.Context, body []byte) (any, er
 
 func (h *Handler) opDescribeThemeForStack(_ context.Context, body []byte) (any, error) {
 	var req themeStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -514,7 +515,7 @@ type updateThemeForStackInput struct {
 
 func (h *Handler) opUpdateThemeForStack(_ context.Context, body []byte) (any, error) {
 	var req updateThemeForStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 

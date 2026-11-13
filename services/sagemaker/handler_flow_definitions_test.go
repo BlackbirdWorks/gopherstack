@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func createFlowDefinitionRequest(name string) map[string]any {
@@ -29,7 +31,7 @@ func TestHandler_CreateFlowDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["FlowDefinitionArn"], "my-flow")
 }
 
@@ -77,7 +79,7 @@ func TestHandler_DescribeFlowDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "flow-1", resp["FlowDefinitionName"])
 }
 
@@ -152,13 +154,13 @@ func TestHandler_ListFlowDefinitions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["FlowDefinitionSummaries"])
 
 	doSageMakerRequest(t, h, "CreateFlowDefinition", createFlowDefinitionRequest("my-flow"))
 
 	rec = doSageMakerRequest(t, h, "ListFlowDefinitions", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	defs := resp["FlowDefinitionSummaries"].([]any)
 	assert.Len(t, defs, 1)
 	d := defs[0].(map[string]any)

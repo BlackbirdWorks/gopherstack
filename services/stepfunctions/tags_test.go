@@ -1,13 +1,15 @@
 package stepfunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagResource(t *testing.T) {
@@ -67,7 +69,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			tags := resp["tags"].([]any)
 			assert.NotEmpty(t, tags)
 		})
@@ -112,7 +114,7 @@ func TestHandler_UntagResource(t *testing.T) {
 
 			listRec := sfnPost(ctx, t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			tags := resp["tags"].([]any)
 			assert.Len(t, tags, tt.wantTagCount)
@@ -140,24 +142,24 @@ func TestTags_CreateWithInlineTags(t *testing.T) {
 		},
 	}
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(raw))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	arnStr := out["stateMachineArn"].(string)
-	listBody, err := json.Marshal(map[string]any{"resourceArn": arnStr})
+	listBody, err := json.Marshal(map[string]any{"resourceArn": arnStr}, jsonx.V1())
 	require.NoError(t, err)
 
 	listRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(listBody))
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tags map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tags))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tags, jsonx.V1()))
 
 	tagList, _ := tags["tags"].([]any)
 	assert.Len(t, tagList, 2)
@@ -173,21 +175,21 @@ func TestTags_TagAndUntag(t *testing.T) {
 	tagBody, err := json.Marshal(map[string]any{
 		"resourceArn": arnStr,
 		"tags":        []map[string]string{{"key": "k1", "value": "v1"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "TagResource", string(tagBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify
-	listBody, err := json.Marshal(map[string]any{"resourceArn": arnStr})
+	listBody, err := json.Marshal(map[string]any{"resourceArn": arnStr}, jsonx.V1())
 	require.NoError(t, err)
 
 	listRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(listBody))
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut, jsonx.V1()))
 
 	tagList, _ := tagOut["tags"].([]any)
 	assert.Len(t, tagList, 1)
@@ -196,7 +198,7 @@ func TestTags_TagAndUntag(t *testing.T) {
 	untagBody, err := json.Marshal(map[string]any{
 		"resourceArn": arnStr,
 		"tagKeys":     []string{"k1"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	untagRec := sfnPost(ctx, t, h, e, "UntagResource", string(untagBody))
@@ -206,7 +208,7 @@ func TestTags_TagAndUntag(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var after map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &after, jsonx.V1()))
 
 	tagList2, _ := after["tags"].([]any)
 	assert.Empty(t, tagList2)
@@ -225,14 +227,14 @@ func TestTagResource_KeyTooLong_Error(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
 		"tags":        []map[string]string{{"key": longKey, "value": "val"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TagPolicyViolation", resp["__type"])
 }
 
@@ -246,14 +248,14 @@ func TestTagResource_EmptyKey_Error(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
 		"tags":        []map[string]string{{"key": "", "value": "val"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TagPolicyViolation", resp["__type"])
 }
 
@@ -268,14 +270,14 @@ func TestTagResource_ValueTooLong_Error(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
 		"tags":        []map[string]string{{"key": "mykey", "value": longVal}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TagPolicyViolation", resp["__type"])
 }
 
@@ -297,7 +299,7 @@ func TestTagResource_MaxTagsExceeded_Error(t *testing.T) {
 		body, err := json.Marshal(map[string]any{
 			"resourceArn": smARN,
 			"tags":        batch,
-		})
+		}, jsonx.V1())
 		require.NoError(t, err)
 		rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -307,14 +309,14 @@ func TestTagResource_MaxTagsExceeded_Error(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"resourceArn": smARN,
 		"tags":        []map[string]string{{"key": "overflow-key", "value": "val"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// AWS: TagResource's own error switch models TooManyTags for exceeding
 	// the per-resource tag limit -- "TagPolicyViolation" names no type
 	// anywhere in this SDK.
@@ -345,7 +347,7 @@ func TestTagResource_ValidTagsAccepted(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"resourceArn": smARN,
 				"tags":        []map[string]string{{"key": tt.key, "value": tt.value}},
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "TagResource", string(body))
@@ -395,7 +397,7 @@ func TestHandler_GetTags_EmptyAndNonEmpty(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			tags := resp["tags"].([]any)
 			assert.Len(t, tags, tt.wantTagsLen)

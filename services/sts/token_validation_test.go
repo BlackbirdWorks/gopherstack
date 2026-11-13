@@ -2,7 +2,7 @@ package sts_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -19,7 +20,7 @@ func makeUnitJWT(t *testing.T, claims map[string]any) string {
 
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		t.Fatalf("marshal claims: %v", err)
 	}
@@ -232,7 +233,7 @@ func TestJWTTimeClaim(t *testing.T) {
 		},
 		{
 			name:      "json_number",
-			claims:    map[string]any{"exp": json.Number("2000")},
+			claims:    map[string]any{"exp": jsonx.Number("2000")},
 			key:       "exp",
 			wantOK:    true,
 			wantEpoch: 2000,

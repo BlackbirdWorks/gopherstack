@@ -1,7 +1,8 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
@@ -22,7 +25,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 		Targets     []string `json:"targets"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -379,7 +382,12 @@ func (h *Handler) handleCancelJobExecution(c *echo.Context) error {
 		ExpectedVersion int64             `json:"expectedVersion"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(c.Request().Body),
+		&body,
+		jsonx.V1(),
+	); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 

@@ -35,6 +35,7 @@ func TestTextractDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -72,6 +73,7 @@ func TestTextractDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -110,6 +112,7 @@ func TestTextractDashboard_VersionsTab(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/textract")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

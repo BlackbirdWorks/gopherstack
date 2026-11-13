@@ -2,10 +2,12 @@ package emrserverless
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -33,7 +35,7 @@ const emrserverlessSnapshotVersion = 1
 // against decoding a snapshot from an incompatible (older or newer) build of
 // this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage   `json:"tables"`
+	Tables            map[string]jsontext.Value    `json:"tables"`
 	SessionTokens     map[string]map[string]string `json:"sessionTokens"`
 	ApplicationTokens map[string]string            `json:"applicationTokens"`
 	JobRunTokens      map[string]map[string]string `json:"jobRunTokens"`
@@ -70,7 +72,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:               b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "emrserverless: Snapshot marshal failure", "error", err)
 

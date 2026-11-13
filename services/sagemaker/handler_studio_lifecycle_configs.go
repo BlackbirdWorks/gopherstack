@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,7 +24,7 @@ type createStudioLifecycleConfigInput struct {
 func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req createStudioLifecycleConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -42,7 +44,7 @@ func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyStudioLifecycleConfigArn: result.StudioLifecycleConfigArn})
+	return json.Marshal(map[string]any{keyStudioLifecycleConfigArn: result.StudioLifecycleConfigArn}, jsonx.V1())
 }
 
 // describeStudioLifecycleConfigInput mirrors DescribeStudioLifecycleConfigInput
@@ -54,7 +56,7 @@ type describeStudioLifecycleConfigInput struct {
 func (h *Handler) handleDescribeStudioLifecycleConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeStudioLifecycleConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -67,7 +69,7 @@ func (h *Handler) handleDescribeStudioLifecycleConfig(ctx context.Context, body 
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteStudioLifecycleConfigInput mirrors DeleteStudioLifecycleConfigInput
@@ -79,7 +81,7 @@ type deleteStudioLifecycleConfigInput struct {
 func (h *Handler) handleDeleteStudioLifecycleConfig(ctx context.Context, body []byte) error {
 	var req deleteStudioLifecycleConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -110,7 +112,7 @@ type listStudioLifecycleConfigsInput struct {
 func (h *Handler) handleListStudioLifecycleConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listStudioLifecycleConfigsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

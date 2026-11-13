@@ -1,18 +1,21 @@
 package xray
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"path"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type lockoutStatement struct {
-	Effect       string          `json:"Effect"`
-	Principal    json.RawMessage `json:"Principal"`
-	Action       json.RawMessage `json:"Action"`
-	Condition    json.RawMessage `json:"Condition"`
-	NotPrincipal json.RawMessage `json:"NotPrincipal"`
-	NotAction    json.RawMessage `json:"NotAction"`
+	Effect       string         `json:"Effect"`
+	Principal    jsontext.Value `json:"Principal"`
+	Action       jsontext.Value `json:"Action"`
+	Condition    jsontext.Value `json:"Condition"`
+	NotPrincipal jsontext.Value `json:"NotPrincipal"`
+	NotAction    jsontext.Value `json:"NotAction"`
 }
 
 // policyLocksOutCaller reports whether policyDocument has an unconditional Deny of xray:PutResourcePolicy that
@@ -23,16 +26,16 @@ func policyLocksOutCaller(policyDocument, callerARN string) bool {
 	}
 
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
-	if json.Unmarshal([]byte(policyDocument), &doc) != nil {
+	if json.Unmarshal([]byte(policyDocument), &doc, jsonx.V1()) != nil {
 		return false
 	}
 
 	var stmts []lockoutStatement
-	if json.Unmarshal(doc.Statement, &stmts) != nil {
+	if json.Unmarshal(doc.Statement, &stmts, jsonx.V1()) != nil {
 		var one lockoutStatement
-		if json.Unmarshal(doc.Statement, &one) != nil {
+		if json.Unmarshal(doc.Statement, &one, jsonx.V1()) != nil {
 			return false
 		}
 
@@ -53,19 +56,19 @@ func policyLocksOutCaller(policyDocument, callerARN string) bool {
 	return false
 }
 
-func stringList(raw json.RawMessage) []string {
+func stringList(raw jsontext.Value) []string {
 	var one string
-	if json.Unmarshal(raw, &one) == nil {
+	if json.Unmarshal(raw, &one, jsonx.V1()) == nil {
 		return []string{one}
 	}
 
 	var many []string
-	_ = json.Unmarshal(raw, &many)
+	_ = json.Unmarshal(raw, &many, jsonx.V1())
 
 	return many
 }
 
-func matchesAny(raw json.RawMessage, target string, fold bool) bool {
+func matchesAny(raw jsontext.Value, target string, fold bool) bool {
 	for _, p := range stringList(raw) {
 		if fold {
 			p = strings.ToLower(p)
@@ -79,12 +82,12 @@ func matchesAny(raw json.RawMessage, target string, fold bool) bool {
 	return false
 }
 
-func principalMatches(raw json.RawMessage, callerARN string) bool {
+func principalMatches(raw jsontext.Value, callerARN string) bool {
 	var wrapper struct {
-		AWS json.RawMessage `json:"AWS"`
+		AWS jsontext.Value `json:"AWS"`
 	}
 
-	if json.Unmarshal(raw, &wrapper) == nil && len(wrapper.AWS) > 0 {
+	if json.Unmarshal(raw, &wrapper, jsonx.V1()) == nil && len(wrapper.AWS) > 0 {
 		raw = wrapper.AWS
 	}
 

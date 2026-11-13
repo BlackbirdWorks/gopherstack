@@ -1,7 +1,7 @@
 package kms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"encoding/base64"
@@ -32,7 +33,7 @@ func TestKMSHandlerEncryptDecrypt(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	keyID := createOut.KeyMetadata.KeyID
 
@@ -40,7 +41,7 @@ func TestKMSHandlerEncryptDecrypt(t *testing.T) {
 	encBody, _ := json.Marshal(map[string]any{
 		"KeyID":     keyID,
 		"Plaintext": []byte("my-secret"),
-	})
+	}, jsonx.V1())
 	encReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encBody)))
 	encReq.Header.Set("X-Amz-Target", "TrentService.Encrypt")
 	encRec := httptest.NewRecorder()
@@ -48,10 +49,10 @@ func TestKMSHandlerEncryptDecrypt(t *testing.T) {
 	assert.Equal(t, http.StatusOK, encRec.Code)
 
 	var encOut kms.EncryptOutput
-	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut))
+	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut, jsonx.V1()))
 
 	// Decrypt
-	decBody, _ := json.Marshal(map[string]any{"CiphertextBlob": encOut.CiphertextBlob})
+	decBody, _ := json.Marshal(map[string]any{"CiphertextBlob": encOut.CiphertextBlob}, jsonx.V1())
 	decReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(decBody)))
 	decReq.Header.Set("X-Amz-Target", "TrentService.Decrypt")
 	decRec := httptest.NewRecorder()
@@ -59,7 +60,7 @@ func TestKMSHandlerEncryptDecrypt(t *testing.T) {
 	assert.Equal(t, http.StatusOK, decRec.Code)
 
 	var decOut kms.DecryptOutput
-	require.NoError(t, json.Unmarshal(decRec.Body.Bytes(), &decOut))
+	require.NoError(t, json.Unmarshal(decRec.Body.Bytes(), &decOut, jsonx.V1()))
 	assert.Equal(t, []byte("my-secret"), decOut.Plaintext)
 }
 
@@ -79,7 +80,7 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq1, createRec1)))
 
 	var out1 kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(createRec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	createReq2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 	createReq2.Header.Set("X-Amz-Target", "TrentService.CreateKey")
@@ -87,26 +88,26 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq2, createRec2)))
 
 	var out2 kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(createRec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	// Encrypt with key1
 	encBody, _ := json.Marshal(map[string]any{
 		"KeyId":     out1.KeyMetadata.KeyID,
 		"Plaintext": []byte("reencrypt-me"),
-	})
+	}, jsonx.V1())
 	encReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encBody)))
 	encReq.Header.Set("X-Amz-Target", "TrentService.Encrypt")
 	encRec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(encReq, encRec)))
 
 	var encOut kms.EncryptOutput
-	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut))
+	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut, jsonx.V1()))
 
 	// ReEncrypt with key2
 	reEncBody, _ := json.Marshal(map[string]any{
 		"CiphertextBlob":   encOut.CiphertextBlob,
 		"DestinationKeyId": out2.KeyMetadata.KeyID,
-	})
+	}, jsonx.V1())
 	reEncReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(reEncBody)))
 	reEncReq.Header.Set("X-Amz-Target", "TrentService.ReEncrypt")
 	reEncRec := httptest.NewRecorder()
@@ -114,7 +115,7 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 	assert.Equal(t, http.StatusOK, reEncRec.Code)
 
 	var reEncOut kms.ReEncryptOutput
-	require.NoError(t, json.Unmarshal(reEncRec.Body.Bytes(), &reEncOut))
+	require.NoError(t, json.Unmarshal(reEncRec.Body.Bytes(), &reEncOut, jsonx.V1()))
 	assert.Equal(t, out2.KeyMetadata.Arn, reEncOut.KeyID)
 }
 
@@ -140,7 +141,7 @@ func TestKMSHandlerInternalError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidCiphertextException", errResp.Type)
 }
 
@@ -154,12 +155,12 @@ func TestKMSHandlerSignVerify(t *testing.T) {
 	createBody, _ := json.Marshal(map[string]any{
 		"KeyUsage": kms.KeyUsageSignVerify,
 		"KeySpec":  "RSA_2048",
-	})
+	}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	keyMeta, ok := createResp["KeyMetadata"].(map[string]any)
 	require.True(t, ok)
 	keyID, ok := keyMeta["KeyId"].(string)
@@ -171,12 +172,12 @@ func TestKMSHandlerSignVerify(t *testing.T) {
 		"Message":          message,
 		"MessageType":      "RAW",
 		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
-	})
+	}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "Sign", string(signBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var signResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signResp, jsonx.V1()))
 	sigRaw, ok := signResp["Signature"]
 	require.True(t, ok)
 	assert.NotEmpty(t, sigRaw)
@@ -188,12 +189,12 @@ func TestKMSHandlerSignVerify(t *testing.T) {
 		"MessageType":      "RAW",
 		"Signature":        sigRaw,
 		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
-	})
+	}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "Verify", string(verifyBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verifyResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verifyResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verifyResp, jsonx.V1()))
 	assert.True(t, verifyResp["SignatureValid"].(bool))
 }
 
@@ -206,21 +207,21 @@ func TestKMSHandlerGetPublicKey(t *testing.T) {
 	createBody, _ := json.Marshal(map[string]any{
 		"KeyUsage": kms.KeyUsageSignVerify,
 		"KeySpec":  "ECC_NIST_P256",
-	})
+	}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	keyMeta := createResp["KeyMetadata"].(map[string]any)
 	keyID := keyMeta["KeyId"].(string)
 
-	getKeyBody, _ := json.Marshal(map[string]any{"KeyId": keyID})
+	getKeyBody, _ := json.Marshal(map[string]any{"KeyId": keyID}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "GetPublicKey", string(getKeyBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var pubResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pubResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pubResp, jsonx.V1()))
 	assert.NotEmpty(t, pubResp["PublicKey"])
 	assert.Equal(t, "ECC_NIST_P256", pubResp["KeySpec"])
 }
@@ -234,12 +235,12 @@ func TestKMSHandlerInvalidSignatureError(t *testing.T) {
 	createBody, _ := json.Marshal(map[string]any{
 		"KeyUsage": kms.KeyUsageSignVerify,
 		"KeySpec":  "RSA_2048",
-	})
+	}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	keyMeta := createResp["KeyMetadata"].(map[string]any)
 	keyID := keyMeta["KeyId"].(string)
 
@@ -250,13 +251,13 @@ func TestKMSHandlerInvalidSignatureError(t *testing.T) {
 		"MessageType":      "RAW",
 		"Signature":        badSig,
 		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
-	})
+	}, jsonx.V1())
 
 	rec = doKMSHTTPRequest(t, h, "Verify", string(verifyBody))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidSignatureException", errResp["__type"])
 }
 
@@ -270,7 +271,7 @@ func TestHandlerEncryptReturnsAlgorithm(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	plaintext := base64.StdEncoding.EncodeToString([]byte("test-plaintext"))
@@ -278,6 +279,6 @@ func TestHandlerEncryptReturnsAlgorithm(t *testing.T) {
 	require.Equal(t, http.StatusOK, encRec.Code)
 
 	var encOut map[string]any
-	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut))
+	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut, jsonx.V1()))
 	assert.Equal(t, "SYMMETRIC_DEFAULT", encOut["EncryptionAlgorithm"])
 }

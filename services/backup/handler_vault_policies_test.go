@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -59,7 +60,7 @@ func TestDescribeBackupVaultLockedField(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			locked, exists := data["Locked"]
 			require.True(t, exists, "Locked must be present in DescribeBackupVault response")

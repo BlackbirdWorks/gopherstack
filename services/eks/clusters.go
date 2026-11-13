@@ -2,7 +2,7 @@ package eks
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"strings"
@@ -21,7 +21,7 @@ type ClusterOptionalConfig struct {
 	AccessConfig             *AccessConfig
 	ComputeConfig            *ComputeConfig
 	StorageConfig            *StorageConfig
-	ConfigBlocks             map[string]json.RawMessage
+	ConfigBlocks             map[string]jsontext.Value
 	UpgradePolicySupportType string
 	CreatorARN               string
 	LogEntries               []ClusterLogEntry

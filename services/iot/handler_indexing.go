@@ -1,13 +1,16 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resolveIndexOps maps fleet-indexing REST paths to their operation names.
@@ -96,7 +99,12 @@ func (h *Handler) dispatchIndexOps(c *echo.Context, op string) (bool, error) {
 const keyCount = "count"
 
 func decodeJSONBody(c *echo.Context, v any) error {
-	if err := json.NewDecoder(c.Request().Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(c.Request().Body),
+		v,
+		jsonx.V1(),
+	); err != nil &&
+		!errors.Is(err, io.EOF) {
 		return err
 	}
 

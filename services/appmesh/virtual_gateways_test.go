@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/http"
 	"testing"
@@ -232,7 +232,7 @@ func TestBackend_UpdateVirtualGateway(t *testing.T) {
 			tt.setup(b)
 			vg, err := b.UpdateVirtualGateway(
 				tt.meshName, tt.vgName,
-				json.RawMessage(`{"listeners":[{"portMapping":{"port":8080,"protocol":"http"}}]}`),
+				jsontext.Value(`{"listeners":[{"portMapping":{"port":8080,"protocol":"http"}}]}`),
 			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -306,7 +306,7 @@ func TestBackend_UpdateGatewayRoute(t *testing.T) {
 				tt.meshName,
 				tt.vgName,
 				tt.routeName,
-				json.RawMessage(`{}`),
+				jsontext.Value(`{}`),
 			)
 			if tt.wantErr != nil {
 				require.Error(t, err)

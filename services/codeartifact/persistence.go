@@ -2,7 +2,7 @@ package codeartifact
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -103,7 +103,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // value, []ExternalConnection, has no identity of its own -- see
 // store_setup.go) and is persisted here directly, as before.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage                 `json:"tables"`
+	Tables              map[string]jsontext.Value                  `json:"tables"`
 	ExternalConnections map[string]map[string][]ExternalConnection `json:"externalConnections"`
 	AccountID           string                                     `json:"accountID"`
 	Region              string                                     `json:"region"`
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // store_setup.go's registerAllTables doc) from tables via the ephemeral DTO
 // registry, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 	if err := dtos.registry.RestoreAll(tables); err != nil {
 		return fmt.Errorf("codeartifact: restore snapshot DTO tables: %w", err)

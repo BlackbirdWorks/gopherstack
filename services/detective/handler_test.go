@@ -2,7 +2,7 @@ package detective_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/detective"
 )
 
@@ -33,7 +34,7 @@ func doRequest(t *testing.T, h *detective.Handler, method, path string, body any
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -53,7 +54,7 @@ func doRequest(t *testing.T, h *detective.Handler, method, path string, body any
 func parseJSON(t *testing.T, data []byte, v any) {
 	t.Helper()
 
-	require.NoError(t, json.Unmarshal(data, v))
+	require.NoError(t, json.Unmarshal(data, v, jsonx.V1()))
 }
 
 // TestDetectiveHandler_RouteMatcher verifies the RouteMatcher against every
@@ -254,7 +255,7 @@ func TestDetective_UnknownOperation_Returns400(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidInputException", resp["__type"])
 		})
 	}

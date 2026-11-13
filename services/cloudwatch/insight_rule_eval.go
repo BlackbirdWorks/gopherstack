@@ -2,11 +2,14 @@ package cloudwatch
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // fieldLookup returns the leaf value at a rule field path in one log event.
@@ -27,11 +30,10 @@ func (s *insightRuleSpec) lookupFor(msg string) (fieldLookup, bool) {
 		}, true
 	}
 
-	dec := json.NewDecoder(bytes.NewReader([]byte(msg)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(msg)))
 
 	var root map[string]any
-	if err := dec.Decode(&root); err != nil || root == nil {
+	if err := json.UnmarshalDecode(dec, &root, jsonx.V1(), jsonx.UseNumber()); err != nil || root == nil {
 		return nil, false
 	}
 
@@ -69,7 +71,7 @@ func jsonLeaf(root any, path string) (string, bool) {
 	switch v := cur.(type) {
 	case string:
 		return v, true
-	case json.Number:
+	case jsonx.Number:
 		return v.String(), true
 	case bool:
 		return strconv.FormatBool(v), true

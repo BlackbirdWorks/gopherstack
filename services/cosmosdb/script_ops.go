@@ -2,7 +2,8 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -224,7 +226,7 @@ func (h *Handler) writeScript(
 	}
 
 	var req scriptBody
-	if jsonErr := json.Unmarshal(raw, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(raw, &req, jsonx.V1()); jsonErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
@@ -356,10 +358,15 @@ func sprocArgs(raw []byte) ([]any, error) {
 
 	var args []any
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsonx.V1())
 
-	if err := dec.Decode(&args); err != nil || rejectTrailingJSON(dec) != nil {
+	if err := json.UnmarshalDecode(
+		dec,
+		&args,
+		jsonx.V1(),
+		jsonx.UseNumber(),
+	); err != nil ||
+		rejectTrailingJSON(dec) != nil {
 		return nil, ErrInvalidDocument
 	}
 

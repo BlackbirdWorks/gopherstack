@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleRegisterResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in registerResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -46,7 +48,7 @@ func (h *Handler) handleRegisterResource(_ context.Context, c *echo.Context, bod
 
 func (h *Handler) handleDeregisterResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in deregisterResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleDeregisterResource(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleDescribeResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in describeResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -74,7 +76,7 @@ func (h *Handler) handleDescribeResource(_ context.Context, c *echo.Context, bod
 func (h *Handler) handleListResources(_ context.Context, c *echo.Context, body []byte) error {
 	var in listResourcesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -94,7 +96,7 @@ func (h *Handler) handleListResources(_ context.Context, c *echo.Context, body [
 
 func (h *Handler) handleUpdateResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 

@@ -2,16 +2,18 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createSnapshotRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -38,7 +40,7 @@ func (h *Handler) handleCreateSnapshot(ctx context.Context, c *echo.Context, bod
 func (h *Handler) handleCopySnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req copySnapshotRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -70,7 +72,7 @@ func (h *Handler) handleCopySnapshot(ctx context.Context, c *echo.Context, body 
 func (h *Handler) handleDeleteSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteSnapshotRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -89,7 +91,7 @@ func (h *Handler) handleDeleteSnapshot(ctx context.Context, c *echo.Context, bod
 func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeSnapshotRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -124,7 +126,7 @@ func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, 
 func (h *Handler) handleExportSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req exportSnapshotRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

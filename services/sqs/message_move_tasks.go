@@ -2,7 +2,7 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"sync"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // moveTaskVisibilityTimeoutSecs is the visibility timeout used when receiving
@@ -87,7 +88,7 @@ func (b *InMemoryBackend) findDefaultMoveDestinationLocked(dlqARN string) (strin
 
 		var pol redrivePolicy
 
-		if err := json.Unmarshal([]byte(raw), &pol); err != nil {
+		if err := json.Unmarshal([]byte(raw), &pol, jsonx.V1()); err != nil {
 			continue
 		}
 

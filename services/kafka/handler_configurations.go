@@ -2,12 +2,14 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createConfigurationInput struct {
@@ -54,7 +56,7 @@ func (h *Handler) handleCreateConfiguration(
 	body []byte,
 ) error {
 	var in createConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -231,7 +233,7 @@ func (h *Handler) handleUpdateConfiguration(
 	body []byte,
 ) error {
 	var in updateConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

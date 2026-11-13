@@ -1,12 +1,14 @@
 package identitystore //nolint:testpackage // epochTime is unexported; white-box unit tests of its wire encoding.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestEpochTimeMarshalJSON verifies epochTime renders as an AWS
@@ -43,7 +45,7 @@ func TestEpochTimeMarshalJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := json.Marshal(epochTime(tt.in))
+			got, err := json.Marshal(epochTime(tt.in), jsonx.V1())
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, string(got))
 		})
@@ -87,7 +89,7 @@ func TestEpochTimeUnmarshalJSON(t *testing.T) {
 
 			var got epochTime
 
-			err := json.Unmarshal([]byte(tt.in), &got)
+			err := json.Unmarshal([]byte(tt.in), &got, jsonx.V1())
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -110,11 +112,11 @@ func TestEpochTimeRoundTrip(t *testing.T) {
 
 	original := time.Now().UTC()
 
-	data, err := json.Marshal(epochTime(original))
+	data, err := json.Marshal(epochTime(original), jsonx.V1())
 	require.NoError(t, err)
 
 	var restored epochTime
 
-	require.NoError(t, json.Unmarshal(data, &restored))
+	require.NoError(t, json.Unmarshal(data, &restored, jsonx.V1()))
 	assert.WithinDuration(t, original, time.Time(restored), time.Millisecond)
 }

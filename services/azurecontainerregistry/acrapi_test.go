@@ -1,13 +1,14 @@
 package azurecontainerregistry_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 )
 
@@ -179,7 +180,7 @@ func TestACRTagsAndManifests(t *testing.T) {
 }
 
 func patch(enabledKey string, value bool) []byte {
-	raw, _ := json.Marshal(map[string]any{"value": map[string]any{enabledKey: value}})
+	raw, _ := json.Marshal(map[string]any{"value": map[string]any{enabledKey: value}}, jsonx.V1())
 
 	return raw
 }

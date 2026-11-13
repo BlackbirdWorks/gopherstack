@@ -2,7 +2,9 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type expiryEventsConfiguration struct {
@@ -32,7 +34,7 @@ func (h *Handler) jsonGetAccountConfiguration(ctx context.Context, _ []byte) (an
 
 func (h *Handler) jsonPutAccountConfiguration(ctx context.Context, body []byte) (any, error) {
 	var input putAccountConfigurationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

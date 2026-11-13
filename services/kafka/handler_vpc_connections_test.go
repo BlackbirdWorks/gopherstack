@@ -3,7 +3,7 @@ package kafka_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -58,7 +59,7 @@ func TestKafka_CreateVpcConnection(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 
 			body := tt.body
@@ -69,7 +70,7 @@ func TestKafka_CreateVpcConnection(t *testing.T) {
 			var bodyBytes []byte
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(body)
+				bodyBytes, err = json.Marshal(body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -87,7 +88,7 @@ func TestKafka_CreateVpcConnection(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["vpcConnectionArn"])
 				assert.Equal(t, kafka.VpcConnectionStateAvailable, resp["state"])
 			}
@@ -126,7 +127,7 @@ func TestKafka_DeleteVpcConnection(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 
 			// Create VPC connection
@@ -135,7 +136,7 @@ func TestKafka_DeleteVpcConnection(t *testing.T) {
 				"targetClusterArn": clusterArn,
 				"vpcId":            "vpc-12345",
 				"authentication":   "SASL_IAM",
-			})
+			}, jsonx.V1())
 			reqVpc := httptest.NewRequest(http.MethodPost, "/v1/vpc-connection", bytes.NewReader(vpcBody))
 			reqVpc.Header.Set("Content-Type", "application/json")
 			recVpc := httptest.NewRecorder()
@@ -144,7 +145,7 @@ func TestKafka_DeleteVpcConnection(t *testing.T) {
 			require.Equal(t, http.StatusOK, recVpc.Code)
 
 			var vpcResp map[string]any
-			require.NoError(t, json.Unmarshal(recVpc.Body.Bytes(), &vpcResp))
+			require.NoError(t, json.Unmarshal(recVpc.Body.Bytes(), &vpcResp, jsonx.V1()))
 
 			var vpcConnectionArn string
 			if tt.useRealArn {
@@ -213,7 +214,7 @@ func TestVpcConnection_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	vpcConnArn, _ := createResp["vpcConnectionArn"].(string)
 	require.NotEmpty(t, vpcConnArn)
 	// Real CreateVpcConnectionOutput has no targetClusterArn field (unlike
@@ -230,7 +231,7 @@ func TestVpcConnection_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, vpcConnArn, descResp["vpcConnectionArn"])
 	assert.Equal(t, clusterArn, descResp["targetClusterArn"])
 
@@ -241,7 +242,7 @@ func TestVpcConnection_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	conns, _ := listResp["vpcConnections"].([]any)
 	require.Len(t, conns, 1)
 
@@ -275,7 +276,7 @@ func TestVpcConnection_ListClientVpcConnections(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	// Real ListClientVpcConnectionsOutput carries its array under the
 	// distinct "clientVpcConnections" key (not "vpcConnections", which is
 	// ListVpcConnections' key -- a different operation with a different
@@ -303,7 +304,7 @@ func TestVpcConnection_RejectClientVpcConnection(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	vpcConnArn, _ := createResp["vpcConnectionArn"].(string)
 	encodedCluster := url.PathEscape(clusterArn)
 

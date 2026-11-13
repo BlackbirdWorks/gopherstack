@@ -3,12 +3,14 @@ package schemair
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"reflect"
 	"sort"
 
 	"github.com/aws/smithy-go"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // OpRef is an operation's schemas as the SDK package declares them.
@@ -99,7 +101,7 @@ func (e *encoder) addOp(m *Model, ref OpRef) (Op, error) {
 
 // Write gzips the model as JSON.
 func (m *Model) Write() ([]byte, error) {
-	raw, err := json.Marshal(m)
+	raw, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +200,7 @@ func (e *encoder) traits(s *smithy.Schema, direct bool) ([]Trait, error) {
 			continue
 		}
 
-		raw, err := json.Marshal(t)
+		raw, err := json.Marshal(t, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

@@ -1,9 +1,11 @@
 package appconfigdata
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // SetConfiguration stores or updates configuration content for a profile,
@@ -33,7 +35,7 @@ func (b *InMemoryBackend) setConfiguration(app, env, profile, content, contentTy
 
 	if isJSONContentType(contentType) {
 		var v any
-		if err := json.Unmarshal([]byte(content), &v); err != nil {
+		if err := json.Unmarshal([]byte(content), &v, jsonx.V1()); err != nil {
 			return ErrContentTypeMismatch
 		}
 	}

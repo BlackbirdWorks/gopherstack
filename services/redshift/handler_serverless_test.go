@@ -2,7 +2,8 @@ package redshift_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
@@ -34,7 +36,7 @@ func doServerlessOp(
 	var bodyReader *bytes.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyReader = bytes.NewReader(b)
 	} else {
@@ -108,7 +110,7 @@ func TestServerless_NamespaceCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	nsData, _ := createResp["namespace"].(map[string]any)
 	require.NotNil(t, nsData)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/default", nsData["defaultIamRoleArn"])
@@ -132,7 +134,7 @@ func TestServerless_NamespaceCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -155,7 +157,7 @@ func TestServerless_DeleteNamespace_WithFinalSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	snap, _ := resp["snapshot"].(map[string]any)
 	require.NotNil(t, snap)
 	assert.InEpsilon(t, float64(14), snap["snapshotRetentionPeriod"], 0)
@@ -182,7 +184,7 @@ func TestServerless_WorkgroupCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	wgData, _ := createResp["workgroup"].(map[string]any)
 	require.NotNil(t, wgData)
 	assert.InEpsilon(t, float64(64), wgData["maxCapacity"], 0)
@@ -200,7 +202,7 @@ func TestServerless_WorkgroupCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var credResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&credResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &credResp, jsonx.V1()))
 	// Expiration is wire-encoded as a JSON number (epoch seconds), not an
 	// RFC3339 string -- see the wire-shape audit note in handler_serverless.go.
 	_, isNumber := credResp["expiration"].(float64)
@@ -247,7 +249,7 @@ func TestServerless_SnapshotCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	updated, _ := updateResp["snapshot"].(map[string]any)
 	require.NotNil(t, updated)
 	assert.InEpsilon(t, float64(30), updated["snapshotRetentionPeriod"], 0)
@@ -256,7 +258,7 @@ func TestServerless_SnapshotCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	got, _ := getResp["snapshot"].(map[string]any)
 	require.NotNil(t, got)
 	assert.InEpsilon(t, float64(30), got["snapshotRetentionPeriod"], 0,
@@ -285,7 +287,7 @@ func TestServerless_UsageLimitsCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	ulData, _ := createResp["usageLimit"].(map[string]any)
 	ulID := ""
 
@@ -333,7 +335,7 @@ func TestServerless_ScheduledActionCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	saData, _ := createResp["scheduledAction"].(map[string]any)
 	require.NotNil(t, saData)
 	assert.Equal(t, "DISABLED", saData["state"], "state (not status) is the real wire key")
@@ -362,7 +364,7 @@ func TestServerless_ScheduledActionCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	updated, _ := updateResp["scheduledAction"].(map[string]any)
 	require.NotNil(t, updated)
 	assert.Equal(t, "ACTIVE", updated["state"])

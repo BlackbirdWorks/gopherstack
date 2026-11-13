@@ -1,8 +1,10 @@
 package athena
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type startQueryExecutionInput struct {
@@ -46,7 +48,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"StartQueryExecution": func(b []byte) (any, error) {
 			var input startQueryExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -76,7 +78,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 		},
 		"StopQueryExecution": func(b []byte) (any, error) {
 			var input stopQueryExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -84,7 +86,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 		},
 		"GetQueryExecution": func(b []byte) (any, error) {
 			var input getQueryExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -98,7 +100,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 		"ListQueryExecutions": h.handleListQueryExecutions,
 		"BatchGetQueryExecution": func(b []byte) (any, error) {
 			var input batchGetQueryExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -120,7 +122,7 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 		"GetQueryResults": h.handleGetQueryResults,
 		"GetQueryRuntimeStatistics": func(b []byte) (any, error) {
 			var input getQueryRuntimeStatsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -142,7 +144,7 @@ const athenaMaxQueryResultsPageSize = 1000
 // opaque-token pagination.
 func (h *Handler) handleListQueryExecutions(b []byte) (any, error) {
 	var input listQueryExecutionsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -176,7 +178,7 @@ type getQueryResultsInput struct {
 // Real rows are returned for SELECT queries against registered in-memory tables.
 func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 	var input getQueryResultsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 

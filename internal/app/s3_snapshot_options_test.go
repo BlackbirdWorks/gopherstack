@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -164,7 +165,7 @@ func TestPersistManualEndpoints(t *testing.T) {
 
 	var out map[string]any
 
-	require.NoError(t, json.Unmarshal(load.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(load.Body.Bytes(), &out, jsonx.V1()))
 	assert.InDelta(t, 1, out["loaded"], 0)
 	assert.Equal(t, "7", h3.kvs[0].getA())
 }

@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -108,7 +109,7 @@ func TestStartSession_DefaultsToStandardAccessType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	sessions := out["Sessions"].([]any)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "Standard", sessions[0].(map[string]any)["AccessType"])
@@ -208,12 +209,12 @@ func TestSession_Parameters_RoundTrip(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"Target":     "i-1234567890abcdef0",
 				"Parameters": tt.parameters,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "StartSession", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			assert.NotEmpty(t, startResp["SessionId"])
 
 			// DescribeSessions should show the session, but never a
@@ -250,7 +251,7 @@ func TestSession_StateFilter(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), sess.SessionID)
 
 	// Terminate session.
-	body, _ := json.Marshal(map[string]any{"SessionId": sess.SessionID})
+	body, _ := json.Marshal(map[string]any{"SessionId": sess.SessionID}, jsonx.V1())
 	doRequest(t, h, "TerminateSession", string(body))
 
 	// Filter by Active — should NOT find the terminated session.

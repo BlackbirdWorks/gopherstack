@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAPIMPolicy_Validation(t *testing.T) {
@@ -142,7 +144,10 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 				format = "xml"
 			}
 
-			b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": format, "value": tc.doc}})
+			b, err := json.Marshal(
+				map[string]any{"properties": map[string]any{"format": format, "value": tc.doc}},
+				jsonx.V1(),
+			)
 			require.NoError(t, err)
 
 			status, body, _ := s.raw(t, http.MethodPut, s.armPath("/apis/echo/policies/policy"), string(b), nil)
@@ -713,7 +718,7 @@ func TestAPIMGateway_PolicyInheritance(t *testing.T) {
 	e := newGWEnv(t)
 
 	svcDoc := policyDoc(`<set-header name="X-Svc"><value>s</value></set-header>`, "", "")
-	b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": svcDoc}})
+	b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": svcDoc}}, jsonx.V1())
 	require.NoError(t, err)
 
 	status, body, _ := e.raw(t, http.MethodPut, e.armPath("/policies/policy"), string(b), nil)

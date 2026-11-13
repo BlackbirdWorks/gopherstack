@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +28,7 @@ type createInferenceComponentInput struct {
 func (h *Handler) handleCreateInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req createInferenceComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -57,7 +60,7 @@ func (h *Handler) handleCreateInferenceComponent(ctx context.Context, body []byt
 
 	return json.Marshal(map[string]any{
 		keyInferenceComponentArn: c.InferenceComponentArn,
-	})
+	}, jsonx.V1())
 }
 
 // inferenceComponentResponseMap builds the DescribeInferenceComponentOutput
@@ -123,7 +126,7 @@ type describeInferenceComponentInput struct {
 func (h *Handler) handleDescribeInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeInferenceComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -132,7 +135,7 @@ func (h *Handler) handleDescribeInferenceComponent(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(inferenceComponentResponseMap(c))
+	return json.Marshal(inferenceComponentResponseMap(c), jsonx.V1())
 }
 
 // listInferenceComponentsInput mirrors ListInferenceComponentsInput
@@ -155,7 +158,7 @@ type listInferenceComponentsInput struct {
 func (h *Handler) handleListInferenceComponents(ctx context.Context, body []byte) ([]byte, error) {
 	var req listInferenceComponentsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -200,7 +203,7 @@ func (h *Handler) handleListInferenceComponents(ctx context.Context, body []byte
 // (api_op_UpdateInferenceComponent.go:24-53). The real op has no VariantName
 // member — a production variant is fixed at Create time.
 type updateInferenceComponentInput struct {
-	DeploymentConfig       json.RawMessage                       `json:"DeploymentConfig"`
+	DeploymentConfig       jsontext.Value                        `json:"DeploymentConfig"`
 	RuntimeConfig          *InferenceComponentRuntimeConfigInput `json:"RuntimeConfig"`
 	InferenceComponentName string                                `json:"InferenceComponentName"`
 	Specification          *InferenceComponentSpecification      `json:"Specification"`
@@ -210,7 +213,7 @@ type updateInferenceComponentInput struct {
 func (h *Handler) handleUpdateInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateInferenceComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -234,7 +237,7 @@ func (h *Handler) handleUpdateInferenceComponent(ctx context.Context, body []byt
 
 	return json.Marshal(map[string]any{
 		keyInferenceComponentArn: c.InferenceComponentArn,
-	})
+	}, jsonx.V1())
 }
 
 // updateInferenceComponentRuntimeConfigInput mirrors
@@ -247,7 +250,7 @@ type updateInferenceComponentRuntimeConfigInput struct {
 func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateInferenceComponentRuntimeConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -272,7 +275,7 @@ func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(ctx context.Contex
 
 	return json.Marshal(map[string]any{
 		keyInferenceComponentArn: c.InferenceComponentArn,
-	})
+	}, jsonx.V1())
 }
 
 // deleteInferenceComponentInput mirrors DeleteInferenceComponentInput
@@ -284,7 +287,7 @@ type deleteInferenceComponentInput struct {
 func (h *Handler) handleDeleteInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteInferenceComponentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -292,5 +295,5 @@ func (h *Handler) handleDeleteInferenceComponent(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

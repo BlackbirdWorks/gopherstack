@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Test 1: CreateServer with IdentityProviderType=API_GATEWAY is echoed by DescribeServer.
@@ -26,7 +28,7 @@ func TestHandler_CreateServerIdentityProviderTypeAPIGateway(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{
@@ -35,7 +37,7 @@ func TestHandler_CreateServerIdentityProviderTypeAPIGateway(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 
 	assert.Equal(t, "API_GATEWAY", server["IdentityProviderType"])
@@ -65,7 +67,7 @@ func TestHandler_CreateServerDomainEFS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{
@@ -74,7 +76,7 @@ func TestHandler_CreateServerDomainEFS(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 
 	assert.Equal(t, "EFS", server["Domain"])
@@ -89,7 +91,7 @@ func TestHandler_UpdateServerLoggingRoleAndBanners(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	updateRec := doTransferRequest(t, h, "UpdateServer", map[string]any{
@@ -106,7 +108,7 @@ func TestHandler_UpdateServerLoggingRoleAndBanners(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/logging", server["LoggingRole"])
@@ -124,7 +126,7 @@ func TestHandler_StartServerStartingState(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		serverID := createResp["ServerId"].(string)
 
 		// Stop the server first so we can start it.
@@ -134,7 +136,7 @@ func TestHandler_StartServerStartingState(t *testing.T) {
 
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
-		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1())
 		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
 		// Start the server: immediate state should be STARTING.
@@ -144,14 +146,14 @@ func TestHandler_StartServerStartingState(t *testing.T) {
 		// Check immediately — should be STARTING (async transition hasn't fired yet).
 		descRec = doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		immediateState := descResp["Server"].(map[string]any)["State"].(string)
 		assert.Equal(t, "STARTING", immediateState)
 
 		// Wait past the async transition to ONLINE.
 		time.Sleep(serverTransitionWait)
 		descRec = doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
-		_ = json.Unmarshal(descRec.Body.Bytes(), &descResp)
+		_ = json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1())
 		assert.Equal(t, "ONLINE", descResp["Server"].(map[string]any)["State"].(string))
 	})
 }
@@ -173,7 +175,7 @@ func TestHandler_TestIdentityProviderKnownUser(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.EqualValues(t, 200, resp["StatusCode"])
 }
 
@@ -192,7 +194,7 @@ func TestHandler_TestIdentityProviderUnknownUser(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.EqualValues(t, 401, resp["StatusCode"])
 }
 
@@ -205,7 +207,7 @@ func TestHandler_UpdateServerProtocolDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	updateRec := doTransferRequest(t, h, "UpdateServer", map[string]any{
@@ -224,7 +226,7 @@ func TestHandler_UpdateServerProtocolDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	pd := server["ProtocolDetails"].(map[string]any)
 
@@ -249,14 +251,14 @@ func TestHandler_CreateServerEndpointTypeVPC(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 
 	assert.Equal(t, "VPC", server["EndpointType"])
@@ -279,14 +281,14 @@ func TestHandler_CreateServerWorkflowDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	wd := server["WorkflowDetails"].(map[string]any)
 	onUpload := wd["OnUpload"].([]any)
@@ -308,14 +310,14 @@ func TestHandler_CreateServerS3StorageOptions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	s3 := server["S3StorageOptions"].(map[string]any)
 	assert.Equal(t, "ENABLED", s3["DirectoryListingOptimization"])
@@ -332,14 +334,14 @@ func TestHandler_CreateServerStructuredLogDestinations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	dests := server["StructuredLogDestinations"].([]any)
 	require.Len(t, dests, 1)
@@ -357,14 +359,14 @@ func TestHandler_CreateServerIpAddressType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	server := descResp["Server"].(map[string]any)
 	assert.Equal(t, "DUALSTACK", server["IpAddressType"])
 }

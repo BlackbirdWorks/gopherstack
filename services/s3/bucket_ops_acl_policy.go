@@ -2,7 +2,8 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts
@@ -153,7 +155,7 @@ func (h *S3Handler) putBucketPolicy(
 
 	// Real S3 rejects a policy body that isn't valid JSON with 400
 	// MalformedPolicy before ever persisting it.
-	if !json.Valid(body) {
+	if !jsontext.Value(body).IsValid(jsonx.V1()) {
 		WriteError(ctx, w, r, ErrMalformedPolicy)
 
 		return
@@ -501,7 +503,7 @@ func (h *S3Handler) handleGetBucketPolicyStatus(
 // contains an Allow statement that grants s3:GetObject to the wildcard principal "*".
 func policyGrantsPublicGetObject(policyJSON string) bool {
 	var doc policyDoc
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return false
 	}
 

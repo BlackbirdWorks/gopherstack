@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -31,7 +32,7 @@ func TestListShards_NextTokenStreamNameMutuallyExclusive(t *testing.T) {
 	var page1 struct {
 		NextToken string `json:"NextToken"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.NotEmpty(t, page1.NextToken, "expected NextToken for pagination")
 
 	tests := []struct {
@@ -65,7 +66,7 @@ func TestListShards_NextTokenStreamNameMutuallyExclusive(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidArgumentException", errResp.Type)
 		})
 	}
@@ -90,7 +91,7 @@ func TestListShards_NextTokenAlone_Succeeds(t *testing.T) {
 			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.NotEmpty(t, page1.NextToken)
 
 	// Use NextToken alone (no StreamName) — should succeed because the token embeds stream context.
@@ -105,7 +106,7 @@ func TestListShards_NextTokenAlone_Succeeds(t *testing.T) {
 			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	assert.NotEmpty(t, page2.Shards)
 }
 
@@ -538,7 +539,7 @@ func TestListShards(t *testing.T) {
 			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listShardsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listShardsResp, jsonx.V1()))
 	assert.Len(t, listShardsResp.Shards, 3)
 }
 
@@ -639,7 +640,7 @@ func TestListShards_MaxResults_ViaHandler(t *testing.T) {
 		NextToken string `json:"NextToken"`
 		Shards    []any  `json:"Shards"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Shards, 2)
 	assert.NotEmpty(t, resp.NextToken)
 
@@ -654,7 +655,7 @@ func TestListShards_MaxResults_ViaHandler(t *testing.T) {
 		NextToken string `json:"NextToken"`
 		Shards    []any  `json:"Shards"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2.Shards, 2)
 	assert.Empty(t, resp2.NextToken, "no more pages")
 }
@@ -927,7 +928,7 @@ func TestListShards_ShardFilterType_TimestampRequired(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidArgumentException", errResp.Type)
 		})
 	}

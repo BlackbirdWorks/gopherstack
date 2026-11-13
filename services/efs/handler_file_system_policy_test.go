@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -262,7 +263,7 @@ func TestFileSystemPolicy_RoundTrip(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	policy := `{"Version":"2012-10-17","Statement":[` +
 		`{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"elasticfilesystem:ClientMount"}]}`
@@ -279,7 +280,7 @@ func TestFileSystemPolicy_RoundTrip(t *testing.T) {
 	var descOut struct {
 		Policy string `json:"Policy"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.JSONEq(t, policy, descOut.Policy,
 		"DescribeFileSystemPolicy must return the stored policy verbatim")

@@ -2,7 +2,7 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const testInvokeStage = "test-invoke-stage"
@@ -100,7 +101,7 @@ func claimString(v any) string {
 		return s
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprint(v)
 	}
@@ -131,7 +132,7 @@ func (h *Handler) testInvokeLambdaAuthorizer(
 	methodArn := authorizerMethodArn(ctx, r, apiID, testInvokeStage, r.URL.Path)
 	event.MethodArn = methodArn
 
-	payload, _ := json.Marshal(event)
+	payload, _ := json.Marshal(event, jsonx.V1())
 	funcName := ExtractLambdaFunctionName(auth.AuthorizerURI)
 
 	resp, failure := h.invokeAuthorizerFunction(ctx, funcName, payload)
@@ -139,7 +140,7 @@ func (h *Handler) testInvokeLambdaAuthorizer(
 		return &TestInvokeAuthorizerOutput{ClientStatus: http.StatusUnauthorized, Log: failure}, nil
 	}
 
-	policy, _ := json.Marshal(resp.PolicyDocument)
+	policy, _ := json.Marshal(resp.PolicyDocument, jsonx.V1())
 	out := &TestInvokeAuthorizerOutput{
 		PrincipalID:    resp.PrincipalID,
 		PolicyDocument: string(policy),
@@ -213,7 +214,7 @@ func (h *Handler) invokeAuthorizerFunction(
 		return resp, "Authorizer function invocation failed: " + invokeErr.Error()
 	}
 
-	if err := json.Unmarshal(respBytes, &resp); err != nil {
+	if err := json.Unmarshal(respBytes, &resp, jsonx.V1()); err != nil {
 		return resp, "Authorizer function returned an unparseable response: " + err.Error()
 	}
 

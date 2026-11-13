@@ -2,7 +2,7 @@ package route53resolver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"sort"
@@ -40,9 +40,9 @@ type dnsThreatProtectionRuleTypeConfigInput struct {
 type firewallRuleTypeInput struct {
 	DNSThreatProtection *dnsThreatProtectionRuleTypeConfigInput `json:"DnsThreatProtection,omitempty"`
 
-	FirewallAdvancedContentCategory json.RawMessage `json:"FirewallAdvancedContentCategory,omitempty"`
-	FirewallAdvancedThreatCategory  json.RawMessage `json:"FirewallAdvancedThreatCategory,omitempty"`
-	PartnerThreatProtection         json.RawMessage `json:"PartnerThreatProtection,omitempty"`
+	FirewallAdvancedContentCategory jsontext.Value `json:"FirewallAdvancedContentCategory,omitempty"`
+	FirewallAdvancedThreatCategory  jsontext.Value `json:"FirewallAdvancedThreatCategory,omitempty"`
+	PartnerThreatProtection         jsontext.Value `json:"PartnerThreatProtection,omitempty"`
 }
 
 // resolveFirewallRuleType validates a FirewallRuleType tagged union (exactly

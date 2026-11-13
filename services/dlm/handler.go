@@ -2,7 +2,7 @@ package dlm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -294,7 +295,7 @@ func (h *Handler) handleCreateLifecyclePolicy(c *echo.Context, body []byte) erro
 		CrossRegionCopyTargets []any             `json:"CrossRegionCopyTargets"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
@@ -427,7 +428,7 @@ func (h *Handler) handleUpdateLifecyclePolicy(c *echo.Context, policyID string, 
 		CrossRegionCopyTargets []any          `json:"CrossRegionCopyTargets"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
@@ -464,7 +465,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 		Tags map[string]string `json:"Tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 

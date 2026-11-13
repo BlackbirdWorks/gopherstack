@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateAgentActionGroupVersion locks in real AWS's constraint on the
@@ -31,7 +33,7 @@ func TestCreateAgentActionGroupVersion(t *testing.T) {
 
 		var agentResp map[string]map[string]any
 
-		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp)
+		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp, jsonx.V1())
 		agentID, _ := agentResp["agent"]["agentId"].(string)
 
 		rec := doRequest(t, h, e, http.MethodPut,
@@ -44,7 +46,7 @@ func TestCreateAgentActionGroupVersion(t *testing.T) {
 
 		var resp map[string]map[string]any
 
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
 
@@ -69,7 +71,7 @@ func TestCreateAgentActionGroupVersion(t *testing.T) {
 
 		var agentResp map[string]map[string]any
 
-		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp)
+		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp, jsonx.V1())
 		agentID, _ := agentResp["agent"]["agentId"].(string)
 
 		rec := doRequest(t, h, e, http.MethodPut,

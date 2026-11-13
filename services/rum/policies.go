@@ -2,9 +2,11 @@ package rum
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutResourcePolicy attaches or replaces the resource policy of an app monitor.
@@ -16,10 +18,10 @@ func (b *InMemoryBackend) PutResourcePolicy(
 	}
 
 	var parsed struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if doc == "" || json.Unmarshal([]byte(doc), &parsed) != nil || len(parsed.Statement) == 0 {
+	if doc == "" || json.Unmarshal([]byte(doc), &parsed, jsonx.V1()) != nil || len(parsed.Statement) == 0 {
 		return "", "", malformedPolicy("PolicyDocument must be a JSON policy with a Statement")
 	}
 

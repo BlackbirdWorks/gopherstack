@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/directconnect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudFormationProvisionsDirectConnect(t *testing.T) {
@@ -48,7 +50,7 @@ func TestCloudFormationProvisionsDirectConnect(t *testing.T) {
 			"ConnArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Conn", "ConnectionArn"}}},
 			"VifArn":  map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Vif", "VirtualInterfaceArn"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

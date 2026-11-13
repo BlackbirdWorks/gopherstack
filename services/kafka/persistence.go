@@ -2,7 +2,7 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -32,13 +32,13 @@ const kafkaSnapshotVersion = 1
 // ScramSecrets and ClusterPolicies persist the two fields left as plain maps
 // (their values are not *T, so they don't fit store.Table) alongside Tables.
 type backendSnapshot struct {
-	Tables          map[string]json.RawMessage `json:"tables"`
-	ScramSecrets    map[string][]string        `json:"scramSecrets"`
-	ClusterPolicies map[string]string          `json:"clusterPolicies"`
-	PolicyVersions  map[string]string          `json:"clusterPolicyVersions,omitempty"`
-	AccountID       string                     `json:"accountID"`
-	Region          string                     `json:"region"`
-	Version         int                        `json:"version"`
+	Tables          map[string]jsontext.Value `json:"tables"`
+	ScramSecrets    map[string][]string       `json:"scramSecrets"`
+	ClusterPolicies map[string]string         `json:"clusterPolicies"`
+	PolicyVersions  map[string]string         `json:"clusterPolicyVersions,omitempty"`
+	AccountID       string                    `json:"accountID"`
+	Region          string                    `json:"region"`
+	Version         int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

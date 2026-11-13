@@ -2,10 +2,12 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -51,7 +53,7 @@ func (b *backend) infoResource(ctx context.Context, req *mcp.ReadResourceRequest
 		return nil, err
 	}
 
-	raw, err := json.Marshal(h)
+	raw, err := json.Marshal(h, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}

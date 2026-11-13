@@ -2,10 +2,13 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -169,8 +172,8 @@ func resolveParameter(ctx context.Context, resolver SecretsResolver, ref secretR
 }
 
 func jsonSecretField(secret, key string) (string, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(secret), &fields); err != nil {
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(secret), &fields, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("secret value is not a JSON object: %w", err)
 	}
 
@@ -180,7 +183,7 @@ func jsonSecretField(secret, key string) (string, error) {
 	}
 
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonx.V1()) == nil {
 		return s, nil
 	}
 

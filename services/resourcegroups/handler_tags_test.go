@@ -2,7 +2,7 @@ package resourcegroups_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -36,7 +37,7 @@ func TestResourceGroupsHandler_GetTags(t *testing.T) {
 						GroupArn string `json:"GroupArn"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.Group.GroupArn
 			},
@@ -95,7 +96,7 @@ func TestResourceGroupsHandler_Tag(t *testing.T) {
 						GroupArn string `json:"GroupArn"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				groupARN = out.Group.GroupArn
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
@@ -142,7 +143,7 @@ func TestResourceGroupsHandler_Untag(t *testing.T) {
 						GroupArn string `json:"GroupArn"`
 					} `json:"Group"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				groupARN = out.Group.GroupArn
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
@@ -170,7 +171,7 @@ func TestUntagViaDeleteVerb(t *testing.T) {
 
 	// DELETE /resources/{Arn}/tags with JSON body.
 	e := echo.New()
-	bodyBytes, _ := json.Marshal(map[string]any{"Keys": []string{"env"}})
+	bodyBytes, _ := json.Marshal(map[string]any{"Keys": []string{"env"}}, jsonx.V1())
 	req := httptest.NewRequest(
 		http.MethodDelete,
 		"/resources/"+g.ARN+"/tags",

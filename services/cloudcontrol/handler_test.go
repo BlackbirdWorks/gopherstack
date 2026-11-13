@@ -2,7 +2,7 @@ package cloudcontrol_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
@@ -27,7 +28,7 @@ func doRequest(t *testing.T, h *cloudcontrol.Handler, action string, body any) *
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -55,7 +56,7 @@ func errType(t *testing.T, body []byte) string {
 	var env struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(body, &env))
+	require.NoError(t, json.Unmarshal(body, &env, jsonx.V1()))
 
 	return env.Type
 }

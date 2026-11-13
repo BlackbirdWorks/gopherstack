@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -30,7 +32,7 @@ func TestHandler_TagOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp, jsonx.V1()))
 	tags := resp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -54,7 +56,7 @@ func TestHandler_TagOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var resp4 map[string]any
-	require.NoError(t, json.NewDecoder(rec4.Body).Decode(&resp4))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec4.Body), &resp4, jsonx.V1()))
 	tags4 := resp4["tags"].(map[string]any)
 	assert.NotContains(t, tags4, "env")
 	assert.Equal(t, "platform", tags4["team"])

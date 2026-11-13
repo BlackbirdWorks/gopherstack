@@ -1,7 +1,7 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
@@ -612,7 +613,7 @@ func TestFISHandler_StopExperiment_AlreadyStopped(t *testing.T) {
 				} `json:"experiment"`
 			}
 
-			if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
+			if err := json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 				return false
 			}
 
@@ -710,7 +711,7 @@ func TestFISHandler_ExperimentFails_WhenActionProviderFails(t *testing.T) {
 
 		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
 		require.Equal(t, http.StatusOK, rec3.Code)
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &finalResp))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &finalResp, jsonx.V1()))
 		require.Equal(t, "failed", finalResp.Experiment.Status.Status)
 
 		// Regression test: cleanupActions used to unconditionally overwrite
@@ -799,7 +800,7 @@ func TestFISHandler_ExperimentSucceeds_WithMockActionProvider(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 		require.Equal(t, "completed", resp.Experiment.Status.Status)
 	})
 }

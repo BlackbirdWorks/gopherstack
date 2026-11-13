@@ -2,7 +2,8 @@ package lakeformation_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -62,7 +64,7 @@ func newTestContext(t *testing.T, path string, body any) (*echo.Context, *httpte
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -91,7 +93,7 @@ func postJSON(t *testing.T, h *lakeformation.Handler, path string, body any) *ht
 
 // jsonDecode is a helper to decode a response body into a map.
 func jsonDecode(r io.Reader, v any) error {
-	return json.NewDecoder(r).Decode(v)
+	return json.UnmarshalDecode(jsontext.NewDecoder(r), v, jsonx.V1())
 }
 
 func TestHandler_UnknownOperation(t *testing.T) {
@@ -515,7 +517,7 @@ func TestErrValidationMapping(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidInputException", resp["__type"])
 		})
 	}

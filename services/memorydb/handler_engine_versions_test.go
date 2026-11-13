@@ -1,12 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DescribeEngineVersions(t *testing.T) {
@@ -51,7 +53,7 @@ func TestHandler_DescribeEngineVersions(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			versions := resp["EngineVersions"].([]any)
 			assert.GreaterOrEqual(t, len(versions), tt.wantMinCount)
 		})
@@ -86,7 +88,7 @@ func TestHandler_DescribeEngineVersions_Filtering(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			versions, _ := resp["EngineVersions"].([]any)
 			assert.GreaterOrEqual(t, len(versions), tt.wantMinCount)
 
@@ -148,7 +150,7 @@ func TestHandler_DescribeEngineVersions_Filtered(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			versions := resp["EngineVersions"].([]any)
 			assert.GreaterOrEqual(t, len(versions), tt.wantMin)
@@ -194,7 +196,7 @@ func TestHandler_DescribeEngineVersions_IncludesValkey(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			versions := resp["EngineVersions"].([]any)
 			assert.GreaterOrEqual(t, len(versions), tt.wantMinCount)
@@ -225,7 +227,7 @@ func TestHandler_DescribeEngineVersions_EachHasEngine(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, v := range resp["EngineVersions"].([]any) {
 		ev := v.(map[string]any)
