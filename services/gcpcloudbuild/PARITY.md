@@ -22,6 +22,7 @@ ops:
   CreateWorkerPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "Regional parent; worker_pool_id is 1-63 lowercase letters, digits or hyphens. The operation is already done and the pool is RUNNING with uid, times and an etag. validate_only stores nothing."}
   GetWorkerPool: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
   ListWorkerPools: {wire: ok, errors: ok, state: ok, persist: ok, note: "Sorted by name, paged."}
+  GetDefaultServiceAccount: {wire: ok, errors: ok, state: ok, persist: n/a, note: "name projects/P/locations/L/defaultServiceAccount; returns projects/P/serviceAccounts/<projectNumber>-compute@developer.gserviceaccount.com, the Compute default account builds run as (format from DefaultServiceAccount in cloudbuildpb). Derived from the project id, nothing is stored."}
   UpdateWorkerPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask over display_name, annotations and the config; the etag changes with the content."}
   DeleteWorkerPool: {wire: ok, errors: ok, state: ok, persist: ok, note: "A stale etag is ABORTED; allow_missing succeeds on a missing pool."}
   GetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "google.longrunning.Operations via pkgs/gcplro, on operations/** and projects/*/locations/*/operations/*. Build operations stay pending until the build ends; WaitOperation returns the current state at once (clients poll)."}

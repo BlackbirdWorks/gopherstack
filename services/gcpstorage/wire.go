@@ -132,6 +132,14 @@ func bucketResource(base string, b *Bucket) map[string]any {
 		},
 	}
 
+	if b.Generation != 0 {
+		res["generation"] = strconv.FormatInt(b.Generation, 10)
+	}
+
+	if !b.SoftDeleteTime.IsZero() {
+		res["softDeleteTime"], res["hardDeleteTime"] = fmtTime(b.SoftDeleteTime), fmtTime(b.HardDeleteTime)
+	}
+
 	if len(b.Labels) > 0 {
 		res["labels"] = b.Labels
 	}

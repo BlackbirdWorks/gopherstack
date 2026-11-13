@@ -192,6 +192,8 @@ func (b *InMemoryBackend) RunLifecycle() {
 
 	now := b.now().UTC()
 
+	b.softBkts = slices.DeleteFunc(b.softBkts, func(bk *Bucket) bool { return !now.Before(bk.HardDeleteTime) })
+
 	for _, bk := range b.buckets {
 		b.sweepBucketLocked(bk, now)
 		bk.SoftDeleted = slices.DeleteFunc(

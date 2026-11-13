@@ -306,3 +306,92 @@ func TestPeeringBlocksNetworkDeleteAndOverlappingSubnets(t *testing.T) {
 	require.NoError(t, e.finish(t, op, err))
 	require.NoError(t, insertSub("now-fine", "10.2.0.128/25"))
 }
+
+func TestPeeringConsensusRemoval(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.peerNet(t, "a", "10.1.0.0/24")
+	e.peerNet(t, "b", "10.2.0.0/24")
+
+	consensus := func(p *computepb.NetworkPeering) { p.UpdateStrategy = s("CONSENSUS") }
+	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", consensus))
+	require.NoError(t, e.addPeering(t, "b", "b-to-a", "a", consensus))
+
+	status := func(net, name string) string {
+		return e.peerings(t, net)[name].GetConnectionStatus().GetConsensusState().GetDeleteStatus()
+	}
+	call := func(verb, net, name string) error {
+		req := &computepb.NetworksRequestRemovePeeringRequest{Name: s(name)}
+
+		if verb == "cancel" {
+			op, err := e.networks(t).
+				CancelRequestRemovePeering(t.Context(), &computepb.CancelRequestRemovePeeringNetworkRequest{
+					Project: project,
+					Network: net,
+					NetworksCancelRequestRemovePeeringRequestResource: &computepb.NetworksCancelRequestRemovePeeringRequest{
+						Name: s(name),
+					},
+				})
+
+			return e.finish(t, op, err)
+		}
+
+		op, err := e.networks(t).RequestRemovePeering(t.Context(), &computepb.RequestRemovePeeringNetworkRequest{
+			Project: project, Network: net, NetworksRequestRemovePeeringRequestResource: req,
+		})
+
+		return e.finish(t, op, err)
+	}
+	remove := func(net, name string) error {
+		op, err := e.networks(t).RemovePeering(t.Context(), &computepb.RemovePeeringNetworkRequest{
+			Project: project, Network: net,
+			NetworksRemovePeeringRequestResource: &computepb.NetworksRemovePeeringRequest{Name: s(name)},
+		})
+
+		return e.finish(t, op, err)
+	}
+
+	assert.Equal(t, "CONSENSUS", e.peerings(t, "a")["a-to-b"].GetUpdateStrategy())
+	assert.Equal(t, "DELETE_STATUS_UNSPECIFIED", status("a", "a-to-b"))
+	assertAPIError(t, remove("a", "a-to-b"), http.StatusBadRequest, "invalid")
+
+	require.NoError(t, call("request", "a", "a-to-b"))
+	assert.Equal(t, "LOCAL_DELETE_REQUESTED", status("a", "a-to-b"))
+	assert.Equal(t, "PEER_DELETE_REQUESTED", status("b", "b-to-a"))
+	assertAPIError(t, call("request", "a", "a-to-b"), http.StatusBadRequest, "invalid")
+	assertAPIError(t, remove("a", "a-to-b"), http.StatusBadRequest, "invalid")
+
+	require.NoError(t, call("cancel", "a", "a-to-b"))
+	assert.Equal(t, "DELETE_STATUS_UNSPECIFIED", status("b", "b-to-a"))
+	assertAPIError(t, call("cancel", "a", "a-to-b"), http.StatusBadRequest, "invalid")
+
+	require.NoError(t, call("request", "a", "a-to-b"))
+	require.NoError(t, call("request", "b", "b-to-a"))
+	assert.Equal(t, "DELETE_ACKNOWLEDGED", status("a", "a-to-b"))
+
+	require.NoError(t, call("cancel", "a", "a-to-b"))
+	assert.Equal(t, "LOCAL_CANCEL_REQUESTED", status("a", "a-to-b"))
+	assert.Equal(t, "PEER_CANCEL_REQUESTED", status("b", "b-to-a"))
+	assertAPIError(t, remove("a", "a-to-b"), http.StatusBadRequest, "invalid")
+
+	require.NoError(t, call("request", "a", "a-to-b"))
+	require.NoError(t, remove("a", "a-to-b"))
+	assert.Empty(t, e.peerings(t, "a"))
+	assert.Empty(t, e.peerings(t, "b"))
+}
+
+func TestPeeringConsensusErrors(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.peerNet(t, "a", "10.1.0.0/24")
+	e.peerNet(t, "b", "10.2.0.0/24")
+	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", nil))
+
+	op, err := e.networks(t).RequestRemovePeering(t.Context(), &computepb.RequestRemovePeeringNetworkRequest{
+		Project: project, Network: "a",
+		NetworksRequestRemovePeeringRequestResource: &computepb.NetworksRequestRemovePeeringRequest{Name: s("a-to-b")},
+	})
+	assertAPIError(t, e.finish(t, op, err), http.StatusBadRequest, "invalid")
+}

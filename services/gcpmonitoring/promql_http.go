@@ -43,7 +43,8 @@ func IsPrometheusPath(path string) bool {
 }
 
 // PrometheusHandler serves the Managed Service for Prometheus query API over the stored metrics:
-// /v1/projects/P/location/global/prometheus/api/v1/{query,query_range,series,labels,label/NAME/values,metadata}.
+// /v1/projects/P/location/global/prometheus/api/v1/{query,query_range,query_exemplars,series,labels,
+// label/NAME/values,metadata}.
 func (b *InMemoryBackend) PrometheusHandler() http.Handler {
 	return http.HandlerFunc(b.servePrometheus)
 }
@@ -208,11 +209,17 @@ func (b *InMemoryBackend) servePrometheus(w http.ResponseWriter, r *http.Request
 
 	project, op := m[1], m[2]
 
+	b.servePromOp(w, r, project, op, vals)
+}
+
+func (b *InMemoryBackend) servePromOp(w http.ResponseWriter, r *http.Request, project, op string, vals url.Values) {
 	switch {
 	case op == "query":
 		b.promInstant(w, r, project, vals)
 	case op == "query_range":
 		b.promRange(w, r, project, vals)
+	case op == "query_exemplars":
+		b.promExemplarsHandler(w, project, vals)
 	case op == "series":
 		b.promSeries(w, project, vals)
 	case op == "labels":

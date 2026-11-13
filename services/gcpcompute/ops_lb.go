@@ -180,6 +180,15 @@ func (h *Handler) registerURLMapOps() {
 			return h.Backend.validateURLMap(ctxOf(rq), in)
 		})
 	}
+
+	h.reg(collURLMaps, scopeGlobal, "invalidateCache", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.CacheInvalidationRule](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.invalidateURLMapCache(ctxOf(rq), rq.rt.name, in))
+	})
 }
 
 func (h *Handler) registerProxyOps() {

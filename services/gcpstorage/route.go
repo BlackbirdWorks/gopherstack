@@ -44,6 +44,8 @@ const (
 	opListHMACKeys        = "ListHmacKeys"
 	opUpdateHMACKey       = "UpdateHmacKey"
 	opDeleteHMACKey       = "DeleteHmacKey"
+	opGetServiceAccount   = "GetServiceAccount"
+	opRestoreBucket       = "RestoreBucket"
 	unknownOperation      = "Unknown"
 	segB                  = "b"
 	segO                  = "o"
@@ -168,6 +170,10 @@ func methodOp(method string, ops map[string]string) string {
 func projectRoute(method string, s []string) route {
 	const hmacSegments = 3
 
+	if len(s) == hmacSegments && s[2] == "serviceAccount" {
+		return route{project: s[1], op: methodOp(method, map[string]string{http.MethodGet: opGetServiceAccount})}
+	}
+
 	if len(s) < hmacSegments || s[2] != "hmacKeys" || len(s) > hmacSegments+1 {
 		return route{op: unknownOperation}
 	}
@@ -226,6 +232,8 @@ func jsonRoute(method string, s []string) route {
 		return route{op: methodOp(method, map[string]string{
 			http.MethodGet: opListBuckets, http.MethodPost: opInsertBucket,
 		})}
+	case len(s) == bucketSubRouteSegment && s[2] == "restore":
+		return route{bucket: s[1], op: methodOp(method, map[string]string{http.MethodPost: opRestoreBucket})}
 	default:
 		return bucketRoute(method, s)
 	}

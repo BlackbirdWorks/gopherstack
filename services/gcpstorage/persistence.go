@@ -16,6 +16,7 @@ const snapshotVersion = 1
 type backendSnapshot struct {
 	Buckets  map[string]*Bucket  `json:"buckets"`
 	HMACKeys map[string]*HMACKey `json:"hmacKeys,omitempty"`
+	SoftBkts []*Bucket           `json:"softDeletedBuckets,omitempty"`
 	Version  int                 `json:"version"`
 }
 
@@ -25,7 +26,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "gcpstorage",
-		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets, HMACKeys: b.hmac})
+		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets, HMACKeys: b.hmac, SoftBkts: b.softBkts})
 }
 
 // Restore loads backend state from a snapshot.
@@ -47,6 +48,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.buckets = make(map[string]*Bucket)
 		b.hmac = make(map[string]*HMACKey)
+		b.softBkts = nil
 
 		return nil
 	}
@@ -58,6 +60,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.buckets = snap.Buckets
 	b.hmac = snap.HMACKeys
+	b.softBkts = snap.SoftBkts
 
 	if b.hmac == nil {
 		b.hmac = make(map[string]*HMACKey)
@@ -66,6 +69,24 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.lastGen = max(b.lastGen, maxGen)
 
 	return nil
+}
+
+func validateSoftBuckets(in []*Bucket) (int64, error) {
+	var maxGen int64
+
+	for i, bk := range in {
+		if bk == nil {
+			return 0, fmt.Errorf("%w: soft-deleted bucket %d", ErrSnapshotBucketNull, i)
+		}
+
+		if bk.Objects == nil {
+			bk.Objects = make(map[string][]*Object)
+		}
+
+		maxGen = max(maxGen, bk.Generation)
+	}
+
+	return maxGen, nil
 }
 
 func validateSnapshot(snap *backendSnapshot) (int64, error) {
@@ -99,6 +120,13 @@ func validateSnapshot(snap *backendSnapshot) (int64, error) {
 			return 0, fmt.Errorf("%w: hmac key %q", ErrSnapshotBucketNull, id)
 		}
 	}
+
+	softGen, err := validateSoftBuckets(snap.SoftBkts)
+	if err != nil {
+		return 0, err
+	}
+
+	maxGen = max(maxGen, softGen)
 
 	if snap.Buckets == nil {
 		snap.Buckets = make(map[string]*Bucket)

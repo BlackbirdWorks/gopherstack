@@ -18,7 +18,7 @@
 - Table data is in the emulator's memory only: it is lost on restart. Persistence stores instances, policies, databases and their DDL, and replays the schema into a fresh emulator on first use.
 - Without a container runtime database DDL is stored but not validated or executed: GetDatabaseDdl returns the statements as submitted, DROP and ALTER statements are not folded in.
 - RestoreDatabase and ListDatabaseOperations are UNIMPLEMENTED: restoring would create emulator databases the backend does not track. Backups created through the proxy live only in the emulator and are lost on restart.
-- User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, replica_compute_capacity and the ListInstances filter are not implemented.
+- User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, and replica_compute_capacity are not implemented.
 - The emulator runs every instance in its single emulator-config with 1 node; node_count and processing_units are metadata only, and the data plane is one shared emulator process.
 - Customer-managed encryption on databases is UNIMPLEMENTED; backend instance and database create_time values are not shared with the emulator.
 

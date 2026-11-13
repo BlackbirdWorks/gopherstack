@@ -26,6 +26,7 @@ type poolSnap struct {
 
 type clusterSnap struct {
 	Rotation *rotationRec   `json:"rotation,omitempty"`
+	JWK      jsontext.Value `json:"jwk,omitempty"`
 	Cluster  jsontext.Value `json:"cluster"`
 	Project  string         `json:"project"`
 	Failure  string         `json:"failure"`
@@ -62,6 +63,14 @@ func marshalPB(m proto.Message) jsontext.Value {
 	return raw
 }
 
+func marshalJWK(k *containerpb.Jwk) jsontext.Value {
+	if k == nil {
+		return nil
+	}
+
+	return marshalPB(k)
+}
+
 func unmarshalPB(raw []byte, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
@@ -82,6 +91,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			Cluster:  marshalPB(c.Cluster),
 			Rotation: c.Rotation,
 			Failure:  c.Failure,
+			JWK:      marshalJWK(c.JWK),
 			DeleteOp: c.DeleteOp,
 		}
 
@@ -115,6 +125,13 @@ func restoreClusters(in map[string]clusterSnap) (map[string]*clusterRec, error) 
 
 		rec := &clusterRec{
 			Project: cs.Project, Cluster: cl, Rotation: cs.Rotation, Failure: cs.Failure, DeleteOp: cs.DeleteOp,
+		}
+
+		if len(cs.JWK) > 0 {
+			rec.JWK = &containerpb.Jwk{}
+			if err := unmarshalPB(cs.JWK, rec.JWK); err != nil {
+				return nil, fmt.Errorf("cluster %q signing key: %w", k, err)
+			}
 		}
 
 		for _, ps := range cs.Pools {

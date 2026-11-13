@@ -35,6 +35,7 @@ type InMemoryBackend struct {
 	buckets   map[string]*Bucket
 	uploads   map[string]*uploadSession
 	hmac      map[string]*HMACKey
+	softBkts  []*Bucket
 	clock     atomic.Pointer[clockFn]
 	keys      KeyResolver
 	observers []ObjectObserver
@@ -63,6 +64,7 @@ func (b *InMemoryBackend) Reset() {
 	b.buckets = make(map[string]*Bucket)
 	b.uploads = make(map[string]*uploadSession)
 	b.hmac = make(map[string]*HMACKey)
+	b.softBkts = nil
 	b.lastGen = 0
 }
 
@@ -324,6 +326,7 @@ func (b *InMemoryBackend) deleteBucket(name string, pre Preconds) error {
 	}
 
 	delete(b.buckets, name)
+	b.softDeleteBucketLocked(bk)
 
 	return nil
 }

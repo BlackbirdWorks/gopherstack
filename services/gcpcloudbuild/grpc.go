@@ -143,3 +143,10 @@ func (s *server) ListWorkerPools(
 
 	return &cloudbuildpb.ListWorkerPoolsResponse{WorkerPools: items, NextPageToken: next}, nil
 }
+
+func (s *server) GetDefaultServiceAccount(
+	_ context.Context,
+	in *cloudbuildpb.GetDefaultServiceAccountRequest,
+) (*cloudbuildpb.DefaultServiceAccount, error) {
+	return s.b.GetDefaultServiceAccount(in)
+}

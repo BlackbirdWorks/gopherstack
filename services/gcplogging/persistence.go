@@ -56,6 +56,7 @@ type backendSnapshot struct {
 	Views      map[string]jsontext.Value `json:"views"`
 	Sinks      map[string]jsontext.Value `json:"sinks"`
 	Exclusions map[string]jsontext.Value `json:"exclusions"`
+	Links      map[string]jsontext.Value `json:"links,omitempty"`
 	Metrics    map[string]metricSnap     `json:"metrics"`
 	Settings   map[string]jsontext.Value `json:"settings"`
 	Cmek       map[string]jsontext.Value `json:"cmek"`
@@ -100,6 +101,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Views:      snapMap(b.views),
 		Sinks:      snapMap(b.sinks),
 		Exclusions: snapMap(b.exclusions),
+		Links:      snapMap(b.links),
 		Settings:   snapMap(b.settings),
 		Cmek:       snapMap(b.cmek),
 		Metrics:    make(map[string]metricSnap, len(b.metrics)),
@@ -219,6 +221,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 func newExclusion() *loggingpb.LogExclusion { return &loggingpb.LogExclusion{} }
 func newSettings() *loggingpb.Settings      { return &loggingpb.Settings{} }
 func newCmek() *loggingpb.CmekSettings      { return &loggingpb.CmekSettings{} }
+func newLink() *loggingpb.Link              { return &loggingpb.Link{} }
 func newView() *loggingpb.LogView           { return &loggingpb.LogView{} }
 func newSink() *loggingpb.LogSink           { return &loggingpb.LogSink{} }
 
@@ -235,6 +238,10 @@ func (b *InMemoryBackend) load(snap *backendSnapshot) error {
 	}
 
 	if b.exclusions, err = restoreMap(snap.Exclusions, newExclusion); err != nil {
+		return err
+	}
+
+	if b.links, err = restoreMap(snap.Links, newLink); err != nil {
 		return err
 	}
 

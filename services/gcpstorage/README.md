@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 37 (33 ok, 4 partial) |
+| PARITY entries audited | 39 (35 ok, 4 partial) |
 | Feature families | 12 (11 ok, 1 partial) |
 | Known gaps | 9 |
 | Deferred items | 0 |
@@ -16,7 +16,7 @@
 ### Known gaps
 
 - ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id.
-- No bucket relocation, soft-deleted bucket restore, restoreToken or the project serviceAccount endpoint.
+- No bucket relocation (buckets.relocate and the bucket operations resource) or restoreToken (hierarchical-namespace restore): neither is modelled.
 - Notification error bodies for a missing topic or a missing publish grant are not documented (notifications.insert lists no errors) and the status/message used are the emulator's choice; there is no publish permission check.
 - HMAC error status and message for deleting an ACTIVE key, updating a DELETED key and exceeding the per-service-account key limit are not documented (the hmacKeys reference lists none) and are the emulator's choice; the service account is not checked against Cloud IAM.
 - Signed URL gaps: the canonical-requests page says X-Goog-Date is when the URL becomes usable but names no error code, so RequestTimeTooSkewed for a future date is the emulator's choice; POST policy documents are not verified; bearer tokens are never validated.

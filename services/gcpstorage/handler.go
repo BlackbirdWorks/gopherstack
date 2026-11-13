@@ -71,6 +71,7 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		opLockRetention: h.lockRetentionPolicy, opRestoreObject: h.restoreObject,
 		opCreateHMACKey: h.createHMACKey, opGetHMACKey: h.getHMACKey, opListHMACKeys: h.listHMACKeys,
 		opUpdateHMACKey: h.updateHMACKey, opDeleteHMACKey: h.deleteHMACKey,
+		opGetServiceAccount: h.getServiceAccount, opRestoreBucket: h.restoreBucket,
 	}
 
 	h.registerACL()
@@ -90,7 +91,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opResumableUpload, opCancelUpload, opDownloadObject, opXMLGetObject, opXMLHeadObject,
 		opXMLPutObject, opXMLDeleteObject, opInsertNotification, opGetNotification, opListNotifications,
 		opDeleteNotification, opLockRetention, opRestoreObject, opCreateHMACKey, opGetHMACKey, opListHMACKeys,
-		opUpdateHMACKey, opDeleteHMACKey,
+		opUpdateHMACKey, opDeleteHMACKey, opGetServiceAccount, opRestoreBucket,
 	}...)
 }
 

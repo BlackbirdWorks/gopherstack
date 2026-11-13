@@ -25,7 +25,7 @@
 - Cleanup policies write no audit log entries, so the dry-run audit trail the cleanup-policy page describes is absent.
 - Rule condition variables are the emulator's choice (see rule_conditions); download rules are enforced on Docker manifest and blob reads, file downloads, and npm, Python, Maven, apt, yum and Go downloads only.
 - Project settings and the VPC-SC policy are stored; nothing consults them.
-- Docker repository ids are unique per project across locations (the registry path carries no location); other formats may reuse an id per location.
+- Docker repository ids are unique per project across locations because the registry path (project/repository/image) carries no location and image data is stored by that path; other formats may reuse an id in several locations (pkg.dev hosts select the location, other routes take the first by name).
 - Authentication is not checked and IAM is not enforced; every credential is accepted.
 - Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled).
 - Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served.

@@ -273,6 +273,8 @@ func (b *InMemoryBackend) DeleteBucket(name string) error {
 		return errInvalid("The %s bucket cannot be deleted.", name[strings.LastIndex(name, "/")+1:])
 	case bd.pb.GetLocked():
 		return errPrecondition("A locked bucket cannot be deleted.")
+	case b.bucketHasLinksLocked(name):
+		return errPrecondition("Bucket %s has linked datasets; delete the links first.", name)
 	}
 
 	now := b.now()

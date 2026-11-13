@@ -107,9 +107,43 @@ func (f *fakeObjs) names() []string {
 }
 
 type fakeTables struct {
-	rows   map[string][]map[string]any
-	create map[string]int
-	mu     sync.Mutex
+	rows     map[string][]map[string]any
+	create   map[string]int
+	datasets map[string]bool
+	mu       sync.Mutex
+}
+
+func (f *fakeTables) CreateDataset(project, dataset string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.datasets == nil {
+		f.datasets = map[string]bool{}
+	}
+
+	if f.datasets[project+"."+dataset] {
+		return gcplogging.ErrDatasetExists
+	}
+
+	f.datasets[project+"."+dataset] = true
+
+	return nil
+}
+
+func (f *fakeTables) DeleteDataset(project, dataset string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	delete(f.datasets, project+"."+dataset)
+
+	return nil
+}
+
+func (f *fakeTables) hasDataset(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.datasets[key]
 }
 
 func (f *fakeTables) EnsureTable(project, dataset, table string, schema []map[string]any) error {

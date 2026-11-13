@@ -79,6 +79,8 @@ func (o *Object) clone() *Object {
 type Bucket struct {
 	Created               time.Time                 `json:"created"`
 	Updated               time.Time                 `json:"updated"`
+	SoftDeleteTime        time.Time                 `json:"softDeleteTime,omitzero"`
+	HardDeleteTime        time.Time                 `json:"hardDeleteTime,omitzero"`
 	Objects               map[string][]*Object      `json:"objects"`
 	SoftDeleted           []*Object                 `json:"softDeleted,omitempty"`
 	Notifications         []Notification            `json:"notifications,omitempty"`
@@ -92,6 +94,7 @@ type Bucket struct {
 	DefaultObjectACL      []ACLEntry                `json:"defaultObjectAcl,omitempty"`
 	IAM                   IAMPolicy                 `json:"iam"`
 	Metageneration        int64                     `json:"metageneration"`
+	Generation            int64                     `json:"generation,omitempty"`
 	NotifSeq              int64                     `json:"notifSeq,omitempty"`
 	Versioning            bool                      `json:"versioning,omitempty"`
 	DefaultEventBasedHold bool                      `json:"defaultEventBasedHold,omitempty"`

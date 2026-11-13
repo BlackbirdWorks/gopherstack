@@ -263,3 +263,10 @@ func (h *Handler) deleteHMACKey(c *echo.Context, rt route) error {
 
 	return c.NoContent(http.StatusNoContent)
 }
+
+func (h *Handler) getServiceAccount(c *echo.Context, rt route) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		keyKind:         "storage#serviceAccount",
+		"email_address": "service-" + projectNumber(rt.project) + "@gs-project-accounts.iam.gserviceaccount.com",
+	})
+}

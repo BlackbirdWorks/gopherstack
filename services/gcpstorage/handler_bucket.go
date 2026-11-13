@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func errRequired(param string) *APIError {
@@ -24,7 +25,14 @@ func (h *Handler) listBuckets(c *echo.Context, _ route) error {
 	}
 
 	limit, _ := strconv.Atoi(q.Get("maxResults"))
-	pg := h.Backend.ListBuckets(project, q.Get("prefix"), q.Get("pageToken"), limit)
+
+	var pg page.Page[*Bucket]
+	if q.Get("softDeleted") == valTrue {
+		pg = h.Backend.ListSoftDeletedBuckets(project, q.Get("prefix"), q.Get("pageToken"), limit)
+	} else {
+		pg = h.Backend.ListBuckets(project, q.Get("prefix"), q.Get("pageToken"), limit)
+	}
+
 	base := baseURL(c.Request())
 	items := make([]map[string]any, 0, len(pg.Data))
 
@@ -64,7 +72,22 @@ func (h *Handler) getBucket(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
-	b, err := h.Backend.GetBucket(rt.bucket, pre)
+	var (
+		b   *Bucket
+		err error
+	)
+
+	if c.QueryParam("softDeleted") == valTrue {
+		gen, genErr := bucketGeneration(c.QueryParam("generation"))
+		if genErr != nil {
+			return genErr
+		}
+
+		b, err = h.Backend.GetSoftDeletedBucket(rt.bucket, gen)
+	} else {
+		b, err = h.Backend.GetBucket(rt.bucket, pre)
+	}
+
 	if err != nil {
 		return err
 	}

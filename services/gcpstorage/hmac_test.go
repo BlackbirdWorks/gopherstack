@@ -112,3 +112,38 @@ func TestHMACKeyLimitsAndFilters(t *testing.T) {
 	assert.Len(t, listHMAC(t, e, storage.ForHMACKeyServiceAccountEmail(saB)), 1)
 	assert.Empty(t, listHMAC(t, e, storage.ForHMACKeyServiceAccountEmail("c@x.iam.gserviceaccount.com")))
 }
+
+func TestServiceAccount(t *testing.T) {
+	t.Parallel()
+
+	e := newSDK(t)
+
+	tests := []struct {
+		name    string
+		project string
+	}{
+		{name: "default", project: sdkProject},
+		{name: "other", project: "another-project"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			email, err := e.client.ServiceAccount(t.Context(), tt.project)
+			require.NoError(t, err)
+			assert.Regexp(t, `^service-\d{12}@gs-project-accounts\.iam\.gserviceaccount\.com$`, email)
+
+			again, err := e.client.ServiceAccount(t.Context(), tt.project)
+			require.NoError(t, err)
+			assert.Equal(t, email, again)
+		})
+	}
+
+	a, err := e.client.ServiceAccount(t.Context(), sdkProject)
+	require.NoError(t, err)
+
+	b, err := e.client.ServiceAccount(t.Context(), "another-project")
+	require.NoError(t, err)
+	assert.NotEqual(t, a, b)
+}
