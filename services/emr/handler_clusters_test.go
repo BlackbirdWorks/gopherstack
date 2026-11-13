@@ -2,7 +2,7 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -54,7 +55,7 @@ func TestEMR_RunJobFlow(t *testing.T) {
 				ClusterArn string `json:"ClusterArn"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.JobFlowID)
 			assert.Contains(t, out.ClusterArn, "elasticmapreduce")
 		})
@@ -95,7 +96,7 @@ func TestEMR_DescribeCluster(t *testing.T) {
 				JobFlowID string `json:"JobFlowId"`
 			}
 
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			clusterID := tt.clusterID
 			if clusterID == "" {
@@ -114,7 +115,7 @@ func TestEMR_DescribeCluster(t *testing.T) {
 					} `json:"Cluster"`
 				}
 
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, clusterID, out.Cluster.ID)
 				assert.Equal(t, "test-cluster", out.Cluster.Name)
 			}
@@ -160,7 +161,7 @@ func TestEMR_ListClusters(t *testing.T) {
 				Clusters []any `json:"Clusters"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(out.Clusters), tt.wantMinCount)
 		})
 	}
@@ -183,7 +184,7 @@ func TestEMR_TerminateJobFlows(t *testing.T) {
 				var out struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return []string{out.JobFlowID}
 			},
@@ -282,7 +283,7 @@ func TestRunJobFlow_SecurityConfigurationValidation(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errOut map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 		assert.Equal(t, "InvalidRequestException", errOut["__type"])
 	})
 
@@ -322,7 +323,7 @@ func TestRunJobFlow_DefaultReleaseLabel(t *testing.T) {
 	var out struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": out.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -332,7 +333,7 @@ func TestRunJobFlow_DefaultReleaseLabel(t *testing.T) {
 			ReleaseLabel string `json:"ReleaseLabel"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, emr.DefaultReleaseLabel, desc.Cluster.ReleaseLabel)
 }
 
@@ -349,7 +350,7 @@ func TestRunJobFlow_ApplicationsDefaulted(t *testing.T) {
 	var out struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": out.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -361,7 +362,7 @@ func TestRunJobFlow_ApplicationsDefaulted(t *testing.T) {
 			} `json:"Applications"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.NotEmpty(t, desc.Cluster.Applications)
 }
 
@@ -389,7 +390,7 @@ func TestListClusters_DateFilter(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"Clusters"`
 	}
-	require.NoError(t, json.Unmarshal(listInRange.Body.Bytes(), &inRange))
+	require.NoError(t, json.Unmarshal(listInRange.Body.Bytes(), &inRange, jsonx.V1()))
 	assert.Len(t, inRange.Clusters, 1)
 
 	listOld := doEMRRequest(t, h, "ListClusters", map[string]any{
@@ -402,7 +403,7 @@ func TestListClusters_DateFilter(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"Clusters"`
 	}
-	require.NoError(t, json.Unmarshal(listOld.Body.Bytes(), &old))
+	require.NoError(t, json.Unmarshal(listOld.Body.Bytes(), &old, jsonx.V1()))
 	assert.Empty(t, old.Clusters)
 }
 
@@ -427,7 +428,7 @@ func TestConfigurations_RunJobFlow(t *testing.T) {
 	var out struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": out.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -443,7 +444,7 @@ func TestConfigurations_RunJobFlow(t *testing.T) {
 			} `json:"Configurations"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	require.Len(t, desc.Cluster.Configurations, 1)
 	assert.Equal(t, "spark-defaults", desc.Cluster.Configurations[0].Classification)
 	assert.Equal(t, "4g", desc.Cluster.Configurations[0].Properties["spark.executor.memory"])
@@ -466,7 +467,7 @@ func TestClusterFields_EbsAndOS(t *testing.T) {
 	var out struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": out.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -478,7 +479,7 @@ func TestClusterFields_EbsAndOS(t *testing.T) {
 			EbsRootVolumeSize int    `json:"EbsRootVolumeSize"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, 64, desc.Cluster.EbsRootVolumeSize)
 	assert.Equal(t, "2.0.20230718", desc.Cluster.OSReleaseLabel)
 	assert.Equal(t, "ami-0123456789abcdef0", desc.Cluster.CustomAmiID)
@@ -579,13 +580,13 @@ func TestDescribeCluster_TagsEmptyNotAbsent(t *testing.T) {
 			var create struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 			rec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			cluster, ok := raw["Cluster"].(map[string]any)
 			require.True(t, ok, "Cluster must be an object")
@@ -612,13 +613,13 @@ func TestDescribeCluster_TagsRoundTrip(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	cluster := raw["Cluster"].(map[string]any)
 	tags := cluster["Tags"].([]any)
@@ -642,7 +643,7 @@ func TestDescribeCluster_TagsEmptyAfterRemove(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rmRec := doEMRRequest(t, h, "RemoveTags", map[string]any{
 		"ResourceId": create.JobFlowID,
@@ -654,7 +655,7 @@ func TestDescribeCluster_TagsEmptyAfterRemove(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	cluster := raw["Cluster"].(map[string]any)
 	tags, hasKey := cluster["Tags"]
@@ -673,7 +674,7 @@ func TestErrorMapping_NotFound_ClusterNotFoundException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", errOut["__type"])
 }
 
@@ -728,7 +729,7 @@ func newSessionForTest(t *testing.T, h *emr.Handler, clusterName string) (string
 	var cluster struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cluster))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cluster, jsonx.V1()))
 
 	startRec := doEMRRequest(t, h, "StartSession", map[string]any{"ClusterId": cluster.JobFlowID})
 	require.Equal(t, http.StatusOK, startRec.Code, startRec.Body.String())
@@ -736,7 +737,7 @@ func newSessionForTest(t *testing.T, h *emr.Handler, clusterName string) (string
 	var session struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &session))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &session, jsonx.V1()))
 
 	return cluster.JobFlowID, session.ID
 }
@@ -765,7 +766,7 @@ func TestEMR_StartSession(t *testing.T) {
 				var out struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.JobFlowID
 			},
@@ -789,7 +790,7 @@ func TestEMR_StartSession(t *testing.T) {
 				var out struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				termRec := doEMRRequest(t, h, "TerminateJobFlows", map[string]any{
 					"JobFlowIds": []string{out.JobFlowID},
@@ -822,7 +823,7 @@ func TestEMR_StartSession(t *testing.T) {
 				ARN       string `json:"Arn"`
 				State     string `json:"State"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.ID)
 			assert.Equal(t, clusterID, out.ClusterID)
 			assert.Equal(t, emr.SessionStateSubmitted, out.State)
@@ -879,7 +880,7 @@ func TestEMR_GetSession(t *testing.T) {
 					State     string `json:"State"`
 				} `json:"Session"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, sessionID, out.Session.ID)
 			assert.Equal(t, clusterID, out.Session.ClusterID)
 			assert.Equal(t, emr.SessionStateSubmitted, out.Session.State)
@@ -921,7 +922,7 @@ func TestEMR_ListSessions(t *testing.T) {
 			var cluster struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cluster))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cluster, jsonx.V1()))
 
 			for range tt.numSessions {
 				startRec := doEMRRequest(t, h, "StartSession", map[string]any{"ClusterId": cluster.JobFlowID})
@@ -941,7 +942,7 @@ func TestEMR_ListSessions(t *testing.T) {
 					ID string `json:"Id"`
 				} `json:"Sessions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Sessions, tt.wantCount)
 		})
 	}
@@ -996,7 +997,7 @@ func TestEMR_TerminateSession(t *testing.T) {
 				SessionID string `json:"SessionId"`
 				State     string `json:"State"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, clusterID, out.ClusterID)
 			assert.Equal(t, sessionID, out.SessionID)
 			assert.Equal(t, emr.SessionStateTerminated, out.State)
@@ -1050,7 +1051,7 @@ func TestEMR_GetSessionEndpoint(t *testing.T) {
 				Endpoint    string         `json:"Endpoint"`
 				AuthToken   string         `json:"AuthToken"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.Endpoint)
 			assert.NotEmpty(t, out.AuthToken)
 			assert.Contains(t, out.Credentials, "UsernamePassword")
@@ -1104,7 +1105,7 @@ func TestEMR_TerminateJobFlows_CascadesToSessions(t *testing.T) {
 					State string `json:"State"`
 				} `json:"Session"`
 			}
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, emr.SessionStateTerminated, out.Session.State,
 				"session must be terminated when its cluster is terminated")
 		})

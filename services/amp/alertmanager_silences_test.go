@@ -1,7 +1,8 @@
 package amp_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp"
 )
 
@@ -32,7 +34,7 @@ func amPath(ws, rest string) string { return "/workspaces/" + ws + "/alertmanage
 func (f *fixture) putSilence(t *testing.T, ws string, body map[string]any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	r := f.do(t, http.MethodPost, amPath(ws, "silences"), strings.NewReader(string(raw)), nil)
@@ -42,7 +44,7 @@ func (f *fixture) putSilence(t *testing.T, ws string, body map[string]any) strin
 		SilenceID string `json:"silenceID"`
 	}
 
-	require.NoError(t, json.Unmarshal(r.body, &out))
+	require.NoError(t, json.Unmarshal(r.body, &out, jsonx.V1()))
 	require.NotEmpty(t, out.SilenceID)
 
 	return out.SilenceID
@@ -95,7 +97,7 @@ func TestSilenceMutesNotifications(t *testing.T) {
 		} `json:"status"`
 	}
 
-	require.NoError(t, json.Unmarshal(r.body, &alerts))
+	require.NoError(t, json.Unmarshal(r.body, &alerts, jsonx.V1()))
 	require.Len(t, alerts, 1)
 	assert.Equal(t, "suppressed", alerts[0].Status.State)
 	assert.Equal(t, []string{id}, alerts[0].Status.SilencedBy)
@@ -176,7 +178,7 @@ func TestSilenceValidation(t *testing.T) {
 			body := f.silenceBody("a", "b")
 			tt.mutate(f, body)
 
-			raw, err := json.Marshal(body)
+			raw, err := json.Marshal(body, jsonx.V1())
 			require.NoError(t, err)
 
 			r := f.do(t, http.MethodPost, amPath(ws, "silences"), strings.NewReader(string(raw)), nil)
@@ -213,10 +215,10 @@ func TestAlertManagerStatusReceiversGroups(t *testing.T) {
 		Receiver struct {
 			Name string `json:"name"`
 		} `json:"receiver"`
-		Alerts []json.RawMessage `json:"alerts"`
+		Alerts []jsontext.Value `json:"alerts"`
 	}
 
-	require.NoError(t, json.Unmarshal(gr.body, &groups))
+	require.NoError(t, json.Unmarshal(gr.body, &groups, jsonx.V1()))
 	require.Len(t, groups, 1)
 	assert.Equal(t, "team", groups[0].Receiver.Name)
 	assert.Equal(t, map[string]string{"alertname": "Down"}, groups[0].Labels)

@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const disclaimer = `NOTE ON READING THIS REPORT
@@ -59,10 +62,9 @@ func writeJSON(path string, findings []finding) error {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	if encErr := enc.Encode(findings); encErr != nil {
+	if encErr := json.MarshalEncode(enc, findings); encErr != nil {
 		return fmt.Errorf("encode json: %w", encErr)
 	}
 

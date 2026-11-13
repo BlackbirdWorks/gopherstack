@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"regexp"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -147,7 +148,7 @@ func TestDNSResolverQueryLogS3Destination(t *testing.T) {
 
 				for _, l := range lines {
 					var rec map[string]any
-					require.NoError(t, json.Unmarshal([]byte(l), &rec))
+					require.NoError(t, json.Unmarshal([]byte(l), &rec, jsonx.V1()))
 					assert.Equal(t, vpc1, rec["vpc_id"])
 					names = append(names, rec["query_name"].(string))
 				}
@@ -205,7 +206,7 @@ func TestDNSResolverQueryLogFirehoseDestination(t *testing.T) {
 			assert.True(t, bytes.HasSuffix(rec.data, []byte("\n")))
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.data, &body))
+			require.NoError(t, json.Unmarshal(rec.data, &body, jsonx.V1()))
 			assert.Equal(t, "q.example.", body["query_name"])
 			assert.Equal(t, vpc1, body["vpc_id"])
 		})

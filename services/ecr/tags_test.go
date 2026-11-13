@@ -6,13 +6,14 @@ package ecr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
 
@@ -26,7 +27,7 @@ func TestECR_ListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	repo := createResp["repository"].(map[string]any)
 	arn := repo["repositoryArn"].(string)
@@ -35,7 +36,7 @@ func TestECR_ListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	tags, ok := out["tags"]
 	require.True(t, ok, "response should contain 'tags' field")
 	assert.IsType(t, []any{}, tags, "tags should be an array")
@@ -253,7 +254,7 @@ func TestListTagsForResource_HandlerSortsKeys(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			gotKeys := make([]string, 0, len(resp.Tags))
 			for _, tag := range resp.Tags {
@@ -299,7 +300,7 @@ func TestCreateRepository_TagsRoundTrip(t *testing.T) {
 					RepositoryARN string `json:"repositoryArn"`
 				} `json:"repository"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			arn := createResp.Repository.RepositoryARN
 
 			listRec := doAccuracy(t, h, "ListTagsForResource", map[string]any{
@@ -310,7 +311,7 @@ func TestCreateRepository_TagsRoundTrip(t *testing.T) {
 			var listResp struct {
 				Tags []any `json:"tags"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.Tags, tt.wantLen)
 		})
 	}

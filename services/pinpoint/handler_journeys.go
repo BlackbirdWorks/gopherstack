@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractJourneysOp returns the journeys collection operation name.
@@ -149,7 +150,7 @@ func (h *Handler) dispatchJourneyRun(c *echo.Context, appID, journeyID, rest str
 func (h *Handler) handleCreateJourney(c *echo.Context, appID string) error {
 	return h.handleCreateNamedAppResource(c, appID, func(body []byte, region, appID string) (any, error) {
 		var req createJourneyRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, errInvalidRequestBody
 		}
 
@@ -249,7 +250,7 @@ func (h *Handler) handleUpdateJourneyState(c *echo.Context, appID, journeyID str
 	}
 
 	var req updateJourneyStateRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 

@@ -1,7 +1,7 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -291,7 +292,7 @@ func TestAPICache_UnmarshalJSON_HealthMetricsConfig(t *testing.T) {
 			t.Parallel()
 
 			var got appsync.APICache
-			err := json.Unmarshal([]byte(tt.body), &got)
+			err := json.Unmarshal([]byte(tt.body), &got, jsonx.V1())
 
 			if tt.wantErr {
 				require.Error(t, err)

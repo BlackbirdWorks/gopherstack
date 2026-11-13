@@ -2,10 +2,12 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type tagResourceInput struct {
@@ -28,7 +30,7 @@ type listTagsOutput struct {
 
 func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in tagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -41,7 +43,7 @@ func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, body [
 
 func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in untagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -54,7 +56,7 @@ func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, body
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listTagsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

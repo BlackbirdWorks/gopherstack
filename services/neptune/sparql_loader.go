@@ -2,7 +2,8 @@ package neptune
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
@@ -183,23 +185,23 @@ func readLoadRequest(w http.ResponseWriter, r *http.Request) (loadRequest, error
 
 	r.Body = http.MaxBytesReader(w, r.Body, cypherMaxBody)
 
-	dec := json.NewDecoder(r.Body)
+	dec := jsontext.NewDecoder(r.Body)
 	// the loader documents boolean-ish flags as strings but clients also send JSON booleans
-	var raw map[string]json.RawMessage
-	if err := dec.Decode(&raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.UnmarshalDecode(dec, &raw, jsonx.V1()); err != nil {
 		return req, err
 	}
 
 	for k, v := range raw {
 		var flag bool
-		if json.Unmarshal(v, &flag) == nil {
-			raw[k] = json.RawMessage(strconv.Quote(strings.ToUpper(strconv.FormatBool(flag))))
+		if json.Unmarshal(v, &flag, jsonx.V1()) == nil {
+			raw[k] = jsontext.Value(strconv.Quote(strings.ToUpper(strconv.FormatBool(flag))))
 		}
 	}
 
-	buf, _ := json.Marshal(raw)
+	buf, _ := json.Marshal(raw, jsonx.V1())
 
-	return req, json.Unmarshal(buf, &req)
+	return req, json.Unmarshal(buf, &req, jsonx.V1())
 }
 
 func (f *cypherFront) startLoad(w http.ResponseWriter, r *http.Request) {

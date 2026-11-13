@@ -1,13 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -110,7 +112,7 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			}
 
 			var out lambda.FunctionConcurrency
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantReserved, out.ReservedConcurrentExecutions)
 		})
 	}
@@ -199,14 +201,14 @@ func TestGetFunctionConcurrency(t *testing.T) {
 
 			if tt.wantAbsent {
 				var raw map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 				assert.NotContains(t, raw, "ReservedConcurrentExecutions")
 
 				return
 			}
 
 			var out lambda.FunctionConcurrency
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantReserved, out.ReservedConcurrentExecutions)
 		})
 	}
@@ -448,7 +450,7 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 			var out struct {
 				Configuration *lambda.FunctionConfiguration `json:"Configuration"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.NotNil(t, out.Configuration)
 
 			if tt.wantReserved == nil {
@@ -550,7 +552,7 @@ func TestConcurrency_PutGetDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var conc lambda.FunctionConcurrency
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&conc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &conc, jsonx.V1()))
 	assert.Equal(t, 50, conc.ReservedConcurrentExecutions)
 
 	// Get
@@ -559,7 +561,7 @@ func TestConcurrency_PutGetDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getConc lambda.FunctionConcurrency
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getConc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getConc, jsonx.V1()))
 	assert.Equal(t, 50, getConc.ReservedConcurrentExecutions)
 
 	// Delete
@@ -575,7 +577,7 @@ func TestConcurrency_PutGetDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&raw))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "ReservedConcurrentExecutions")
 }
 

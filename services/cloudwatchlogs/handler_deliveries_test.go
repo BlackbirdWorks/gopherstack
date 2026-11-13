@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -26,7 +27,7 @@ func TestHandler_Delivery_CreateWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	delivery, ok := out["delivery"].(map[string]any)
 	require.True(t, ok)
@@ -242,7 +243,7 @@ func TestHandler_DeliveryDestination(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -284,7 +285,7 @@ func TestHandler_DeliveryDestination_WireShape(t *testing.T) {
 	}
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	putDest, ok := putOut["deliveryDestination"].(map[string]any)
 	require.True(t, ok)
 	checkShape(t, putDest)
@@ -293,7 +294,7 @@ func TestHandler_DeliveryDestination_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	getDest, ok := getOut["deliveryDestination"].(map[string]any)
 	require.True(t, ok)
 	checkShape(t, getDest)
@@ -302,7 +303,7 @@ func TestHandler_DeliveryDestination_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut, jsonx.V1()))
 	dests, ok := describeOut["deliveryDestinations"].([]any)
 	require.True(t, ok)
 	require.Len(t, dests, 1)
@@ -394,7 +395,7 @@ func TestHandler_DeliverySource(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -437,7 +438,7 @@ func TestHandler_DeliverySource_WireShape(t *testing.T) {
 	}
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	putSrc, ok := putOut["deliverySource"].(map[string]any)
 	require.True(t, ok)
 	checkShape(t, putSrc)
@@ -446,7 +447,7 @@ func TestHandler_DeliverySource_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	getSrc, ok := getOut["deliverySource"].(map[string]any)
 	require.True(t, ok)
 	checkShape(t, getSrc)
@@ -455,7 +456,7 @@ func TestHandler_DeliverySource_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut, jsonx.V1()))
 	srcs, ok := describeOut["deliverySources"].([]any)
 	require.True(t, ok)
 	require.Len(t, srcs, 1)
@@ -488,7 +489,7 @@ func TestHandler_UpdateDeliveryConfiguration(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id, _ := resp["delivery"]["id"].(string)
 
 				return id
@@ -512,7 +513,7 @@ func TestHandler_UpdateDeliveryConfiguration(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id, _ := resp["delivery"]["id"].(string)
 
 				return id
@@ -545,7 +546,7 @@ func TestHandler_UpdateDeliveryConfiguration(t *testing.T) {
 				deliveryID = tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body(deliveryID))
+			bodyBytes, err := json.Marshal(tt.body(deliveryID), jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -604,7 +605,7 @@ func TestHandler_CreateDeliveryOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -612,7 +613,7 @@ func TestHandler_CreateDeliveryOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {
@@ -679,13 +680,13 @@ func TestHandler_DeliveryResponseShape(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "response should contain field %q", field)
 			}

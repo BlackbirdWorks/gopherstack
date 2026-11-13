@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEMR_RequestValidation(t *testing.T) {
@@ -78,13 +80,13 @@ func TestEMR_RequestValidation(t *testing.T) {
 			var out struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(created.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(created.Body.Bytes(), &out, jsonx.V1()))
 
 			rec := doEMRRequest(t, h, tt.action, tt.body(out.JobFlowID))
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errOut map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", errOut["__type"])
 			assert.Contains(t, errOut["message"], tt.wantMsg)
 			assert.NotContains(t, errOut["message"], "Exception:")

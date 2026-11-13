@@ -3,7 +3,8 @@ package timestreamquery_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
@@ -40,7 +42,7 @@ type recordingNotifier struct {
 
 func (n *recordingNotifier) Publish(_ context.Context, topic, message string) error {
 	var m map[string]any
-	if err := json.Unmarshal([]byte(message), &m); err != nil {
+	if err := json.Unmarshal([]byte(message), &m, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -440,7 +442,7 @@ func TestScheduledQuery_IngestionFailureWritesErrorReport(t *testing.T) {
 		} `json:"errors"`
 	}
 
-	require.NoError(t, json.NewDecoder(bytes.NewReader(body)).Decode(&report))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(bytes.NewReader(body)), &report, jsonx.V1()))
 	assert.Len(t, report.ReportID, 32)
 	require.Len(t, report.Errors, 1)
 	assert.Equal(t, errIngest.Error(), report.Errors[0].Reason)

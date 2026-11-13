@@ -2,10 +2,11 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -46,7 +47,7 @@ func (h *Handler) handleCreateQueue(
 	body []byte,
 ) (any, error) {
 	var req jsonCreateQueueReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -92,7 +93,7 @@ func (h *Handler) handleDeleteQueue(
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -112,7 +113,7 @@ func (h *Handler) handleListQueues(
 ) (any, error) {
 	var req jsonListQueuesReq
 	// ListQueues body may be empty; ignore unmarshal errors
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	region := h.requestScope(r)
 
@@ -140,7 +141,7 @@ func (h *Handler) handleGetQueueURL(
 	body []byte,
 ) (any, error) {
 	var req jsonGetQueueURLReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -162,7 +163,7 @@ func (h *Handler) handlePurgeQueue(
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

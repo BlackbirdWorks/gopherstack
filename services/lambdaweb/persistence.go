@@ -2,7 +2,7 @@ package lambdaweb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 
@@ -25,8 +25,8 @@ const snapshotVersion = 1
 const persistName = "lambdaweb"
 
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serializes backend state to JSON.

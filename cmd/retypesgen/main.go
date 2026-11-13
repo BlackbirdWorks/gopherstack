@@ -3,7 +3,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const fetchTimeout = time.Minute
@@ -88,7 +90,12 @@ func run(out string) (int, error) {
 
 	types := parse(string(b))
 
-	data, err := json.MarshalIndent(catalog{Source: source, Types: types}, "", " ")
+	data, err := json.Marshal(
+		catalog{Source: source, Types: types},
+		jsonx.V1(),
+		jsontext.Multiline(true),
+		jsontext.WithIndent(" "),
+	)
 	if err != nil {
 		return 0, err
 	}

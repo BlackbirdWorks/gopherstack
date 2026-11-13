@@ -2,10 +2,11 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -25,7 +26,7 @@ func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, err
 		LayerIDs     []string `json:"LayerIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -56,7 +57,7 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) (any, e
 		InstanceExtras
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -74,7 +75,7 @@ func (h *Handler) handleDeregisterInstance(_ context.Context, body []byte) (any,
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -92,7 +93,7 @@ func (h *Handler) handleAssignInstance(_ context.Context, body []byte) (any, err
 		LayerIDs   []string `json:"LayerIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -109,7 +110,7 @@ func (h *Handler) handleUnassignInstance(_ context.Context, body []byte) (any, e
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -129,7 +130,7 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -156,7 +157,7 @@ func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, err
 		LayerIDs     []string `json:"LayerIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -185,7 +186,7 @@ func (h *Handler) handleDeleteInstance(_ context.Context, body []byte) (any, err
 		InstanceID      string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -204,7 +205,7 @@ func (h *Handler) handleStartInstance(_ context.Context, body []byte) (any, erro
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -221,7 +222,7 @@ func (h *Handler) handleStopInstance(_ context.Context, body []byte) (any, error
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -238,7 +239,7 @@ func (h *Handler) handleRebootInstance(_ context.Context, body []byte) (any, err
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -276,9 +277,9 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 			"ReportedOs": map[string]any{},
 		}
 
-		if raw, err := json.Marshal(i.Extras); err == nil {
+		if raw, err := json.Marshal(i.Extras, jsonx.V1()); err == nil {
 			var extra map[string]any
-			if json.Unmarshal(raw, &extra) == nil {
+			if json.Unmarshal(raw, &extra, jsonx.V1()) == nil {
 				maps.Copy(m, extra)
 			}
 		}

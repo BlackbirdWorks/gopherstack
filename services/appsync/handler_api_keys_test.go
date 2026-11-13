@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -56,7 +58,7 @@ func TestHandler_CreateApiKey(t *testing.T) {
 
 			if tt.wantKeyID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				key, ok := resp["apiKey"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, key["id"])
@@ -75,7 +77,7 @@ func TestHandler_CreateAPIKey_Da2Prefix(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	gqlAPI := resp["graphqlApi"].(map[string]any)
 	apiID := gqlAPI["apiId"].(string)
 
@@ -84,7 +86,7 @@ func TestHandler_CreateAPIKey_Da2Prefix(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var keyResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&keyResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &keyResp, jsonx.V1()))
 	apiKey := keyResp["apiKey"].(map[string]any)
 	keyID := apiKey["id"].(string)
 	require.GreaterOrEqual(t, len(keyID), 4, "key ID must be at least 4 characters")
@@ -107,7 +109,7 @@ func TestHandler_ListApiKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	keys := resp["apiKeys"].([]any)
 	assert.Len(t, keys, 2)
 }
@@ -146,7 +148,7 @@ func TestHandler_UpdateApiKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	apiKey := resp["apiKey"].(map[string]any)
 	assert.Equal(t, "updated", apiKey["description"])
 }

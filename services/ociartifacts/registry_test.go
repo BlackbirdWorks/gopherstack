@@ -1,7 +1,7 @@
 package ociartifacts_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
 )
@@ -36,7 +37,7 @@ func (e *env) token(t *testing.T, authz, scope string) (int, tokenReply) {
 	var out tokenReply
 
 	if resp.Status == http.StatusOK {
-		require.NoError(t, json.Unmarshal(resp.Body, &out))
+		require.NoError(t, json.Unmarshal(resp.Body, &out, jsonx.V1()))
 	}
 
 	return resp.Status, out
@@ -845,7 +846,7 @@ func manifestFor(t *testing.T, cfgDigest, layerDigest string, layerSize, cfgSize
 		"layers": []any{map[string]any{
 			"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip", "size": layerSize, "digest": layerDigest,
 		}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return body

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 57 (28 ok, 29 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -19,11 +19,10 @@
 - Secret replication (replicationConfig) is not implemented and is rejected; ADB rotation targets are not contacted (no ADB password is changed); rotation failures are logged only because the SDK has no work requests.
 - HSM and SOFTWARE protection modes are both in-process software keys; HSM only differs by being non-exportable.
 - Key version states are not transitional, and replica endpoints share the primary state: a key is readable there before its replication operation reports REPLICATED.
-- The vault wrapping key is RSA 2048; the live service size, the plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here) are unverified.
+- The plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here) are unverified.
 - Several error codes and statuses are unverified against the live service: 409 Conflict for a duplicate secret name, 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key.
-- Backup and restore: the 200 statuses, the BackupLocation required rule, the key-state rule and the 409 for existing resources are unverified against the live service; software-protected keys are backed up too.
-- Rotation payload ({secretId, step, currentVersionNumber}) and the four step names are unverified against the live docs; the rotationInterval 1-360 day range comes from the SDK doc comment.
-- opc-retry-token on CreateKeyVersion, ImportKey, ImportKeyVersion, CreateVaultReplica, RotateSecret and the compartment moves and lifecycle actions, service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
+- Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are unverified against the live service; key backups still include key versions that are deleted or pending deletion, which Oracle excludes, and restores are not limited to the original compartment.
+- Service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
 - Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client.
 - Resource principal and instance principal tokens are not understood; only API-key signatures are verified.
 

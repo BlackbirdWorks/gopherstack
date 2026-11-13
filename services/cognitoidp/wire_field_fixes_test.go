@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListUserPoolClients_SummaryShape proves ListUserPoolClients returns the
@@ -56,7 +58,7 @@ func TestListUserPoolClients_SummaryShape(t *testing.T) {
 	// assert directly on the wire body that no such key is emitted.
 	rec := doCognitoRequest(t, h, "ListUserPoolClients", map[string]any{"UserPoolId": poolID})
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	rawClients, ok := raw["UserPoolClients"].([]any)
 	require.True(t, ok)
 	require.Len(t, rawClients, 1)

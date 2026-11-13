@@ -2,13 +2,14 @@ package databrew_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
 
@@ -193,7 +194,7 @@ func TestHandlerCreateRecipe(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-recipe", resp["Name"])
 }
 
@@ -239,7 +240,7 @@ func TestHandlerListRecipes(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Recipes"])
 }
 
@@ -280,7 +281,7 @@ func TestHandlerListRecipeVersions(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/ver-r/recipeVersions", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Recipes"])
 }
 
@@ -293,7 +294,7 @@ func TestHandlerListRecipeVersions_UnknownRecipe(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/no-such/recipeVersions", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Recipes"])
 }
 
@@ -356,7 +357,7 @@ func TestHandlerBatchDeleteRecipeVersion_LatestWorkingOnly(t *testing.T) {
 	var out struct {
 		Errors []map[string]string `json:"Errors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.Errors, "deleting LATEST_WORKING as the only version must succeed with no partial failures")
 
 	desc := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/bdrv-lw-only", nil)
@@ -394,7 +395,7 @@ func TestHandlerBatchDeleteRecipeVersion_LatestWorkingBlockedByPublished(t *test
 			ErrorCode     string `json:"ErrorCode"`
 		} `json:"Errors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Errors, 1)
 	assert.Equal(t, "LATEST_WORKING", out.Errors[0].RecipeVersion)
 	assert.Equal(t, "ValidationException", out.Errors[0].ErrorCode)
@@ -429,7 +430,7 @@ func TestRecipeReference(t *testing.T) {
 	require.Equal(t, http.StatusOK, desc.Code)
 
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &job, jsonx.V1()))
 
 	assert.Nil(t, job["RecipeName"], "RecipeName must not appear in JSON — AWS SDK uses RecipeReference")
 	ref, ok := job["RecipeReference"].(map[string]any)
@@ -463,7 +464,7 @@ func TestRecipeReference_HonorsNumericVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, desc.Code)
 
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &job, jsonx.V1()))
 
 	ref, ok := job["RecipeReference"].(map[string]any)
 	require.True(t, ok, "RecipeReference must be an object")

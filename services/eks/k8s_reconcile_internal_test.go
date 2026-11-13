@@ -2,7 +2,8 @@ package eks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const rbacPrefix = "/apis/rbac.authorization.k8s.io/v1/"
@@ -125,7 +127,7 @@ func (f *fakeK8s) listBindings(set map[string]bool, nsMode string) map[string]an
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), v)
 }
 
 // engineRuntime records containers and registers a node in the fake API for every agent started.

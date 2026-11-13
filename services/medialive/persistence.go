@@ -2,7 +2,7 @@ package medialive
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -44,7 +44,7 @@ const medialiveSnapshotVersion = 1
 // intentionally absent: it is an ephemeral reverse index rebuilt from
 // InputDevices on Restore, and was never part of the persisted shape.
 type backendSnapshot struct {
-	Tables          map[string]json.RawMessage         `json:"tables"`
+	Tables          map[string]jsontext.Value          `json:"tables"`
 	Tags            map[string]map[string]string       `json:"tags"`
 	ScheduleActions map[string][]*storedScheduleAction `json:"scheduleActions"`
 	AccountKmsKeyID string                             `json:"accountKmsKeyId"`

@@ -3,7 +3,8 @@ package dashboard
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -253,7 +256,7 @@ func (a logicAccess) signed(ctx context.Context, ids logicIDs, trigger string) (
 	}
 
 	var cb map[string]any
-	if json.Unmarshal(rec.Body.Bytes(), &cb) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &cb, jsonx.V1()) != nil {
 		return nil, "", "", http.StatusBadGateway
 	}
 
@@ -312,7 +315,7 @@ func (a logicAccess) invoke(c *echo.Context) error {
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, logicPxMaxInvoke))
-	if err != nil || (len(bytes.TrimSpace(body)) > 0 && !json.Valid(body)) {
+	if err != nil || (len(bytes.TrimSpace(body)) > 0 && !jsontext.Value(body).IsValid(jsonx.V1())) {
 		return azureACIFail(c, http.StatusBadRequest, "InvalidRequestContent", "the trigger body must be JSON")
 	}
 
@@ -372,7 +375,7 @@ func (a logicAccess) content(c *echo.Context) error {
 	}
 
 	var doc map[string]any
-	if json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()) != nil {
 		return azureACIFail(c, http.StatusBadGateway, "ContentUnavailable", "unreadable run")
 	}
 

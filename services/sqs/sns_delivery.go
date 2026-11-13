@@ -2,7 +2,7 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -145,7 +146,7 @@ func (b *InMemoryBackend) deliverToDLQ(
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
 	}
 
-	if err := json.Unmarshal([]byte(redrivePolicy), &policy); err != nil {
+	if err := json.Unmarshal([]byte(redrivePolicy), &policy, jsonx.V1()); err != nil {
 		return
 	}
 
@@ -262,7 +263,7 @@ func buildSNSEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscriptionSn
 		}
 	}
 
-	b, err := json.Marshal(env)
+	b, err := json.Marshal(env, jsonx.V1())
 	if err != nil {
 		return sub.Body(ev.Message)
 	}

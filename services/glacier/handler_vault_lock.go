@@ -1,10 +1,12 @@
 package glacier
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleVaultLock(c *echo.Context, op, resource string, body []byte) error {
@@ -20,7 +22,7 @@ func (h *Handler) handleVaultLock(c *echo.Context, op, resource string, body []b
 	case opInitiateVaultLock:
 		var req vaultLockPolicyRequest
 		if len(body) > 0 {
-			if err := json.Unmarshal(body, &req); err != nil {
+			if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 					"invalid request body: "+err.Error())
 			}

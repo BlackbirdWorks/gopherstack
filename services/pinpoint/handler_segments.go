@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // extractSegmentsOp returns the segments collection operation name.
@@ -105,7 +106,7 @@ func (h *Handler) dispatchSegmentByID(c *echo.Context, appID, rest string) error
 func (h *Handler) handleCreateSegment(c *echo.Context, appID string) error {
 	return h.handleCreateNamedAppResource(c, appID, func(body []byte, region, appID string) (any, error) {
 		var req createSegmentRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, errInvalidRequestBody
 		}
 

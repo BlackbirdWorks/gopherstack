@@ -2,13 +2,16 @@ package codeartifact
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Package version methods ---
@@ -372,20 +375,20 @@ type npmPackageJSON struct {
 	Readme               string            `json:"readme"`
 	Description          string            `json:"description"`
 	Homepage             string            `json:"homepage"`
-	Repository           json.RawMessage   `json:"repository"`
-	License              json.RawMessage   `json:"license"`
+	Repository           jsontext.Value    `json:"repository"`
+	License              jsontext.Value    `json:"license"`
 }
 
 // repositoryURL reads package.json's repository, a bare string or an object with a url.
 func (m *npmPackageJSON) repositoryURL() string {
 	var str string
-	if json.Unmarshal(m.Repository, &str) == nil {
+	if json.Unmarshal(m.Repository, &str, jsonx.V1()) == nil {
 		return str
 	}
 	var obj struct {
 		URL string `json:"url"`
 	}
-	if json.Unmarshal(m.Repository, &obj) == nil {
+	if json.Unmarshal(m.Repository, &obj, jsonx.V1()) == nil {
 		return obj.URL
 	}
 
@@ -395,13 +398,13 @@ func (m *npmPackageJSON) repositoryURL() string {
 // licenseName reads package.json's license, a bare SPDX string or an object with a type.
 func (m *npmPackageJSON) licenseName() string {
 	var str string
-	if json.Unmarshal(m.License, &str) == nil {
+	if json.Unmarshal(m.License, &str, jsonx.V1()) == nil {
 		return str
 	}
 	var obj struct {
 		Type string `json:"type"`
 	}
-	if json.Unmarshal(m.License, &obj) == nil {
+	if json.Unmarshal(m.License, &obj, jsonx.V1()) == nil {
 		return obj.Type
 	}
 
@@ -417,7 +420,7 @@ func findPackageJSONMetadata(assets []AssetInfo) *npmPackageJSON {
 		}
 
 		var meta npmPackageJSON
-		if err := json.Unmarshal(a.Content, &meta); err != nil {
+		if err := json.Unmarshal(a.Content, &meta, jsonx.V1()); err != nil {
 			return nil
 		}
 

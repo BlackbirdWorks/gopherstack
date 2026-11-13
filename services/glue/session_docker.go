@@ -3,7 +3,7 @@ package glue
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed session_repl.pyrepl
@@ -95,12 +97,12 @@ func (e *dockerSessionEngine) image(glueVersion string) string {
 func sparkCommand(name string) bool { return name == "glueetl" || name == "gluestreaming" }
 
 func sessionEnv(spec SessionSpec) ([]string, error) {
-	args, err := json.Marshal(spec.DefaultArguments)
+	args, err := json.Marshal(spec.DefaultArguments, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode default arguments: %w", err)
 	}
 
-	conf, err := json.Marshal(parseSparkConf(spec.DefaultArguments["--conf"]))
+	conf, err := json.Marshal(parseSparkConf(spec.DefaultArguments["--conf"]), jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode spark conf: %w", err)
 	}
@@ -222,7 +224,7 @@ func (p *dockerSession) awaitReady(ctx context.Context, timeout time.Duration) e
 				Status  string `json:"status"`
 				Message string `json:"message"`
 			}
-			if json.Unmarshal(data, &r) == nil && r.Status == "ok" {
+			if json.Unmarshal(data, &r, jsonx.V1()) == nil && r.Status == "ok" {
 				return nil
 			} else if r.Status == "error" {
 				return fmt.Errorf("%w: %s", errReplStart, r.Message)
@@ -273,7 +275,7 @@ func (p *dockerSession) Run(ctx context.Context, code string) (StatementResult, 
 	p.seq++
 	n := p.seq
 
-	body, err := json.Marshal(map[string]string{"code": code})
+	body, err := json.Marshal(map[string]string{"code": code}, jsonx.V1())
 	if err != nil {
 		return StatementResult{}, fmt.Errorf("encode statement: %w", err)
 	}
@@ -306,7 +308,7 @@ func (p *dockerSession) awaitResponse(ctx context.Context, n int) (replResponse,
 	for {
 		if data, err := os.ReadFile(path); err == nil {
 			var r replResponse
-			if err = json.Unmarshal(data, &r); err != nil {
+			if err = json.Unmarshal(data, &r, jsonx.V1()); err != nil {
 				return r, fmt.Errorf("decode interpreter response: %w", err)
 			}
 

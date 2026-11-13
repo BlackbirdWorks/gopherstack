@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -521,7 +522,7 @@ func (h *Handler) handleConfigPostRoute(w http.ResponseWriter, r *http.Request, 
 	body, _ := httputils.ReadBody(r)
 	var req domainJSON
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if vErr := validateDomainOptions(&req); vErr != nil {
@@ -850,7 +851,7 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 			NodeID string `json:"NodeId"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		m, err := h.Backend.StartDomainMaintenance(domainName, req.Action, req.NodeID)
 		if err != nil {
@@ -867,7 +868,7 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 			Account string `json:"Account"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		_ = h.Backend.RevokeVpcEndpointAccess(domainName, req.Account)
 		w.WriteHeader(http.StatusOK)

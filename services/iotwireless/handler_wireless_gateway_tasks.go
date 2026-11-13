@@ -1,11 +1,13 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createWirelessGatewayTaskResponse struct {
@@ -57,7 +59,7 @@ func (h *Handler) createWirelessGatewayTask(c *echo.Context, gatewayID string) e
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	task, err := h.Backend.CreateWirelessGatewayTask(gatewayID, req.WirelessGatewayTaskDefinitionID)
 	if err != nil {
@@ -103,7 +105,7 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	def, err := h.Backend.CreateWirelessGatewayTaskDefinition(
 		h.AccountID,

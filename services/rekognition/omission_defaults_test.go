@@ -1,13 +1,15 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListProjectPolicies_DefaultPageSize locks in the real SDK's documented
@@ -24,7 +26,7 @@ func TestListProjectPolicies_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp, jsonx.V1()))
 	projectARN := projResp["ProjectArn"].(string) //nolint:forcetypeassert // test
 
 	for i := range 6 {
@@ -40,7 +42,7 @@ func TestListProjectPolicies_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policies, _ := resp["ProjectPolicies"].([]any)
 	assert.Len(t, policies, 5, "ListProjectPolicies omits MaxResults => real SDK defaults to 5 per response")

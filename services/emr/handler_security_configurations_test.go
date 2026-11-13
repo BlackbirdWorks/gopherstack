@@ -2,7 +2,7 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -103,7 +104,7 @@ func TestEMR_SecurityConfiguration(t *testing.T) {
 					Name             string  `json:"Name"`
 					CreationDateTime float64 `json:"CreationDateTime"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.scName, out.Name)
 				assert.NotZero(t, out.CreationDateTime)
 			}
@@ -154,7 +155,7 @@ func TestListSecurityConfigurations(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"SecurityConfigurations"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.SecurityConfigurations, 3)
 	assert.Equal(t, "alpha", out.SecurityConfigurations[0].Name)
 }
@@ -223,7 +224,7 @@ func TestDescribeSecurityConfiguration(t *testing.T) {
 					SecurityConfiguration string  `json:"SecurityConfiguration"`
 					CreationDateTime      float64 `json:"CreationDateTime"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.scName, out.Name)
 				assert.NotZero(t, out.CreationDateTime)
 				assert.JSONEq(t, `{"EncryptionConfiguration":{}}`, out.SecurityConfiguration)

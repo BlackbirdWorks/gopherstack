@@ -3,11 +3,13 @@ package s3
 import (
 	"bytes"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errMissingSQLColumn = errors.New("MissingSQLColumn")
@@ -205,7 +207,7 @@ func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput)
 	var buf bytes.Buffer
 
 	for _, row := range rows {
-		jsonBytes, err := json.Marshal(mapStringToAny(row))
+		jsonBytes, err := json.Marshal(mapStringToAny(row), jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

@@ -3,7 +3,8 @@ package scheduler
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -266,7 +268,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 	var req scheduleNameInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return req.Name
 }
@@ -443,13 +445,13 @@ func (h *Handler) enrichRESTBody(action, name string, body []byte, q url.Values)
 		enrichTagsPath(m, name, action, q)
 	}
 
-	result, _ := json.Marshal(m)
+	result, _ := json.Marshal(m, jsonx.V1())
 
 	return result
 }
 
 // enrichScheduleByPath injects Name from the URL path and GroupName from the query string.
-func enrichScheduleByPath(m map[string]json.RawMessage, name string, q url.Values) {
+func enrichScheduleByPath(m map[string]jsontext.Value, name string, q url.Values) {
 	if name != "" {
 		setJSONString(m, "Name", name)
 	}
@@ -460,7 +462,7 @@ func enrichScheduleByPath(m map[string]json.RawMessage, name string, q url.Value
 }
 
 // enrichListSchedulesQuery injects ListSchedules query parameters into the JSON map.
-func enrichListSchedulesQuery(m map[string]json.RawMessage, q url.Values) {
+func enrichListSchedulesQuery(m map[string]jsontext.Value, q url.Values) {
 	if sg := q.Get("ScheduleGroup"); sg != "" {
 		setJSONString(m, "GroupName", sg)
 	}
@@ -478,7 +480,7 @@ func enrichListSchedulesQuery(m map[string]json.RawMessage, q url.Values) {
 }
 
 // enrichListScheduleGroupsQuery injects ListScheduleGroups query parameters into the JSON map.
-func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q url.Values) {
+func enrichListScheduleGroupsQuery(m map[string]jsontext.Value, q url.Values) {
 	for _, qk := range []struct{ query, json string }{
 		{keyNamePrefix, keyNamePrefix},
 		{keyNextToken, keyNextToken},
@@ -494,7 +496,7 @@ func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q url.Values) {
 // string. UntagResource sends TagKeys as a repeated query parameter
 // (?TagKeys=a&TagKeys=b, see awsRestjson1_serializeOpHttpBindingsUntagResourceInput's
 // encoder.AddQuery("TagKeys", ...)), not a single comma-separated value.
-func enrichTagsPath(m map[string]json.RawMessage, name, action string, q url.Values) {
+func enrichTagsPath(m map[string]jsontext.Value, name, action string, q url.Values) {
 	if name != "" {
 		setJSONString(m, "ResourceArn", name)
 	}
@@ -504,34 +506,34 @@ func enrichTagsPath(m map[string]json.RawMessage, name, action string, q url.Val
 	}
 
 	if keys := q["TagKeys"]; len(keys) > 0 {
-		keysJSON, _ := json.Marshal(keys)
-		m["TagKeys"] = json.RawMessage(keysJSON)
+		keysJSON, _ := json.Marshal(keys, jsonx.V1())
+		m["TagKeys"] = jsontext.Value(keysJSON)
 	}
 }
 
 // unmarshalOrEmpty parses body as a JSON object, returning an empty map on failure.
-func unmarshalOrEmpty(body []byte) map[string]json.RawMessage {
-	var m map[string]json.RawMessage
+func unmarshalOrEmpty(body []byte) map[string]jsontext.Value {
+	var m map[string]jsontext.Value
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &m); err != nil {
-			return make(map[string]json.RawMessage)
+		if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
+			return make(map[string]jsontext.Value)
 		}
 
 		return m
 	}
 
-	return make(map[string]json.RawMessage)
+	return make(map[string]jsontext.Value)
 }
 
 // setJSONString encodes value as a JSON string and sets it on key in the map,
 // unless key is already present.
-func setJSONString(m map[string]json.RawMessage, key, value string) {
+func setJSONString(m map[string]jsontext.Value, key, value string) {
 	if _, exists := m[key]; exists {
 		return
 	}
 
-	quoted, _ := json.Marshal(value)
-	m[key] = json.RawMessage(quoted)
+	quoted, _ := json.Marshal(value, jsonx.V1())
+	m[key] = jsontext.Value(quoted)
 }
 
 // buildOps constructs the dispatch map once at handler creation time.
@@ -563,33 +565,30 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ResourceNotFoundException",
 			Message: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ConflictException",
 			Message: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    errCodeValidation,
 			Message: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	// scheduler@v1.20.4 deserializers.go models ValidationException and
@@ -597,18 +596,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// scanning every awsRestjson1_deserializeOpError* switch), so both are safe
 	// blanket fallbacks regardless of which operation reached this path.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    errCodeValidation,
 			Message: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InternalServerException",
 			Message: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}

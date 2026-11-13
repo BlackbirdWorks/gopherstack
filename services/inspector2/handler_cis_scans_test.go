@@ -5,13 +5,14 @@ package inspector2_test
 // canned data, and that unknown scan ARNs degrade benignly.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -27,7 +28,7 @@ func createCisConfig(t *testing.T, h *inspector2.Handler, name string, accountID
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, ok := resp["scanConfigurationArn"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, arn)
@@ -43,7 +44,7 @@ func firstScanArn(t *testing.T, h *inspector2.Handler, cfgARN string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	scans, _ := resp["scans"].([]any)
 
 	for _, raw := range scans {
@@ -71,7 +72,7 @@ func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var empty map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty, jsonx.V1()))
 	scans, _ := empty["scans"].([]any)
 	assert.Empty(t, scans)
 
@@ -79,7 +80,7 @@ func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 	cfgARN := createCisConfig(t, h, "scan-a", []string{"111111111111"})
 
 	rec = auditDo(t, h, http.MethodPost, "/cis/scan/list", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty, jsonx.V1()))
 	scans, _ = empty["scans"].([]any)
 	require.Len(t, scans, 1)
 
@@ -102,7 +103,7 @@ func TestCisScans_ResultDetailsReflectConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results, _ := resp["scanResultDetails"].([]any)
 
 	// Two target accounts x catalog checks => non-empty, and every result is
@@ -137,7 +138,7 @@ func TestCisScans_ReportReflectsScan(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", resp["status"])
 	assert.Equal(t, scanARN, resp["scanArn"])
 	// totalChecks reported as a JSON number.
@@ -160,7 +161,7 @@ func TestCisScans_AggregationsConsistent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var byCheck map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byCheck))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byCheck, jsonx.V1()))
 	checks, _ := byCheck["checkAggregations"].([]any)
 	require.NotEmpty(t, checks)
 
@@ -178,7 +179,7 @@ func TestCisScans_AggregationsConsistent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var byTarget map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byTarget))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byTarget, jsonx.V1()))
 	targets, _ := byTarget["targetResourceAggregations"].([]any)
 	assert.Len(t, targets, 2)
 }
@@ -198,7 +199,7 @@ func TestCisScans_DeleteConfigRemovesScans(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	scans, _ := resp["scans"].([]any)
 	assert.Empty(t, scans)
 }
@@ -227,7 +228,7 @@ func TestCisScans_UnknownScanArnDegradesBenignly(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, ok := resp[tc.key]
 			assert.True(t, ok)
 		})
@@ -323,7 +324,7 @@ func TestCisScanConfigurationLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						assert.NotEmpty(t, resp["scanConfigurationArn"])
 					},
 				},
@@ -336,7 +337,7 @@ func TestCisScanConfigurationLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						cfgs, _ := resp["scanConfigurations"].([]any)
 						assert.Len(t, cfgs, 1)
 					},
@@ -415,7 +416,7 @@ func TestCisScanConfigurationFullCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	cfgARN, _ := createResp["scanConfigurationArn"].(string)
 	require.NotEmpty(t, cfgARN)
 
@@ -434,7 +435,7 @@ func TestCisScanConfigurationFullCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	cfgs, _ := listResp["scanConfigurations"].([]any)
 	assert.Empty(t, cfgs)
 }
@@ -559,7 +560,7 @@ func TestCisSessionOps(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "SUCCEEDED", resp["status"])
 			},
 		},
@@ -572,7 +573,7 @@ func TestCisSessionOps(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				_, ok := resp["scanResultDetails"]
 				assert.True(t, ok)
 			},
@@ -586,7 +587,7 @@ func TestCisSessionOps(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				scans, _ := resp["scans"].([]any)
 				assert.Empty(t, scans)
 			},
@@ -600,7 +601,7 @@ func TestCisSessionOps(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				_, ok := resp["checkAggregations"]
 				assert.True(t, ok)
 			},
@@ -614,7 +615,7 @@ func TestCisSessionOps(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				_, ok := resp["targetResourceAggregations"]
 				assert.True(t, ok)
 			},

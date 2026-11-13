@@ -1,13 +1,15 @@
 package bedrockruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // countTokensInvokeModelBody builds a real CountTokens request body wrapping
@@ -68,7 +70,7 @@ func TestHandler_CountTokens(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "inputTokens")
 
 			invocations := h.Backend.ListInvocations()
@@ -121,7 +123,7 @@ func TestHandler_CountTokens_WireShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.InDelta(t, tt.wantTokens, out["inputTokens"], 0)
 		})
 	}
@@ -149,8 +151,8 @@ func TestCountTokens_ReflectsInputLength(t *testing.T) {
 	require.Equal(t, http.StatusOK, recLong.Code)
 
 	var shortOut, longOut map[string]any
-	require.NoError(t, json.Unmarshal(recShort.Body.Bytes(), &shortOut))
-	require.NoError(t, json.Unmarshal(recLong.Body.Bytes(), &longOut))
+	require.NoError(t, json.Unmarshal(recShort.Body.Bytes(), &shortOut, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(recLong.Body.Bytes(), &longOut, jsonx.V1()))
 
 	shortTokens := shortOut["inputTokens"].(float64)
 	longTokens := longOut["inputTokens"].(float64)
@@ -175,8 +177,8 @@ func TestCountTokens_TitanUsesLargerDivisor(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTitan.Code)
 
 	var claudeOut, titanOut map[string]any
-	require.NoError(t, json.Unmarshal(recClaude.Body.Bytes(), &claudeOut))
-	require.NoError(t, json.Unmarshal(recTitan.Body.Bytes(), &titanOut))
+	require.NoError(t, json.Unmarshal(recClaude.Body.Bytes(), &claudeOut, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(recTitan.Body.Bytes(), &titanOut, jsonx.V1()))
 
 	claudeTokens := claudeOut["inputTokens"].(float64)
 	titanTokens := titanOut["inputTokens"].(float64)
@@ -221,7 +223,7 @@ func TestCountTokens_MultipleModelFamilies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			count, ok := out["inputTokens"].(float64)
 			require.True(t, ok, "inputTokens should be a number")
 			assert.GreaterOrEqual(t, int(count), tt.minCount)
@@ -245,8 +247,8 @@ func TestCountTokens_TitanUsesHigherDivisor(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTitan.Code)
 
 	var claudeOut, titanOut map[string]any
-	require.NoError(t, json.Unmarshal(recClaude.Body.Bytes(), &claudeOut))
-	require.NoError(t, json.Unmarshal(recTitan.Body.Bytes(), &titanOut))
+	require.NoError(t, json.Unmarshal(recClaude.Body.Bytes(), &claudeOut, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(recTitan.Body.Bytes(), &titanOut, jsonx.V1()))
 
 	claudeTokens := claudeOut["inputTokens"].(float64)
 	titanTokens := titanOut["inputTokens"].(float64)
@@ -289,7 +291,7 @@ func TestCountTokens_MultiMessageBody(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			count := out["inputTokens"].(float64)
 			assert.GreaterOrEqual(t, int(count), tt.minCount)
 		})

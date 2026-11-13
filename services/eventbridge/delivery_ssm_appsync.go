@@ -2,12 +2,13 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // arnParts is the field count of arn:partition:service:region:account:resource.
@@ -111,7 +112,7 @@ func BuildSSMCommandRequest(target *Target, payload string) (SSMCommandRequest, 
 
 	var in ssmInput
 
-	_ = json.Unmarshal([]byte(payload), &in)
+	_ = json.Unmarshal([]byte(payload), &in, jsonx.V1())
 
 	name := in.DocumentName
 	if name == "" {
@@ -136,7 +137,7 @@ func BuildSSMAutomationRequest(target *Target, payload string) SSMAutomationRequ
 
 	var raw map[string]any
 
-	_ = json.Unmarshal([]byte(payload), &raw)
+	_ = json.Unmarshal([]byte(payload), &raw, jsonx.V1())
 
 	params := raw
 	if p, ok := raw["Parameters"].(map[string]any); ok {
@@ -197,7 +198,7 @@ func deliverToAppSync(ctx context.Context, target *Target, dt DeliveryTargets, p
 
 	var vars map[string]any
 
-	if err := json.Unmarshal([]byte(payload), &vars); err != nil {
+	if err := json.Unmarshal([]byte(payload), &vars, jsonx.V1()); err != nil {
 		return logTargetErr(ctx, "AppSync", fmt.Errorf("payload is not a JSON object: %w", err))
 	}
 

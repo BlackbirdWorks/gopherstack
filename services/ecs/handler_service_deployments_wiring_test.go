@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestECS_ServiceDeployments_RealDeploymentsAreVisible proves
@@ -77,7 +79,7 @@ func TestECS_ServiceDeployments_RealDeploymentsAreVisible(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 			briefs, ok := listResp["serviceDeployments"].([]any)
 			require.True(t, ok)
@@ -93,7 +95,7 @@ func TestECS_ServiceDeployments_RealDeploymentsAreVisible(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var describeResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 
 			deployments, ok := describeResp["serviceDeployments"].([]any)
 			require.True(t, ok)
@@ -145,7 +147,7 @@ func TestECS_ServiceDeployments_DeletedOnServiceDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	briefs, ok := listResp["serviceDeployments"].([]any)
 	require.True(t, ok)

@@ -1,11 +1,13 @@
 package gcpartifactregistry
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -86,7 +88,7 @@ func (b *InMemoryBackend) PublishPython(project, repo, name, version, filename s
 	}
 
 	norm := pyNormalize(name)
-	doc, _ := json.Marshal(pyDoc{Name: name, SHA256: sha256Hex(data)})
+	doc, _ := json.Marshal(pyDoc{Name: name, SHA256: sha256Hex(data)}, jsonx.V1())
 
 	err = b.putPackageFile(rc.ref, pkgFile{
 		pkgID: norm, display: name, version: version, fileID: pyFileID(norm, version, filename), data: data, doc: doc,
@@ -115,7 +117,12 @@ func (b *InMemoryBackend) PublishNPM(project, repo string, tarball []byte) (stri
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
-	if err = json.Unmarshal(manifest, &m); err != nil || m.Name == "" || !npmVersionRe.MatchString(m.Version) {
+	if err = json.Unmarshal(
+		manifest,
+		&m,
+		jsonx.V1(),
+	); err != nil || m.Name == "" ||
+		!npmVersionRe.MatchString(m.Version) {
 		return "", "", "", errInvalid("package.json needs a name and a semver version: %v", errPublishInput)
 	}
 

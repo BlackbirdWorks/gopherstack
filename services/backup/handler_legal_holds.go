@@ -1,11 +1,13 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCancelLegalHold(c *echo.Context, legalHoldID string) error {
@@ -70,7 +72,7 @@ type createLegalHoldBody struct {
 
 func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 	var in createLegalHoldBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 

@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_Smb covers the SMB location lifecycle.
@@ -29,7 +31,7 @@ func TestDataSync_Smb(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -37,7 +39,7 @@ func TestDataSync_Smb(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "smb://")
 	assert.Equal(t, "CORP", descResp["Domain"])
 	assert.Equal(t, "smbuser", descResp["User"])
@@ -62,7 +64,7 @@ func TestDataSync_Smb(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeLocationSmb", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "NEWDOMAIN", descResp["Domain"])
 	mo := descResp["MountOptions"].(map[string]any)
 	assert.Equal(t, "AUTOMATIC", mo["Version"])
@@ -129,7 +131,7 @@ func TestDataSync_UpdateLocationSmb_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -141,7 +143,7 @@ func TestDataSync_UpdateLocationSmb_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.wantURI, descResp["LocationUri"])
 
 			if domain, isSet := tt.update["Domain"]; isSet {

@@ -2,12 +2,14 @@ package azureeventgrid
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/url"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -16,13 +18,13 @@ const (
 )
 
 func parseSpec(props map[string]any, inputSchema string) (Spec, error) {
-	raw, err := json.Marshal(props)
+	raw, err := json.Marshal(props, jsonx.V1())
 	if err != nil {
 		return Spec{}, invalidSpec("properties are not valid JSON")
 	}
 
 	var spec Spec
-	if err = json.Unmarshal(raw, &spec); err != nil {
+	if err = json.Unmarshal(raw, &spec, jsonx.V1()); err != nil {
 		return Spec{}, invalidSpec("properties are malformed: %v", err)
 	}
 
@@ -83,9 +85,9 @@ func normalizeSpec(spec *Spec, inputSchema string) error {
 // specProps renders the ARM properties of a subscription. Webhook secrets in the
 // query string are withheld (see FullURL).
 func specProps(spec Spec, state, topicRID string) map[string]any {
-	raw, _ := json.Marshal(spec)
+	raw, _ := json.Marshal(spec, jsonx.V1())
 	out := map[string]any{}
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	if dest, ok := out["destination"].(map[string]any); ok && spec.Destination.EndpointType == EndpointWebHook {
 		dest["properties"] = webhookProps(spec.Destination)
@@ -212,13 +214,13 @@ func mergeSpecPatch(cur Spec, patch map[string]any) (map[string]any, error) {
 		}
 	}
 
-	raw, err := json.Marshal(cur)
+	raw, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return nil, invalidSpec("current spec is not valid JSON")
 	}
 
 	merged := map[string]any{}
-	if err = json.Unmarshal(raw, &merged); err != nil {
+	if err = json.Unmarshal(raw, &merged, jsonx.V1()); err != nil {
 		return nil, invalidSpec("current spec is not valid JSON")
 	}
 

@@ -1,9 +1,11 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -57,7 +59,7 @@ func (h *Handler) handleCheckAccessNotGranted(body []byte) (any, int, error) {
 		Access         []AccessSpec `json:"access"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -86,7 +88,7 @@ func (h *Handler) handleCheckNoNewAccess(body []byte) (any, int, error) {
 		PolicyType             string `json:"policyType"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -114,7 +116,7 @@ func (h *Handler) handleCheckNoPublicAccess(body []byte) (any, int, error) {
 		ResourceType   string `json:"resourceType"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -143,7 +145,7 @@ func (h *Handler) handleValidatePolicy(body []byte, query string) (any, int, err
 		ResourceType   string `json:"validatePolicyResourceType"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

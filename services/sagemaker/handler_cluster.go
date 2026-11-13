@@ -2,10 +2,12 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -109,7 +111,7 @@ type startClusterHealthCheckInput struct {
 func (h *Handler) handleStartClusterHealthCheck(ctx context.Context, body []byte) ([]byte, error) {
 	var req startClusterHealthCheckInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -126,7 +128,7 @@ func (h *Handler) handleStartClusterHealthCheck(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyClusterArn: clusterARN})
+	return json.Marshal(map[string]string{keyClusterArn: clusterARN}, jsonx.V1())
 }
 
 // clusterInstanceGroupRequest is the wire shape for a
@@ -310,7 +312,7 @@ type createClusterRequest struct {
 
 func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte, error) {
 	var req createClusterRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -338,7 +340,7 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created cluster", "name", c.ClusterName)
 
-	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn})
+	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn}, jsonx.V1())
 }
 
 // clusterAutoScalingStatusInService is the (only) status this emulator
@@ -396,7 +398,7 @@ func (h *Handler) describeClusterResponse(c *Cluster) []byte {
 		resp["RestrictedInstanceGroupsConfig"] = rc
 	}
 
-	b, _ := json.Marshal(resp)
+	b, _ := json.Marshal(resp, jsonx.V1())
 
 	return b
 }
@@ -410,7 +412,7 @@ type describeClusterInput struct {
 func (h *Handler) handleDescribeCluster(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeClusterInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -451,7 +453,7 @@ type listClustersInput struct {
 func (h *Handler) handleListClusters(ctx context.Context, body []byte) ([]byte, error) {
 	var req listClustersInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -480,7 +482,7 @@ func (h *Handler) handleListClusters(ctx context.Context, body []byte) ([]byte, 
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteClusterInput is DeleteCluster's request shape
@@ -492,7 +494,7 @@ type deleteClusterInput struct {
 func (h *Handler) handleDeleteCluster(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteClusterInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -507,7 +509,7 @@ func (h *Handler) handleDeleteCluster(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted cluster", "name", req.ClusterName)
 
-	return json.Marshal(map[string]string{keyClusterArn: clusterArn})
+	return json.Marshal(map[string]string{keyClusterArn: clusterArn}, jsonx.V1())
 }
 
 // updateClusterRequest is the request body for UpdateCluster.
@@ -527,7 +529,7 @@ type updateClusterRequest struct {
 
 func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateClusterRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -554,7 +556,7 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated cluster", "name", c.ClusterName)
 
-	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn})
+	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn}, jsonx.V1())
 }
 
 // updateClusterSoftwareInstanceGroupRequest is the wire shape for one entry
@@ -569,7 +571,7 @@ type updateClusterSoftwareInstanceGroupRequest struct {
 // updateClusterSoftwareInput mirrors api_op_UpdateClusterSoftware.go:28-63;
 // DeploymentConfig/ImageId are decoded but have no state to act on.
 type updateClusterSoftwareInput struct {
-	DeploymentConfig json.RawMessage                             `json:"DeploymentConfig"`
+	DeploymentConfig jsontext.Value                              `json:"DeploymentConfig"`
 	ClusterName      string                                      `json:"ClusterName"`
 	ImageID          string                                      `json:"ImageId"`
 	InstanceGroups   []updateClusterSoftwareInstanceGroupRequest `json:"InstanceGroups"`
@@ -578,7 +580,7 @@ type updateClusterSoftwareInput struct {
 func (h *Handler) handleUpdateClusterSoftware(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateClusterSoftwareInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -599,7 +601,7 @@ func (h *Handler) handleUpdateClusterSoftware(ctx context.Context, body []byte) 
 	logger.Load(ctx).
 		InfoContext(ctx, "sagemaker: updated cluster software", "name", req.ClusterName)
 
-	return json.Marshal(map[string]string{keyClusterArn: clusterArn})
+	return json.Marshal(map[string]string{keyClusterArn: clusterArn}, jsonx.V1())
 }
 
 // clusterInstanceStatusDetails mirrors the AWS ClusterInstanceStatusDetails shape.
@@ -661,7 +663,7 @@ type describeClusterNodeInput struct {
 func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeClusterNodeInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -678,7 +680,7 @@ func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"NodeDetails": toClusterNodeDetails(n)})
+	return json.Marshal(map[string]any{"NodeDetails": toClusterNodeDetails(n)}, jsonx.V1())
 }
 
 // clusterNodeSummary is the wire shape for a ListClusterNodes entry
@@ -720,7 +722,7 @@ type listClusterNodesInput struct {
 func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
 	var req listClusterNodesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -760,7 +762,7 @@ func (h *Handler) handleListClusterNodes(ctx context.Context, body []byte) ([]by
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // describeClusterEventInput is DescribeClusterEvent's request shape
@@ -773,7 +775,7 @@ type describeClusterEventInput struct {
 func (h *Handler) handleDescribeClusterEvent(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeClusterEventInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -791,7 +793,7 @@ func (h *Handler) handleDescribeClusterEvent(ctx context.Context, body []byte) (
 
 	// Unreachable in practice: DescribeClusterEvent always errors above because
 	// this emulator never generates cluster events.
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // listClusterEventsInput is ListClusterEvents' request shape
@@ -816,7 +818,7 @@ type listClusterEventsInput struct {
 func (h *Handler) handleListClusterEvents(ctx context.Context, body []byte) ([]byte, error) {
 	var req listClusterEventsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -828,7 +830,7 @@ func (h *Handler) handleListClusterEvents(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Events": []any{}})
+	return json.Marshal(map[string]any{"Events": []any{}}, jsonx.V1())
 }
 
 // detachClusterNodeVolumeRequest is the request body for DetachClusterNodeVolume.
@@ -840,7 +842,7 @@ type detachClusterNodeVolumeRequest struct {
 
 func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
 	var req detachClusterNodeVolumeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -861,7 +863,7 @@ func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte
 		"DeviceName":  dv.DeviceName,
 		keyStatus:     dv.Status,
 		"AttachTime":  epochSeconds(dv.AttachTime),
-	})
+	}, jsonx.V1())
 }
 
 // attachClusterNodeVolumeRequest is the request body for
@@ -882,7 +884,7 @@ type attachClusterNodeNetworkInterfaceRequest struct {
 
 func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, body []byte) ([]byte, error) {
 	var req attachClusterNodeNetworkInterfaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -904,12 +906,12 @@ func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, b
 		keyNodeID:            out.NodeID,
 		"NetworkInterfaceId": out.NetworkInterfaceID,
 		"AttachmentId":       out.AttachmentID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
 	var req attachClusterNodeVolumeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -942,7 +944,7 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 		"DeviceName":  av.DeviceName,
 		keyStatus:     av.Status,
 		"AttachTime":  epochSeconds(av.AttachTime),
-	})
+	}, jsonx.V1())
 }
 
 // batchAddClusterNodesError mirrors types.BatchAddClusterNodesError
@@ -1058,7 +1060,7 @@ type batchAddClusterNodesRequest struct {
 
 func (h *Handler) handleBatchAddClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
 	var req batchAddClusterNodesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1104,7 +1106,7 @@ func (h *Handler) handleBatchAddClusterNodes(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]any{
 		keyFailed:        failedResults,
 		statusSuccessful: successResults,
-	})
+	}, jsonx.V1())
 }
 
 // batchNodeIDsRequest is the request body shared by BatchDeleteClusterNodes,
@@ -1213,7 +1215,7 @@ func (h *Handler) handleBatchNodeIDsOp(
 	buildFailedLogical func(nodeLogicalID string) any,
 ) ([]byte, error) {
 	var req batchNodeIDsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1246,7 +1248,7 @@ func (h *Handler) handleBatchNodeIDsOp(
 		resp["SuccessfulNodeLogicalIds"] = successfulLogicalResults
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte) ([]byte, error) {

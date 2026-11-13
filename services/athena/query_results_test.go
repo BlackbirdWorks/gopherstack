@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -107,7 +108,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			rs, _ := resp["ResultSet"].(map[string]any)
 			require.NotNil(t, rs)
@@ -182,7 +183,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	nextToken, _ := resp1["NextToken"].(string)
 	assert.NotEmpty(t, nextToken, "page 1 must have NextToken")
 
@@ -199,7 +200,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Empty(t, resp2["NextToken"], "last page must have no NextToken")
 
 	rs2 := resp2["ResultSet"].(map[string]any)
@@ -235,7 +236,7 @@ func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rs := resp["ResultSet"].(map[string]any)
 	allRows := rs["Rows"].([]any)
@@ -311,7 +312,7 @@ func TestHandler_GetQueryResults(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			rs, _ := resp["ResultSet"].(map[string]any)
 			require.NotNil(t, rs, "ResultSet should be present")
 			rows, _ := rs["Rows"].([]any)
@@ -448,7 +449,7 @@ func TestGetQueryResults_NonSucceededQueryRejected(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Contains(t, errResp["__type"], "InvalidRequestException",
 					"GetQueryResults on a non-SUCCEEDED query must return InvalidRequestException")
 				msg, _ := errResp["message"].(string)

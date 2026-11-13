@@ -2,7 +2,7 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -161,7 +162,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		Name              string `json:"Name"`
 	}
 
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -272,7 +273,7 @@ func (h *Handler) handleDescribeEndpoints(host string) ([]byte, error) {
 				"CachePeriodInMinutes": endpointCachePeriod,
 			},
 		},
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -298,7 +299,7 @@ func errorPayload(errType, msg string) []byte {
 	b, _ := json.Marshal(map[string]string{
 		"__type":  errType,
 		"message": msg,
-	})
+	}, jsonx.V1())
 
 	return b
 }

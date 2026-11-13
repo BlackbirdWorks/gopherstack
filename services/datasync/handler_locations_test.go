@@ -1,13 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
 
@@ -36,7 +37,7 @@ func TestDataSync_LocationS3(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["LocationArn"], "arn:aws:datasync:us-east-1:000000000000:location/")
 			},
 		},
@@ -76,7 +77,7 @@ func TestDataSync_LocationS3(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				locs, ok := resp["Locations"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, locs)
@@ -114,14 +115,14 @@ func TestDataSync_LocationS3CRUD(t *testing.T) {
 	rec := doRequest(t, h, "DescribeLocationS3", map[string]any{"LocationArn": locationArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "s3://my-test-bucket/")
 
 	// List
 	rec = doRequest(t, h, "ListLocations", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Locations"], 1)
 
 	// Delete
@@ -195,14 +196,14 @@ func TestDataSync_LocationS3AgentArns(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	rec = doRequest(t, h, "DescribeLocationS3", map[string]any{"LocationArn": locArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	agentArns, ok := descResp["AgentArns"].([]any)
 	require.True(t, ok)
 	require.Len(t, agentArns, 1)

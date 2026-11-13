@@ -1,6 +1,12 @@
 package eks
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // Wire-shape request/response bodies and validation/conversion for
 // Capability.Configuration -- gopherstack-wf8f item 1. Every field/key here
@@ -424,12 +430,12 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*capabilityAlias
-		Configuration json.RawMessage `json:"configuration"`
+		Configuration jsontext.Value `json:"configuration"`
 	}{
 		capabilityAlias: (*capabilityAlias)(c),
 	}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -440,7 +446,7 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 	}
 
 	var cfg CapabilityConfiguration
-	if err := json.Unmarshal(aux.Configuration, &cfg); err == nil {
+	if err := json.Unmarshal(aux.Configuration, &cfg, jsonx.V1()); err == nil {
 		c.Configuration = &cfg
 	}
 

@@ -2,7 +2,7 @@ package xray_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -34,7 +35,7 @@ func buildFaultSegmentJSON(t *testing.T, traceID, name string, fault bool) strin
 		"fault":      fault,
 	}
 
-	data, err := json.Marshal(seg)
+	data, err := json.Marshal(seg, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(data)
@@ -61,7 +62,7 @@ func doXrayRequest(t *testing.T, h *xray.Handler, path string, body any) *httpte
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -126,7 +127,7 @@ func segJSONWithHTTP(traceID, segID, name string, startTime, endTime float64, st
 
 // segFmt formats a float64 timestamp as a JSON value string (no quotes).
 func segFmt(ts float64) string {
-	out, _ := json.Marshal(ts)
+	out, _ := json.Marshal(ts, jsonx.V1())
 
 	return string(out)
 }

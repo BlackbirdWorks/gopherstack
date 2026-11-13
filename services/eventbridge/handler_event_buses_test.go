@@ -2,7 +2,8 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -59,7 +61,7 @@ func TestHandler_DescribeEventBus_EchoesPolicy(t *testing.T) {
 	var describeResp struct {
 		Policy string `json:"Policy"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Contains(t, describeResp.Policy, "allow-policy-echo")
 
 	rec = auditMakeRequest(t, h, e, "ListEventBuses", map[string]any{})
@@ -71,7 +73,7 @@ func TestHandler_DescribeEventBus_EchoesPolicy(t *testing.T) {
 			Policy string `json:"Policy"`
 		} `json:"EventBuses"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	found := false
 	for _, bus := range listResp.EventBuses {
 		if bus.Name == "default" {
@@ -97,14 +99,14 @@ func TestHandler_EventBus_TimestampsAreEpochSeconds(t *testing.T) {
 	rec := auditMakeRequest(t, h, e, "DescribeEventBus", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	creationRaw, ok := raw["CreationTime"]
 	require.True(t, ok, "CreationTime must be present")
 
 	var f float64
-	require.NoError(t, json.Unmarshal(creationRaw, &f),
+	require.NoError(t, json.Unmarshal(creationRaw, &f, jsonx.V1()),
 		"CreationTime must be a JSON number (epoch seconds), got: %s", string(creationRaw))
 	assert.Greater(t, f, float64(0))
 }
@@ -170,7 +172,7 @@ func TestCreateEventBus_TagsPersisted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			busArn := createResp["EventBusArn"]
 			require.NotEmpty(t, busArn)
 
@@ -183,7 +185,7 @@ func TestCreateEventBus_TagsPersisted(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			got := make(map[string]string, len(tagsResp.Tags))
 			for _, kv := range tagsResp.Tags {
@@ -363,7 +365,7 @@ func TestHandler_CreateEventBus(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp["EventBusArn"], tt.wantArnPart)
 		})
 	}
@@ -411,7 +413,7 @@ func TestHandler_CreateAndListEventBuses(t *testing.T) {
 					CreationTime float64 `json:"CreationTime"`
 				} `json:"EventBuses"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(resp.EventBuses), tt.wantMinCount)
 		})
 	}

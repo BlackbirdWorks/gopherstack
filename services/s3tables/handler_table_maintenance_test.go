@@ -1,13 +1,16 @@
 package s3tables_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_MaintenanceConfiguration(t *testing.T) {
@@ -329,12 +332,12 @@ func TestHandler_MetadataLocationVsUpdate(t *testing.T) {
 			updateBody, err := json.Marshal(map[string]string{
 				"metadataLocation": tt.metaLocation,
 				"versionToken":     table["versionToken"].(string),
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doS3TablesRequest(t, h, http.MethodPut,
 				"/tables/"+encodedARN+"/ns1/t1/metadata-location",
-				json.RawMessage(updateBody))
+				jsontext.Value(updateBody))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			rec2 := doS3TablesRequest(t, h, http.MethodGet,

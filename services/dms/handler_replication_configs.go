@@ -2,12 +2,13 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -492,7 +493,7 @@ func validatePremigrationAssessmentSettings(raw string) error {
 		FailOnAssessmentFailure *bool   `json:"FailOnAssessmentFailure"`
 	}
 
-	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+	if err := json.Unmarshal([]byte(raw), &settings, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: PremigrationAssessmentSettings is not a valid settings object: %w", ErrValidation, err)
 	}
 

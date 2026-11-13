@@ -3,7 +3,7 @@ package timestreamquery_test
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"sort"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
@@ -154,7 +155,7 @@ func TestUnload_ManifestAndMetadata(t *testing.T) {
 		} `json:"ColumnInfo"`
 	}
 
-	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.metadata, "s3://")], &meta))
+	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.metadata, "s3://")], &meta, jsonx.V1()))
 	require.Len(t, meta.ColumnInfo, 2)
 	assert.Equal(t, "host", meta.ColumnInfo[0].Name)
 	assert.Equal(t, "VARCHAR", meta.ColumnInfo[0].Type.ScalarType)
@@ -178,7 +179,7 @@ func TestUnload_ManifestAndMetadata(t *testing.T) {
 		} `json:"query_metadata"`
 	}
 
-	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.manifest, "s3://")], &man))
+	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.manifest, "s3://")], &man, jsonx.V1()))
 	require.Len(t, man.ResultFiles, 1)
 	assert.EqualValues(t, 6, man.ResultFiles[0].FileMetadata.RowCount)
 	assert.EqualValues(t, len(objs.objects[strings.TrimPrefix(man.ResultFiles[0].URL, "s3://")]),

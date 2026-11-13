@@ -1,7 +1,8 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -515,7 +517,7 @@ func TestCallAnalyticsJobIncludesTranscriptURI(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			job, ok := resp["CallAnalyticsJob"].(map[string]any)
 			require.True(t, ok, "CallAnalyticsJob must be present")
@@ -557,7 +559,7 @@ func TestChannelId_JSONKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 	job, _ := raw["CallAnalyticsJob"].(map[string]any)
 	require.NotNil(t, job, "CallAnalyticsJob must be present")
 
@@ -651,16 +653,21 @@ func TestCallAnalyticsCategory_CreateTimeAndLastUpdateTimeEchoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createRaw struct {
-		CategoryProperties map[string]json.RawMessage `json:"CategoryProperties"`
+		CategoryProperties map[string]jsontext.Value `json:"CategoryProperties"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw, jsonx.V1()))
 
 	for _, field := range []string{"CreateTime", "LastUpdateTime"} {
 		val, ok := createRaw.CategoryProperties[field]
 		require.True(t, ok, "expected field %s in CreateCallAnalyticsCategory response", field)
 
-		var num json.Number
-		require.NoError(t, json.Unmarshal(val, &num), "field %s must be a JSON number (epoch seconds)", field)
+		var num jsonx.Number
+		require.NoError(
+			t,
+			json.Unmarshal(val, &num, jsonx.V1()),
+			"field %s must be a JSON number (epoch seconds)",
+			field,
+		)
 	}
 
 	updateRec := doTranscribeRequest(t, h, "UpdateCallAnalyticsCategory", map[string]any{
@@ -673,9 +680,9 @@ func TestCallAnalyticsCategory_CreateTimeAndLastUpdateTimeEchoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateRaw struct {
-		CategoryProperties map[string]json.RawMessage `json:"CategoryProperties"`
+		CategoryProperties map[string]jsontext.Value `json:"CategoryProperties"`
 	}
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw, jsonx.V1()))
 	assert.Contains(t, updateRaw.CategoryProperties, "LastUpdateTime")
 }
 
@@ -706,9 +713,9 @@ func TestListCallAnalyticsJobs_JobNameContainsAndStartTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var raw struct {
-		CallAnalyticsJobSummaries []map[string]json.RawMessage `json:"CallAnalyticsJobSummaries"`
+		CallAnalyticsJobSummaries []map[string]jsontext.Value `json:"CallAnalyticsJobSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.CallAnalyticsJobSummaries, 1)
 	assert.Contains(t, raw.CallAnalyticsJobSummaries[0], "StartTime")
 }

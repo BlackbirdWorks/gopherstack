@@ -1,7 +1,7 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -95,7 +96,7 @@ func TestPutDeliverabilityDashboardOption(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, true, out["DashboardEnabled"])
 	assert.Equal(t, "ACTIVE", out["AccountStatus"])
 
@@ -138,7 +139,7 @@ func TestGetDeliverabilityTestReport(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	reportID := createResp["ReportId"].(string)
 
 	rec := doReq(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/test-reports/"+reportID, nil)
@@ -188,7 +189,7 @@ func TestGetDomainDeliverabilityCampaign(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	campaign, ok := out["DomainDeliverabilityCampaign"].(map[string]any)
 	require.True(t, ok, "response missing DomainDeliverabilityCampaign wrapper: %s", rec.Body)
@@ -267,7 +268,7 @@ func TestGetEmailAddressInsights(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	validation, ok := out["MailboxValidation"].(map[string]any)
 	require.True(t, ok, "response missing MailboxValidation: %s", rec.Body)

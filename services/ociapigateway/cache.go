@@ -1,12 +1,14 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -182,7 +184,7 @@ func additionValue(add string, r *http.Request, claims map[string]any) string {
 		return r.Header.Get(name)
 	default:
 		if v, ok := claims[name]; ok {
-			out, _ := json.Marshal(v) //nolint:errchkjson // claim values are JSON
+			out, _ := json.Marshal(v, jsonx.V1()) //nolint:errchkjson // claim values are JSON
 
 			return string(out)
 		}
@@ -219,7 +221,7 @@ func cacheOnFor(g *Gateway) bool {
 		Type string `json:"type"`
 	}
 
-	return json.Unmarshal(g.ResponseCache, &d) == nil && d.Type == cacheTypeExternal
+	return json.Unmarshal(g.ResponseCache, &d, jsonx.V1()) == nil && d.Type == cacheTypeExternal
 }
 
 type respCacheServer struct {
@@ -235,13 +237,13 @@ type respCacheDetails struct {
 }
 
 // validateResponseCache checks a gateway's responseCacheDetails (NONE or EXTERNAL_RESP_CACHE).
-func validateResponseCache(raw json.RawMessage) *APIError {
+func validateResponseCache(raw jsontext.Value) *APIError {
 	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil
 	}
 
 	var d respCacheDetails
-	if err := json.Unmarshal(raw, &d); err != nil {
+	if err := json.Unmarshal(raw, &d, jsonx.V1()); err != nil {
 		return errParam("responseCacheDetails is not valid: " + err.Error())
 	}
 

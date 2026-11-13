@@ -2,7 +2,8 @@ package codeartifact
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -632,9 +634,9 @@ func (h *Handler) readRequestBody(c *echo.Context, op string) ([]byte, error) {
 		return raw, nil
 	}
 
-	decoder := json.NewDecoder(c.Request().Body)
-	var raw json.RawMessage
-	if err := decoder.Decode(&raw); err != nil {
+	decoder := jsontext.NewDecoder(c.Request().Body)
+	var raw jsontext.Value
+	if err := json.UnmarshalDecode(decoder, &raw, jsonx.V1()); err != nil {
 		raw = nil
 	}
 

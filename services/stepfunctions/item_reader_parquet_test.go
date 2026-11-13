@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +10,7 @@ import (
 
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -159,7 +160,7 @@ func TestItemReader_ParquetFlattenAndAthena(t *testing.T) {
 			require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
 
 			var items []map[string]any
-			require.NoError(t, json.Unmarshal([]byte(output), &items))
+			require.NoError(t, json.Unmarshal([]byte(output), &items, jsonx.V1()))
 			assert.Len(t, items, 6)
 		})
 	}

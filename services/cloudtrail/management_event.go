@@ -1,12 +1,13 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -126,7 +127,7 @@ func (b *InMemoryBackend) RecordManagementEvent(ev service.CloudTrailEventInput)
 // common case where every string is plain printable ASCII needing no escaping.
 func renderManagementEvent(d *managementEventDetail) string {
 	if !d.plainStrings() {
-		blob, err := json.Marshal(d)
+		blob, err := json.Marshal(d, jsonx.V1())
 		if err != nil {
 			return ""
 		}

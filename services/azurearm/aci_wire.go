@@ -3,11 +3,14 @@ package azurearm
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -67,7 +70,7 @@ type aciContainerPropsWire struct {
 	VolumeMounts         []aciMountWire    `json:"volumeMounts,omitempty"`
 	LivenessProbe        *aciProbeWire     `json:"livenessProbe,omitempty"`
 	ReadinessProbe       *aciProbeWire     `json:"readinessProbe,omitempty"`
-	InstanceView         json.RawMessage   `json:"instanceView,omitempty"`
+	InstanceView         jsontext.Value    `json:"instanceView,omitempty"`
 }
 
 type aciContainerWire struct {
@@ -97,7 +100,7 @@ type aciAzureFileWire struct {
 }
 
 type aciVolumeWire struct {
-	EmptyDir  *json.RawMessage  `json:"emptyDir,omitempty"`
+	EmptyDir  *jsontext.Value   `json:"emptyDir,omitempty"`
 	Secret    map[string]string `json:"secret,omitempty"`
 	AzureFile *aciAzureFileWire `json:"azureFile,omitempty"`
 	GitRepo   *aciGitRepoWire   `json:"gitRepo,omitempty"`
@@ -114,7 +117,7 @@ type aciPropsWire struct {
 	Priority                 string              `json:"priority,omitempty"`
 	ProvisioningState        string              `json:"provisioningState,omitempty"`
 	OSType                   string              `json:"osType,omitempty"`
-	InstanceView             json.RawMessage     `json:"instanceView,omitempty"`
+	InstanceView             jsontext.Value      `json:"instanceView,omitempty"`
 	Volumes                  []aciVolumeWire     `json:"volumes,omitempty"`
 	InitContainers           []aciInitWire       `json:"initContainers,omitempty"`
 	SubnetIDs                []aciSubnetWire     `json:"subnetIds,omitempty"`
@@ -134,15 +137,14 @@ func aciBad(format string, args ...any) error {
 func parseACIProps(raw any) (aciPropsWire, error) {
 	var p aciPropsWire
 
-	buf, err := json.Marshal(raw)
+	buf, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return p, aciBad("properties: %v", err)
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(buf))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(bytes.NewReader(buf))
 
-	if err = dec.Decode(&p); err != nil {
+	if err = json.UnmarshalDecode(dec, &p, jsonx.V1(), json.RejectUnknownMembers(true)); err != nil {
 		if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
 			return p, aciUnsupported("property " + name)
 		}

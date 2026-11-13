@@ -1,9 +1,12 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Object is a directory object of any kind with its entity (Application, ServicePrincipal, User or Group).
@@ -55,13 +58,13 @@ func idFromRef(s string) string {
 }
 
 // bindTargets resolves a list of @odata.bind references, failing if any target does not exist.
-func (b *Backend) bindTargets(raw json.RawMessage) ([]string, error) {
+func (b *Backend) bindTargets(raw jsontext.Value) ([]string, error) {
 	if len(raw) == 0 {
 		return []string{}, nil
 	}
 
 	var refs []string
-	if err := json.Unmarshal(raw, &refs); err != nil {
+	if err := json.Unmarshal(raw, &refs, jsonx.V1()); err != nil {
 		return nil, badRequest("Invalid value specified for an @odata.bind property.")
 	}
 
@@ -82,7 +85,7 @@ func (b *Backend) bindTargets(raw json.RawMessage) ([]string, error) {
 }
 
 // ownerBinds resolves owners@odata.bind; owners must be users or service principals.
-func (b *Backend) ownerBinds(body map[string]json.RawMessage) ([]string, error) {
+func (b *Backend) ownerBinds(body map[string]jsontext.Value) ([]string, error) {
 	ids, err := b.bindTargets(body["owners@odata.bind"])
 	if err != nil {
 		return nil, err

@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"math/big"
 	"net/http"
@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const agwName = "agw1"
@@ -705,7 +707,7 @@ func TestNetworkSDK_AppGatewaySSLCertificate(t *testing.T) {
 					} `json:"sslCertificates"`
 				} `json:"properties"`
 			}
-			require.NoError(t, json.Unmarshal(raw, &parsed))
+			require.NoError(t, json.Unmarshal(raw, &parsed, jsonx.V1()))
 
 			props := parsed.Properties.SSLCertificates[0].Properties
 			if tc.cert.Data != nil {
@@ -958,7 +960,7 @@ func TestNetworkSDK_AppGatewayPersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	snap := f.handler.Snapshot(t.Context())
-	raw, err := json.Marshal(snap)
+	raw, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), data)
 

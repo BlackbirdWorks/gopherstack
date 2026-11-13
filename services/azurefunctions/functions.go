@@ -2,7 +2,7 @@ package azurefunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -108,7 +109,7 @@ func (b *InMemoryBackend) adminFunctions(ctx context.Context, name string) ([]ad
 	}
 
 	var fns []adminFunction
-	if err = json.Unmarshal(body, &fns); err != nil {
+	if err = json.Unmarshal(body, &fns, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("decode host functions: %w", err)
 	}
 

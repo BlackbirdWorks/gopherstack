@@ -2,7 +2,7 @@ package bedrockagentcore_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 )
 
@@ -160,7 +161,7 @@ func invokeRuntime(
 ) (map[string]any, *sdk.InvokeAgentRuntimeOutput) {
 	t.Helper()
 
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, jsonx.V1())
 	require.NoError(t, err)
 
 	out, err := f.client.InvokeAgentRuntime(t.Context(), &sdk.InvokeAgentRuntimeInput{
@@ -179,7 +180,7 @@ func invokeRuntime(
 	require.NoError(t, err)
 
 	var got map[string]any
-	if json.Unmarshal(raw, &got) != nil {
+	if json.Unmarshal(raw, &got, jsonx.V1()) != nil {
 		got = map[string]any{"raw": string(raw)}
 	}
 

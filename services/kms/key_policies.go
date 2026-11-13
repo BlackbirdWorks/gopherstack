@@ -2,11 +2,12 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutKeyPolicy stores a key policy for a KMS key.
@@ -61,7 +62,7 @@ func validKeyPolicyDoc(s string) bool {
 		Statement any    `json:"Statement"`
 		Version   string `json:"Version"`
 	}
-	if err := json.Unmarshal([]byte(s), &policyDoc); err != nil {
+	if err := json.Unmarshal([]byte(s), &policyDoc, jsonx.V1()); err != nil {
 		return false
 	}
 

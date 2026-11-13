@@ -1,7 +1,7 @@
 package pricing_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/pricing"
 )
@@ -206,7 +207,7 @@ func TestProductShape(t *testing.T) {
 		ServiceCode string `json:"serviceCode"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(out.PriceList[0]), &item))
+	require.NoError(t, json.Unmarshal([]byte(out.PriceList[0]), &item, jsonx.V1()))
 	assert.Equal(t, "AmazonEC2", item.ServiceCode)
 	assert.Equal(t, "Compute Instance", item.Product.ProductFamily)
 	assert.Equal(t, "US East (N. Virginia)", item.Product.Attributes["location"])
@@ -305,7 +306,7 @@ func TestPriceListsAndFile(t *testing.T) {
 				OfferCode string                    `json:"offerCode"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &file))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &file, jsonx.V1()))
 			assert.Equal(t, "AmazonS3", file.OfferCode)
 			assert.NotEmpty(t, file.Products)
 		} else {

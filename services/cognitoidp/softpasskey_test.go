@@ -7,13 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -66,7 +67,7 @@ func (p *softPasskey) clientData(t *testing.T, typ, challenge, rpID string) []by
 
 	raw, err := json.Marshal(map[string]any{
 		"type": typ, "challenge": challenge, "origin": origin, "crossOrigin": false,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return raw
@@ -132,7 +133,7 @@ func (p *softPasskey) assert(t *testing.T, requestOptions string) string {
 		Challenge string `json:"challenge"`
 		RPID      string `json:"rpId"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(requestOptions), &opts))
+	require.NoError(t, json.Unmarshal([]byte(requestOptions), &opts, jsonx.V1()))
 
 	p.signCount++
 
@@ -154,7 +155,7 @@ func (p *softPasskey) assert(t *testing.T, requestOptions string) string {
 			"signature": b64u(sig), "userHandle": b64u(p.userHandle),
 		},
 		"clientExtensionResults": map[string]any{},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(out)
@@ -193,7 +194,7 @@ func registerPasskeyHandler(t *testing.T, h *cognitoidp.Handler, accessToken str
 	var start struct {
 		Options map[string]any `json:"CredentialCreationOptions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 	pk := newSoftPasskey(t)
 	rec = doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{

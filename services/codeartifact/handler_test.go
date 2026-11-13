@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
@@ -33,7 +34,7 @@ func doRequest(t *testing.T, h *codeartifact.Handler, method, path string, body 
 
 	var bodyReader io.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyReader = bytes.NewReader(data)
 	}
@@ -684,7 +685,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		domains, _ := resp["domains"].([]any)
 		require.Len(t, domains, 3)
 
@@ -709,7 +710,7 @@ func TestHandler_SortedOutput(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		repos, _ := resp["repositories"].([]any)
 		require.Len(t, repos, 3)
 

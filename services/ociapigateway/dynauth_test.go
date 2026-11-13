@@ -2,7 +2,8 @@ package ociapigateway_test
 
 import (
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func jwtServer(keysJSON, issuer string) string {
@@ -151,7 +154,10 @@ func newIntrospectionServer(t *testing.T, active func(token string) map[string]a
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		s.discoveries.Add(1)
-		_ = json.NewEncoder(w).Encode(map[string]string{"introspection_endpoint": s.URL + "/introspect"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"introspection_endpoint": s.URL + "/introspect"},
+		)
 	})
 	mux.HandleFunc("/introspect", func(w http.ResponseWriter, r *http.Request) {
 		s.calls.Add(1)
@@ -163,7 +169,7 @@ func newIntrospectionServer(t *testing.T, active func(token string) map[string]a
 			out = map[string]any{"active": false}
 		}
 
-		_ = json.NewEncoder(w).Encode(out)
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), out)
 	})
 
 	s.Server = httptest.NewServer(mux)

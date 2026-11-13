@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"testing"
 
@@ -21,10 +21,10 @@ func ftBackend(t *testing.T, lang string, texts ...string) *cosmosdb.InMemoryBac
 	policy := fmt.Sprintf(`{"defaultLanguage":%q,"fullTextPaths":[{"path":"/text","language":%q}]}`, lang, lang)
 	_, err = b.CreateContainer("d", cosmosdb.ContainerSpec{
 		ID: "c", PartitionKeyPath: "/pk",
-		IndexingPolicy: json.RawMessage(
+		IndexingPolicy: jsontext.Value(
 			`{"indexingMode":"consistent","includedPaths":[{"path":"/*"}],"excludedPaths":[],` +
 				`"fullTextIndexes":[{"path":"/text"}]}`),
-		FullTextPolicy: json.RawMessage(policy),
+		FullTextPolicy: jsontext.Value(policy),
 	})
 	require.NoError(t, err)
 

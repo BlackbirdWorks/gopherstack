@@ -7,7 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -22,6 +22,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/genericartifactscontent"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -254,7 +255,7 @@ func (e *env) upload(
 func jsonBody(t *testing.T, v any) string {
 	t.Helper()
 
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(out)

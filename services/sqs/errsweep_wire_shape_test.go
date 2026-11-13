@@ -3,7 +3,7 @@ package sqs_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
@@ -56,7 +57,7 @@ func TestSDK_GetQueueUrl_NonExistentQueue_TypedError(t *testing.T) {
 	rawBody := rawSQSErrorBody(t, rawURL, "GetQueueUrl", `{"QueueName":"does-not-exist"}`)
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(rawBody, &decoded))
+	require.NoError(t, json.Unmarshal(rawBody, &decoded, jsonx.V1()))
 	require.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", decoded["__type"],
 		"raw response body must carry __type; got: %s", rawBody)
 	_, hasBareCode := decoded["code"]

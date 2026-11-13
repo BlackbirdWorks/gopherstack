@@ -3,12 +3,14 @@ package azurefunctions
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -105,7 +107,7 @@ func writeSecrets(dir string, st *appState) error {
 		Source:       "runtime",
 	}
 
-	raw, err := json.Marshal(host)
+	raw, err := json.Marshal(host, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode host secrets: %w", err)
 	}
@@ -117,7 +119,7 @@ func writeSecrets(dir string, st *appState) error {
 	want := map[string]bool{"host.json": true}
 
 	for fn, keys := range st.FunctionKeys {
-		raw, err = json.Marshal(functionSecretsFile{Source: "runtime", Keys: sortedKeys(keys)})
+		raw, err = json.Marshal(functionSecretsFile{Source: "runtime", Keys: sortedKeys(keys)}, jsonx.V1())
 		if err != nil {
 			return fmt.Errorf("encode function secrets: %w", err)
 		}

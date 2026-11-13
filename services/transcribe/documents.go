@@ -1,11 +1,14 @@
 package transcribe
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -46,8 +49,8 @@ type transcriptResults struct {
 }
 
 type speakerLabels struct {
-	Segments []json.RawMessage `json:"segments"`
-	Speakers int               `json:"speakers"`
+	Segments []jsontext.Value `json:"segments"`
+	Speakers int              `json:"speakers"`
 }
 
 type channelLabels struct {
@@ -188,7 +191,7 @@ func buildTranscriptDocument(jobName, accountID string, opt docOptions) []byte {
 	}
 
 	if opt.showSpeakers {
-		res.SpeakerLabels = &speakerLabels{Segments: []json.RawMessage{}}
+		res.SpeakerLabels = &speakerLabels{Segments: []jsontext.Value{}}
 	}
 
 	if opt.identifyChans {
@@ -210,7 +213,7 @@ func buildTranscriptDocument(jobName, accountID string, opt docOptions) []byte {
 
 	data, _ := json.Marshal(transcriptDocument{
 		JobName: jobName, AccountID: accountID, Status: jobStatusCompleted, Results: res,
-	})
+	}, jsonx.V1())
 
 	return data
 }
@@ -305,7 +308,7 @@ func buildCallAnalyticsDocument(
 	}
 
 	doc.Characteristics.TotalConversationDurationMillis = last
-	data, _ := json.Marshal(doc)
+	data, _ := json.Marshal(doc, jsonx.V1())
 
 	return data
 }

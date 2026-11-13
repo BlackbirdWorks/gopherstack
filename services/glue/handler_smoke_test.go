@@ -2,7 +2,7 @@ package glue_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,13 +10,14 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
 // doGlueOp is a helper to POST a JSON body to the Glue handler via echo.
 func doGlueOp(t *testing.T, h *glue.Handler, op string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	b, err := json.Marshal(body)
+	b, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}

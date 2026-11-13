@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 )
 
@@ -320,7 +321,7 @@ func (b *InMemoryBackend) doJSON(req *http.Request, out any) error {
 		return fmt.Errorf("%w %d", errBadStatus, resp.StatusCode)
 	}
 
-	if err = json.Unmarshal(body, out); err != nil {
+	if err = json.Unmarshal(body, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 

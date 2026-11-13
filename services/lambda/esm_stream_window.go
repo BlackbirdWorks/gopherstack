@@ -3,7 +3,8 @@ package lambda
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"hash/fnv"
 	"math"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -30,7 +33,7 @@ var (
 type tumblingWindow struct {
 	start       time.Time
 	end         time.Time
-	state       json.RawMessage
+	state       jsontext.Value
 	finalQueued bool
 }
 
@@ -289,13 +292,13 @@ type windowRange struct {
 }
 
 type windowedPayload struct {
-	State                   json.RawMessage   `json:"state"`
-	Window                  windowRange       `json:"window"`
-	ShardID                 string            `json:"shardId"`
-	EventSourceARN          string            `json:"eventSourceARN"`
-	Records                 []json.RawMessage `json:"Records"`
-	IsFinalInvokeForWindow  bool              `json:"isFinalInvokeForWindow"`
-	IsWindowTerminatedEarly bool              `json:"isWindowTerminatedEarly"`
+	State                   jsontext.Value   `json:"state"`
+	Window                  windowRange      `json:"window"`
+	ShardID                 string           `json:"shardId"`
+	EventSourceARN          string           `json:"eventSourceARN"`
+	Records                 []jsontext.Value `json:"Records"`
+	IsFinalInvokeForWindow  bool             `json:"isFinalInvokeForWindow"`
+	IsWindowTerminatedEarly bool             `json:"isWindowTerminatedEarly"`
 }
 
 func (p *EventSourcePoller) streamBatchPayload(
@@ -310,10 +313,10 @@ func (p *EventSourcePoller) streamBatchPayload(
 	p.mu.RUnlock()
 
 	if len(state) == 0 {
-		state = json.RawMessage(emptyJSONObject)
+		state = jsontext.Value(emptyJSONObject)
 	}
 
-	raws := make([]json.RawMessage, len(b.events))
+	raws := make([]jsontext.Value, len(b.events))
 	for i, e := range b.events {
 		raws[i] = e.raw
 	}
@@ -329,21 +332,21 @@ func (p *EventSourcePoller) streamBatchPayload(
 		EventSourceARN:          m.EventSourceARN,
 		IsFinalInvokeForWindow:  b.final,
 		IsWindowTerminatedEarly: b.early,
-	})
+	}, jsonx.V1())
 }
 
 // windowResponseState extracts the required state property of a tumbling-window response.
-func windowResponseState(body []byte) (json.RawMessage, bool) {
+func windowResponseState(body []byte) (jsontext.Value, bool) {
 	var resp struct {
-		State *json.RawMessage `json:"state"`
+		State *jsontext.Value `json:"state"`
 	}
 
-	if err := json.Unmarshal(body, &resp); err != nil || resp.State == nil {
+	if err := json.Unmarshal(body, &resp, jsonx.V1()); err != nil || resp.State == nil {
 		return nil, false
 	}
 
 	if bytes.Equal(bytes.TrimSpace(*resp.State), []byte("null")) {
-		return json.RawMessage(emptyJSONObject), true
+		return jsontext.Value(emptyJSONObject), true
 	}
 
 	return *resp.State, true
@@ -358,7 +361,8 @@ func batchFailureIndex(body []byte, events []streamEvent) int {
 		} `json:"batchItemFailures"`
 	}
 
-	if len(bytes.TrimSpace(body)) == 0 || json.Unmarshal(body, &resp) != nil || len(resp.BatchItemFailures) == 0 {
+	if len(bytes.TrimSpace(body)) == 0 || json.Unmarshal(body, &resp, jsonx.V1()) != nil ||
+		len(resp.BatchItemFailures) == 0 {
 		return -1
 	}
 

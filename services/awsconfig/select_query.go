@@ -1,11 +1,13 @@
 package awsconfig
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // select_query.go implements a minimal evaluator for the SQL-like query
@@ -170,7 +172,7 @@ func evaluateSelectQuery(items []*ResourceConfigItem, expression string) ([]stri
 	for _, item := range sorted {
 		var config map[string]any
 
-		_ = json.Unmarshal([]byte(item.Configuration), &config)
+		_ = json.Unmarshal([]byte(item.Configuration), &config, jsonx.V1())
 
 		if config == nil {
 			config = map[string]any{}
@@ -207,7 +209,7 @@ func marshalSelectedFields(item *ResourceConfigItem, config map[string]any, fiel
 		}
 	}
 
-	encoded, err := json.Marshal(row)
+	encoded, err := json.Marshal(row, jsonx.V1())
 	if err != nil {
 		return "", false
 	}

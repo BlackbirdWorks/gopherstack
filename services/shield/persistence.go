@@ -2,7 +2,7 @@ package shield
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -41,15 +41,15 @@ type alarConfigDTO struct {
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage `json:"tables"`
-	Subscription              *Subscription              `json:"subscription,omitempty"`
-	DRTAccess                 *DRTAccess                 `json:"drtAccess,omitempty"`
-	AccountID                 string                     `json:"accountID"`
-	Region                    string                     `json:"region"`
-	ProactiveEngagementStatus string                     `json:"proactiveEngagementStatus,omitempty"`
-	ALARConfigs               []alarConfigDTO            `json:"alarConfigs,omitempty"`
-	EmergencyContacts         []EmergencyContact         `json:"emergencyContacts,omitempty"`
-	Version                   int                        `json:"version"`
+	Tables                    map[string]jsontext.Value `json:"tables"`
+	Subscription              *Subscription             `json:"subscription,omitempty"`
+	DRTAccess                 *DRTAccess                `json:"drtAccess,omitempty"`
+	AccountID                 string                    `json:"accountID"`
+	Region                    string                    `json:"region"`
+	ProactiveEngagementStatus string                    `json:"proactiveEngagementStatus,omitempty"`
+	ALARConfigs               []alarConfigDTO           `json:"alarConfigs,omitempty"`
+	EmergencyContacts         []EmergencyContact        `json:"emergencyContacts,omitempty"`
+	Version                   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

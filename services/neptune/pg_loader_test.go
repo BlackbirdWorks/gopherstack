@@ -1,12 +1,14 @@
 package neptune_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPropertyGraphBulkLoader(t *testing.T) {
@@ -179,7 +181,7 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 				Results []any `json:"results"`
 			}
 
-			require.NoError(t, json.Unmarshal([]byte(res.body), &out))
+			require.NoError(t, json.Unmarshal([]byte(res.body), &out, jsonx.V1()))
 			assert.Equal(t, tt.want, out.Results)
 		})
 	}
@@ -188,7 +190,7 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)

@@ -63,6 +63,7 @@ func TestFISDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -112,6 +113,7 @@ func TestFISDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -167,6 +169,7 @@ func TestFISDashboard_TemplatesTab(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -243,6 +246,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/fis")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

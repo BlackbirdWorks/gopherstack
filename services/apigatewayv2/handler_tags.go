@@ -1,7 +1,8 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -75,7 +77,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	log := logger.Load(c.Request().Context())
 
 	var input tagResourceInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 

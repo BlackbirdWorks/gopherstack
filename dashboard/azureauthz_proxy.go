@@ -1,11 +1,13 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -105,7 +107,7 @@ func authzProxyBody(method string, p []string, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(map[string]any{"properties": props})
+	b, err := json.Marshal(map[string]any{"properties": props}, jsonx.V1())
 
 	return b, err == nil
 }
@@ -122,7 +124,7 @@ func (r authzPropsIn) text(key string) string {
 
 func authzAssignmentProps(in []byte) map[string]any {
 	var req authzPropsIn
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -147,7 +149,7 @@ func authzAssignmentProps(in []byte) map[string]any {
 
 func authzLockProps(in []byte) map[string]any {
 	var req authzPropsIn
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil
 	}
 

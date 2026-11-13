@@ -2,7 +2,7 @@ package appconfig_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
@@ -138,7 +139,7 @@ func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfi
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"run-http-env"}`))
@@ -147,7 +148,7 @@ func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfi
 	var env struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"run-http-profile","LocationUri":"hosted","Type":"AWS.AppConfig.FeatureFlags"}`))
@@ -156,7 +157,7 @@ func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfi
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	defBody := `{
 		"Name": "run-http-def",
@@ -171,7 +172,7 @@ func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfi
 	require.Equal(t, http.StatusCreated, defRec.Code)
 
 	var def appconfig.ExperimentDefinition
-	require.NoError(t, json.Unmarshal(defRec.Body.Bytes(), &def))
+	require.NoError(t, json.Unmarshal(defRec.Body.Bytes(), &def, jsonx.V1()))
 
 	return app.ID, def
 }
@@ -194,7 +195,7 @@ func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, startRec.Code)
 
 	var run appconfig.ExperimentRun
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &run))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &run, jsonx.V1()))
 	assert.Equal(t, int32(1), run.Run)
 	assert.Equal(t, "RUNNING", run.Status)
 	assert.InDelta(t, float32(10), run.ExposurePercentage, 0.001)
@@ -208,14 +209,14 @@ func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
 	var listResp struct {
 		Items []appconfig.ExperimentRun `json:"Items"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Items, 1)
 
 	updateRec := doRequest(t, h, http.MethodPatch, base+"/1/update", []byte(`{"ExposurePercentage":25}`))
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updated appconfig.ExperimentRun
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.InDelta(t, float32(25), updated.ExposurePercentage, 0.001)
 
 	stopRec := doRequest(t, h, http.MethodPatch, base+"/1/stop",
@@ -223,7 +224,7 @@ func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopped appconfig.ExperimentRun
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopped))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopped, jsonx.V1()))
 	assert.Equal(t, "DONE", stopped.Status)
 	require.NotNil(t, stopped.Result)
 	assert.Equal(t, "treatment won", stopped.Result.ExecutiveSummary)
@@ -234,7 +235,7 @@ func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
 	var eventsResp struct {
 		Items []appconfig.ExperimentRunEvent `json:"Items"`
 	}
-	require.NoError(t, json.Unmarshal(eventsRec.Body.Bytes(), &eventsResp))
+	require.NoError(t, json.Unmarshal(eventsRec.Body.Bytes(), &eventsResp, jsonx.V1()))
 	require.Len(t, eventsResp.Items, 3, "RUN_STARTED, EXPOSURE_UPDATED, RUN_STOPPED")
 	assert.Equal(t, "RUN_STOPPED", eventsResp.Items[0].EventType, "most-recent-first ordering")
 }
@@ -295,7 +296,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var app appconfig.Application
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 		// Create env.
 		rec = doRequest(
@@ -308,7 +309,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var env appconfig.Environment
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 
 		// Create configuration profile (required by StartDeployment validation).
 		profBody := []byte(`{"name":"my-profile","locationUri":"hosted"}`)
@@ -322,7 +323,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var prof appconfig.ConfigurationProfile
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prof))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prof, jsonx.V1()))
 
 		// Create a hosted configuration version (required for StartDeployment
 		// to validate ConfigurationVersion against, for a "hosted" profile).
@@ -343,7 +344,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var strat appconfig.DeploymentStrategy
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat, jsonx.V1()))
 
 		// Start deployment.
 		depBodyStr := `{"configurationProfileId":"` + prof.ID +
@@ -358,7 +359,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var dep appconfig.Deployment
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep, jsonx.V1()))
 		assert.Equal(t, int32(1), dep.DeploymentNumber)
 		assert.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
 		assert.NotEmpty(t, dep.EventLog, "StartDeployment must record a DEPLOYMENT_STARTED event")
@@ -377,7 +378,7 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var final appconfig.Deployment
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &final))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &final, jsonx.V1()))
 		assert.Equal(t, "COMPLETE", final.State)
 		assert.InDelta(t, float32(100.0), final.PercentageComplete, 0.001)
 
@@ -412,13 +413,13 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 			"Allow-Revert", "true", nil,
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep, jsonx.V1()))
 		assert.Equal(t, "REVERTED", dep.State, "StopDeploymentOutput itself must reflect the new state")
 
 		rec = doRequest(t, h, http.MethodGet,
 			"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep, jsonx.V1()))
 		assert.Equal(t, "REVERTED", dep.State)
 	})
 }
@@ -493,7 +494,7 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut, jsonx.V1()))
 
 	envRec := doRequest(
 		t, h, http.MethodPost,
@@ -506,7 +507,7 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &envOut))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &envOut, jsonx.V1()))
 
 	listRec := doRequest(
 		t, h, http.MethodGet,
@@ -531,7 +532,7 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"dep-env"}`))
@@ -541,7 +542,7 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles",
@@ -552,7 +553,7 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	hcvRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
@@ -567,13 +568,13 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat, jsonx.V1()))
 
 	depBody, _ := json.Marshal(map[string]string{
 		"ConfigurationProfileId": prof.ID,
 		"DeploymentStrategyId":   strat.ID,
 		"ConfigurationVersion":   "1",
-	})
+	}, jsonx.V1())
 	depRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments", depBody)
 	require.Equal(t, http.StatusCreated, depRec.Code)
@@ -587,7 +588,7 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 		PercentageComplete     float32 `json:"PercentageComplete"`
 		DeploymentNumber       int32   `json:"DeploymentNumber"`
 	}
-	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &dep))
+	require.NoError(t, json.Unmarshal(depRec.Body.Bytes(), &dep, jsonx.V1()))
 
 	assert.Equal(t, app.ID, dep.ApplicationID)
 	assert.Equal(t, env.ID, dep.EnvironmentID)
@@ -612,7 +613,7 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"seq-env"}`))
@@ -622,7 +623,7 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles",
@@ -633,7 +634,7 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	hcvRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
@@ -648,13 +649,13 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat, jsonx.V1()))
 
 	depBody, _ := json.Marshal(map[string]string{
 		"ConfigurationProfileId": prof.ID,
 		"DeploymentStrategyId":   strat.ID,
 		"ConfigurationVersion":   "1",
-	})
+	}, jsonx.V1())
 
 	for wantNum := int32(1); wantNum <= 3; wantNum++ {
 		rec := doRequest(t, h, http.MethodPost,
@@ -664,7 +665,7 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 		var dep struct {
 			DeploymentNumber int32 `json:"DeploymentNumber"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep, jsonx.V1()))
 		assert.Equal(t, wantNum, dep.DeploymentNumber,
 			"deployment must have sequential DeploymentNumber")
 	}

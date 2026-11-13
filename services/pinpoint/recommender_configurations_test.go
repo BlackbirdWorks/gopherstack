@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -282,7 +284,7 @@ func TestRecommenderConfiguration_FullCRUD(t *testing.T) {
 				"body: %s", createRec.Body.String())
 
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			recID := cr["Id"].(string)
 			require.NotEmpty(t, recID)
 
@@ -313,7 +315,7 @@ func TestRecommenderConfiguration_FullCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var gr map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr, jsonx.V1()))
 			assert.Equal(t, recID, gr["Id"])
 
 			updateRec := doPinpointRequest(t, h, http.MethodPut,
@@ -368,7 +370,7 @@ func TestRecommenderConfiguration_ListAll(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tc.wantLen)
 		})
@@ -520,14 +522,14 @@ func TestRecommender_Attributes_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	recID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/recommenders/"+recID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var r map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r, jsonx.V1()))
 
 	assert.Equal(t, "attr-recommender", r["Name"])
 	assert.EqualValues(t, 5, r["RecommendationsPerMessage"])
@@ -567,14 +569,14 @@ func TestRecommender_RecommendationsPerMessage(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			recID := cr["Id"].(string)
 
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/recommenders/"+recID, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var r map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r, jsonx.V1()))
 
 			assert.EqualValues(t, tc.recommendationsPerMsg, r["RecommendationsPerMessage"])
 		})
@@ -600,7 +602,7 @@ func TestRecommender_UpdateAttributes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	recID := cr["Id"].(string)
 
 	putRec := doPinpointRequest(t, h, http.MethodPut, "/v1/recommenders/"+recID,
@@ -621,7 +623,7 @@ func TestRecommender_UpdateAttributes(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var r map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r, jsonx.V1()))
 
 	assert.EqualValues(t, 7, r["RecommendationsPerMessage"])
 	gotAttrs := r["Attributes"].(map[string]any)
@@ -650,7 +652,7 @@ func TestRecommender_List_MultipleConfigs(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items := resp["Item"].([]any)
 	assert.Len(t, items, 3)
@@ -762,7 +764,7 @@ func TestHandler_CreateRecommenderConfiguration(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.Equal(t, "my-recommender", resp["Name"])
 			}

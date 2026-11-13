@@ -2,7 +2,7 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -52,7 +53,7 @@ func TestEMR_Studio(t *testing.T) {
 				var out struct {
 					StudioID string `json:"StudioId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.StudioID
 			},
@@ -112,7 +113,7 @@ func TestEMR_Studio(t *testing.T) {
 					StudioID string `json:"StudioId"`
 					URL      string `json:"Url"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.StudioID)
 				assert.NotEmpty(t, out.URL)
 			}
@@ -178,7 +179,7 @@ func TestEMR_StudioSessionMapping(t *testing.T) {
 			var studioOut struct {
 				StudioID string `json:"StudioId"`
 			}
-			require.NoError(t, json.Unmarshal(studioRec.Body.Bytes(), &studioOut))
+			require.NoError(t, json.Unmarshal(studioRec.Body.Bytes(), &studioOut, jsonx.V1()))
 			studioID = studioOut.StudioID
 
 			var rec *httptest.ResponseRecorder
@@ -253,7 +254,7 @@ func TestEMR_DeleteStudio_CascadesSessionMappings(t *testing.T) {
 	var studioOut struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(studioRec.Body.Bytes(), &studioOut))
+	require.NoError(t, json.Unmarshal(studioRec.Body.Bytes(), &studioOut, jsonx.V1()))
 
 	// Create a session mapping.
 	mappingRec := doEMRRequest(t, h, "CreateStudioSessionMapping", map[string]any{
@@ -296,7 +297,7 @@ func TestStudio_DescribeAndList(t *testing.T) {
 	var create struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	studioID := create.StudioID
 
 	descRec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": studioID})
@@ -307,7 +308,7 @@ func TestStudio_DescribeAndList(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Studio"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "my-studio", desc.Studio.Name)
 
 	listRec := doEMRRequest(t, h, "ListStudios", map[string]any{})
@@ -318,7 +319,7 @@ func TestStudio_DescribeAndList(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Studios"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Studios, 1)
 }
 
@@ -340,7 +341,7 @@ func TestStudioSessionMapping_GetUpdateList(t *testing.T) {
 	var create struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	studioID := create.StudioID
 
 	doEMRRequest(t, h, "CreateStudioSessionMapping", map[string]any{
@@ -358,7 +359,7 @@ func TestStudioSessionMapping_GetUpdateList(t *testing.T) {
 			SessionPolicyArn string `json:"SessionPolicyArn"`
 		} `json:"SessionMappings"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.SessionMappings, 1)
 
 	updateRec := doEMRRequest(t, h, "UpdateStudioSessionMapping", map[string]any{
@@ -381,7 +382,7 @@ func TestStudioSessionMapping_GetUpdateList(t *testing.T) {
 			SessionPolicyArn string `json:"SessionPolicyArn"`
 		} `json:"SessionMapping"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "arn:policy:new", getOut.SessionMapping.SessionPolicyArn)
 }
 
@@ -502,13 +503,13 @@ func TestDescribeStudio_TagsEmptyNotAbsent(t *testing.T) {
 	var create struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": create.StudioID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	studio, ok := raw["Studio"].(map[string]any)
 	require.True(t, ok, "Studio must be an object")
@@ -538,13 +539,13 @@ func TestDescribeStudio_SubnetIdsEmptyNotAbsent(t *testing.T) {
 	var create struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": create.StudioID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	studio := raw["Studio"].(map[string]any)
 
@@ -573,7 +574,7 @@ func TestListStudioSessionMappings_EmptyNotNull(t *testing.T) {
 	var create struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "ListStudioSessionMappings", map[string]any{
 		"StudioId": create.StudioID,
@@ -581,7 +582,7 @@ func TestListStudioSessionMappings_EmptyNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	mappings, hasKey := raw["SessionMappings"]
 	assert.True(t, hasKey, "ListStudioSessionMappings must include 'SessionMappings' key")
@@ -615,7 +616,7 @@ func TestWireShape_CreateStudio_Description(t *testing.T) {
 	var out struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": out.StudioID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -625,7 +626,7 @@ func TestWireShape_CreateStudio_Description(t *testing.T) {
 			Description string `json:"Description"`
 		} `json:"Studio"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "a test studio", desc.Studio.Description,
 		"CreateStudio must forward Description to the created Studio")
 }
@@ -654,7 +655,7 @@ func TestWireShape_UpdateStudio_AppliesSubnetIds(t *testing.T) {
 	var created struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	updateRec := doEMRRequest(t, h, "UpdateStudio", map[string]any{
 		"StudioId":  created.StudioID,
@@ -670,7 +671,7 @@ func TestWireShape_UpdateStudio_AppliesSubnetIds(t *testing.T) {
 			SubnetIDs []string `json:"SubnetIds"`
 		} `json:"Studio"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.ElementsMatch(t, []string{"subnet-1", "subnet-2"}, desc.Studio.SubnetIDs,
 		"UpdateStudio must apply SubnetIds from the request, not discard them")
 }

@@ -1,10 +1,13 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const latestTemplateVersion = "latest"
@@ -49,13 +52,13 @@ func (b *InMemoryBackend) nextTemplateVersionLocked(
 		return current, nil
 	}
 
-	raw, err := json.Marshal(live)
+	raw, err := json.Marshal(live, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("snapshot template version: %w", err)
 	}
 
 	if b.templateVersionData[key] == nil {
-		b.templateVersionData[key] = make(map[string]json.RawMessage)
+		b.templateVersionData[key] = make(map[string]jsontext.Value)
 	}
 
 	b.templateVersionData[key][current] = raw
@@ -137,7 +140,7 @@ func pickTemplateVersion[T any](
 	}
 
 	var out T
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil, false, fmt.Errorf("decode template version: %w", err)
 	}
 
@@ -345,7 +348,7 @@ func unlockedDelete[T any](
 }
 
 // restoreLatestLocked rewinds the live template to an older snapshot, keeping its tags.
-func (b *InMemoryBackend) restoreLatestLocked(name, templateType string, raw json.RawMessage) error {
+func (b *InMemoryBackend) restoreLatestLocked(name, templateType string, raw jsontext.Value) error {
 	switch strings.ToLower(templateType) {
 	case templateTypeEmail:
 		t, _ := b.emailTemplates.Get(name)
@@ -372,9 +375,9 @@ func (b *InMemoryBackend) restoreLatestLocked(name, templateType string, raw jso
 	return nil
 }
 
-func restoreTemplate[T any](dst *T, raw json.RawMessage, tags func(*T) *map[string]string) error {
+func restoreTemplate[T any](dst *T, raw jsontext.Value, tags func(*T) *map[string]string) error {
 	var fresh T
-	if err := json.Unmarshal(raw, &fresh); err != nil {
+	if err := json.Unmarshal(raw, &fresh, jsonx.V1()); err != nil {
 		return fmt.Errorf("restore template version: %w", err)
 	}
 
@@ -384,7 +387,7 @@ func restoreTemplate[T any](dst *T, raw json.RawMessage, tags func(*T) *map[stri
 	return nil
 }
 
-func (b *InMemoryBackend) liveTemplateJSONLocked(name, templateType string) (string, json.RawMessage, bool) {
+func (b *InMemoryBackend) liveTemplateJSONLocked(name, templateType string) (string, jsontext.Value, bool) {
 	var (
 		version string
 		live    any
@@ -417,7 +420,7 @@ func (b *InMemoryBackend) liveTemplateJSONLocked(name, templateType string) (str
 		return "", nil, false
 	}
 
-	raw, err := json.Marshal(live)
+	raw, err := json.Marshal(live, jsonx.V1())
 	if err != nil {
 		return "", nil, false
 	}
@@ -452,7 +455,7 @@ func (b *InMemoryBackend) ListTemplateVersions(
 
 		var meta templateVersionMeta
 		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &meta)
+			_ = json.Unmarshal(raw, &meta, jsonx.V1())
 		}
 
 		cp.CreationDate = meta.CreationDate

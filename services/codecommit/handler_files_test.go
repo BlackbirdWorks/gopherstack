@@ -2,13 +2,15 @@ package codecommit_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PutFile_GetFile(t *testing.T) {
@@ -26,7 +28,7 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 	putBlobID, _ := putResp["blobId"].(string)
 	assert.NotEmpty(t, putBlobID, "PutFileOutput.blobId is a required AWS field")
 
@@ -38,7 +40,7 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "hello.txt", resp["filePath"])
 	assert.Equal(
 		t,
@@ -68,7 +70,7 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var blobResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &blobResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &blobResp, jsonx.V1()))
 	assert.Equal(t, "aGVsbG8=", blobResp["content"])
 }
 
@@ -95,7 +97,7 @@ func TestHandler_PutFile_SameFileContent(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "SameFileContentException", errResp["__type"])
 
 	// Different content at the same path must still succeed.
@@ -126,7 +128,7 @@ func TestHandler_GetFolder(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	files := resp["files"].([]any)
 	assert.Len(t, files, 1)
 }
@@ -144,7 +146,7 @@ func TestHandler_DeleteFile(t *testing.T) {
 	})
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	putBlobID, _ := putResp["blobId"].(string)
 	require.NotEmpty(t, putBlobID)
 	putCommitID, _ := putResp["commitId"].(string)
@@ -161,7 +163,7 @@ func TestHandler_DeleteFile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["commitId"])
 	assert.Equal(t, putBlobID, resp["blobId"],
 		"DeleteFileOutput.blobId must report the blob that was removed from the tree")
@@ -183,7 +185,7 @@ func TestHandler_DeleteFile_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "FileDoesNotExistException", resp["__type"])
 }
 
@@ -211,7 +213,7 @@ func TestHandler_DeleteFile_ParentCommitIdRequired(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ParentCommitIdRequiredException", resp["__type"])
 }
 
@@ -243,7 +245,7 @@ func TestHandler_DeleteFile_ParentCommitIdOutdated(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ParentCommitIdOutdatedException", resp["__type"])
 }
 
@@ -268,7 +270,7 @@ func TestHandler_GetBlob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var fr map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &fr))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &fr, jsonx.V1()))
 	blobID := fr["blobId"].(string)
 
 	rec = doRequest(t, h, "GetBlob", map[string]any{
@@ -278,7 +280,7 @@ func TestHandler_GetBlob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["content"])
 }
 
@@ -295,7 +297,7 @@ func TestHandler_ListFileCommitHistory(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["revisionDag"])
 }
 
@@ -322,7 +324,7 @@ func TestHandler_ListFileCommitHistory_RevisionDagShape(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, firstRec.Code)
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstResp, jsonx.V1()))
 	firstCommitID, _ := firstResp["commitId"].(string)
 	require.NotEmpty(t, firstCommitID)
 
@@ -335,7 +337,7 @@ func TestHandler_ListFileCommitHistory_RevisionDagShape(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, secondRec.Code)
 	var secondResp map[string]any
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondResp))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondResp, jsonx.V1()))
 	secondCommitID, _ := secondResp["commitId"].(string)
 	require.NotEmpty(t, secondCommitID)
 
@@ -346,7 +348,7 @@ func TestHandler_ListFileCommitHistory_RevisionDagShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dag, ok := resp["revisionDag"].([]any)
 	require.True(t, ok)
 	require.Len(t, dag, 2)
@@ -406,7 +408,7 @@ func TestHandler_ListFileCommitHistory_IncludesPutFileWrites(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dag, ok := resp["revisionDag"].([]any)
 	require.True(t, ok)
 	require.Len(t, dag, 1, "the PutFile commit must appear in the file's history")
@@ -437,7 +439,7 @@ func TestHandler_ListFileCommitHistory_Pagination(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		id, _ := resp["commitId"].(string)
 		require.NotEmpty(t, id)
 		commitIDs = append(commitIDs, id)
@@ -460,7 +462,7 @@ func TestHandler_ListFileCommitHistory_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		dag, ok := resp["revisionDag"].([]any)
 		require.True(t, ok)
 		assert.LessOrEqual(t, len(dag), 2, "each page must respect maxResults")
@@ -536,7 +538,7 @@ func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			dag := resp["revisionDag"].([]any)
 			assert.Len(t, dag, tt.seedCommits)
 		})
@@ -566,7 +568,7 @@ func TestHandler_FileLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "src/main.go", resp["filePath"])
 	assert.NotEmpty(t, resp["blobId"])
 	putCommitID, _ := resp["commitId"].(string)
@@ -583,7 +585,7 @@ func TestHandler_FileLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	files := resp["files"].([]any)
 	assert.Len(t, files, 1)
 
@@ -664,7 +666,7 @@ func TestGetFolder_AlwaysIncludesSubArrays(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// files array must always be present and correct count.
 			files, ok := resp["files"].([]any)
@@ -747,7 +749,7 @@ func TestListFileCommitHistory_FiltersByFilePath(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			dag := resp["revisionDag"].([]any)
 			assert.Len(t, dag, tt.wantCount,
 				"revisionDag must contain %d commits for path %q", tt.wantCount, tt.queryPath)

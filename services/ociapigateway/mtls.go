@@ -3,7 +3,7 @@ package ociapigateway
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -90,7 +91,7 @@ func (b *InMemoryBackend) clientCAPool(gwID string) *x509.CertPool {
 	}
 
 	var refs []caBundleRef
-	if json.Unmarshal(g.CaBundles, &refs) != nil {
+	if json.Unmarshal(g.CaBundles, &refs, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -248,7 +249,7 @@ func (h *Handler) adminCABundles(q *req) {
 		var in caBundleReq
 
 		body, _ := io.ReadAll(io.LimitReader(q.r.Body, caBundleBody))
-		if err := json.Unmarshal(body, &in); err != nil || in.CaBundleID == "" {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil || in.CaBundleID == "" {
 			h.fail(q, errParam("caBundleId and pem are required"))
 
 			return

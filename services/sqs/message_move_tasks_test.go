@@ -1,7 +1,7 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -539,7 +540,7 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var startResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 				handle, _ := startResp["TaskHandle"].(string)
 				require.NotEmpty(t, handle)
 

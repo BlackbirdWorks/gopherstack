@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -33,7 +35,7 @@ func TestOpenSearchHandler_DescribeDomainHealth(t *testing.T) {
 	assert.Equal(t, http.StatusOK, healthResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(healthResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(healthResp.Body), &out, jsonx.V1()))
 
 	assert.Equal(t, "Active", out["DomainState"])
 	// 3 instances * 5 shards = 15. TotalShards is NumberOfShards, a string
@@ -61,7 +63,7 @@ func TestOpenSearchHandler_DescribeDomainNodes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, nodesResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(nodesResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(nodesResp.Body), &out, jsonx.V1()))
 
 	nodes, ok := out["DomainNodesStatusList"].([]any)
 	require.True(t, ok)
@@ -125,7 +127,7 @@ func TestOpenSearchHandler_DescribeDomainChangeProgress(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	status, ok := out["ChangeProgressStatus"].(map[string]any)
 	require.True(t, ok)
@@ -151,7 +153,7 @@ func TestOpenSearchHandler_DescribeDryRunProgress(t *testing.T) {
 	require.NoError(t, err)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(bodyBytes, &out))
+	require.NoError(t, json.Unmarshal(bodyBytes, &out, jsonx.V1()))
 
 	status, ok := out["DryRunProgressStatus"].(map[string]any)
 	require.True(t, ok)
@@ -204,7 +206,7 @@ func TestDescribeDomainHealth_AdditionalFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, hResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(hResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(hResp.Body), &out, jsonx.V1()))
 
 			// Existing fields.
 			assert.Equal(t, "Active", out["DomainState"])
@@ -247,7 +249,7 @@ func TestDescribeDomainNodes_StorageAndAZ(t *testing.T) {
 	require.Equal(t, http.StatusOK, nResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(nResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(nResp.Body), &out, jsonx.V1()))
 
 	nodes, ok := out["DomainNodesStatusList"].([]any)
 	require.True(t, ok)
@@ -279,7 +281,7 @@ func TestDescribeDomainChangeProgress_Timestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	status, ok := out["ChangeProgressStatus"].(map[string]any)
 	require.True(t, ok)
@@ -301,7 +303,7 @@ func TestDescribeDryRunProgress_ValidationFailures(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	status, ok := out["DryRunProgressStatus"].(map[string]any)
 	require.True(t, ok)
@@ -339,7 +341,7 @@ func TestGetDomainHealth_WarmNodeCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	warmCount, ok := out["WarmNodeCount"].(string)
 	require.True(t, ok, "WarmNodeCount must be present")

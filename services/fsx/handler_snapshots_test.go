@@ -1,13 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -49,7 +50,7 @@ func TestFSx_Snapshot(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				s := out["Snapshot"].(map[string]any)
 				assert.Contains(t, s["SnapshotId"].(string), "fsvolsnap-")
 				assert.Equal(t, "AVAILABLE", s["Lifecycle"])
@@ -75,7 +76,7 @@ func TestFSx_SnapshotLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 		snapID := cr["Snapshot"].(map[string]any)["SnapshotId"].(string)
 
 		assert.Equal(t, 1, fsx.SnapshotCount(b))
@@ -86,7 +87,7 @@ func TestFSx_SnapshotLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["Snapshots"].([]any), 1)
 
 		// update
@@ -96,14 +97,14 @@ func TestFSx_SnapshotLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var ur map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &ur))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &ur, jsonx.V1()))
 		assert.Equal(t, "snap-renamed", ur["Snapshot"].(map[string]any)["Name"])
 
 		// delete
 		rec4 := doFSxRequest(t, h, "DeleteSnapshot", map[string]any{"SnapshotId": snapID})
 		require.Equal(t, http.StatusOK, rec4.Code)
 		var del map[string]any
-		require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &del))
+		require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &del, jsonx.V1()))
 		assert.Equal(t, snapID, del["SnapshotId"])
 		assert.Equal(t, "DELETING", del["Lifecycle"])
 		assert.Equal(t, 0, fsx.SnapshotCount(b))
@@ -125,7 +126,7 @@ func TestFSx_CopySnapshotAndUpdateVolume(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 		snapARN := cr["Snapshot"].(map[string]any)["ResourceARN"].(string)
 
 		rec2 := doFSxRequest(t, h, "CopySnapshotAndUpdateVolume", map[string]any{
@@ -134,7 +135,7 @@ func TestFSx_CopySnapshotAndUpdateVolume(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, volID, out["VolumeId"])
 		assert.NotEmpty(t, out["Lifecycle"])
 		actions := out["AdministrativeActions"].([]any)

@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -53,7 +54,7 @@ func TestStopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 				var out struct {
 					RunID string `json:"ColumnStatisticsTaskRunId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotEmpty(t, out.RunID, "expected ColumnStatisticsTaskRunId in response")
 			}
 
@@ -355,7 +356,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startCSTRec.Code)
 	var startCSTOut map[string]any
-	require.NoError(t, json.Unmarshal(startCSTRec.Body.Bytes(), &startCSTOut))
+	require.NoError(t, json.Unmarshal(startCSTRec.Body.Bytes(), &startCSTOut, jsonx.V1()))
 	assert.NotEmpty(t, startCSTOut["ColumnStatisticsTaskRunId"])
 
 	doGlueRequest(t, h, "StartColumnStatisticsTaskRun", map[string]any{
@@ -374,7 +375,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startCSTRec2.Code)
 	var startCSTOut2 map[string]any
-	require.NoError(t, json.Unmarshal(startCSTRec2.Body.Bytes(), &startCSTOut2))
+	require.NoError(t, json.Unmarshal(startCSTRec2.Body.Bytes(), &startCSTOut2, jsonx.V1()))
 	cstRunID := startCSTOut2["ColumnStatisticsTaskRunId"].(string)
 
 	getCSTRunRec := doGlueRequest(t, h, "GetColumnStatisticsTaskRun", map[string]any{
@@ -440,7 +441,7 @@ func TestColumnStatisticsTaskRunSchedule_RequiresExistingSettings(t *testing.T) 
 			} `json:"Schedule"`
 		} `json:"ColumnStatisticsTaskSettings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "SCHEDULED", out.ColumnStatisticsTaskSettings.Schedule.State)
 
 	rec = doGlueRequest(t, h, "StopColumnStatisticsTaskRunSchedule", map[string]any{
@@ -452,7 +453,7 @@ func TestColumnStatisticsTaskRunSchedule_RequiresExistingSettings(t *testing.T) 
 		"DatabaseName": "db", "TableName": "tbl",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "NOT_SCHEDULED", out.ColumnStatisticsTaskSettings.Schedule.State)
 }
 

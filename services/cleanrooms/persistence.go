@@ -2,7 +2,7 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -39,7 +39,7 @@ const cleanroomsSnapshotVersion = 1
 // key on (see backend.go's InMemoryBackend field doc comment). It is
 // persisted directly here.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	TagsByArn map[string]map[string]string `json:"tagsByArn"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`

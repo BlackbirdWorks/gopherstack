@@ -2,7 +2,7 @@ package azurearm
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"math"
 	"net/url"
@@ -15,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -993,7 +995,7 @@ func logicJSON(a []any) (any, error) {
 	}
 
 	var v any
-	if err := json.Unmarshal([]byte(s), &v); err != nil {
+	if err := json.Unmarshal([]byte(s), &v, jsonx.V1()); err != nil {
 		return nil, exprErr("the string is not valid JSON: %v", err)
 	}
 

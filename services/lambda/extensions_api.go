@@ -2,7 +2,8 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -295,7 +297,7 @@ type registerResponse struct {
 func writeExtError(w http.ResponseWriter, status int, typ, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(extensionError{Type: typ, Message: msg})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), extensionError{Type: typ, Message: msg})
 }
 
 // register adds an extension; it returns the response, identifier or an HTTP failure.
@@ -398,7 +400,7 @@ func (r *extensionRegistry) fanoutInvoke(reqID string, deadline time.Time, fnARN
 		body["tracing"] = map[string]string{"type": "X-Amzn-Trace-Id", "value": trace}
 	}
 
-	raw, _ := json.Marshal(body)
+	raw, _ := json.Marshal(body, jsonx.V1())
 	wait := &invokeWait{pending: map[string]struct{}{}, done: make(chan struct{}), deadline: deadline}
 
 	for id, ext := range r.exts {
@@ -554,7 +556,7 @@ func (r *extensionRegistry) shutdown(ctx context.Context, reason string) {
 	deadline := time.Now().Add(r.shutdownTimeout)
 	raw, _ := json.Marshal(map[string]any{
 		jsonKeyEventType: extEventShutdown, "shutdownReason": reason, "deadlineMs": deadline.UnixMilli(),
-	})
+	}, jsonx.V1())
 
 	var taken []chan struct{}
 
@@ -611,7 +613,7 @@ func (s *runtimeServer) handleExtensionRegister(w http.ResponseWriter, r *http.R
 
 	body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExtensionBodyBytes))
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			writeExtError(w, http.StatusBadRequest, "Extension.InvalidRequestBody", "malformed registration body")
 
 			return
@@ -635,7 +637,7 @@ func (s *runtimeServer) handleExtensionRegister(w http.ResponseWriter, r *http.R
 
 	w.Header().Set(headerExtensionID, id)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), resp)
 }
 
 // handleExtensionNext serves GET /2020-01-01/extension/event/next (long poll).

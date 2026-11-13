@@ -1,13 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -25,7 +26,7 @@ func createTestMultiplex(t *testing.T, h *medialive.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["multiplex"].(map[string]any)
 
 	return m["id"].(string)
@@ -55,7 +56,7 @@ func TestMultiplex_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				m := resp["multiplex"].(map[string]any)
 				assert.Contains(t, m["arn"], "arn:aws:medialive:us-east-1:000000000000:multiplex:")
 				assert.Equal(t, "CREATING", m["state"])
@@ -100,7 +101,7 @@ func TestMultiplex_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-multiplex", descResp["name"])
 	assert.Equal(t, "IDLE", descResp["state"])
 
@@ -114,7 +115,7 @@ func TestMultiplex_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	m := updateResp["multiplex"].(map[string]any)
 	assert.Equal(t, "updated-multiplex", m["name"])
 	settings := m["multiplexSettings"].(map[string]any)
@@ -124,7 +125,7 @@ func TestMultiplex_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["multiplexes"], 1)
 
 	// Delete: real AWS's DeleteMultiplex marks the multiplex DELETED rather
@@ -139,7 +140,7 @@ func TestMultiplex_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "DELETED", describeResp["state"])
 }
 
@@ -153,7 +154,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/start", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.Equal(t, "STARTING", startResp["state"])
 
 	// Start again returns conflict
@@ -164,7 +165,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/stop", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.Equal(t, "STOPPING", stopResp["state"])
 
 	// Stop again returns conflict
@@ -239,7 +240,7 @@ func TestMultiplex_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["multiplexes"])
 }
 
@@ -270,7 +271,7 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	prog := createResp["multiplexProgram"].(map[string]any)
 	assert.Equal(t, "prog-1", prog["programName"])
 	settings := prog["multiplexProgramSettings"].(map[string]any)
@@ -290,7 +291,7 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID+"/programs/prog-1", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "prog-1", descResp["programName"])
 
 	// Update
@@ -312,7 +313,7 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	updatedProg := updateResp["multiplexProgram"].(map[string]any)
 	updatedSettings := updatedProg["multiplexProgramSettings"].(map[string]any)
 	assert.Equal(t, 2, int(updatedSettings["programNumber"].(float64)))
@@ -322,7 +323,7 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID+"/programs", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["multiplexPrograms"], 1)
 
 	// Delete
@@ -431,7 +432,7 @@ func TestMultiplexProgram_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["multiplexPrograms"])
 }
 
@@ -450,14 +451,14 @@ func TestMultiplexAlerts(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	mux := created["multiplex"].(map[string]any)
 	muxID := mux["id"].(string)
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+muxID+"/alerts", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var alertsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alertsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alertsResp, jsonx.V1()))
 	assert.NotNil(t, alertsResp["alerts"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/missing/alerts", nil)

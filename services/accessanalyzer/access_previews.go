@@ -1,7 +1,7 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"sort"
 	"time"
@@ -13,7 +13,7 @@ import (
 // required and must contain exactly one element (api_op_CreateAccessPreview.go:39-43).
 func (b *InMemoryBackend) CreateAccessPreview(
 	analyzerArn string,
-	configurations map[string]json.RawMessage,
+	configurations map[string]jsontext.Value,
 ) (*AccessPreview, error) {
 	if len(configurations) != 1 {
 		return nil, ErrValidation

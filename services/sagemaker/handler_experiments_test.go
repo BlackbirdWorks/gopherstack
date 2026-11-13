@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ExperimentLifecycle(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_ExperimentLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["ExperimentArn"])
 
 	// Describe experiment.
@@ -39,7 +41,7 @@ func TestHandler_ExperimentLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["ExperimentSummaries"].([]any), 1)
 
 	// Delete experiment.
@@ -114,7 +116,7 @@ func TestHandler_UpdateExperiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["ExperimentArn"])
 
 	// Describe returns updated fields
@@ -122,7 +124,7 @@ func TestHandler_UpdateExperiment(t *testing.T) {
 		"ExperimentName": "my-exp",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "My Experiment", descResp["DisplayName"])
 	assert.Equal(t, "A test experiment", descResp["Description"])
 }
@@ -152,7 +154,7 @@ func TestHandler_Tags_Experiment(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	expARN := createResp["ExperimentArn"]
 	require.NotEmpty(t, expARN)
 
@@ -162,7 +164,7 @@ func TestHandler_Tags_Experiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "project", tags[0].(map[string]any)["Key"])
@@ -186,7 +188,7 @@ func TestHandler_CreateExperiment_DisplayNameAndDescription(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Friendly Name", descResp["DisplayName"])
 	assert.Equal(t, "An experiment created with a display name", descResp["Description"])
 
@@ -194,7 +196,7 @@ func TestHandler_CreateExperiment_DisplayNameAndDescription(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["ExperimentSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "Friendly Name", summaries[0].(map[string]any)["DisplayName"])

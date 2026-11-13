@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleRegisterRdsDBInstance handles RegisterRdsDbInstance requests.
@@ -15,7 +17,7 @@ func (h *Handler) handleRegisterRdsDBInstance(_ context.Context, body []byte) (a
 		DBPassword       string `json:"DbPassword"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -34,7 +36,7 @@ func (h *Handler) handleDeregisterRdsDBInstance(_ context.Context, body []byte) 
 		RdsDBInstanceArn string `json:"RdsDbInstanceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -53,7 +55,7 @@ func (h *Handler) handleDescribeRdsDBInstances(_ context.Context, body []byte) (
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -74,7 +76,7 @@ func (h *Handler) handleUpdateRdsDBInstance(_ context.Context, body []byte) (any
 		DBPassword       string `json:"DbPassword"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

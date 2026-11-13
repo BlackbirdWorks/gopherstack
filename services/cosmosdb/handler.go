@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
@@ -823,7 +824,7 @@ func (h *Handler) writeJSON(c *echo.Context, status int, v any) error {
 	return c.Blob(status, "application/json", body)
 }
 
-func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
+func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v, jsonx.V1()) }
 
 // cosmosErrorBody is Cosmos DB's JSON error envelope shape:
 // {"code":"NotFound","message":"..."}.
@@ -842,7 +843,7 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 // itself somehow failed to marshal, though it never does in practice since
 // it's built from plain strings).
 func (h *Handler) writeErrorNoRecurse(c *echo.Context, status int, code, message string) error {
-	body, _ := json.Marshal(cosmosErrorBody{Code: code, Message: message})
+	body, _ := json.Marshal(cosmosErrorBody{Code: code, Message: message}, jsonx.V1())
 
 	return c.Blob(status, "application/json", body)
 }

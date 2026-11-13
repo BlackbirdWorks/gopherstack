@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -244,7 +246,7 @@ func TestMQESMPollsRealBrokerOnly(t *testing.T) {
 
 	var ev map[string]any
 
-	require.NoError(t, json.Unmarshal(<-deliveries, &ev))
+	require.NoError(t, json.Unmarshal(<-deliveries, &ev, jsonx.V1()))
 	assert.Equal(t, "aws:rmq", ev["eventSource"])
 	assert.Equal(t, mqTestBrokerARN, ev["eventSourceArn"])
 	assert.Contains(t, ev["rmqMessagesByQueue"], "q::/")

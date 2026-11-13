@@ -1,13 +1,16 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -55,7 +58,7 @@ func configMap(b *Bucket, key string) (map[string]any, bool) {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+	if err := json.Unmarshal(raw, &m, jsonx.V1()); err != nil || m == nil {
 		return nil, false
 	}
 
@@ -86,7 +89,7 @@ func (b *Bucket) policyState() (retentionState, softState) {
 
 func (b *Bucket) setConfig(key string, v any) {
 	if b.Config == nil {
-		b.Config = map[string]json.RawMessage{}
+		b.Config = map[string]jsontext.Value{}
 	}
 
 	b.Config[key] = marshalRaw(v)

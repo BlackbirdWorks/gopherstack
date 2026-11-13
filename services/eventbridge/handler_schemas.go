@@ -2,14 +2,16 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) schemaActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateSchemaInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -20,7 +22,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -32,7 +34,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				SchemaName    string `json:"SchemaName"`
 				SchemaVersion string `json:"SchemaVersion"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -50,7 +52,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				NextToken        string `json:"NextToken"`
 				Limit            int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			schemas, next, err := h.Backend.ListSchemas(
@@ -76,7 +78,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				NextToken    string `json:"NextToken"`
 				Limit        int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			schemas, next, err := h.Backend.SearchSchemas(
@@ -97,7 +99,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 		},
 		opUpdateSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateSchemaInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -115,7 +117,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				NextToken    string `json:"NextToken"`
 				Limit        int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			versions, next, err := h.Backend.ListSchemaVersions(
@@ -140,7 +142,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				SchemaName    string `json:"SchemaName"`
 				SchemaVersion string `json:"SchemaVersion"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -157,7 +159,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				SchemaName    string `json:"SchemaName"`
 				SchemaVersion string `json:"SchemaVersion"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -170,7 +172,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 		},
 		opGetDiscoveredSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input GetDiscoveredSchemaInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			content, err := h.Backend.GetDiscoveredSchema(ctx, input)
@@ -189,7 +191,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 	return map[string]actionFn{
 		opPutCodeBinding: func(ctx context.Context, b []byte) (any, error) {
 			var input PutCodeBindingInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -197,7 +199,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 		},
 		opDescribeCodeBinding: func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeCodeBindingInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -205,7 +207,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 		},
 		"ListCodeBindings": func(ctx context.Context, b []byte) (any, error) {
 			var input ListCodeBindingsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			bindings, next, err := h.Backend.ListCodeBindings(ctx, input)
@@ -225,7 +227,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 				Language      string `json:"Language"`
 				SchemaVersion string `json:"SchemaVersion"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			src, err := h.Backend.GetCodeBindingSource(

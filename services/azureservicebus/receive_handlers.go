@@ -1,7 +1,7 @@
 package azureservicebus
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/textproto"
@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Auto dead-letter reasons real Service Bus stamps on system dead-lettering.
@@ -124,7 +126,7 @@ func (h *Handler) handleReceiveAndDelete(c *echo.Context, req parsedRequest) err
 }
 
 func (h *Handler) writeReceivedMessage(c *echo.Context, info MessageInfo) error {
-	bpJSON, err := json.Marshal(brokerPropertiesFor(info))
+	bpJSON, err := json.Marshal(brokerPropertiesFor(info), jsonx.V1())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", "Failed to marshal BrokerProperties.")
 	}

@@ -1,11 +1,12 @@
 package elasticsearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // outboundConnectionJSON is the JSON representation of an outbound cross-cluster connection.
@@ -37,7 +38,7 @@ func (h *Handler) handleCreateOutboundCrossClusterSearchConnection(w http.Respon
 	}
 
 	var req createOutboundConnectionRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

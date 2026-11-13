@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestJourney_StateMachine(t *testing.T) {
@@ -74,7 +76,7 @@ func TestJourney_StateMachine(t *testing.T) {
 				map[string]any{"Name": "sm-journey"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			journeyID := cr["Id"].(string)
 
 			assert.Equal(t, "DRAFT", cr["State"])
@@ -100,7 +102,7 @@ func TestJourney_StateMachine(t *testing.T) {
 					"/v1/apps/"+appID+"/journeys/"+journeyID, nil)
 				require.Equal(t, http.StatusOK, getRec.Code)
 				var j map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 				assert.Equal(t, tc.wantFinal, j["State"])
 			}
 		})
@@ -126,7 +128,7 @@ func TestJourney_ListByState(t *testing.T) {
 			map[string]any{"Name": name})
 		require.Equal(t, http.StatusCreated, rec.Code)
 		var j map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &j))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &j, jsonx.V1()))
 		journeyIDs[i] = j["Id"].(string)
 	}
 
@@ -147,7 +149,7 @@ func TestJourney_ListByState(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	items, _ := listResp["Item"].([]any)
 	assert.Len(t, items, 3)
 
@@ -321,7 +323,7 @@ func TestJourney_Activities(t *testing.T) {
 				"body: %s", createRec.Body.String())
 
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			journeyID := cr["Id"].(string)
 
 			getRec := doPinpointRequest(t, h, http.MethodGet,
@@ -329,7 +331,7 @@ func TestJourney_Activities(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var j map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 			activities, _ := j["Activities"].(map[string]any)
 			assert.NotNil(t, activities, "Activities must be present")
@@ -369,7 +371,7 @@ func TestJourney_DateRangeKpi(t *testing.T) {
 				map[string]any{"Name": "kpi-journey"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			journeyID := cr["Id"].(string)
 
 			kpiRec := doPinpointRequest(t, h, http.MethodGet,
@@ -377,7 +379,7 @@ func TestJourney_DateRangeKpi(t *testing.T) {
 			require.Equal(t, http.StatusOK, kpiRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(kpiRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(kpiRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, appID, resp["ApplicationId"])
 			assert.Equal(t, journeyID, resp["JourneyId"])
 			assert.Equal(t, tc.kpiName, resp["KpiName"])
@@ -421,7 +423,7 @@ func TestJourney_RunsAfterActivation(t *testing.T) {
 				map[string]any{"Name": "runs-journey"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			journeyID := cr["Id"].(string)
 
 			if tc.activate {
@@ -436,7 +438,7 @@ func TestJourney_RunsAfterActivation(t *testing.T) {
 			require.Equal(t, http.StatusOK, runsRec.Code)
 
 			var runsResp map[string]any
-			require.NoError(t, json.Unmarshal(runsRec.Body.Bytes(), &runsResp))
+			require.NoError(t, json.Unmarshal(runsRec.Body.Bytes(), &runsResp, jsonx.V1()))
 			items, _ := runsResp["Item"].([]any)
 			assert.Len(t, items, tc.wantRuns)
 		})
@@ -486,14 +488,14 @@ func TestJourney_LinkedActivityGraph(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	assert.Equal(t, "act-wait", j["StartActivity"])
 
@@ -541,14 +543,14 @@ func TestJourney_QuietTimeAndOpenHours(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	qt := j["QuietTime"].(map[string]any)
 	assert.Equal(t, "21:00", qt["Start"])
@@ -585,14 +587,14 @@ func TestJourney_LimitsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	got := j["Limits"].(map[string]any)
 	assert.EqualValues(t, 100, got["DailyCap"])
@@ -645,14 +647,14 @@ func TestJourney_RandomSplitAndHoldout(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	acts := j["Activities"].(map[string]any)
 	holdout := acts["act-holdout"].(map[string]any)["HOLDOUT"].(map[string]any)
@@ -681,7 +683,7 @@ func TestJourney_UpdateActivities(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	// Add a second activity by updating the journey
@@ -706,7 +708,7 @@ func TestJourney_UpdateActivities(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	acts := j["Activities"].(map[string]any)
 	assert.Len(t, acts, 2)
@@ -741,14 +743,14 @@ func TestJourney_RefreshOnSegmentUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	assert.Equal(t, true, j["RefreshOnSegmentUpdate"])
 	assert.Equal(t, "PT1H", j["RefreshFrequency"])
@@ -779,14 +781,14 @@ func TestJourney_StartCondition(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	jID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+jID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var j map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &j, jsonx.V1()))
 
 	sc := j["StartCondition"].(map[string]any)
 	assert.Equal(t, "entry from segment", sc["Description"])

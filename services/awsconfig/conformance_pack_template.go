@@ -1,10 +1,13 @@
 package awsconfig
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"sort"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resourceTypeConfigRule is the CloudFormation resource type a conformance
@@ -32,7 +35,7 @@ type conformancePackConfigRuleResourceProperties struct {
 	ConfigRuleName            string            `json:"ConfigRuleName,omitempty"`
 	Description               string            `json:"Description,omitempty"`
 	MaximumExecutionFrequency string            `json:"MaximumExecutionFrequency,omitempty"`
-	InputParameters           json.RawMessage   `json:"InputParameters,omitempty"`
+	InputParameters           jsontext.Value    `json:"InputParameters,omitempty"`
 }
 
 // conformancePackTemplate is the minimal top-level shape parsed out of a
@@ -57,24 +60,24 @@ func parseConformancePackConfigRules(
 	jsonBody := []byte(templateBody)
 
 	var doc map[string]any
-	if err := json.Unmarshal(jsonBody, &doc); err != nil {
+	if err := json.Unmarshal(jsonBody, &doc, jsonx.V1()); err != nil {
 		converted, yamlErr := yamlToJSON(jsonBody)
 		if yamlErr != nil {
 			return nil
 		}
 
-		if jsonErr := json.Unmarshal(converted, &doc); jsonErr != nil {
+		if jsonErr := json.Unmarshal(converted, &doc, jsonx.V1()); jsonErr != nil {
 			return nil
 		}
 	}
 
-	resolved, err := json.Marshal(resolveTemplateRefs(doc, templateParamValues(doc, params)))
+	resolved, err := json.Marshal(resolveTemplateRefs(doc, templateParamValues(doc, params)), jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var tmpl conformancePackTemplate
-	if err = json.Unmarshal(resolved, &tmpl); err != nil {
+	if err = json.Unmarshal(resolved, &tmpl, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -193,7 +196,7 @@ func yamlToJSON(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(v)
+	return json.Marshal(v, jsonx.V1())
 }
 
 // rewriteRefTags turns the YAML short form "!Ref Name" into the long form

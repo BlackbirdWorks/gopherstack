@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createAPIDestinationOutput struct {
@@ -19,7 +21,7 @@ func (h *Handler) apiDestinationActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateAPIDestinationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			dst, err := h.Backend.CreateAPIDestination(ctx, input)
@@ -38,7 +40,7 @@ func (h *Handler) apiDestinationActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DeleteAPIDestination(ctx, input.Name); err != nil {
@@ -120,7 +122,7 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -138,7 +140,7 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				NextToken     string `json:"NextToken"`
 				Limit         int    `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			dsts, next, err := h.Backend.ListAPIDestinations(
@@ -160,7 +162,7 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 		},
 		"UpdateApiDestination": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateAPIDestinationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			dst, err := h.Backend.UpdateAPIDestination(ctx, input)

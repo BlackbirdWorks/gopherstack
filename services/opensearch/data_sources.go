@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -14,7 +14,7 @@ const dataSourceStatusActive = "ACTIVE"
 // AddDataSource adds a data source to a domain.
 func (b *InMemoryBackend) AddDataSource(
 	domainName, name, description string,
-	dataSourceType json.RawMessage,
+	dataSourceType jsontext.Value,
 ) (string, error) {
 	if domainName == "" {
 		return "", fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) AddDataSource(
 // AddDirectQueryDataSource adds a direct-query data source.
 func (b *InMemoryBackend) AddDirectQueryDataSource(
 	name, description string,
-	dataSourceType json.RawMessage,
+	dataSourceType jsontext.Value,
 	openSearchArns []string,
 	dataSourceAccessPolicy ...string,
 ) (string, error) {
@@ -132,7 +132,7 @@ func (b *InMemoryBackend) ListDataSources(domainName string) ([]*DataSource, err
 // Status are optional and left unchanged when omitted.
 func (b *InMemoryBackend) UpdateDataSource(
 	domainName, name, description string,
-	dataSourceType json.RawMessage,
+	dataSourceType jsontext.Value,
 	status string,
 ) error {
 	b.mu.Lock("UpdateDataSource")
@@ -209,7 +209,7 @@ func (b *InMemoryBackend) GetDirectQueryDataSource(name string) (*DirectQueryDat
 // and OpenSearchArns on every update call.
 func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 	name, description string,
-	dataSourceType json.RawMessage,
+	dataSourceType jsontext.Value,
 	openSearchArns []string,
 	dataSourceAccessPolicy string,
 ) (*DirectQueryDataSource, error) {

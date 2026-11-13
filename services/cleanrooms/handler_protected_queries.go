@@ -2,9 +2,11 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
@@ -16,7 +18,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 		MembershipIdentifier string         `json:"membershipIdentifier"`
 		PayerAccountID       string         `json:"queryComputePayerAccountId"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := validateProtectedType(req.Type); err != nil {
 		return nil, err
@@ -41,7 +43,7 @@ func (h *Handler) handleGetProtectedQuery(_ context.Context, body []byte) ([]byt
 		MembershipIdentifier     string `json:"membershipIdentifier"`
 		ProtectedQueryIdentifier string `json:"protectedQueryIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	q, err := h.Backend.GetProtectedQuery(req.MembershipIdentifier, req.ProtectedQueryIdentifier)
 	if err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (h *Handler) handleListProtectedQueries(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListProtectedQueries(
 		req.MembershipIdentifier,
 		qp(c, "status"),
@@ -82,7 +84,7 @@ func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]
 		ProtectedQueryIdentifier string `json:"protectedQueryIdentifier"`
 		TargetStatus             string `json:"targetStatus"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := validateTargetStatus(req.TargetStatus); err != nil {
 		return nil, err

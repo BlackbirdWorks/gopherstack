@@ -1,13 +1,16 @@
 package codebuild
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -291,7 +294,7 @@ type cucumberFeature struct {
 
 func parseCucumber(data []byte, source string) ([]TestCase, error) {
 	var features []cucumberFeature
-	if err := json.Unmarshal(data, &features); err != nil {
+	if err := json.Unmarshal(data, &features, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("parse cucumber %s: %w", source, err)
 	}
 
@@ -513,9 +516,9 @@ type simpleCovFile struct {
 
 func parseSimpleCov(data []byte, source string) ([]CodeCoverage, error) {
 	var doc map[string]struct {
-		Coverage map[string]json.RawMessage `json:"coverage"`
+		Coverage map[string]jsontext.Value `json:"coverage"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("parse simplecov %s: %w", source, err)
 	}
 
@@ -536,13 +539,13 @@ func parseSimpleCov(data []byte, source string) ([]CodeCoverage, error) {
 }
 
 // decodeSimpleCovFile accepts both the bare line array and the {lines, branches} object.
-func decodeSimpleCovFile(raw json.RawMessage) (simpleCovFile, error) {
+func decodeSimpleCovFile(raw jsontext.Value) (simpleCovFile, error) {
 	var f simpleCovFile
-	if err := json.Unmarshal(raw, &f.Lines); err == nil {
+	if err := json.Unmarshal(raw, &f.Lines, jsonx.V1()); err == nil {
 		return f, nil
 	}
 
-	err := json.Unmarshal(raw, &f)
+	err := json.Unmarshal(raw, &f, jsonx.V1())
 
 	return f, err
 }

@@ -1,7 +1,8 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -20,10 +22,10 @@ func computedBackend(t *testing.T, indexing string, props string) *cosmosdb.InMe
 	require.NoError(t, err)
 
 	spec := cosmosdb.ContainerSpec{
-		ID: "c", PartitionKeyPath: "/pk", ComputedProperties: json.RawMessage(props),
+		ID: "c", PartitionKeyPath: "/pk", ComputedProperties: jsontext.Value(props),
 	}
 	if indexing != "" {
-		spec.IndexingPolicy = json.RawMessage(indexing)
+		spec.IndexingPolicy = jsontext.Value(indexing)
 	}
 
 	_, err = b.CreateContainer("d", spec)
@@ -77,7 +79,7 @@ func TestComputedProperties_IndexSelection(t *testing.T) {
 			name:     "group by a computed property",
 			indexing: defaultPolicy,
 			query:    `SELECT VALUE COUNT(1) FROM c GROUP BY c.cp_lower`,
-			want:     []any{json.Number("1"), json.Number("1"), json.Number("1")},
+			want:     []any{jsonx.Number("1"), jsonx.Number("1"), jsonx.Number("1")},
 		},
 		{
 			name: "select star leaves computed properties out", indexing: defaultPolicy,
@@ -207,7 +209,7 @@ func TestComputedProperties_DefinitionRules(t *testing.T) {
 			props = append(props, map[string]string{"name": fmt.Sprintf("p%d", i), "query": "SELECT VALUE 1 FROM c"})
 		}
 
-		raw, err := json.Marshal(props)
+		raw, err := json.Marshal(props, jsonx.V1())
 		require.NoError(t, err)
 
 		s := newLiveServer(t)

@@ -2,7 +2,8 @@ package resourcegroupstaggingapi_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
@@ -668,7 +670,7 @@ func TestGetResources_TagsPerPage_SplitsPages(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out resourcegroupstaggingapi.GetResourcesOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	require.NotNil(t, out.PaginationToken, "TagsPerPage must force an early page break")
 	assert.LessOrEqual(t, len(out.ResourceTagMappingList), 2,
@@ -699,7 +701,7 @@ func TestGetResources_TagsPerPage_OversizedFirstResourceStillReturnedAlone(t *te
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out resourcegroupstaggingapi.GetResourcesOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	// GetResources never splits a single resource and its tags across pages, so the
 	// oversized resource is still returned alone rather than yielding zero results.
@@ -729,7 +731,7 @@ func TestGetResources_NoTagsPerPage_Unconstrained(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out resourcegroupstaggingapi.GetResourcesOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	assert.Len(t, out.ResourceTagMappingList, 5, "without TagsPerPage all resources fit on one page")
 	assert.Nil(t, out.PaginationToken)
@@ -768,7 +770,7 @@ func TestGetResources_ResourceARNList_FiltersToSpecificARNs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["ResourceTagMappingList"].([]any)
 	require.True(t, ok)
@@ -809,7 +811,7 @@ func TestGetResources_ResourceARNList_EmptyReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["ResourceTagMappingList"].([]any)
 	require.True(t, ok)
@@ -1097,7 +1099,7 @@ func TestComplianceDetailsFieldName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["ResourceTagMappingList"].([]any)
 	require.True(t, ok)
@@ -1140,7 +1142,7 @@ func TestHandler_GetResources_IncludeComplianceDetails(t *testing.T) {
 		} `json:"ResourceTagMappingList"`
 	}
 
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &body, jsonx.V1()))
 	require.Len(t, body.ResourceTagMappingList, 1)
 	require.NotNil(t, body.ResourceTagMappingList[0].ComplianceDetails)
 	assert.True(t, body.ResourceTagMappingList[0].ComplianceDetails.ComplianceStatus)

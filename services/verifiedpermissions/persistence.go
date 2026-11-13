@@ -2,7 +2,7 @@ package verifiedpermissions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -57,7 +57,7 @@ func buildSchemaDTORegistry() (*store.Registry, *store.Table[policyStoreSchemaDT
 // InMemoryBackend's doc comment in backend.go) and is persisted here
 // directly, as before.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage   `json:"tables"`
+	Tables       map[string]jsontext.Value    `json:"tables"`
 	ResourceTags map[string]map[string]string `json:"resourceTags,omitempty"`
 	AccountID    string                       `json:"accountID"`
 	Region       string                       `json:"region"`
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // registerAllTables doc) from tables via the ephemeral DTO registry, factored
 // out of Restore to keep Restore's own cognitive complexity low. Callers must
 // hold b.mu.Lock.
-func (b *InMemoryBackend) restoreSchemas(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreSchemas(tables map[string]jsontext.Value) error {
 	dtoReg, dtoTable := buildSchemaDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("verifiedpermissions: restore snapshot schema DTO table: %w", err)

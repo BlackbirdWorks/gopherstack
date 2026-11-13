@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -47,7 +49,7 @@ func TestPutIntegration_DefaultTimeout(t *testing.T) {
 			require.True(t, createRec.Code >= 200 && createRec.Code < 300)
 
 			var apiResp map[string]any
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&apiResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &apiResp, jsonx.V1()))
 			apiID := apiResp["id"].(string)
 			require.NotEmpty(t, apiID)
 
@@ -55,7 +57,7 @@ func TestPutIntegration_DefaultTimeout(t *testing.T) {
 			require.True(t, resRec.Code >= 200 && resRec.Code < 300)
 
 			var resResp map[string]any
-			require.NoError(t, json.NewDecoder(resRec.Body).Decode(&resResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resRec.Body), &resResp, jsonx.V1()))
 			items := resResp["item"].([]any)
 			rootID := items[0].(map[string]any)["id"].(string)
 
@@ -70,7 +72,7 @@ func TestPutIntegration_DefaultTimeout(t *testing.T) {
 			require.True(t, intRec.Code >= 200 && intRec.Code < 300)
 
 			var intResp map[string]any
-			require.NoError(t, json.NewDecoder(intRec.Body).Decode(&intResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(intRec.Body), &intResp, jsonx.V1()))
 
 			got, ok := intResp["timeoutInMillis"].(float64)
 			require.True(t, ok, "timeoutInMillis must be present in PutIntegration response")
@@ -318,14 +320,14 @@ func TestHandlerIntegration_ConnectionType_RoundTrip(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &apiResp, jsonx.V1()))
 	apiID := apiResp["id"].(string)
 
 	rec = restRequest(t, h, http.MethodGet, "/restapis/"+apiID+"/resources", "")
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var resResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resResp, jsonx.V1()))
 	items := resResp["item"].([]any)
 	rootID := items[0].(map[string]any)["id"].(string)
 
@@ -340,7 +342,7 @@ func TestHandlerIntegration_ConnectionType_RoundTrip(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var integResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&integResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &integResp, jsonx.V1()))
 	assert.Equal(t, "INTERNET", integResp["connectionType"])
 }
 

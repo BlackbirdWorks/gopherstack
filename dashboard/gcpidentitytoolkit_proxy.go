@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -147,7 +149,7 @@ func (p *gcpIDPRequest) call(method, path, rawQuery string, body any) (*httptest
 	var payload []byte
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		if err != nil {
 			return nil, err //nolint:wrapcheck // surfaced as a 400 by the caller
 		}
@@ -262,7 +264,7 @@ func (p *gcpIDPRequest) userAction(uid, action string) error {
 			return ociInvalid(p.c, "claims must be a JSON object")
 		}
 
-		raw, err := json.Marshal(in.Claims)
+		raw, err := json.Marshal(in.Claims, jsonx.V1())
 		if err != nil || len(raw) > gcpIDPMaxClaims {
 			return ociInvalid(p.c, "claims must be a JSON object under 1000 bytes")
 		}

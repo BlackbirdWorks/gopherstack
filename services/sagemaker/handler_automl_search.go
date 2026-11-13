@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // automlSearchExtOpsSupported returns the real stateful operations
@@ -66,7 +68,7 @@ type listCandidatesForAutoMLJobInput struct {
 func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req listCandidatesForAutoMLJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -88,7 +90,7 @@ func (h *Handler) handleListCandidatesForAutoMLJob(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Candidates": candidates, keyNextToken: next})
+	return json.Marshal(map[string]any{"Candidates": candidates, keyNextToken: next}, jsonx.V1())
 }
 
 // searchInput mirrors SearchInput (api_op_Search.go:27-63). VisibilityConditions
@@ -108,7 +110,7 @@ type searchInput struct {
 func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error) {
 	var req searchInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -133,7 +135,7 @@ func (h *Handler) handleSearch(ctx context.Context, body []byte) ([]byte, error)
 		"Results":    results,
 		"TotalHits":  map[string]any{"Value": total, "Relation": "EqualTo"},
 		keyNextToken: next,
-	})
+	}, jsonx.V1())
 }
 
 // listModelMetadataInput mirrors ListModelMetadataInput
@@ -149,7 +151,7 @@ type listModelMetadataInput struct {
 func (h *Handler) handleListModelMetadata(body []byte) ([]byte, error) {
 	var req listModelMetadataInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -166,7 +168,7 @@ func (h *Handler) handleListModelMetadata(body []byte) ([]byte, error) {
 		})
 	}
 
-	return json.Marshal(map[string]any{"ModelMetadataSummaries": summaries, keyNextToken: next})
+	return json.Marshal(map[string]any{"ModelMetadataSummaries": summaries, keyNextToken: next}, jsonx.V1())
 }
 
 // getSearchSuggestionsInput mirrors GetSearchSuggestionsInput
@@ -183,7 +185,7 @@ type getSearchSuggestionsInput struct {
 func (h *Handler) handleGetSearchSuggestions(_ context.Context, body []byte) ([]byte, error) {
 	var req getSearchSuggestionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +203,7 @@ func (h *Handler) handleGetSearchSuggestions(_ context.Context, body []byte) ([]
 		suggestions = append(suggestions, map[string]string{"PropertyName": n})
 	}
 
-	return json.Marshal(map[string]any{"PropertyNameSuggestions": suggestions})
+	return json.Marshal(map[string]any{"PropertyNameSuggestions": suggestions}, jsonx.V1())
 }
 
 // getScalingConfigurationRecommendationInput mirrors
@@ -220,7 +222,7 @@ type getScalingConfigurationRecommendationInput struct {
 func (h *Handler) handleGetScalingConfigurationRecommendation(ctx context.Context, body []byte) ([]byte, error) {
 	var req getScalingConfigurationRecommendationInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -256,5 +258,5 @@ func (h *Handler) handleGetScalingConfigurationRecommendation(ctx context.Contex
 		resp["ScalingPolicyObjective"] = req.ScalingPolicyObjective
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

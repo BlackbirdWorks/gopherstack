@@ -3,7 +3,7 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"strings"
 	"testing"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
@@ -241,7 +242,7 @@ func TestTimestreamQuery_FullStack_ScheduleNotifyAndErrorReport(t *testing.T) {
 		} `json:"errors"`
 	}
 
-	require.NoError(t, json.Unmarshal(report, &parsed))
+	require.NoError(t, json.Unmarshal(report, &parsed, jsonx.V1()))
 	require.Len(t, parsed.Errors, 1)
 	assert.Contains(t, parsed.Errors[0].Reason, "retention")
 
@@ -257,13 +258,13 @@ func TestTimestreamQuery_FullStack_ScheduleNotifyAndErrorReport(t *testing.T) {
 			Message string `json:"Message"`
 		}
 
-		require.NoError(t, json.Unmarshal([]byte(aws.ToString(m.Body)), &env))
+		require.NoError(t, json.Unmarshal([]byte(aws.ToString(m.Body)), &env, jsonx.V1()))
 
 		var inner struct {
 			Type string `json:"type"`
 		}
 
-		require.NoError(t, json.Unmarshal([]byte(env.Message), &inner))
+		require.NoError(t, json.Unmarshal([]byte(env.Message), &inner, jsonx.V1()))
 		got = append(got, inner.Type)
 	}
 
@@ -316,7 +317,7 @@ func TestTimestreamQuery_FullStack_UnloadToS3(t *testing.T) {
 		} `json:"result_files"`
 	}
 
-	require.NoError(t, json.Unmarshal(manifest, &man))
+	require.NoError(t, json.Unmarshal(manifest, &man, jsonx.V1()))
 	require.Len(t, man.ResultFiles, 1)
 
 	zr, err := gzip.NewReader(bytes.NewReader(st.object(t, man.ResultFiles[0].URL)))
@@ -329,7 +330,7 @@ func TestTimestreamQuery_FullStack_UnloadToS3(t *testing.T) {
 	cells = run(`format = 'PARQUET', partitioned_by = ARRAY['host']`)
 	assert.Equal(t, "3", cells[0])
 
-	require.NoError(t, json.Unmarshal(st.object(t, cells[2]), &man))
+	require.NoError(t, json.Unmarshal(st.object(t, cells[2]), &man, jsonx.V1()))
 	require.Len(t, man.ResultFiles, 2)
 
 	var total float64

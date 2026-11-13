@@ -1,9 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -39,7 +40,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 
 func (h *Handler) createRestAPIAction(b []byte) (int, any, error) {
 	var input createRestAPIInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if input.Tags != nil {
@@ -61,7 +62,7 @@ func (h *Handler) createRestAPIAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteRestAPIAction(b []byte) (int, any, error) {
 	var input deleteRestAPIInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	// Deployment IDs are freshly random and never reused, so the trie cache
@@ -85,7 +86,7 @@ func (h *Handler) deleteRestAPIAction(b []byte) (int, any, error) {
 
 func (h *Handler) getRestAPIAction(b []byte) (int, any, error) {
 	var input getRestAPIInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	api, err := h.Backend.GetRestAPI(input.RestAPIID)
@@ -98,7 +99,7 @@ func (h *Handler) getRestAPIAction(b []byte) (int, any, error) {
 
 func (h *Handler) getRestAPIsAction(b []byte) (int, any, error) {
 	var input getRestApisInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	apis, position, err := h.Backend.GetRestAPIs(input.Limit, input.Position)
@@ -116,7 +117,7 @@ func (h *Handler) getRestAPIsAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateRestAPIAction(b []byte) (int, any, error) {
 	var input updateRestAPIHandlerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	api, err := h.Backend.UpdateRestAPI(input.RestAPIID, input.UpdateRestAPIInput)

@@ -1,8 +1,10 @@
 package codecommit
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createApprovalRuleTemplateInput struct {
@@ -48,7 +50,7 @@ func approvalRuleTemplateToMap(t *ApprovalRuleTemplate) map[string]any {
 
 func (h *Handler) handleCreateApprovalRuleTemplate(body []byte) (any, error) {
 	var in createApprovalRuleTemplateInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -76,7 +78,7 @@ func (h *Handler) handleCreateApprovalRuleTemplate(body []byte) (any, error) {
 
 func (h *Handler) handleAssociateApprovalRuleTemplateWithRepository(body []byte) (any, error) {
 	var in associateApprovalRuleTemplateWithRepositoryInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -100,7 +102,7 @@ func (h *Handler) handleAssociateApprovalRuleTemplateWithRepository(body []byte)
 
 func (h *Handler) handleBatchAssociateApprovalRuleTemplateWithRepositories(body []byte) (any, error) {
 	var in batchAssociateApprovalRuleTemplateInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -129,7 +131,7 @@ func (h *Handler) handleBatchAssociateApprovalRuleTemplateWithRepositories(body 
 
 func (h *Handler) handleBatchDisassociateApprovalRuleTemplateFromRepositories(body []byte) (any, error) {
 	var in batchDisassociateApprovalRuleTemplateInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -160,7 +162,7 @@ func (h *Handler) handleDeleteApprovalRuleTemplate(body []byte) (any, error) {
 	var req struct {
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" {
@@ -184,7 +186,7 @@ func (h *Handler) handleGetApprovalRuleTemplate(body []byte) (any, error) {
 	var req struct {
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" {
@@ -209,7 +211,7 @@ type listPageRequest struct {
 func (h *Handler) handleListApprovalRuleTemplates(body []byte) (any, error) {
 	var req listPageRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -242,7 +244,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateContent(body []byte) (any, err
 		NewRuleContent           string `json:"newRuleContent"`
 		ExistingRuleContentSha   string `json:"existingRuleContentSha256"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" {
@@ -271,7 +273,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateDescription(body []byte) (any,
 		ApprovalRuleTemplateName        string `json:"approvalRuleTemplateName"`
 		ApprovalRuleTemplateDescription string `json:"approvalRuleTemplateDescription"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" {
@@ -299,7 +301,7 @@ func (h *Handler) handleUpdateApprovalRuleTemplateName(body []byte) (any, error)
 		OldApprovalRuleTemplateName string `json:"oldApprovalRuleTemplateName"`
 		NewApprovalRuleTemplateName string `json:"newApprovalRuleTemplateName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.OldApprovalRuleTemplateName == "" || req.NewApprovalRuleTemplateName == "" {
@@ -329,7 +331,7 @@ func (h *Handler) handleListAssociatedApprovalRuleTemplatesForRepository(body []
 		RepositoryName string `json:"repositoryName"`
 		listPageRequest
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -354,7 +356,7 @@ func (h *Handler) handleListRepositoriesForApprovalRuleTemplate(body []byte) (an
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
 		listPageRequest
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" {
@@ -384,7 +386,7 @@ func (h *Handler) handleDisassociateApprovalRuleTemplateFromRepository(body []by
 		ApprovalRuleTemplateName string `json:"approvalRuleTemplateName"`
 		RepositoryName           string `json:"repositoryName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.ApprovalRuleTemplateName == "" || req.RepositoryName == "" {

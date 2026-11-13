@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	idbackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
@@ -172,7 +173,7 @@ func (h *DashboardHandler) ociFSPrivateIP(c *echo.Context) error {
 		inner.ServeHTTP(rec, fwd)
 
 		var ip map[string]any
-		if rec.Code == http.StatusOK && json.Unmarshal(rec.Body.Bytes(), &ip) == nil {
+		if rec.Code == http.StatusOK && json.Unmarshal(rec.Body.Bytes(), &ip, jsonx.V1()) == nil {
 			out = map[string]any{
 				"ipAddress": ip["ipAddress"], "hostnameLabel": ip["hostnameLabel"], ociFSKeySubnet: ip[ociFSKeySubnet],
 			}

@@ -1,13 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -422,7 +423,7 @@ func TestConfigurationPolicy(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, substitutePolicyID(s.body, policyID))
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				if id := s.check(t, rec.Code, resp); id != "" {
 					policyID = id
 				}
@@ -478,7 +479,7 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			policyID, _ := createResp["Id"].(string)
 			require.NotEmpty(t, policyID)
 
@@ -495,7 +496,7 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 			require.Equal(t, http.StatusOK, assocRec.Code)
 
 			var assocResp map[string]any
-			require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+			require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 			assert.Equal(
 				t,
 				tc.wantTargetType,
@@ -517,7 +518,7 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tc.wantTargetType, getResp["TargetType"])
 		})
 	}
@@ -541,7 +542,7 @@ func TestCreateConfigurationPolicy_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	policyArn, _ := resp["Arn"].(string)
 	require.NotEmpty(t, policyArn)
 
@@ -549,7 +550,7 @@ func TestCreateConfigurationPolicy_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, _ := tagResp["Tags"].(map[string]any)
 	assert.Equal(t, "sec", tags["team"])
 }

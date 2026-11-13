@@ -1,11 +1,12 @@
 package awstime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEpoch(t *testing.T) {
@@ -61,7 +62,7 @@ func TestEpochTimeJSON(t *testing.T) {
 
 	in := doc{At: awstime.NewEpochTime(time.Unix(1_700_000_000, 500_000_000).UTC())}
 
-	raw, err := json.Marshal(in)
+	raw, err := json.Marshal(in, jsonx.V1())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestEpochTimeJSON(t *testing.T) {
 	}
 
 	var out doc
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,7 +80,7 @@ func TestEpochTimeJSON(t *testing.T) {
 		t.Fatalf("round trip lost data: %+v", out)
 	}
 
-	if err = json.Unmarshal([]byte(`{"at":"2026-01-01"}`), &out); err == nil {
+	if err = json.Unmarshal([]byte(`{"at":"2026-01-01"}`), &out, jsonx.V1()); err == nil {
 		t.Fatal("string timestamp must be rejected")
 	}
 }

@@ -2,7 +2,7 @@ package shield_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -78,7 +79,7 @@ func TestHandler_CreateProtection(t *testing.T) {
 
 			if tt.wantID {
 				var result map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				assert.NotEmpty(t, result["ProtectionId"])
 			}
 		})
@@ -156,7 +157,7 @@ func TestHandler_DescribeProtection(t *testing.T) {
 
 			if tt.wantName != "" {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				prot, ok := result["Protection"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, prot["Name"])
@@ -256,7 +257,7 @@ func TestHandler_ListProtections(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 			protections, ok := result["Protections"].([]any)
 			require.True(t, ok)
@@ -285,7 +286,7 @@ func TestHandler_ListProtectionsOpaquePageToken(t *testing.T) {
 		NextToken string `json:"NextToken"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.NextToken)
 
 	offset := opaqueOffset(t, out.NextToken)
@@ -319,7 +320,7 @@ func TestHandler_ApplyProtectionFiltersNoBacking(t *testing.T) {
 		Protections []map[string]any `json:"Protections"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtered))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &filtered, jsonx.V1()))
 	assert.Len(t, filtered.Protections, 1)
 
 	// Unfiltered list must still return all three.
@@ -330,7 +331,7 @@ func TestHandler_ApplyProtectionFiltersNoBacking(t *testing.T) {
 		Protections []map[string]any `json:"Protections"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &all))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &all, jsonx.V1()))
 	assert.Len(t, all.Protections, 3)
 }
 
@@ -351,7 +352,7 @@ func TestHandler_ProtectionResponseIncludesALAR(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prot := resp["Protection"].(map[string]any)
 	alarRaw, ok := prot["ApplicationLayerAutomaticResponseConfiguration"]
@@ -378,7 +379,7 @@ func TestHandler_ProtectionWithoutALARHasNoConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prot := resp["Protection"].(map[string]any)
 	_, hasALAR := prot["ApplicationLayerAutomaticResponseConfiguration"]
@@ -410,7 +411,7 @@ func TestHandler_ListProtectionsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prots := resp["Protections"].([]any)
 	assert.Len(t, prots, 2)
@@ -445,7 +446,7 @@ func TestHandler_ListProtectionsDefaultMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prots := resp["Protections"].([]any)
 	assert.Len(t, prots, 20, "omitted MaxResults must default to 20 per the documented default")
@@ -475,7 +476,7 @@ func TestHandler_ListProtectionsNextPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	token := resp1["NextToken"].(string)
 
 	// Second page.
@@ -486,7 +487,7 @@ func TestHandler_ListProtectionsNextPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	prots2 := resp2["Protections"].([]any)
 	assert.Len(t, prots2, 2)
@@ -516,7 +517,7 @@ func TestHandler_ListProtectionsInclusionFilterByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prots := resp["Protections"].([]any)
 	assert.Len(t, prots, 2)
@@ -542,7 +543,7 @@ func TestHandler_ListProtectionsInclusionFilterByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prots := resp["Protections"].([]any)
 	assert.Len(t, prots, 1)
@@ -643,7 +644,7 @@ func TestHandler_ALARInListProtections(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	prots := resp["Protections"].([]any)
 	require.Len(t, prots, 1)

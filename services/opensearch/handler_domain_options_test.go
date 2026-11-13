@@ -1,13 +1,16 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAudit1_CreateDomain_FullClusterConfig verifies all ClusterConfig fields round-trip through
@@ -101,7 +104,7 @@ func TestCreateDomain_FullClusterConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			cc, ok := status["ClusterConfig"].(map[string]any)
@@ -130,7 +133,7 @@ func TestCreateDomain_SoftwareUpdateOptions(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	status, ok := out["DomainStatus"].(map[string]any)
 	require.True(t, ok)
 	swu, ok := status["SoftwareUpdateOptions"].(map[string]any)
@@ -203,7 +206,7 @@ func TestCreateDomain_EBSOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			ebs, ok := status["EBSOptions"].(map[string]any)
@@ -274,7 +277,7 @@ func TestCreateDomain_EncryptionOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 
@@ -344,7 +347,7 @@ func TestCreateDomain_DomainEndpointOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			deo, ok := status["DomainEndpointOptions"].(map[string]any)
@@ -439,7 +442,7 @@ func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			aso, ok := status["AdvancedSecurityOptions"].(map[string]any)
@@ -498,7 +501,7 @@ func TestCreateDomain_VPCOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			vpc, ok := status["VPCOptions"].(map[string]any)
@@ -559,7 +562,7 @@ func TestCreateDomain_CognitoOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			cognito, ok := status["CognitoOptions"].(map[string]any)
@@ -637,7 +640,7 @@ func TestCreateDomain_LogPublishingOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			logs, ok := status["LogPublishingOptions"].(map[string]any)
@@ -678,7 +681,7 @@ func TestCreateDomain_SnapshotOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			snapOpts, ok := status["SnapshotOptions"].(map[string]any)
@@ -735,7 +738,7 @@ func TestCreateDomain_AccessPolicies(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			status, ok := out["DomainStatus"].(map[string]any)
 			require.True(t, ok)
 			gotPolicies, _ := status["AccessPolicies"].(string)

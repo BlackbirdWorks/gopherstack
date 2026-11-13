@@ -2,7 +2,7 @@ package rdsdata_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )
 
@@ -93,7 +94,7 @@ func TestHandler_ExecuteStatement_WithTransaction(t *testing.T) {
 	require.Equal(t, http.StatusOK, beginRec.Code)
 
 	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 	txID := beginResp["transactionId"].(string)
 
 	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
@@ -150,7 +151,7 @@ func TestHandler_ExecuteStatement_Response(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasRecords := resp["records"]
 	assert.True(t, hasRecords, "records key must be present")
@@ -202,7 +203,7 @@ func TestHandler_ExecuteStatement_IncludeResultMetadata(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			_, hasCols := resp["columnMetadata"]
 			assert.Equal(t, tt.wantColumnMetadata, hasCols,
@@ -246,7 +247,7 @@ func TestHandler_ExecuteStatement_ResponseShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			for _, field := range tt.fields {
 				_, ok := resp[field]
@@ -274,7 +275,7 @@ func TestHandler_ExecuteStatement_FormatRecordsAsJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasRecords := resp["records"]
 	assert.False(t, hasRecords, "records must be omitted when formatRecordsAs=JSON")
@@ -285,7 +286,7 @@ func TestHandler_ExecuteStatement_FormatRecordsAsJSON(t *testing.T) {
 	require.True(t, ok, "formattedRecords must be a JSON string")
 
 	var rows []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(formatted), &rows))
+	require.NoError(t, json.Unmarshal([]byte(formatted), &rows, jsonx.V1()))
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0], 1, "row must have exactly one column")
 
@@ -311,7 +312,7 @@ func TestHandler_ExecuteStatement_FormatRecordsAsIgnoredForDML(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasFormatted := resp["formattedRecords"]
 	assert.False(t, hasFormatted, "formattedRecords must not appear for a DML statement")
@@ -336,7 +337,7 @@ func TestHandler_ExecuteStatement_FormatRecordsAsInvalid(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BadRequestException", resp["__type"])
 }
 
@@ -357,7 +358,7 @@ func TestHandler_ExecuteStatement_ColumnMetadataFullShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cols, ok := resp["columnMetadata"].([]any)
 	require.True(t, ok)
@@ -421,7 +422,7 @@ func TestHandler_ExecuteStatement_ArrayParameterRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BadRequestException", resp["__type"])
 }
 
@@ -472,7 +473,7 @@ func TestHandler_ExecuteStatement_ResultSetOptions_LongReturnType(t *testing.T) 
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			records := resp["records"].([]any)
 			require.Len(t, records, 1)
@@ -531,7 +532,7 @@ func TestHandler_ExecuteStatement_ResultSetOptions_DecimalReturnType(t *testing.
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			records := resp["records"].([]any)
 			require.Len(t, records, 1)
@@ -570,7 +571,7 @@ func TestHandler_ExecuteStatement_ResultSetOptions_InvalidEnum(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "BadRequestException", resp["__type"])
 		})
 	}
@@ -675,7 +676,7 @@ func TestHandler_BatchExecuteStatement_EmptyParamSets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["updateResults"]
 	require.True(t, ok, "updateResults key must exist")
@@ -703,7 +704,7 @@ func TestHandler_BatchExecuteStatement_ArrayParameterRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BadRequestException", resp["__type"])
 }
 
@@ -746,7 +747,7 @@ func TestHandler_BatchExecuteStatement_MultipleParamSets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results := resp["updateResults"].([]any)
 	assert.Len(t, results, 3)
 }
@@ -795,7 +796,7 @@ func TestHandler_BatchExecuteStatement_OneResultPerParamSet(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			results, ok := resp["updateResults"].([]any)
 			require.True(t, ok, "updateResults must be an array")

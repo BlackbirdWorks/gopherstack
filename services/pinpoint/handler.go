@@ -2,7 +2,7 @@ package pinpoint
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -682,7 +683,7 @@ func unmarshalBody(c *echo.Context, dst any) bool {
 		return false
 	}
 
-	if jsonErr := json.Unmarshal(body, dst); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, dst, jsonx.V1()); jsonErr != nil {
 		_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 
 		return false

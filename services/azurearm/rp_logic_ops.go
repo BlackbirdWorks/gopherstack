@@ -1,10 +1,12 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type logicRef3 struct {
@@ -166,7 +168,7 @@ func (p *LogicProvider) triggerSchema(r logicRef3, trigger string) (any, error) 
 			schema = map[string]any{}
 		}
 
-		raw, err := json.Marshal(schema)
+		raw, err := json.Marshal(schema, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

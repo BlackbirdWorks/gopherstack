@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"github.com/stretchr/testify/assert"
@@ -160,7 +161,7 @@ func npmPublishBody(t *testing.T, name, version, tag string, tarball []byte) []b
 		}},
 	}
 
-	raw, err := json.Marshal(doc)
+	raw, err := json.Marshal(doc, jsonx.V1())
 	require.NoError(t, err)
 
 	return raw
@@ -392,7 +393,7 @@ func TestNPMProtocol(t *testing.T) {
 			"name": "left-pad", "dist-tags": map[string]string{"latest": "1.0.0"},
 			"versions": map[string]any{"1.0.0": map[string]any{}},
 		}
-		raw, _ := json.Marshal(unpub)
+		raw, _ := json.Marshal(unpub, jsonx.V1())
 
 		require.Equal(
 			t,

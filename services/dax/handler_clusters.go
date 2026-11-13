@@ -1,10 +1,11 @@
 package dax
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createClusterRequest struct {
@@ -205,7 +206,7 @@ func toClusterResponse(c *Cluster) clusterResponse {
 
 func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 	var req createClusterRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -247,7 +248,7 @@ func (h *Handler) handleCreateCluster(body []byte) (any, error) {
 func (h *Handler) handleDescribeClusters(body []byte) (any, error) {
 	var req describeClustersRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -279,7 +280,7 @@ func (h *Handler) handleDescribeClusters(body []byte) (any, error) {
 
 func (h *Handler) handleUpdateCluster(body []byte) (any, error) {
 	var req updateClusterRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -295,7 +296,7 @@ func (h *Handler) handleUpdateCluster(body []byte) (any, error) {
 
 func (h *Handler) handleDeleteCluster(body []byte) (any, error) {
 	var req deleteClusterRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -311,7 +312,7 @@ func (h *Handler) handleDeleteCluster(body []byte) (any, error) {
 
 func (h *Handler) handleIncreaseReplicationFactor(body []byte) (any, error) {
 	var req increaseReplicationFactorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -327,7 +328,7 @@ func (h *Handler) handleIncreaseReplicationFactor(body []byte) (any, error) {
 
 func (h *Handler) handleDecreaseReplicationFactor(body []byte) (any, error) {
 	var req decreaseReplicationFactorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -343,7 +344,7 @@ func (h *Handler) handleDecreaseReplicationFactor(body []byte) (any, error) {
 
 func (h *Handler) handleRebootNode(body []byte) (any, error) {
 	var req rebootNodeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

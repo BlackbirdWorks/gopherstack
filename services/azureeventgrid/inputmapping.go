@@ -1,12 +1,14 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // MappingField maps one Event Grid event property from a field of the published event; DefaultValue is used when
@@ -159,7 +161,7 @@ func (m *InputMapping) mapEvent(ev Event, topicRID string, now time.Time) (Event
 		return Event{}, invalidEvent("property 'eventTime' is not a valid date and time")
 	}
 
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(out, jsonx.V1())
 	if err != nil {
 		return Event{}, invalidEvent("the event cannot be encoded")
 	}
@@ -180,7 +182,7 @@ func ParseCustomEvents(body []byte) ([]Event, error) {
 
 	for i, raw := range raws {
 		var fields map[string]any
-		if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		if json.Unmarshal(raw, &fields, jsonx.V1()) != nil || fields == nil {
 			return nil, fmt.Errorf("event %d: %w", i, invalidEvent("the event is not a JSON object"))
 		}
 

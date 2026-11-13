@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -253,14 +255,14 @@ func (t *apimTry) subscriptionKey(ctx context.Context, svc, sub string) (string,
 		Properties map[string]any `json:"properties"`
 	}
 
-	if json.Unmarshal(rec.Body.Bytes(), &doc) != nil || doc.Properties["state"] != apimPxActive {
+	if json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()) != nil || doc.Properties["state"] != apimPxActive {
 		return "", http.StatusConflict, "Subscription is not active"
 	}
 
 	rec = t.arm(ctx, http.MethodPost, base+"/listSecrets")
 
 	var keys map[string]any
-	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &keys) != nil {
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &keys, jsonx.V1()) != nil {
 		return "", http.StatusConflict, "Subscription key is unavailable"
 	}
 
@@ -298,7 +300,7 @@ func (t *apimTry) apiInfo(ctx context.Context, svc, api string) apimAPIInfo {
 		} `json:"properties"`
 	}
 
-	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()) != nil {
 		return def
 	}
 

@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxResponseBytes = 25 << 20
@@ -315,7 +316,7 @@ func (b *InMemoryBackend) notifyAsync(
 	msg["eventSource"] = "aws:sagemaker"
 	msg["eventName"] = "InferenceResult"
 
-	data, err := json.Marshal(msg)
+	data, err := json.Marshal(msg, jsonx.V1())
 	if err != nil {
 		return
 	}

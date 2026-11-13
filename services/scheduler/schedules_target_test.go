@@ -1,12 +1,15 @@
 package scheduler_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateSchedule_RetryPolicyRoundTrip verifies RetryPolicy fields round-trip.
@@ -33,14 +36,14 @@ func TestCreateSchedule_RetryPolicyRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-retry"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var rp map[string]int
-	require.NoError(t, json.Unmarshal(target["RetryPolicy"], &rp))
+	require.NoError(t, json.Unmarshal(target["RetryPolicy"], &rp, jsonx.V1()))
 	assert.Equal(t, 3600, rp["MaximumEventAgeInSeconds"])
 	assert.Equal(t, 10, rp["MaximumRetryAttempts"])
 }
@@ -131,14 +134,14 @@ func TestUpdateSchedule_RetryPolicyPersisted(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "retry-update"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var rp map[string]int
-	require.NoError(t, json.Unmarshal(target["RetryPolicy"], &rp))
+	require.NoError(t, json.Unmarshal(target["RetryPolicy"], &rp, jsonx.V1()))
 	assert.Equal(t, 5, rp["MaximumRetryAttempts"])
 }
 
@@ -167,14 +170,14 @@ func TestCreateSchedule_DeadLetterConfigRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-dlq"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var dlc map[string]string
-	require.NoError(t, json.Unmarshal(target["DeadLetterConfig"], &dlc))
+	require.NoError(t, json.Unmarshal(target["DeadLetterConfig"], &dlc, jsonx.V1()))
 	assert.Equal(t, dlqARN, dlc["Arn"])
 }
 
@@ -224,14 +227,14 @@ func TestCreateSchedule_EventBridgeParametersRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-eb"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var ebParams map[string]string
-	require.NoError(t, json.Unmarshal(target["EventBridgeParameters"], &ebParams))
+	require.NoError(t, json.Unmarshal(target["EventBridgeParameters"], &ebParams, jsonx.V1()))
 	assert.Equal(t, "MyDetailType", ebParams["DetailType"])
 	assert.Equal(t, "com.example.app", ebParams["Source"])
 }
@@ -299,14 +302,14 @@ func TestCreateSchedule_KinesisParametersRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-kinesis"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var kp map[string]string
-	require.NoError(t, json.Unmarshal(target["KinesisParameters"], &kp))
+	require.NoError(t, json.Unmarshal(target["KinesisParameters"], &kp, jsonx.V1()))
 	assert.Equal(t, "my-partition-key", kp["PartitionKey"])
 }
 
@@ -357,14 +360,14 @@ func TestCreateSchedule_SqsParametersMessageGroupIdRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-fifo"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var sqsP map[string]string
-	require.NoError(t, json.Unmarshal(target["SqsParameters"], &sqsP))
+	require.NoError(t, json.Unmarshal(target["SqsParameters"], &sqsP, jsonx.V1()))
 	assert.Equal(t, "grp-1", sqsP["MessageGroupId"])
 }
 
@@ -395,17 +398,17 @@ func TestCreateSchedule_SageMakerPipelineParametersRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-sm"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
-	var smParams map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(target["SageMakerPipelineParameters"], &smParams))
+	var smParams map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(target["SageMakerPipelineParameters"], &smParams, jsonx.V1()))
 
 	var paramList []map[string]string
-	require.NoError(t, json.Unmarshal(smParams["PipelineParameterList"], &paramList))
+	require.NoError(t, json.Unmarshal(smParams["PipelineParameterList"], &paramList, jsonx.V1()))
 	require.Len(t, paramList, 2)
 	assert.Equal(t, "param1", paramList[0]["Name"])
 	assert.Equal(t, "val1", paramList[0]["Value"])
@@ -436,21 +439,21 @@ func TestCreateSchedule_EcsParametersRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-ecs"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
-	var ecsP map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(target["EcsParameters"], &ecsP))
+	var ecsP map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(target["EcsParameters"], &ecsP, jsonx.V1()))
 
 	var tdArn string
-	require.NoError(t, json.Unmarshal(ecsP["TaskDefinitionArn"], &tdArn))
+	require.NoError(t, json.Unmarshal(ecsP["TaskDefinitionArn"], &tdArn, jsonx.V1()))
 	assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:task-definition/my-td:1", tdArn)
 
 	var launchType string
-	require.NoError(t, json.Unmarshal(ecsP["LaunchType"], &launchType))
+	require.NoError(t, json.Unmarshal(ecsP["LaunchType"], &launchType, jsonx.V1()))
 	assert.Equal(t, "FARGATE", launchType)
 }
 
@@ -519,7 +522,7 @@ func TestCreateSchedule_EcsParametersNetworkConfigurationRoundtrip(t *testing.T)
 			} `json:"EcsParameters"`
 		} `json:"Target"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	cfg := out.Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration
 	assert.Equal(t, []string{"subnet-aaa", "subnet-bbb"}, cfg.Subnets)
@@ -564,7 +567,7 @@ func TestCreateSchedule_EcsParametersCapacityProviderStrategyRoundtrip(t *testin
 			} `json:"EcsParameters"`
 		} `json:"Target"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	strategy := out.Target.EcsParameters.CapacityProviderStrategy
 	require.Len(t, strategy, 2)
@@ -616,7 +619,7 @@ func TestCreateSchedule_EcsParametersPlacementConstraintsRoundtrip(t *testing.T)
 			} `json:"EcsParameters"`
 		} `json:"Target"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	constraints := out.Target.EcsParameters.PlacementConstraints
 	require.Len(t, constraints, 1)
@@ -666,7 +669,7 @@ func TestCreateSchedule_EcsParametersTaskTagsRoundtrip(t *testing.T) {
 			} `json:"EcsParameters"`
 		} `json:"Target"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	ecsTags := out.Target.EcsParameters.Tags
 	require.Len(t, ecsTags, 2)
@@ -704,11 +707,11 @@ func TestCreateSchedule_InputTransformerNotEchoed(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "sched-transformer"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	_, present := target["InputTransformer"]
 	assert.False(t, present, "InputTransformer is not a real Scheduler Target member and must not be echoed back")
@@ -753,13 +756,13 @@ func TestFullTarget_UpdateRoundTrip(t *testing.T) {
 	get := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "full-target"})
 	require.Equal(t, http.StatusOK, get.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(get.Body.Bytes(), &out, jsonx.V1()))
 
-	var target map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Target"], &target))
+	var target map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Target"], &target, jsonx.V1()))
 
 	var kp map[string]string
-	require.NoError(t, json.Unmarshal(target["KinesisParameters"], &kp))
+	require.NoError(t, json.Unmarshal(target["KinesisParameters"], &kp, jsonx.V1()))
 	assert.Equal(t, "updated-key", kp["PartitionKey"])
 }

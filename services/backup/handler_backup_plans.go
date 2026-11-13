@@ -1,12 +1,14 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createBackupPlanBody struct {
@@ -16,7 +18,7 @@ type createBackupPlanBody struct {
 
 func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 	var in createBackupPlanBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -146,7 +148,7 @@ type updateBackupPlanBody struct {
 
 func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte) error {
 	var in updateBackupPlanBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -305,7 +307,7 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 		var reqBody struct {
 			BackupPlanTemplateJSON string `json:"BackupPlanTemplateJson"`
 		}
-		if err := json.Unmarshal(body, &reqBody); err != nil {
+		if err := json.Unmarshal(body, &reqBody, jsonx.V1()); err != nil {
 			return true, c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -313,7 +315,7 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 		}
 
 		var doc backupPlanBodyDoc
-		if err := json.Unmarshal([]byte(reqBody.BackupPlanTemplateJSON), &doc); err != nil {
+		if err := json.Unmarshal([]byte(reqBody.BackupPlanTemplateJSON), &doc, jsonx.V1()); err != nil {
 			return true, c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid BackupPlanTemplateJson"),

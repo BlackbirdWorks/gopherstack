@@ -1,7 +1,7 @@
 package resourcegroups_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -154,7 +155,7 @@ func TestGroupResources_InvalidARNReturnsFailed(t *testing.T) {
 					ErrorMessage string `json:"ErrorMessage"`
 				} `json:"Failed"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.Len(
 				t,
@@ -195,7 +196,7 @@ func TestGroupResources_InvalidARNNotAddedToGroup(t *testing.T) {
 			} `json:"Identifier"`
 		} `json:"Resources"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.Len(t, out.Resources, 1, "only the valid ARN should be in group")
 	assert.Equal(t, "arn:aws:s3:::real-bucket", out.Resources[0].Identifier.ResourceArn)
@@ -318,7 +319,7 @@ func TestUngroupResourcesFailures(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			succeeded, _ := out["Succeeded"].([]any)
 			failed, _ := out["Failed"].([]any)
@@ -480,14 +481,14 @@ func TestListGroupResources_ResourceIdentifiersDeprecatedField(t *testing.T) {
 			ResourceType string `json:"ResourceType"`
 		} `json:"ResourceIdentifiers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.Len(t, out.ResourceIdentifiers, 1)
 	assert.Equal(t, out.Resources[0].Identifier.ResourceArn, out.ResourceIdentifiers[0].ResourceArn)
 	assert.Equal(t, out.Resources[0].Identifier.ResourceType, out.ResourceIdentifiers[0].ResourceType)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "QueryErrors", "QueryErrors must be omitted when empty")
 }
 
@@ -543,7 +544,7 @@ func TestListGroupResources_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	resources1 := out1["Resources"].([]any)
 	assert.Len(t, resources1, 2)
 	token1, _ := out1["NextToken"].(string)
@@ -557,7 +558,7 @@ func TestListGroupResources_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	resources2 := out2["Resources"].([]any)
 	assert.Len(t, resources2, 3)
 	assert.Empty(t, out2["NextToken"])
@@ -684,7 +685,7 @@ func TestResourceGroupsHandler_GroupingStatuses_UpdatedAtIsEpochSeconds(t *testi
 	var out struct {
 		GroupingStatuses []map[string]any `json:"GroupingStatuses"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.GroupingStatuses, 1)
 	_, isNumber := out.GroupingStatuses[0]["UpdatedAt"].(float64)
 	assert.True(t, isNumber, "ListGroupingStatuses UpdatedAt must be a JSON number: %s", rec.Body.String())
@@ -713,7 +714,7 @@ func TestListGroupingStatuses_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	statuses1 := out1["GroupingStatuses"].([]any)
 	assert.Len(t, statuses1, 3)
 	tok1, _ := out1["NextToken"].(string)
@@ -727,7 +728,7 @@ func TestListGroupingStatuses_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	statuses2 := out2["GroupingStatuses"].([]any)
 	assert.Len(t, statuses2, 2)
 	assert.Empty(t, out2["NextToken"])

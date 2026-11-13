@@ -2,9 +2,11 @@ package bqsql
 
 import (
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func compileRe(v driver.Value) (*regexp.Regexp, error) {
@@ -138,7 +140,7 @@ func udfRegexExtractAll(a []driver.Value) (driver.Value, error) {
 		out = append(out, firstGroup(m))
 	}
 
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return string(b), nil
 }

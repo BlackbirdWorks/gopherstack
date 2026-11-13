@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Capacity provider handlers ---
@@ -66,7 +67,7 @@ func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBack
 
 	var input CreateCapacityProviderInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}
@@ -153,7 +154,7 @@ func (h *Handler) handleUpdateCapacityProvider(c *echo.Context, bk *InMemoryBack
 
 	var input UpdateCapacityProviderInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}

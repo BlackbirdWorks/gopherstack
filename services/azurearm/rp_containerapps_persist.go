@@ -2,7 +2,9 @@ package azurearm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type containerAppsSnapshot struct {
@@ -28,13 +30,13 @@ func (p *ContainerAppsProvider) snapshot() *containerAppsSnapshot {
 
 	snap := &containerAppsSnapshot{Envs: p.envs, Apps: p.apps, Jobs: p.jobs}
 
-	buf, err := json.Marshal(snap)
+	buf, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		return &containerAppsSnapshot{}
 	}
 
 	var out containerAppsSnapshot
-	if err = json.Unmarshal(buf, &out); err != nil {
+	if err = json.Unmarshal(buf, &out, jsonx.V1()); err != nil {
 		return &containerAppsSnapshot{}
 	}
 

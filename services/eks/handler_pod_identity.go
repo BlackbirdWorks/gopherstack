@@ -1,12 +1,13 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -138,7 +139,7 @@ type createPodIdentityAssociationBody struct {
 
 func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterName string, body []byte) error {
 	var in createPodIdentityAssociationBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -232,7 +233,7 @@ type updatePodIdentityBody struct {
 func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterName, assocID string, body []byte) error {
 	var in updatePodIdentityBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

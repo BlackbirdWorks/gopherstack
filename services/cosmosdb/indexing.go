@@ -1,9 +1,12 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -48,14 +51,14 @@ type indexingPolicy struct {
 }
 
 // parseIndexingPolicy decodes the stored policy; an unset or undecodable one yields the default (index all).
-func parseIndexingPolicy(raw json.RawMessage) indexingPolicy {
+func parseIndexingPolicy(raw jsontext.Value) indexingPolicy {
 	if len(raw) == 0 {
-		raw = json.RawMessage(defaultIndexingPolicy)
+		raw = jsontext.Value(defaultIndexingPolicy)
 	}
 
 	var pol indexingPolicy
-	if err := json.Unmarshal(raw, &pol); err != nil {
-		_ = json.Unmarshal([]byte(defaultIndexingPolicy), &pol)
+	if err := json.Unmarshal(raw, &pol, jsonx.V1()); err != nil {
+		_ = json.Unmarshal([]byte(defaultIndexingPolicy), &pol, jsonx.V1())
 	}
 
 	return pol
@@ -64,7 +67,7 @@ func parseIndexingPolicy(raw json.RawMessage) indexingPolicy {
 // checkQueryIndexing applies the indexing policy to stmt: multi-property ORDER BY needs a composite index, and a
 // query whose filter cannot use the index needs the scan switch.
 func checkQueryIndexing(
-	stmt *sqlSelectStmt, raw json.RawMessage, opts QueryOptions, computed map[string]sqlExpr,
+	stmt *sqlSelectStmt, raw jsontext.Value, opts QueryOptions, computed map[string]sqlExpr,
 ) error {
 	pol := parseIndexingPolicy(raw)
 	pol.computed = make(map[string]struct{}, len(computed))

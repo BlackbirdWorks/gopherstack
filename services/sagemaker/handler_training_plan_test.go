@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, searchRec.Code)
 
 	var searchResp map[string]any
-	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &searchResp))
+	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &searchResp, jsonx.V1()))
 	offerings, ok := searchResp["TrainingPlanOfferings"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, offerings)
@@ -46,7 +48,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "Scheduled", describeResp["Status"])
 	assert.InEpsilon(t, float64(720), describeResp["DurationHours"], 0.001)
 
@@ -68,7 +70,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rcRec.Code)
 
 	var rcResp map[string]any
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcResp))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcResp, jsonx.V1()))
 	assert.Equal(t, "ml.p5.48xlarge", rcResp["InstanceType"])
 	assert.InEpsilon(t, float64(8), rcResp["TotalInstanceCount"], 0.001)
 
@@ -77,7 +79,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["TrainingPlanSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)
@@ -89,7 +91,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, extSearchRec.Code)
 
 	var extSearchResp map[string]any
-	require.NoError(t, json.Unmarshal(extSearchRec.Body.Bytes(), &extSearchResp))
+	require.NoError(t, json.Unmarshal(extSearchRec.Body.Bytes(), &extSearchResp, jsonx.V1()))
 	extOfferings, ok := extSearchResp["TrainingPlanExtensionOfferings"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, extOfferings)
@@ -105,7 +107,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, extendRec.Code)
 
 	var extendResp map[string]any
-	require.NoError(t, json.Unmarshal(extendRec.Body.Bytes(), &extendResp))
+	require.NoError(t, json.Unmarshal(extendRec.Body.Bytes(), &extendResp, jsonx.V1()))
 	extensions, ok := extendResp["TrainingPlanExtensions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, extensions, 1)
@@ -116,7 +118,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, historyRec.Code)
 
 	var historyResp map[string]any
-	require.NoError(t, json.Unmarshal(historyRec.Body.Bytes(), &historyResp))
+	require.NoError(t, json.Unmarshal(historyRec.Body.Bytes(), &historyResp, jsonx.V1()))
 	historyExtensions, ok := historyResp["TrainingPlanExtensions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, historyExtensions, 1)
@@ -127,7 +129,7 @@ func TestHandler_TrainingPlan_OfferingLifecycle(t *testing.T) {
 	})
 
 	var describeAfterResp map[string]any
-	require.NoError(t, json.Unmarshal(describeAfterRec.Body.Bytes(), &describeAfterResp))
+	require.NoError(t, json.Unmarshal(describeAfterRec.Body.Bytes(), &describeAfterResp, jsonx.V1()))
 	assert.Greater(t, describeAfterResp["DurationHours"], describeResp["DurationHours"])
 }
 
@@ -141,7 +143,7 @@ func TestHandler_TrainingPlan_UltraServerOffering(t *testing.T) {
 	})
 
 	var searchResp map[string]any
-	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &searchResp))
+	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &searchResp, jsonx.V1()))
 	offerings, ok := searchResp["TrainingPlanOfferings"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, offerings)
@@ -160,7 +162,7 @@ func TestHandler_TrainingPlan_UltraServerOffering(t *testing.T) {
 	})
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	rcSummaries, ok := describeResp["ReservedCapacitySummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, rcSummaries, 1)
@@ -176,7 +178,7 @@ func TestHandler_TrainingPlan_UltraServerOffering(t *testing.T) {
 	assert.Equal(t, http.StatusOK, ultraRec.Code)
 
 	var ultraResp map[string]any
-	require.NoError(t, json.Unmarshal(ultraRec.Body.Bytes(), &ultraResp))
+	require.NoError(t, json.Unmarshal(ultraRec.Body.Bytes(), &ultraResp, jsonx.V1()))
 	servers, ok := ultraResp["UltraServers"].([]any)
 	require.True(t, ok)
 	assert.Len(t, servers, 1)

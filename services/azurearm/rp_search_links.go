@@ -2,13 +2,14 @@ package azurearm
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -239,7 +240,7 @@ func searchOperations() []any {
 		Value []any `json:"value"`
 	}
 
-	if err := json.Unmarshal(searchOperationsJSON, &doc); err != nil {
+	if err := json.Unmarshal(searchOperationsJSON, &doc, jsonx.V1()); err != nil {
 		return []any{}
 	}
 

@@ -3,12 +3,13 @@ package athena
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // icebergMetaSuffix splits "tbl$snapshots" into the table and metadata table names.
@@ -32,7 +33,7 @@ const colSnapshotID = "snapshot_id"
 func tsText(ms int64) string { return time.UnixMilli(ms).UTC().Format(tsMillisLayout) }
 
 func mapJSON(m map[string]string) string {
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(m, jsonx.V1())
 
 	return string(b)
 }
@@ -221,7 +222,7 @@ func (l *tableLoader) filesTable(ctx context.Context, snap iceberg.Snapshot, has
 
 	for _, f := range append(files.data, files.deletes...) {
 		df := f.entry.DataFile
-		part, _ := json.Marshal(df.Partition)
+		part, _ := json.Marshal(df.Partition, jsonx.V1())
 		rows = append(rows, []any{
 			int64(df.Content), df.Path, df.Format, int64(f.spec), string(part), df.RecordCount, df.FileSize,
 		})

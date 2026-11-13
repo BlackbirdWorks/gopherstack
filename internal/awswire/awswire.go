@@ -5,7 +5,7 @@ package awswire
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
 )
 
@@ -142,12 +143,12 @@ func Do[O any](ctx context.Context, c *Core, op string, in any) (*O, error) {
 	params := map[string]any{}
 
 	if in != nil {
-		b, err := json.Marshal(in)
+		b, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("encode %s request: %w", op, err)
 		}
 
-		if err = json.Unmarshal(b, &params); err != nil {
+		if err = json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("encode %s request: %w", op, err)
 		}
 	}
@@ -159,12 +160,12 @@ func Do[O any](ctx context.Context, c *Core, op string, in any) (*O, error) {
 
 	var out O
 
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
-	if err = json.Unmarshal(b, &out); err != nil {
+	if err = json.Unmarshal(b, &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("decode %s response: %w", op, err)
 	}
 

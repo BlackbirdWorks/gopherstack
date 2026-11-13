@@ -2,7 +2,7 @@ package gcpresourcemanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -23,8 +23,8 @@ type backendSnapshot struct {
 	TagValues map[string]*tagValueRec         `json:"tagValues"`
 	Bindings  map[string]*bindingRec          `json:"tagBindings"`
 	Enabled   map[string]map[string]time.Time `json:"enabledServices"`
-	Policies  map[string]json.RawMessage      `json:"policies"`
-	Ops       map[string]json.RawMessage      `json:"operations"`
+	Policies  map[string]jsontext.Value       `json:"policies"`
+	Ops       map[string]jsontext.Value       `json:"operations"`
 	Seed      string                          `json:"seed"`
 	Version   int                             `json:"version"`
 	PolicySeq uint64                          `json:"policySeq"`
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version: snapshotVersion, Seed: b.seed, Projects: b.projects, Folders: b.folders, TagKeys: b.tagKeys,
 		TagValues: b.tagValues, Bindings: b.bindings, Enabled: b.enabled, PolicySeq: seq,
-		Policies: make(map[string]json.RawMessage, len(policies)), Ops: b.lro.Snapshot(),
+		Policies: make(map[string]jsontext.Value, len(policies)), Ops: b.lro.Snapshot(),
 	}
 
 	for n, p := range policies {

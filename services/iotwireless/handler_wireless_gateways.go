@@ -1,12 +1,13 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -51,7 +52,7 @@ type getWirelessGatewayStatisticsResponse struct {
 
 func (h *Handler) createWirelessGateway(c *echo.Context, body []byte) error {
 	var req createWirelessGatewayRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -117,7 +118,7 @@ func (h *Handler) deleteWirelessGateway(c *echo.Context, id string) error {
 
 func (h *Handler) associateWirelessGatewayWithThing(c *echo.Context, gatewayID string, body []byte) error {
 	var req associateWirelessGatewayWithThingRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -141,7 +142,7 @@ func (h *Handler) updateWirelessGateway(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateWirelessGateway(
 		h.AccountID, h.DefaultRegion, id, req.Name, req.Description,

@@ -1,7 +1,8 @@
 package codepipeline_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -107,7 +109,7 @@ func TestHandler_DeregisterWebhookWithThirdParty(t *testing.T) {
 
 			if tt.httpStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Empty(t, out)
 			}
 		})
@@ -248,7 +250,7 @@ func TestHandler_Webhook_FullModel(t *testing.T) {
 
 			if tt.checkFn != nil && tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.checkFn(t, out)
 			}
 		})
@@ -329,7 +331,7 @@ func TestHandler_ListWebhooks_DefinitionWrapper(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			webhooks, _ := out["webhooks"].([]any)
 			assert.Len(t, webhooks, tt.wantCount)
 
@@ -499,7 +501,7 @@ func TestCPPagination_ListWebhooks(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Webhooks  []map[string]any `json:"webhooks"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 		total += len(out.Webhooks)
 		pages++
@@ -561,7 +563,7 @@ func TestPutWebhook_Filters_EmptyNotAbsent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			webhook, ok := raw["webhook"].(map[string]any)
 			require.True(t, ok, "webhook must be an object")
@@ -604,7 +606,7 @@ func TestListWebhooks_Filters_EmptyNotAbsent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	webhooks, ok := raw["webhooks"].([]any)
 	require.True(t, ok, "webhooks must be an array")
@@ -651,7 +653,7 @@ func TestListWebhooks_Filters_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	webhooks, ok := raw["webhooks"].([]any)
 	require.True(t, ok)

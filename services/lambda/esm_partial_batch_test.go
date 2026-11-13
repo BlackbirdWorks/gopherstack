@@ -2,13 +2,14 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -204,7 +205,7 @@ func TestLambda_ESM_FunctionResponseTypes_StoredAndRetrieved(t *testing.T) {
 }
 
 func mustMarshal(v any) []byte {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}

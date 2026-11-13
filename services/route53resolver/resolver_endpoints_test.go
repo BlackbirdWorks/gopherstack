@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -77,7 +78,7 @@ func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.checkFn != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 				_, hasIPs := ep["IpAddresses"]
 				assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
@@ -88,7 +89,7 @@ func TestResolverEndpoint_IPv6IPAddress(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				ips, _ := listResp["IpAddresses"].([]any)
 				tt.checkFn(t, ips)
 			}
@@ -148,7 +149,7 @@ func TestResolverEndpoint_Protocols(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 				assert.Equal(t, tt.wantProtocols, ep["Protocols"])
 			}
@@ -196,7 +197,7 @@ func TestResolverEndpoint_OutpostFields(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 
 				if outpostArn, ok := tt.body["OutpostArn"]; ok {
@@ -222,7 +223,7 @@ func TestResolverEndpoint_CreatorRequestIdAndTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ep := resp["ResolverEndpoint"].(map[string]any)
 
 	assert.Equal(t, "req-abc-123", ep["CreatorRequestId"])
@@ -265,7 +266,7 @@ func TestResolverEndpoint_TypeValidation(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 				if tt.epType == "" {
 					assert.Equal(t, "IPV4", ep["ResolverEndpointType"])
@@ -334,7 +335,7 @@ func TestUpdateResolverEndpoint_Extended(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			epID := createResp["ResolverEndpoint"].(map[string]any)["Id"].(string)
 
 			tt.updateBody["ResolverEndpointId"] = epID
@@ -343,7 +344,7 @@ func TestUpdateResolverEndpoint_Extended(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.checkFn != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 				tt.checkFn(t, ep)
 			}
@@ -367,7 +368,7 @@ func TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	epID := createResp["ResolverEndpoint"].(map[string]any)["Id"].(string)
 
 	updateRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
@@ -380,7 +381,7 @@ func TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged(t *testing.T) {
 	getRec := doRequest(t, h, "GetResolverEndpoint", map[string]any{"ResolverEndpointId": epID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	ep := getResp["ResolverEndpoint"].(map[string]any)
 	assert.Equal(t, "orig-ep-partial", ep["Name"])
 }
@@ -615,7 +616,7 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			epID := createResp["ResolverEndpoint"].(map[string]any)["Id"].(string)
 
 			assocRec := doRequest(t, h, "AssociateResolverEndpointIpAddress", map[string]any{
@@ -626,7 +627,7 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.checkFn != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &resp, jsonx.V1()))
 				ep := resp["ResolverEndpoint"].(map[string]any)
 				_, hasIPs := ep["IpAddresses"]
 				assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
@@ -636,7 +637,7 @@ func TestAssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				ips, _ := listResp["IpAddresses"].([]any)
 				tt.checkFn(t, ips)
 			}
@@ -985,7 +986,7 @@ func TestCreateResolverEndpoint_HostVPCIdAndSecurityGroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ep, ok := resp["ResolverEndpoint"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "vpc-abc123", ep["HostVPCId"])
@@ -1009,7 +1010,7 @@ func TestListResolverEndpoints_SortedByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints, ok := resp["ResolverEndpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 3)
@@ -1044,7 +1045,7 @@ func TestCreateResolverEndpoint_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ep := resp["ResolverEndpoint"].(map[string]any)
 	epARN := ep["Arn"].(string)
 
@@ -1052,7 +1053,7 @@ func TestCreateResolverEndpoint_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags, 1)
@@ -1084,7 +1085,7 @@ func TestAssociateResolverEndpointIPAddress_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ep := createResp["ResolverEndpoint"].(map[string]any)
 	epID := ep["Id"].(string)
 
@@ -1098,7 +1099,7 @@ func TestAssociateResolverEndpointIPAddress_Success(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	updatedEP := assocResp["ResolverEndpoint"].(map[string]any)
 	_, hasIPs := updatedEP["IpAddresses"]
 	assert.False(t, hasIPs, "ResolverEndpoint response must not carry an IpAddresses field")
@@ -1108,7 +1109,7 @@ func TestAssociateResolverEndpointIPAddress_Success(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	ips, ok := listResp["IpAddresses"].([]any)
 	require.True(t, ok)
 	assert.Len(t, ips, 1)
@@ -1142,7 +1143,7 @@ func TestListResolverEndpoints_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			eps, _ := resp["ResolverEndpoints"].([]any)
 			assert.Len(t, eps, tt.wantLen)
 			nextToken, _ := resp["NextToken"].(string)
@@ -1166,7 +1167,7 @@ func TestListResolverEndpoints_NextTokenContinuation(t *testing.T) {
 	rec1 := doRequest(t, h, "ListResolverEndpoints", map[string]any{"MaxResults": 2})
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	eps1, _ := resp1["ResolverEndpoints"].([]any)
 	require.Len(t, eps1, 2)
 	nextToken, _ := resp1["NextToken"].(string)
@@ -1178,7 +1179,7 @@ func TestListResolverEndpoints_NextTokenContinuation(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	eps2, _ := resp2["ResolverEndpoints"].([]any)
 	assert.NotEmpty(t, eps2)
 
@@ -1227,7 +1228,7 @@ func TestDeleteResolverEndpoint_CascadeDeletesRules(t *testing.T) {
 			require.Equal(t, http.StatusOK, epRec.Code)
 
 			var epResp map[string]any
-			require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp))
+			require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp, jsonx.V1()))
 			ep := epResp["ResolverEndpoint"].(map[string]any)
 			epID := ep["Id"].(string)
 
@@ -1254,7 +1255,7 @@ func TestDeleteResolverEndpoint_CascadeDeletesRules(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			rules := listResp["ResolverRules"].([]any)
 			assert.Len(t, rules, tt.wantRulesAfter)
 		})
@@ -1306,7 +1307,7 @@ func TestAssociateResolverEndpointIpAddress(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				endpointID = resp["ResolverEndpoint"].(map[string]any)["Id"].(string)
 			}
 
@@ -1318,7 +1319,7 @@ func TestAssociateResolverEndpointIpAddress(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ep, ok := resp["ResolverEndpoint"].(map[string]any)
 				require.True(t, ok)
 				_, hasIPs := ep["IpAddresses"]
@@ -1329,7 +1330,7 @@ func TestAssociateResolverEndpointIpAddress(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				ips, _ := listResp["IpAddresses"].([]any)
 				assert.Len(t, ips, tt.wantIPCount)
 			}
@@ -1353,7 +1354,7 @@ func TestListResolverEndpointIpAddresses_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	epID := createOut["ResolverEndpoint"].(map[string]any)["Id"].(string)
 
 	for i := 2; i <= 4; i++ {
@@ -1393,7 +1394,7 @@ func TestListResolverEndpointIpAddresses_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListResolverEndpointIpAddresses", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			ips, _ := out["IpAddresses"].([]any)
 			assert.Len(t, ips, tt.wantLen)
 			if tt.wantNextToken {
@@ -1419,7 +1420,7 @@ func TestCreateResolverEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ep, ok := resp["ResolverEndpoint"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, ep["Arn"], "arn:aws:route53resolver:")
@@ -1437,7 +1438,7 @@ func TestGetResolverEndpoint(t *testing.T) {
 		"Direction": "OUTBOUND",
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ep := createResp["ResolverEndpoint"].(map[string]any)
 	id := ep["Id"].(string)
 
@@ -1447,7 +1448,7 @@ func TestGetResolverEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	got := resp["ResolverEndpoint"].(map[string]any)
 	assert.Equal(t, id, got["Id"])
 }
@@ -1468,7 +1469,7 @@ func TestListResolverEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints, ok := resp["ResolverEndpoints"].([]any)
 	require.True(t, ok)
 	assert.Len(t, endpoints, 2)
@@ -1545,7 +1546,7 @@ func TestListResolverEndpoints_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			eps, _ := resp["ResolverEndpoints"].([]any)
 			gotNames := make([]string, len(eps))
 			for i, e := range eps {
@@ -1576,7 +1577,7 @@ func TestListResolverEndpoints_FiltersANDedTogether(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	eps, _ := resp["ResolverEndpoints"].([]any)
 	require.Len(t, eps, 1)
 	assert.Equal(t, "in-vpc2", eps[0].(map[string]any)["Name"])
@@ -1596,7 +1597,7 @@ func TestListResolverEndpoints_UnknownFilterNameRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }
 
@@ -1609,7 +1610,7 @@ func TestDeleteResolverEndpoint(t *testing.T) {
 		"Direction": "INBOUND",
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ep := createResp["ResolverEndpoint"].(map[string]any)
 	id := ep["Id"].(string)
 

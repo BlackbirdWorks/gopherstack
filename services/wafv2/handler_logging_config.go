@@ -2,11 +2,13 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -63,7 +65,7 @@ type deleteLoggingConfigurationRequest struct {
 
 func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteLoggingConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -91,24 +93,24 @@ func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []b
 
 // putLoggingConfigurationRequest is the request body for PutLoggingConfiguration.
 type putLoggingConfigurationRequest struct {
-	LoggingConfiguration json.RawMessage `json:"LoggingConfiguration"`
+	LoggingConfiguration jsontext.Value `json:"LoggingConfiguration"`
 }
 
 func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
 	var req putLoggingConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	// Extract ResourceArn for validation.
-	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal(req.LoggingConfiguration, &cfg); err != nil {
+	var cfg map[string]jsontext.Value
+	if err := json.Unmarshal(req.LoggingConfiguration, &cfg, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid LoggingConfiguration JSON: %w", errInvalidRequest, err)
 	}
 
 	var resourceARN string
 	if raw, ok := cfg["ResourceArn"]; ok {
-		if err := json.Unmarshal(raw, &resourceARN); err != nil || resourceARN == "" {
+		if err := json.Unmarshal(raw, &resourceARN, jsonx.V1()); err != nil || resourceARN == "" {
 			return nil, fmt.Errorf("%w: LoggingConfiguration.ResourceArn is required", errInvalidRequest)
 		}
 	} else {
@@ -118,7 +120,7 @@ func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte
 	// Validate destination ARN prefixes.
 	if destRaw, ok := cfg["LogDestinationConfigs"]; ok {
 		var destinations []string
-		if unmarshalErr := json.Unmarshal(destRaw, &destinations); unmarshalErr == nil {
+		if unmarshalErr := json.Unmarshal(destRaw, &destinations, jsonx.V1()); unmarshalErr == nil {
 			for _, dest := range destinations {
 				if destErr := validateLoggingDestination(dest); destErr != nil {
 					return nil, destErr
@@ -135,13 +137,13 @@ func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte
 	log.InfoContext(ctx, "wafv2: put logging configuration", "resourceArn", resourceARN)
 
 	var respCfg any
-	if err := json.Unmarshal(req.LoggingConfiguration, &respCfg); err != nil {
+	if err := json.Unmarshal(req.LoggingConfiguration, &respCfg, jsonx.V1()); err != nil {
 		respCfg = map[string]any{"ResourceArn": resourceARN}
 	}
 
 	return json.Marshal(map[string]any{
 		"LoggingConfiguration": respCfg,
-	})
+	}, jsonx.V1())
 }
 
 // validateLoggingDestination checks that a destination ARN has an accepted prefix.
@@ -168,7 +170,7 @@ type getLoggingConfigurationRequest struct {
 
 func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
 	var req getLoggingConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -190,13 +192,13 @@ func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte
 	}
 
 	var cfg any
-	if unmarshalErr := json.Unmarshal(cfgJSON, &cfg); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(cfgJSON, &cfg, jsonx.V1()); unmarshalErr != nil {
 		cfg = map[string]any{"ResourceArn": req.ResourceArn}
 	}
 
 	return json.Marshal(map[string]any{
 		"LoggingConfiguration": cfg,
-	})
+	}, jsonx.V1())
 }
 
 // listLoggingConfigurationsRequest mirrors ListLoggingConfigurationsInput
@@ -261,7 +263,7 @@ func skipToLoggingConfigMarker(entries []loggingConfigEntry, nextMarker string) 
 // and LogScope, paginated by Limit/NextMarker.
 func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []byte) ([]byte, error) {
 	var req listLoggingConfigurationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -271,7 +273,7 @@ func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []by
 
 	for _, cfg := range configs {
 		var v map[string]any
-		if err := json.Unmarshal(cfg, &v); err != nil {
+		if err := json.Unmarshal(cfg, &v, jsonx.V1()); err != nil {
 			continue
 		}
 
@@ -298,7 +300,7 @@ func (h *Handler) handleListLoggingConfigurations(ctx context.Context, body []by
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // loggingConfigDispatchOps returns the logging-configuration-family operation dispatch

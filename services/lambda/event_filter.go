@@ -2,10 +2,13 @@ package lambda
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // eventFilterMatches reports whether the given event source record satisfies the
@@ -29,8 +32,8 @@ func eventFilterMatches(fc *FilterCriteria, record map[string]any) bool {
 			continue
 		}
 
-		var pattern map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(f.Pattern), &pattern); err != nil {
+		var pattern map[string]jsontext.Value
+		if err := json.Unmarshal([]byte(f.Pattern), &pattern, jsonx.V1()); err != nil {
 			continue
 		}
 
@@ -47,7 +50,7 @@ func eventFilterMatches(fc *FilterCriteria, record map[string]any) bool {
 // the "$or" combinator documented for "Or (multiple fields)": its value is an
 // array of sibling pattern fragments evaluated against the same value, and the
 // object matches only if at least one fragment does.
-func patternMatchesObject(pattern map[string]json.RawMessage, value map[string]any) bool {
+func patternMatchesObject(pattern map[string]jsontext.Value, value map[string]any) bool {
 	for key, rawRule := range pattern {
 		if key == "$or" {
 			if !orClauseMatches(rawRule, value) {
@@ -69,15 +72,15 @@ func patternMatchesObject(pattern map[string]json.RawMessage, value map[string]a
 
 // orClauseMatches evaluates a "$or" array of sibling pattern-fragment objects
 // against value, matching if any fragment matches.
-func orClauseMatches(rawRule json.RawMessage, value map[string]any) bool {
-	var branches []json.RawMessage
-	if err := json.Unmarshal(rawRule, &branches); err != nil {
+func orClauseMatches(rawRule jsontext.Value, value map[string]any) bool {
+	var branches []jsontext.Value
+	if err := json.Unmarshal(rawRule, &branches, jsonx.V1()); err != nil {
 		return false
 	}
 
 	for _, branch := range branches {
-		var branchPattern map[string]json.RawMessage
-		if err := json.Unmarshal(branch, &branchPattern); err != nil {
+		var branchPattern map[string]jsontext.Value
+		if err := json.Unmarshal(branch, &branchPattern, jsonx.V1()); err != nil {
 			continue
 		}
 
@@ -91,7 +94,7 @@ func orClauseMatches(rawRule json.RawMessage, value map[string]any) bool {
 
 // fieldMatchesRule evaluates a single pattern field. rawRule is either a nested
 // pattern object (recurse) or a JSON array of match rules (any of which may match).
-func fieldMatchesRule(rawRule json.RawMessage, fieldVal any, present bool) bool {
+func fieldMatchesRule(rawRule jsontext.Value, fieldVal any, present bool) bool {
 	trimmed := strings.TrimSpace(string(rawRule))
 
 	// Nested object pattern: recurse into the sub-document.
@@ -101,8 +104,8 @@ func fieldMatchesRule(rawRule json.RawMessage, fieldVal any, present bool) bool 
 			return false
 		}
 
-		var subPattern map[string]json.RawMessage
-		if err := json.Unmarshal(rawRule, &subPattern); err != nil {
+		var subPattern map[string]jsontext.Value
+		if err := json.Unmarshal(rawRule, &subPattern, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -110,8 +113,8 @@ func fieldMatchesRule(rawRule json.RawMessage, fieldVal any, present bool) bool 
 	}
 
 	// Rule array: the field matches if any element in the array matches.
-	var rules []json.RawMessage
-	if err := json.Unmarshal(rawRule, &rules); err != nil {
+	var rules []jsontext.Value
+	if err := json.Unmarshal(rawRule, &rules, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -126,7 +129,7 @@ func fieldMatchesRule(rawRule json.RawMessage, fieldVal any, present bool) bool 
 
 // ruleMatchesValue evaluates one rule element against the field value. A rule is
 // either a scalar (exact match) or an operator object like {"prefix":"x"}.
-func ruleMatchesValue(rule json.RawMessage, fieldVal any, present bool) bool {
+func ruleMatchesValue(rule jsontext.Value, fieldVal any, present bool) bool {
 	trimmed := strings.TrimSpace(string(rule))
 
 	if strings.HasPrefix(trimmed, "{") {
@@ -137,13 +140,13 @@ func ruleMatchesValue(rule json.RawMessage, fieldVal any, present bool) bool {
 }
 
 // scalarMatches performs an exact comparison between a scalar rule and the field.
-func scalarMatches(rule json.RawMessage, fieldVal any, present bool) bool {
+func scalarMatches(rule jsontext.Value, fieldVal any, present bool) bool {
 	if !present {
 		return false
 	}
 
 	var ruleVal any
-	if err := json.Unmarshal(rule, &ruleVal); err != nil {
+	if err := json.Unmarshal(rule, &ruleVal, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -169,9 +172,9 @@ func scalarMatches(rule json.RawMessage, fieldVal any, present bool) bool {
 
 // operatorMatches evaluates an operator rule object such as {"prefix":"x"},
 // {"exists":true}, {"anything-but":[...]}, or {"numeric":[">",5]}.
-func operatorMatches(rule json.RawMessage, fieldVal any, present bool) bool {
-	var op map[string]json.RawMessage
-	if err := json.Unmarshal(rule, &op); err != nil {
+func operatorMatches(rule jsontext.Value, fieldVal any, present bool) bool {
+	var op map[string]jsontext.Value
+	if err := json.Unmarshal(rule, &op, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -185,7 +188,7 @@ func operatorMatches(rule json.RawMessage, fieldVal any, present bool) bool {
 }
 
 // singleOperatorMatches dispatches one named operator.
-func singleOperatorMatches(name string, arg json.RawMessage, fieldVal any, present bool) bool {
+func singleOperatorMatches(name string, arg jsontext.Value, fieldVal any, present bool) bool {
 	switch name {
 	case "exists":
 		return existsMatches(arg, fieldVal, present)
@@ -209,9 +212,9 @@ func singleOperatorMatches(name string, arg json.RawMessage, fieldVal any, prese
 // match intermediate nodes" -- a field present as a nested object is an
 // intermediate node, not a leaf, so it never satisfies exists regardless of
 // the requested polarity.
-func existsMatches(arg json.RawMessage, fieldVal any, present bool) bool {
+func existsMatches(arg jsontext.Value, fieldVal any, present bool) bool {
 	var want bool
-	if err := json.Unmarshal(arg, &want); err != nil {
+	if err := json.Unmarshal(arg, &want, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -222,13 +225,13 @@ func existsMatches(arg json.RawMessage, fieldVal any, present bool) bool {
 	return want == present
 }
 
-func affixMatches(arg json.RawMessage, fieldVal any, present bool, fn func(string, string) bool) bool {
+func affixMatches(arg jsontext.Value, fieldVal any, present bool, fn func(string, string) bool) bool {
 	if !present {
 		return false
 	}
 
 	var want string
-	if err := json.Unmarshal(arg, &want); err != nil {
+	if err := json.Unmarshal(arg, &want, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -237,13 +240,13 @@ func affixMatches(arg json.RawMessage, fieldVal any, present bool, fn func(strin
 	return ok && fn(fv, want)
 }
 
-func equalsIgnoreCaseMatches(arg json.RawMessage, fieldVal any, present bool) bool {
+func equalsIgnoreCaseMatches(arg jsontext.Value, fieldVal any, present bool) bool {
 	if !present {
 		return false
 	}
 
 	var want string
-	if err := json.Unmarshal(arg, &want); err != nil {
+	if err := json.Unmarshal(arg, &want, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -254,7 +257,7 @@ func equalsIgnoreCaseMatches(arg json.RawMessage, fieldVal any, present bool) bo
 
 // anythingButMatches matches when the field is present and NOT equal to any of
 // the listed values. The argument may be a scalar or an array of scalars.
-func anythingButMatches(arg json.RawMessage, fieldVal any, present bool) bool {
+func anythingButMatches(arg jsontext.Value, fieldVal any, present bool) bool {
 	if !present {
 		return false
 	}
@@ -264,8 +267,8 @@ func anythingButMatches(arg json.RawMessage, fieldVal any, present bool) bool {
 		return !scalarMatches(arg, fieldVal, present)
 	}
 
-	var values []json.RawMessage
-	if err := json.Unmarshal(arg, &values); err != nil {
+	var values []jsontext.Value
+	if err := json.Unmarshal(arg, &values, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -279,7 +282,7 @@ func anythingButMatches(arg json.RawMessage, fieldVal any, present bool) bool {
 }
 
 // numericMatches evaluates a numeric rule like ["=",1] or [">",0,"<=",10].
-func numericMatches(arg json.RawMessage, fieldVal any, present bool) bool {
+func numericMatches(arg jsontext.Value, fieldVal any, present bool) bool {
 	if !present {
 		return false
 	}
@@ -289,19 +292,19 @@ func numericMatches(arg json.RawMessage, fieldVal any, present bool) bool {
 		return false
 	}
 
-	var tokens []json.RawMessage
-	if err := json.Unmarshal(arg, &tokens); err != nil {
+	var tokens []jsontext.Value
+	if err := json.Unmarshal(arg, &tokens, jsonx.V1()); err != nil {
 		return false
 	}
 
 	for i := 0; i+1 < len(tokens); i += 2 {
 		var operator string
-		if err := json.Unmarshal(tokens[i], &operator); err != nil {
+		if err := json.Unmarshal(tokens[i], &operator, jsonx.V1()); err != nil {
 			return false
 		}
 
 		var operand float64
-		if err := json.Unmarshal(tokens[i+1], &operand); err != nil {
+		if err := json.Unmarshal(tokens[i+1], &operand, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -339,7 +342,7 @@ func toFloat(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
-	case json.Number:
+	case jsonx.Number:
 		f, err := n.Float64()
 
 		return f, err == nil
@@ -440,7 +443,7 @@ func parseJSONObjectBytes(b []byte) (map[string]any, bool) {
 	}
 
 	var obj map[string]any
-	if err := json.Unmarshal(b, &obj); err != nil {
+	if err := json.Unmarshal(b, &obj, jsonx.V1()); err != nil {
 		return nil, false
 	}
 

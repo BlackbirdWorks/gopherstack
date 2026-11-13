@@ -1,7 +1,8 @@
 package apigatewaymanagementapi
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -244,10 +246,9 @@ func (h *Handler) connectionExists(connectionID string) bool {
 }
 
 func decodeJSON(r io.Reader, dst any) error {
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(r)
 
-	if err := dec.Decode(dst); err != nil {
+	if err := json.UnmarshalDecode(dec, dst, jsonx.V1(), json.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
 

@@ -1,10 +1,13 @@
 package azuresearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -180,12 +183,12 @@ func searchFromBody(body []byte) (*searchRequest, error) {
 		r.ScoringParams = append(r.ScoringParams, s)
 	}
 
-	if n, ok := raw["top"].(json.Number); ok {
+	if n, ok := raw["top"].(jsonx.Number); ok {
 		r.TopSet = true
 		r.Top, _ = intParam(n.String(), "top")
 	}
 
-	if n, ok := raw["skip"].(json.Number); ok {
+	if n, ok := raw["skip"].(jsonx.Number); ok {
 		r.Skip, _ = intParam(n.String(), "skip")
 	}
 
@@ -210,18 +213,18 @@ func parseVectorQueries(list []any) ([]vectorQuery, error) {
 			return nil, badf("Vector query kind '%s' is not supported: the service has no vectorizer.", vq.Kind)
 		}
 
-		if n, ok := m["k"].(json.Number); ok {
+		if n, ok := m["k"].(jsonx.Number); ok {
 			vq.K, _ = intParam(n.String(), "k")
 		}
 
-		if w, ok := m["weight"].(json.Number); ok {
+		if w, ok := m["weight"].(jsonx.Number); ok {
 			vq.Weight, _ = w.Float64()
 		}
 
 		vq.Exhaustive = boolOf(m, "exhaustive", false)
 
 		for _, x := range listOf(m, "vector") {
-			n, ok := x.(json.Number)
+			n, ok := x.(jsonx.Number)
 			if !ok {
 				return nil, badf("The vector query must contain only numbers.")
 			}
@@ -245,10 +248,9 @@ func decodeJSON(body []byte, out any) error {
 		return badf("The request body is empty.")
 	}
 
-	dec := json.NewDecoder(strings.NewReader(string(body)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(string(body)))
 
-	if err := dec.Decode(out); err != nil {
+	if err := json.UnmarshalDecode(dec, out, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return badf("The request is invalid. Details: the body is not valid JSON.")
 	}
 
@@ -279,7 +281,7 @@ func decodeDefJSON(body []byte) (map[string]any, error) {
 		return nil, badf("The request is invalid. Details: the request body is empty.")
 	}
 
-	if err := json.Unmarshal(body, &out); err != nil || out == nil {
+	if err := json.Unmarshal(body, &out, jsonx.V1()); err != nil || out == nil {
 		return nil, badf("The request is invalid. Details: the body is not a valid JSON object.")
 	}
 

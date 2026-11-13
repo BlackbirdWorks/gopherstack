@@ -1,13 +1,16 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -668,7 +671,7 @@ func ProcessedTemplateBody(body, region string) (string, error) {
 	} else {
 		delete(doc, "Transform")
 	}
-	out, err := json.MarshalIndent(doc, "", "  ")
+	out, err := json.Marshal(doc, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
 	return string(out), err
 }
@@ -686,7 +689,7 @@ func expandSAMBody(body string) (string, error) {
 	if err = expandSAMDocument(doc, ""); err != nil {
 		return "", err
 	}
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 
 	return string(out), err
 }
@@ -702,7 +705,7 @@ func decodeTemplateDoc(body string) (map[string]any, error) {
 		jsonBody = converted
 	}
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(jsonBody), &doc); err != nil {
+	if err := json.Unmarshal([]byte(jsonBody), &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON template: %w", err)
 	}
 

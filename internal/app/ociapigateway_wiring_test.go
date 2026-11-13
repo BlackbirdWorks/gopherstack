@@ -3,7 +3,8 @@ package app
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
@@ -98,12 +100,18 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/introspect" {
 			user, pass, _ := r.BasicAuth()
-			_ = json.NewEncoder(w).Encode(map[string]any{"active": user == "cid" && pass == "s3cret"})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				map[string]any{"active": user == "cid" && pass == "s3cret"},
+			)
 
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]string{"introspection_endpoint": "http://" + r.Host + "/introspect"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"introspection_endpoint": "http://" + r.Host + "/introspect"},
+		)
 	}))
 	t.Cleanup(idp.Close)
 
@@ -138,7 +146,7 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 	var gw map[string]any
 
 	require.NoError(t, json.Unmarshal([]byte(post("/gateways",
-		`{"compartmentId":"c","endpointType":"PUBLIC","subnetId":"s"}`)), &gw))
+		`{"compartmentId":"c","endpointType":"PUBLIC","subnetId":"s"}`)), &gw, jsonx.V1()))
 
 	gwB.Sweep()
 

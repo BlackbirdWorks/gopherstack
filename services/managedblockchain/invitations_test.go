@@ -1,13 +1,15 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -42,7 +44,7 @@ func TestHandler_ListInvitations(t *testing.T) {
 			var resp struct {
 				Invitations []map[string]any `json:"Invitations"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			assert.Len(t, resp.Invitations, tt.wantLen)
 		})
 	}
@@ -119,7 +121,7 @@ func TestHandler_InvitationNetworkSummary(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			invitations := resp["Invitations"].([]any)
 			require.Len(t, invitations, 1)
@@ -153,7 +155,7 @@ func TestHandler_InvitationLifecycleViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	invitations := listResp["Invitations"].([]any)
 	assert.Len(t, invitations, 1)
 
@@ -199,7 +201,7 @@ func TestHandler_InvitationOmitsTopLevelNetworkFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	invitations := resp["Invitations"].([]any)
 	require.Len(t, invitations, 1)

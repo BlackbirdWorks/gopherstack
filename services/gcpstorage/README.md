@@ -22,7 +22,7 @@
 - Signed URL gaps: the canonical-requests page says X-Goog-Date is when the URL becomes usable but names no error code, so RequestTimeTooSkewed for a future date is the emulator's choice; POST policy documents are not verified; bearer tokens are never validated.
 - Lifecycle gaps: AbortIncompleteMultipartUpload (XML multipart is not served), matchesPattern (absent from the buckets reference and the Go client, so its semantics are undocumented) and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (the pubsub-notifications page does not say whether it should); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced.
 - Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported.
-- Customer-supplied and KMS encryption keys are accepted but not applied.
+- Cloud KMS keys (kmsKeyName on buckets and objects) are accepted but the key is not checked against gcpkms and no data is encrypted; resumable chunk requests are not re-checked for the customer-supplied key headers (the key is read on the initiating request).
 - Managed and hierarchical-namespace folders are not modelled, so includeFoldersAsPrefixes (validated: delimiter must be '/') adds no prefixes; the docs do not say whether matchGlob with prefix matches the full name or the remainder, and the emulator matches the full name.
 
 ## More

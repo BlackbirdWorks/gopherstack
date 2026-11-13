@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -79,7 +80,7 @@ func TestCreateUserPoolDomain_ManagedDomain_EmptyCloudFrontDomain(t *testing.T) 
 			var out struct {
 				CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tt.wantCF {
 				assert.Contains(
@@ -114,7 +115,7 @@ func TestUserPoolDomain_Managed(t *testing.T) {
 	var out struct {
 		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	// Managed domains: AWS returns empty CloudFrontDomain (no CloudFront distribution).
 	assert.Empty(t, out.CloudFrontDomain)
 }
@@ -139,7 +140,7 @@ func TestUserPoolDomain_Custom_WithCertArn(t *testing.T) {
 	var createOut struct {
 		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.Contains(t, createOut.CloudFrontDomain, "cloudfront.net")
 
 	// Describe should return the domain with status.
@@ -159,7 +160,7 @@ func TestUserPoolDomain_Custom_WithCertArn(t *testing.T) {
 			CloudFrontDistribution string `json:"CloudFrontDistribution,omitempty"`
 		} `json:"DomainDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.DomainDescription)
 	assert.Equal(t, "auth.mycompany.com", descOut.DomainDescription.Domain)
 	assert.Equal(t, "ACTIVE", descOut.DomainDescription.Status)
@@ -197,7 +198,7 @@ func TestUserPoolDomain_Managed_NoCustomDomainConfig(t *testing.T) {
 			} `json:"CustomDomainConfig,omitempty"`
 		} `json:"DomainDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.DomainDescription)
 	assert.Nil(t, descOut.DomainDescription.CustomDomainConfig)
 }
@@ -231,7 +232,7 @@ func TestUserPoolDomain_Update_WithCertArn(t *testing.T) {
 	var out struct {
 		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out.CloudFrontDomain, "cloudfront.net")
 }
 
@@ -282,7 +283,7 @@ func TestUserPoolDomain_Describe_AWSAccountIdManagedLoginVersionS3Bucket(t *test
 			var createOut struct {
 				ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 			require.NotNil(t, createOut.ManagedLoginVersion, "CreateUserPoolDomain must echo ManagedLoginVersion")
 			assert.Equal(t, tt.wantMLV, *createOut.ManagedLoginVersion)
 
@@ -290,7 +291,7 @@ func TestUserPoolDomain_Describe_AWSAccountIdManagedLoginVersionS3Bucket(t *test
 			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 			var out domainDescriptionWire
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 			require.NotNil(t, out.DomainDescription)
 
 			assert.NotEmpty(t, out.DomainDescription.AWSAccountID)
@@ -323,7 +324,7 @@ func TestUserPoolDomain_UpdateManagedLoginVersion_OmittedRetainsPrior(t *testing
 	var updateOut struct {
 		ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	require.NotNil(t, updateOut.ManagedLoginVersion, "UpdateUserPoolDomain must echo ManagedLoginVersion")
 	assert.EqualValues(t, 2, *updateOut.ManagedLoginVersion, "omitting the field on update must not reset it")
 }
@@ -429,7 +430,7 @@ func TestDomain_FullCRUDLifecycle(t *testing.T) {
 	var createResp struct {
 		CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	// Managed domains: AWS returns empty CloudFrontDomain in the create response.
 	assert.Empty(t, createResp.CloudFrontDomain)
 
@@ -445,7 +446,7 @@ func TestDomain_FullCRUDLifecycle(t *testing.T) {
 			Status string `json:"Status,omitempty"`
 		} `json:"DomainDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "myapp", descResp.DomainDescription.Domain)
 	assert.Equal(t, "ACTIVE", descResp.DomainDescription.Status)
 
@@ -475,6 +476,6 @@ func TestDomain_FullCRUDLifecycle(t *testing.T) {
 			Status string `json:"Status,omitempty"`
 		} `json:"DomainDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterDeleteResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &afterDeleteResp, jsonx.V1()))
 	assert.Empty(t, afterDeleteResp.DomainDescription.Domain)
 }

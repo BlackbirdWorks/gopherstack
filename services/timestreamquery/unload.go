@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"regexp"
 	"sort"
@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -461,7 +462,7 @@ func jsonCell(d Datum) any {
 	}
 
 	if _, err := strconv.ParseFloat(*d.ScalarValue, 64); err == nil && !strings.ContainsAny(*d.ScalarValue, " :") {
-		return json.Number(*d.ScalarValue)
+		return jsonx.Number(*d.ScalarValue)
 	}
 
 	return *d.ScalarValue
@@ -473,7 +474,7 @@ func arrayJSON(vals []Datum) string {
 		out[i] = jsonCell(v)
 	}
 
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return string(b)
 }
@@ -484,7 +485,7 @@ func timeSeriesJSON(pts []TimeSeriesDataPoint) string {
 		out[i] = map[string]any{"time": p.Time + "Z", "value": jsonCell(p.Value)}
 	}
 
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return string(b)
 }
@@ -742,7 +743,7 @@ func (w *unloadWriter) writeMetadata(key string) error {
 	body, err := json.Marshal(map[string]any{
 		"ColumnInfo": w.rs.cols,
 		"Author":     map[string]string{"Name": unloadAuthor, "MetadataFileVersion": "1.0"},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return unloadErr("Failed to encode UNLOAD metadata: %v", err)
 	}
@@ -772,7 +773,7 @@ func (w *unloadWriter) writeManifest(key string, total int64) error {
 			"result_format": w.st.opts.format, "result_version": unloadResultVersion,
 		},
 		"author": map[string]string{"name": unloadAuthor, "manifest_file_version": "1.0"},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return unloadErr("Failed to encode UNLOAD manifest: %v", err)
 	}

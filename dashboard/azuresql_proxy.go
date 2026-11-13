@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	sqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 )
 
@@ -96,7 +97,7 @@ func sqlProxyBody(method string, _ []string, in []byte) ([]byte, bool) {
 	}
 
 	var req sqlRuleIn
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil, false
 	}
 
@@ -109,7 +110,7 @@ func sqlProxyBody(method string, _ []string, in []byte) ([]byte, bool) {
 
 	b, err := json.Marshal(map[string]any{sqlPxPropsField: map[string]any{
 		"startIpAddress": start.String(), "endIpAddress": end.String(),
-	}})
+	}}, jsonx.V1())
 
 	return b, err == nil
 }

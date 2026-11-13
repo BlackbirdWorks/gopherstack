@@ -1,11 +1,13 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -78,7 +80,7 @@ func (h *Handler) handleCreateArchiveRule(path string, body []byte) (int, error)
 		RuleName string                     `json:"ruleName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return 0, ErrValidation
 	}
 
@@ -154,7 +156,7 @@ func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (int, error)
 		Filter map[string]FilterCriterion `json:"filter"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return 0, ErrValidation
 	}
 
@@ -171,7 +173,7 @@ func (h *Handler) handleApplyArchiveRule(body []byte) (int, error) {
 		RuleName    string `json:"ruleName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return 0, ErrValidation
 	}
 

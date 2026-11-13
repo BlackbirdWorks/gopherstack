@@ -1,7 +1,8 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -27,7 +29,7 @@ func TestGetSavingsPlanPurchaseRecommendationDetails(t *testing.T) {
 		RecommendationDetailData map[string]any `json:"RecommendationDetailData"`
 		RecommendationDetailID   string         `json:"RecommendationDetailId"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, "detail-abc123", out.RecommendationDetailID)
 	assert.NotEmpty(t, out.RecommendationDetailData)
 }
@@ -56,7 +58,7 @@ func TestListSavingsPlansPurchaseRecommendationGeneration(t *testing.T) {
 	var out struct {
 		GenerationSummaryList []any `json:"GenerationSummaryList"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotNil(t, out.GenerationSummaryList)
 }
 
@@ -75,7 +77,7 @@ func TestStartSavingsPlansPurchaseRecommendationGeneration(t *testing.T) {
 		GenerationStartedTime   string `json:"GenerationStartedTime"`
 		EstimatedCompletionTime string `json:"EstimatedCompletionTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.RecommendationID)
 	assert.NotEmpty(t, out.GenerationStartedTime)
 	assert.NotEmpty(t, out.EstimatedCompletionTime)
@@ -89,7 +91,7 @@ func TestStartSavingsPlansPurchaseRecommendationGeneration(t *testing.T) {
 			GenerationStatus string `json:"GenerationStatus"`
 		} `json:"GenerationSummaryList"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	require.Len(t, listOut.GenerationSummaryList, 1)
 	assert.Equal(t, out.RecommendationID, listOut.GenerationSummaryList[0].RecommendationID)
 	assert.Equal(t, "PROCESSING", listOut.GenerationSummaryList[0].GenerationStatus)
@@ -113,7 +115,7 @@ func TestListSavingsPlansPurchaseRecommendationGeneration_FiltersByStatus(t *tes
 	var out struct {
 		GenerationSummaryList []any `json:"GenerationSummaryList"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Empty(t, out.GenerationSummaryList, "job is PROCESSING, must not match a SUCCEEDED filter")
 }
 
@@ -134,7 +136,7 @@ func TestGetSavingsPlansCoverage(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"SavingsPlansCoverages"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.SavingsPlansCoverages)
 	assert.NotEmpty(t, out.SavingsPlansCoverages[0].Coverage)
 }
@@ -153,7 +155,7 @@ func TestGetSavingsPlansUtilization_DailyGranularity(t *testing.T) {
 	var out struct {
 		SavingsPlansUtilizationsByTime []any `json:"SavingsPlansUtilizationsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.SavingsPlansUtilizationsByTime, 7)
 }
 
@@ -191,7 +193,7 @@ func TestCeRegion_SavingsPlansCoverageUsesCtxRegion(t *testing.T) {
 					Attributes map[string]string `json:"Attributes"`
 				} `json:"SavingsPlansCoverages"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			require.NotEmpty(t, out.SavingsPlansCoverages)
 			assert.Equal(t, tt.wantRegion, out.SavingsPlansCoverages[0].Attributes["Region"])
 		})
@@ -235,7 +237,7 @@ func TestCeRegion_SavingsPlansPurchaseRecommendationUsesCtxRegion(t *testing.T) 
 					RecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
 				} `json:"SavingsPlansPurchaseRecommendation"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			details := out.SavingsPlansPurchaseRecommendation.RecommendationDetails
 			require.NotEmpty(t, details)
 			spDetails, ok := details[0]["SavingsPlansDetails"].(map[string]any)
@@ -291,7 +293,7 @@ func TestGetSavingsPlansUtilization_ReturnsTotalAndByTime(t *testing.T) {
 				} `json:"Total"`
 				SavingsPlansUtilizationsByTime []any `json:"SavingsPlansUtilizationsByTime"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			assert.NotEmpty(t, out.Total.Utilization.TotalCommitment)
 			assert.NotEmpty(t, out.Total.Utilization.UsedCommitment)
@@ -320,7 +322,7 @@ func TestGetSavingsPlansUtilizationDetails_ReturnsDetails(t *testing.T) {
 			} `json:"Utilization"`
 		} `json:"SavingsPlansUtilizationDetails"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.SavingsPlansUtilizationDetails)
 	assert.NotNil(t, out.Total)
 	assert.NotEmpty(t, out.TimePeriod)
@@ -373,7 +375,7 @@ func TestGetSavingsPlansPurchaseRecommendation_ReturnsRecommendation(t *testing.
 					SavingsPlansPurchaseRecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
 				} `json:"SavingsPlansPurchaseRecommendation"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.SavingsPlansPurchaseRecommendation.SavingsPlansType)
 			assert.NotEmpty(t, out.SavingsPlansPurchaseRecommendation.SavingsPlansPurchaseRecommendationDetails)
 			assert.NotNil(t, out.Metadata)

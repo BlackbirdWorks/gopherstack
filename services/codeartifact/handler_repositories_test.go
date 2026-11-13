@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -75,7 +76,7 @@ func TestHandler_CreateRepository(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				repo, _ := resp["repository"].(map[string]any)
 				assert.Equal(t, tt.repo, repo["name"])
 				assert.Equal(t, tt.domain, repo["domainName"])
@@ -96,7 +97,7 @@ func TestHandler_DescribeRepository(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repo, _ := resp["repository"].(map[string]any)
 	assert.Equal(t, "r1", repo["name"])
 	assert.Equal(t, "d1", repo["domainName"])
@@ -128,7 +129,7 @@ func TestHandler_ListRepositoriesInDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repos, _ := resp["repositories"].([]any)
 	assert.Len(t, repos, 2)
 }
@@ -146,7 +147,7 @@ func TestHandler_ListRepositories(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repos, _ := resp["repositories"].([]any)
 	assert.Len(t, repos, 2)
 }
@@ -168,7 +169,7 @@ func TestHandler_GetRepositoryEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["repositoryEndpoint"])
 }
 
@@ -243,7 +244,7 @@ func TestHandler_AssociateExternalConnection(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["repository"])
 			}
 		})
@@ -280,7 +281,7 @@ func TestHandler_RepositoryPermissionsPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	pol, _ := putResp["policy"].(map[string]any)
 	assert.NotEmpty(t, pol["revision"])
 	assert.NotEmpty(t, pol["resourceArn"])
@@ -349,7 +350,7 @@ func TestHandler_RepositoryPermissionsPolicy_RevisionLocking(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, putRec.Code)
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	pol, _ := putResp["policy"].(map[string]any)
 	revision, _ := pol["revision"].(string)
 	require.NotEmpty(t, revision)
@@ -380,7 +381,7 @@ func TestHandler_RepositoryPermissionsPolicy_RevisionLocking(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	getPol, _ := getResp["policy"].(map[string]any)
 	assert.NotContains(t, getPol["document"], "Deny")
 
@@ -448,7 +449,7 @@ func TestHandler_ExternalConnectionFormat(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			repo, _ := resp["repository"].(map[string]any)
 			conns, _ := repo["externalConnections"].([]any)
 			require.Len(t, conns, 1)
@@ -485,7 +486,7 @@ func TestHandler_UpdateRepository_DescriptionPersists(t *testing.T) {
 	descRec := doRequest(t, h, http.MethodGet, "/v1/repository?domain=ur-desc-domain&repository=ur-desc-repo", nil)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	repo, _ := resp["repository"].(map[string]any)
 	assert.Equal(t, "updated", repo["description"])
 }
@@ -517,7 +518,7 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	repo, _ := descResp["repository"].(map[string]any)
 	conns, _ := repo["externalConnections"].([]any)
 	assert.Len(t, conns, 3)
@@ -533,7 +534,7 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, disRec.Code)
 	var disResp map[string]any
-	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp, jsonx.V1()))
 	disRepo, _ := disResp["repository"].(map[string]any)
 	disConns, _ := disRepo["externalConnections"].([]any)
 	assert.Len(t, disConns, 2)
@@ -613,7 +614,7 @@ func TestHandler_DisassociateExternalConnection(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				repo, _ := resp["repository"].(map[string]any)
 				assert.NotNil(t, repo)
 			}
@@ -684,7 +685,7 @@ func TestHandler_UpdateRepository(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				repo, _ := resp["repository"].(map[string]any)
 				assert.NotNil(t, repo)
 			}
@@ -706,7 +707,7 @@ func TestListRepositoriesInDomain_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1, _ := out1["repositories"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["nextToken"].(string)
@@ -717,7 +718,7 @@ func TestListRepositoriesInDomain_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2, _ := out2["repositories"].([]any)
 	assert.Len(t, page2, 2)
 }
@@ -741,7 +742,7 @@ func TestCreateRepository_UpstreamRepositories(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	repo, _ := out["repository"].(map[string]any)
 	upstreams, _ := repo["upstreams"].([]any)
 	require.Len(t, upstreams, 1)
@@ -770,7 +771,7 @@ func TestUpdateRepository_UpstreamRepositories(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	repo, _ := out["repository"].(map[string]any)
 	upstreams, _ := repo["upstreams"].([]any)
 	require.Len(t, upstreams, 1)

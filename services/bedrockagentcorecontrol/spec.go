@@ -2,12 +2,13 @@ package bedrockagentcorecontrol
 
 import (
 	_ "embed" // opsJSON
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -41,7 +42,7 @@ type specFile struct {
 
 var specs = sync.OnceValue(func() map[string]*opSpec { //nolint:gochecknoglobals // immutable embedded spec
 	var f specFile
-	if err := json.Unmarshal(opsJSON, &f); err != nil {
+	if err := json.Unmarshal(opsJSON, &f, jsonx.V1()); err != nil {
 		panic("bedrockagentcorecontrol: corrupt ops.json: " + err.Error())
 	}
 

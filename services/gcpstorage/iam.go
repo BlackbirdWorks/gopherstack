@@ -3,12 +3,14 @@ package gcpstorage
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type conditionJSON struct {
@@ -36,7 +38,7 @@ func policyToPB(p IAMPolicy) *iampb.Policy {
 		if len(bd.Condition) > 0 && string(bd.Condition) != "null" {
 			var c conditionJSON
 
-			_ = json.Unmarshal(bd.Condition, &c)
+			_ = json.Unmarshal(bd.Condition, &c, jsonx.V1())
 			pb.Condition = &expr.Expr{Expression: c.Expression, Title: c.Title, Description: c.Description}
 		}
 
@@ -53,7 +55,10 @@ func policyFromPB(p *iampb.Policy) IAMPolicy {
 		ib := IAMBinding{Role: bd.GetRole(), Members: bd.GetMembers()}
 
 		if c := bd.GetCondition(); c != nil {
-			ib.Condition, _ = json.Marshal(conditionJSON{c.GetExpression(), c.GetTitle(), c.GetDescription()})
+			ib.Condition, _ = json.Marshal(
+				conditionJSON{c.GetExpression(), c.GetTitle(), c.GetDescription()},
+				jsonx.V1(),
+			)
 		}
 
 		out.Bindings = append(out.Bindings, ib)

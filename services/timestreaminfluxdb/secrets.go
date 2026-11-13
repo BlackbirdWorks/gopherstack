@@ -1,9 +1,10 @@
 package timestreaminfluxdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -39,7 +40,7 @@ func (b *InMemoryBackend) authSecretLocked(sc scope, id string, a authSecret) (s
 		return "", nil
 	}
 
-	body, err := json.Marshal(a) //nolint:gosec // the secret holds the credentials by design
+	body, err := json.Marshal(a, jsonx.V1())
 	if err != nil {
 		return "", fail(ErrInternalServer, "encode auth secret")
 	}

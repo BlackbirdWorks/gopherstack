@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/logic/armlogic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type la = map[string]any
@@ -508,7 +510,7 @@ func TestLogicEngineTerminateError(t *testing.T) {
 	out := s.invoke(t, "term", "{}")
 	assert.Equal(t, armlogic.WorkflowStatusFailed, *out.run.Properties.Status)
 
-	raw, err := json.Marshal(out.run.Properties.Error)
+	raw, err := json.Marshal(out.run.Properties.Error, jsonx.V1())
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"code":"Boom","message":"stopped here"}`, string(raw))
 }
@@ -668,7 +670,7 @@ func TestLogicEngineHTTPLoopbackOnly(t *testing.T) {
 	assert.Equal(t, armlogic.WorkflowStatusFailed, *out.run.Properties.Status)
 	assert.Equal(t, armlogic.WorkflowStatusFailed, *out.actions["Call"].Properties.Status)
 
-	raw, err := json.Marshal(out.actions["Call"].Properties.Error)
+	raw, err := json.Marshal(out.actions["Call"].Properties.Error, jsonx.V1())
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), "azure-arm-logic-allow-external")
 }
@@ -766,7 +768,7 @@ func TestLogicEngineQuotesInMessages(t *testing.T) {
 			msgs := make([]string, 0, len(out.actions))
 
 			for _, a := range out.actions {
-				raw, err := json.Marshal(a.Properties.Error)
+				raw, err := json.Marshal(a.Properties.Error, jsonx.V1())
 				require.NoError(t, err)
 
 				msgs = append(msgs, string(raw))

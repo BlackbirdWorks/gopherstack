@@ -2,11 +2,13 @@ package swf
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -189,7 +191,7 @@ func lambdaFailureDetails(functionError string, payload []byte) (string, string)
 		ErrorType string `json:"errorType"`
 	}
 
-	if json.Unmarshal(payload, &body) == nil && body.ErrorType != "" {
+	if json.Unmarshal(payload, &body, jsonx.V1()) == nil && body.ErrorType != "" {
 		return body.ErrorType, string(payload)
 	}
 

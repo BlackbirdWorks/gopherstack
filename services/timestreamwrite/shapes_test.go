@@ -1,7 +1,8 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
@@ -117,11 +119,11 @@ func TestTableShapes_UnknownTable(t *testing.T) {
 func stripShapes(t *testing.T, snap []byte) []byte {
 	t.Helper()
 
-	var m map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &m))
+	var m map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &m, jsonx.V1()))
 	delete(m, "shapes")
 
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(m, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -44,7 +45,7 @@ func testStartEncryptionARNSupport(t *testing.T) {
 		} `json:"StreamDescription"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
 		"StreamARN":      descResp.StreamDescription.StreamARN,
@@ -85,7 +86,7 @@ func TestStopEncryption_ResetsFields(t *testing.T) {
 		} `json:"StreamDescription"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "NONE", resp.StreamDescription.EncryptionType)
 }
 
@@ -208,7 +209,7 @@ func TestStreamEncryption_Errors(t *testing.T) {
 					Type string `json:"__type"`
 				}
 
-				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(got.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})

@@ -1,13 +1,14 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifilestorage"
@@ -78,14 +79,14 @@ func TestOCIFileStorageEngineIgnoresGlobalSwitch(t *testing.T) {
 func idOf(t *testing.T, v any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	var out struct {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &out))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 	return out.ID
 }

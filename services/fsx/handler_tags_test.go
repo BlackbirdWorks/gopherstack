@@ -1,7 +1,8 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -25,7 +27,7 @@ func TestFSx_Tags(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		return out["FileSystem"].(map[string]any)["ResourceARN"].(string)
 	}
@@ -52,7 +54,7 @@ func TestFSx_Tags(t *testing.T) {
 		rec := doFSxRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		tags := resp["Tags"].([]any)
 		assert.Len(t, tags, 1)
 		tag := tags[0].(map[string]any)
@@ -72,7 +74,7 @@ func TestFSx_Tags(t *testing.T) {
 		rec := doFSxRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		tags := resp["Tags"].([]any)
 		assert.Len(t, tags, 1)
 		assert.Equal(t, "Name", tags[0].(map[string]any)["Key"])
@@ -148,7 +150,7 @@ func TestFSx_TagValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			arn := out["FileSystem"].(map[string]any)["ResourceARN"].(string)
 
@@ -160,7 +162,7 @@ func TestFSx_TagValidation(t *testing.T) {
 
 			if tc.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tc.wantType, resp["__type"])
 			}
 		})
@@ -204,7 +206,7 @@ func TestFSx_TagValidation_OnCreate(t *testing.T) {
 
 			if tc.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tc.wantType, resp["__type"])
 			}
 		})
@@ -227,7 +229,7 @@ func TestFSx_TagLimit(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		arn := out["FileSystem"].(map[string]any)["ResourceARN"].(string)
 
@@ -248,7 +250,7 @@ func TestFSx_TagLimit(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		// TagResource's own switch (fsx@v1.68.4 deserializers.go
 		// deserializeOpErrorTagResource) does not declare
 		// ServiceLimitExceeded; BadRequest is the correct wire type
@@ -269,7 +271,7 @@ func TestFSx_TagLimit(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		arn := out["FileSystem"].(map[string]any)["ResourceARN"].(string)
 
@@ -312,7 +314,7 @@ func TestListTagsForResource_EmptyIsArray(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out["FileSystem"].(map[string]any)["ResourceARN"].(string)
 			},
@@ -324,7 +326,7 @@ func TestListTagsForResource_EmptyIsArray(t *testing.T) {
 				rec := doFSxRequest(t, h, "CreateBackup", map[string]any{"FileSystemId": fsID})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out["Backup"].(map[string]any)["ResourceARN"].(string)
 			},
@@ -342,8 +344,8 @@ func TestListTagsForResource_EmptyIsArray(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Parse the raw JSON to verify "Tags" is an array, not null.
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			tagsRaw, ok := raw["Tags"]
 			require.True(t, ok, "Tags key must be present")
@@ -398,7 +400,7 @@ func Test_TagOps_UnknownARN_ReturnsResourceNotFound(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFound", errBody["__type"],
 				"%s on an unknown ARN must return the generic ResourceNotFound code", tt.op)
 		})

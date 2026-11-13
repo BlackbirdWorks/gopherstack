@@ -1,13 +1,15 @@
 package batch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
 
@@ -293,7 +295,7 @@ func TestDescribeComputeEnvironments_TagsPresentNoTags(t *testing.T) {
 	items := out["computeEnvironments"].([]any)
 	require.Len(t, items, 1)
 
-	itemBytes, err := json.Marshal(items[0])
+	itemBytes, err := json.Marshal(items[0], jsonx.V1())
 	require.NoError(t, err)
 	assertTagsPresent(t, itemBytes)
 }
@@ -307,8 +309,8 @@ func TestDescribeComputeEnvironments_EmptyList(t *testing.T) {
 	rec := post(t, h, "/v1/describecomputeenvironments", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var rawMap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap))
+	var rawMap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rawMap, jsonx.V1()))
 	raw, ok := rawMap["computeEnvironments"]
 	require.True(t, ok, "computeEnvironments key must be present")
 	assert.Equal(t, "[]", string(raw), "computeEnvironments must be [] not null when empty")

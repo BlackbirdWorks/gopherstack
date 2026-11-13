@@ -4,13 +4,16 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -33,7 +36,7 @@ func main() {
 	mux.HandleFunc("/hooks/s3/pre", func(_ http.ResponseWriter, r *http.Request) {
 		var req hookRequest
 
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &req, jsonx.V1())
 		log.Printf("s3 request %q %q", req.Method, req.Path)
 	})
 
@@ -66,7 +69,7 @@ func register() error {
 				{"services": []string{"S3"}, "pre": "/hooks/s3/pre", "timeout_ms": hookTimeoutMs},
 			},
 		},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}

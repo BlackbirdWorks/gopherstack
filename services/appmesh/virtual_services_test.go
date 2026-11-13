@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/http"
 	"testing"
@@ -126,7 +126,7 @@ func TestBackend_UpdateVirtualService(t *testing.T) {
 			t.Parallel()
 			b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
-			vs, err := b.UpdateVirtualService(tt.meshName, tt.vsName, json.RawMessage(`{}`))
+			vs, err := b.UpdateVirtualService(tt.meshName, tt.vsName, jsontext.Value(`{}`))
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))

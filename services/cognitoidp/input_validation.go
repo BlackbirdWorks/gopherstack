@@ -1,9 +1,11 @@
 package cognitoidp
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -24,7 +26,7 @@ type commonIdentifiers struct {
 // validateCommonIdentifiers applies the SDK's userPoolId/clientId pattern constraints before dispatch.
 func validateCommonIdentifiers(body []byte) error {
 	var ids commonIdentifiers
-	if err := json.Unmarshal(body, &ids); err != nil {
+	if err := json.Unmarshal(body, &ids, jsonx.V1()); err != nil {
 		return nil //nolint:nilerr // malformed bodies are reported by the op's own decoder
 	}
 

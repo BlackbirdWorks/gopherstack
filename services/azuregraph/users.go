@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"unicode"
 )
@@ -80,7 +80,7 @@ func (b *Backend) validateUser(u *User, self string) error {
 	return nil
 }
 
-func requireProps(kind string, body map[string]json.RawMessage, props ...string) error {
+func requireProps(kind string, body map[string]jsontext.Value, props ...string) error {
 	for _, p := range props {
 		if v, ok := body[p]; !ok || string(v) == jsonNull {
 			return badRequest("A value is required for property '%s' of resource '%s'.", p, kind)
@@ -91,7 +91,7 @@ func requireProps(kind string, body map[string]json.RawMessage, props ...string)
 }
 
 // CreateUser creates a user. passwordProfile is validated and discarded.
-func (b *Backend) CreateUser(body map[string]json.RawMessage) (User, error) {
+func (b *Backend) CreateUser(body map[string]jsontext.Value) (User, error) {
 	if err := requireProps(typeUser, body,
 		"accountEnabled", "displayName", "mailNickname", "passwordProfile", "userPrincipalName"); err != nil {
 		return User{}, err
@@ -147,7 +147,7 @@ func (b *Backend) ListUsers() []User {
 }
 
 // UpdateUser applies a PATCH body.
-func (b *Backend) UpdateUser(r Ref, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateUser(r Ref, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 

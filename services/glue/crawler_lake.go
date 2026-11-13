@@ -3,7 +3,8 @@ package glue
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -163,5 +166,5 @@ func moveToPartitionKeys(cols []Column, names []string) ([]Column, []Column) {
 }
 
 func decodeJSON(data []byte, v any) error {
-	return json.NewDecoder(bytes.NewReader(data)).Decode(v)
+	return json.UnmarshalDecode(jsontext.NewDecoder(bytes.NewReader(data)), v, jsonx.V1())
 }

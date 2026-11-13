@@ -3,9 +3,10 @@ package wafv2
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -17,7 +18,7 @@ type createAPIKeyRequest struct {
 
 func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAPIKeyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -46,7 +47,7 @@ func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, 
 
 	return json.Marshal(map[string]any{
 		"APIKey": encodedKey,
-	})
+	}, jsonx.V1())
 }
 
 // deleteAPIKeyRequest is the request body for DeleteAPIKey.
@@ -57,7 +58,7 @@ type deleteAPIKeyRequest struct {
 
 func (h *Handler) handleDeleteAPIKey(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteAPIKeyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -94,7 +95,7 @@ type listAPIKeysRequest struct {
 
 func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAPIKeysRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -137,7 +138,7 @@ func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, e
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // getDecryptedAPIKeyRequest is the request body for GetDecryptedAPIKey.
@@ -148,7 +149,7 @@ type getDecryptedAPIKeyRequest struct {
 
 func (h *Handler) handleGetDecryptedAPIKey(ctx context.Context, body []byte) ([]byte, error) {
 	var req getDecryptedAPIKeyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -176,7 +177,7 @@ func (h *Handler) handleGetDecryptedAPIKey(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{
 		"TokenDomains":      a.TokenDomains,
 		"CreationTimestamp": a.CreatedAt,
-	})
+	}, jsonx.V1())
 }
 
 // apiKeyDispatchOps returns the API-key-family operation dispatch entries. Each entry is a

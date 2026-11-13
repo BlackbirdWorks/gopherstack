@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonResourceARNReq struct {
@@ -25,7 +27,7 @@ func (h *Handler) handlePutResourcePolicy(
 	body []byte,
 ) (any, error) {
 	var req jsonPutResourcePolicyReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -45,7 +47,7 @@ func (h *Handler) handleGetResourcePolicy(
 	body []byte,
 ) (any, error) {
 	var req jsonResourceARNReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -65,7 +67,7 @@ func (h *Handler) handleDeleteResourcePolicy(
 	body []byte,
 ) (any, error) {
 	var req jsonResourceARNReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

@@ -1,7 +1,8 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -50,9 +52,12 @@ func newHook(t *testing.T, code func(n int) int) *hook {
 			if !h.manual {
 				var ev []map[string]any
 
-				_ = json.Unmarshal(body, &ev)
+				_ = json.Unmarshal(body, &ev, jsonx.V1())
 				code, _ := ev[0]["data"].(map[string]any)["validationCode"].(string)
-				_ = json.NewEncoder(w).Encode(map[string]string{"validationResponse": code})
+				_ = json.MarshalEncode(
+					jsontext.NewEncoder(w, jsonx.V1()),
+					map[string]string{"validationResponse": code},
+				)
 			}
 
 			return
@@ -90,7 +95,10 @@ func TestWebhookHandshake(t *testing.T) {
 			schema:    azureeventgrid.SchemaEventGrid,
 			wantState: azureeventgrid.StateSucceeded,
 			respond: func(w http.ResponseWriter, _ *http.Request, code string) {
-				_ = json.NewEncoder(w).Encode(map[string]string{"validationResponse": code})
+				_ = json.MarshalEncode(
+					jsontext.NewEncoder(w, jsonx.V1()),
+					map[string]string{"validationResponse": code},
+				)
 			},
 		},
 		{
@@ -146,7 +154,7 @@ func TestWebhookHandshake(t *testing.T) {
 
 				seen.mu.Lock()
 				seen.headers, seen.method = r.Header.Clone(), r.Method
-				_ = json.Unmarshal(body, &seen.event)
+				_ = json.Unmarshal(body, &seen.event, jsonx.V1())
 				seen.mu.Unlock()
 
 				code := ""
@@ -199,7 +207,7 @@ func TestManualValidationUnlocksDelivery(t *testing.T) {
 
 	var ev []map[string]any
 
-	require.NoError(t, json.Unmarshal(h.shakeBody, &ev))
+	require.NoError(t, json.Unmarshal(h.shakeBody, &ev, jsonx.V1()))
 
 	validationURL, _ = ev[0]["data"].(map[string]any)["validationUrl"].(string)
 	h.mu.Unlock()
@@ -243,7 +251,7 @@ func TestWebhookDeliveryShape(t *testing.T) {
 
 	var got []map[string]any
 
-	require.NoError(t, json.Unmarshal(h.bodies[0], &got))
+	require.NoError(t, json.Unmarshal(h.bodies[0], &got, jsonx.V1()))
 	require.Len(t, got, 1)
 	assert.Equal(t, "e1", got[0]["id"])
 	assert.Equal(t, topicRID, got[0]["topic"])
@@ -330,7 +338,7 @@ func TestRetryAndDeadLetter(t *testing.T) {
 
 			var arr []map[string]any
 
-			require.NoError(t, json.Unmarshal(blobs[0].body, &arr))
+			require.NoError(t, json.Unmarshal(blobs[0].body, &arr, jsonx.V1()))
 			require.Len(t, arr, 1)
 
 			out := arr[0]
@@ -410,7 +418,7 @@ func TestTargetDelivery(t *testing.T) {
 
 				var arr []map[string]any
 
-				require.NoError(t, json.Unmarshal(got.body, &arr))
+				require.NoError(t, json.Unmarshal(got.body, &arr, jsonx.V1()))
 				assert.Equal(t, "e1", arr[0]["id"])
 			},
 		},
@@ -447,12 +455,12 @@ func TestTargetDelivery(t *testing.T) {
 	}
 }
 
-func mustField(t *testing.T, raw []byte, key string) json.RawMessage {
+func mustField(t *testing.T, raw []byte, key string) jsontext.Value {
 	t.Helper()
 
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(raw, &m))
+	require.NoError(t, json.Unmarshal(raw, &m, jsonx.V1()))
 
 	return m[key]
 }
@@ -663,7 +671,7 @@ func TestDeadLetterSchemaFields(t *testing.T) {
 
 			var arr []map[string]any
 
-			require.NoError(t, json.Unmarshal(blobs[0].body, &arr))
+			require.NoError(t, json.Unmarshal(blobs[0].body, &arr, jsonx.V1()))
 			require.Len(t, arr, 1)
 			assert.Contains(t, arr[0], tt.want)
 			assert.NotContains(t, arr[0], tt.notWant)

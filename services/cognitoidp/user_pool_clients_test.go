@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -55,7 +56,7 @@ func TestHandler_CreateUserPoolClient_WithOAuthFields(t *testing.T) {
 			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, []string{"code"}, resp.UserPoolClient.AllowedOAuthFlows)
 	assert.ElementsMatch(t, []string{"email", "openid"}, resp.UserPoolClient.AllowedOAuthScopes)
 	assert.Equal(t, []string{"ALLOW_USER_PASSWORD_AUTH"}, resp.UserPoolClient.ExplicitAuthFlows)
@@ -81,7 +82,7 @@ func TestHandler_DescribeUserPoolClient_IncludesOAuthFields(t *testing.T) {
 			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doCognitoRequest(t, h, "DescribeUserPoolClient", map[string]any{
 		"UserPoolId": poolID,
@@ -96,7 +97,7 @@ func TestHandler_DescribeUserPoolClient_IncludesOAuthFields(t *testing.T) {
 			ExplicitAuthFlows  []string `json:"ExplicitAuthFlows,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, []string{"code"}, resp.UserPoolClient.AllowedOAuthFlows)
 	assert.Equal(t, []string{"openid"}, resp.UserPoolClient.AllowedOAuthScopes)
 	assert.Equal(t, []string{"ALLOW_USER_PASSWORD_AUTH"}, resp.UserPoolClient.ExplicitAuthFlows)
@@ -121,7 +122,7 @@ func TestAppClient_CRUD(t *testing.T) {
 			ClientName string `json:"ClientName"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Equal(t, "my-app-client", createResp.UserPoolClient.ClientName)
 	clientID := createResp.UserPoolClient.ClientID
 	assert.NotEmpty(t, clientID)
@@ -135,7 +136,7 @@ func TestAppClient_CRUD(t *testing.T) {
 			ClientID string `json:"ClientId"`
 		} `json:"UserPoolClients"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	var found bool
 	for _, c := range listResp.UserPoolClients {
 		if c.ClientID == clientID {
@@ -418,7 +419,7 @@ func TestClientSecrets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp clientSecretsListResp
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.ClientSecrets)
 
 	// Add a secret; its ClientSecretId is required to delete it later
@@ -436,7 +437,7 @@ func TestClientSecrets(t *testing.T) {
 			ClientSecretValue string `json:"ClientSecretValue"`
 		} `json:"ClientSecretDescriptor"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp, jsonx.V1()))
 	secretID := addResp.ClientSecretDescriptor.ClientSecretID
 	require.NotEmpty(t, secretID)
 	require.NotEmpty(t, addResp.ClientSecretDescriptor.ClientSecretValue)
@@ -446,7 +447,7 @@ func TestClientSecrets(t *testing.T) {
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.ClientSecrets, 1)
 	assert.Equal(t, secretID, listResp.ClientSecrets[0].ClientSecretID)
 	assert.Empty(t, listResp.ClientSecrets[0].ClientSecretValue)
@@ -472,7 +473,7 @@ func TestClientSecrets(t *testing.T) {
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.ClientSecrets)
 }
 
@@ -592,7 +593,7 @@ func TestListUserPoolClients_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
 
 	var page1 listOut
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.UserPoolClients, 2)
 	require.NotEmpty(t, page1.NextToken, "first page must return a cursor when more clients remain")
 
@@ -604,7 +605,7 @@ func TestListUserPoolClients_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
 
 	var page2 listOut
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.UserPoolClients, 2)
 	require.Empty(t, page2.NextToken)
 

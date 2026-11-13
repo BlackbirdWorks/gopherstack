@@ -1,17 +1,21 @@
 package appsync
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // wireShape re-encodes v without the internal-only keys drop from its top-level
 // object (or from each element when v is a slice).
 func wireShape(v any, drop ...string) any {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	var decoded any
-	if json.Unmarshal(raw, &decoded) != nil {
+	if json.Unmarshal(raw, &decoded, jsonx.V1()) != nil {
 		return v
 	}
 

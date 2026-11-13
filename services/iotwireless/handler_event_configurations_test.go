@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_EventConfigurations(t *testing.T) {
@@ -19,7 +21,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var defaultResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp, jsonx.V1()))
 	assert.NotContains(t, defaultResp, "DeviceRegistrationState")
 
 	// Update event config by resource types (PATCH, not POST -- iotwireless@v1.59.4
@@ -32,7 +34,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	// fabricated always-empty response.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations-resource-types", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp, jsonx.V1()))
 	drs, ok := defaultResp["DeviceRegistrationState"].(map[string]any)
 	require.True(t, ok)
 	sidewalk, ok := drs["Sidewalk"].(map[string]any)
@@ -44,7 +46,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok := listResp["EventConfigurationsList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, configs)
@@ -54,7 +56,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotContains(t, getResp, "Join")
 
 	// Update resource event configuration
@@ -66,7 +68,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	// Get resource event configuration must now reflect the stored config.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/event-configurations/some-resource", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	join, ok := getResp["Join"].(map[string]any)
 	require.True(t, ok)
 	loRaWAN, ok := join["LoRaWAN"].(map[string]any)
@@ -82,7 +84,7 @@ func TestHandler_EventConfigurations(t *testing.T) {
 		"",
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok = listResp["EventConfigurationsList"].([]any)
 	require.True(t, ok)
 	require.Len(t, configs, 1)
@@ -124,7 +126,7 @@ func TestHandler_EventConfigurationByResourceTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, ok := resp["DeviceRegistrationState"]
 	assert.True(t, ok, "persisted event config must be returned")
 }
@@ -172,7 +174,7 @@ func TestHandler_ResourceEventConfiguration(t *testing.T) {
 			// field (it echoes only the event-type configuration); confirm the
 			// stored per-resource event config round-trips instead.
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, ok := resp[tt.wantField]
 			assert.True(t, ok, "persisted event config field %q must be returned", tt.wantField)
 		})
@@ -189,7 +191,7 @@ func TestHandler_ListEventConfigurations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var pre map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pre))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pre, jsonx.V1()))
 	assert.Empty(t, pre["EventConfigurationsList"])
 
 	// Update config for two resources.
@@ -204,7 +206,7 @@ func TestHandler_ListEventConfigurations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var post map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &post))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &post, jsonx.V1()))
 	list, ok := post["EventConfigurationsList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, list, 2)
@@ -265,7 +267,7 @@ func TestHandler_ListEventConfigurations_FilterByResourceType(t *testing.T) {
 					Identifier string `json:"Identifier"`
 				} `json:"EventConfigurationsList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			ids := make([]string, 0, len(resp.EventConfigurationsList))
 			for _, e := range resp.EventConfigurationsList {

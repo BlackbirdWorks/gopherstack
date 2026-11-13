@@ -3,7 +3,7 @@ package translate_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/translate"
 )
 
@@ -38,7 +39,7 @@ func doRequest(t *testing.T, h *translate.Handler, operation string, body any) *
 	if body != nil {
 		var err error
 
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -63,7 +64,7 @@ func unmarshalJSON(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(data, &m))
+	require.NoError(t, json.Unmarshal(data, &m, jsonx.V1()))
 
 	return m
 }

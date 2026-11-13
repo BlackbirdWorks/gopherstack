@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -150,7 +152,7 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 
 			if tt.wantRetries != nil || tt.wantAge != nil {
 				var cfg lambda.FunctionEventInvokeConfig
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 
 				if tt.wantRetries != nil {
 					require.NotNil(t, cfg.MaximumRetryAttempts)
@@ -186,7 +188,7 @@ func TestFunctionEventInvokeConfig_LastModifiedIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	lastModified, ok := raw["LastModified"]
 	require.True(t, ok, "response must include LastModified")
@@ -358,7 +360,7 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 
 			if tt.wantRetries != nil {
 				var cfg lambda.FunctionEventInvokeConfig
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 				require.NotNil(t, cfg.MaximumRetryAttempts)
 				assert.Equal(t, *tt.wantRetries, *cfg.MaximumRetryAttempts)
 			}
@@ -518,7 +520,7 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 			}
 
 			var out lambda.ListFunctionEventInvokeConfigsOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.FunctionEventInvokeConfigs, tt.wantCount)
 		})
 	}
@@ -709,7 +711,7 @@ func TestEventInvokeConfig_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var cfg lambda.FunctionEventInvokeConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &cfg, jsonx.V1()))
 	require.NotNil(t, cfg.MaximumRetryAttempts)
 	assert.Equal(t, maxRetry, *cfg.MaximumRetryAttempts)
 	require.NotNil(t, cfg.MaximumEventAgeInSeconds)
@@ -721,7 +723,7 @@ func TestEventInvokeConfig_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getCfg lambda.FunctionEventInvokeConfig
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getCfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getCfg, jsonx.V1()))
 	assert.Equal(t, maxRetry, *getCfg.MaximumRetryAttempts)
 
 	// Update config
@@ -736,7 +738,7 @@ func TestEventInvokeConfig_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionEventInvokeConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.NotEmpty(t, listOut.FunctionEventInvokeConfigs)
 
 	// Delete config
@@ -767,7 +769,7 @@ func TestEventInvokeConfig_WithDestinations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cfg lambda.FunctionEventInvokeConfig
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &cfg, jsonx.V1()))
 	require.NotNil(t, cfg.DestinationConfig)
 	require.NotNil(t, cfg.DestinationConfig.OnSuccess)
 	assert.Contains(t, cfg.DestinationConfig.OnSuccess.Destination, "success-q")
@@ -802,7 +804,7 @@ func TestFunctionDestinations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.FunctionEventInvokeConfig
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.DestinationConfig)
 	require.NotNil(t, out.DestinationConfig.OnSuccess)
 	require.NotNil(t, out.DestinationConfig.OnFailure)

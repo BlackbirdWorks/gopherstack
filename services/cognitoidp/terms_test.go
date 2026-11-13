@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func validTermsBody(poolID, clientID string) map[string]any {
@@ -51,7 +53,7 @@ func TestCreateTerms_Validation(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", errResp.Type)
 		})
 	}
@@ -69,7 +71,7 @@ func TestCreateTerms_UnknownClient(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp.Type)
 }
 
@@ -88,7 +90,7 @@ func TestCreateTerms_Duplicate(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "TermsExistsException", errResp.Type)
 }
 
@@ -109,7 +111,7 @@ func TestTerms_CRUD(t *testing.T) {
 			ClientID    string `json:"ClientId,omitempty"`
 		} `json:"Terms"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.Terms)
 
 	rec = doCognitoRequest(t, h, "CreateTerms", validTermsBody(poolID, clientID))
@@ -128,7 +130,7 @@ func TestTerms_CRUD(t *testing.T) {
 			LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
 		} `json:"Terms"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	require.NotEmpty(t, createResp.Terms.TermsID)
 	assert.Equal(t, clientID, createResp.Terms.ClientID)
 	assert.Equal(t, poolID, createResp.Terms.UserPoolID)
@@ -144,7 +146,7 @@ func TestTerms_CRUD(t *testing.T) {
 
 	// List returns TermsDescriptionType, which has no ClientId field on the real wire.
 	rec = doCognitoRequest(t, h, "ListTerms", map[string]any{"UserPoolId": poolID})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Terms, 1)
 	assert.Equal(t, termsID, listResp.Terms[0].TermsID)
 	assert.Empty(t, listResp.Terms[0].ClientID, "TermsDescriptionType has no ClientId field")
@@ -155,7 +157,7 @@ func TestTerms_CRUD(t *testing.T) {
 		"TermsName":  "terms-of-use-v2",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Equal(t, "terms-of-use-v2", createResp.Terms.TermsName)
 	assert.Equal(t, "NONE", createResp.Terms.Enforcement, "unset fields on update are left unchanged")
 
@@ -163,7 +165,7 @@ func TestTerms_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doCognitoRequest(t, h, "ListTerms", map[string]any{"UserPoolId": poolID})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.Terms)
 }
 
@@ -205,7 +207,7 @@ func TestTerms_NotFound(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", errResp.Type)
 		})
 	}

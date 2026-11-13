@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Profile HTTP CRUD ----
@@ -43,7 +45,7 @@ func TestHandler_Profile_CRUD(t *testing.T) {
 			assert.Equal(t, tt.wantCreate, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			p := createResp["profile"].(map[string]any)
 			id := p["profileId"].(string)
 			assert.NotEmpty(t, id)
@@ -240,8 +242,8 @@ func TestHandler_Profile_DuplicateNameAllowed(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 
 			var resp1, resp2 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 			p1 := resp1["profile"].(map[string]any)
 			p2 := resp2["profile"].(map[string]any)
@@ -284,7 +286,7 @@ func TestHandler_CreateProfile_EnabledFieldHonored(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			p := resp["profile"].(map[string]any)
 			assert.Equal(t, tt.wantEnabled, p["enabled"])
 		})
@@ -307,7 +309,7 @@ func TestHandler_Profile_AcceptRoleSessionName(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	p := resp["profile"].(map[string]any)
 	require.Equal(t, true, p["acceptRoleSessionName"])
 
@@ -319,7 +321,7 @@ func TestHandler_Profile_AcceptRoleSessionName(t *testing.T) {
 	require.Equal(t, http.StatusOK, recUpdate.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(recUpdate.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(recUpdate.Body.Bytes(), &updateResp, jsonx.V1()))
 	updated := updateResp["profile"].(map[string]any)
 	assert.NotContains(t, updated, "acceptRoleSessionName",
 		"false is the zero value and is omitted, matching requireInstanceProperties' existing convention")
@@ -339,7 +341,7 @@ func TestHandler_Profile_CreatedBy(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	p := resp["profile"].(map[string]any)
 	assert.Equal(t, "000000000000", p["createdBy"])
 }
@@ -360,7 +362,7 @@ func TestHandler_Profile_NoTagsFieldOnResponse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	p := resp["profile"].(map[string]any)
 	assert.NotContains(t, p, "tags")
 }
@@ -388,7 +390,7 @@ func TestHandler_ListProfiles_PageSizeQueryParam(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["profiles"].([]any)
 	assert.Len(t, items, 1, "pageSize=1 must truncate the page to 1 item")
 }

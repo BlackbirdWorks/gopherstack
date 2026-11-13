@@ -1,10 +1,12 @@
 package opsworks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -176,7 +178,7 @@ func (i *storedInstance) UnmarshalJSON(data []byte) error {
 		alias
 	}
 
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := json.Unmarshal(data, &v, jsonx.V1()); err != nil {
 		return err
 	}
 

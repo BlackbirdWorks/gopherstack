@@ -1,7 +1,7 @@
 package pricing_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pricing"
 )
 
@@ -77,7 +78,7 @@ func TestReservedTermMatrix(t *testing.T) {
 		} `json:"terms"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(out.PriceList[0]), &item))
+	require.NoError(t, json.Unmarshal([]byte(out.PriceList[0]), &item, jsonx.V1()))
 	require.Len(t, item.Terms.Reserved, 12)
 
 	seen := map[string]bool{}
@@ -168,7 +169,7 @@ func TestSavingsPlansPriceLists(t *testing.T) {
 		} `json:"products"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &file))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &file, jsonx.V1()))
 	require.Len(t, file.Terms.SavingsPlan, 6)
 	assert.Len(t, file.Products, 6)
 	require.NotEmpty(t, file.Terms.SavingsPlan[0].Rates)

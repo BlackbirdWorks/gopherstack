@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -46,7 +47,7 @@ func TestMacie2_Findings(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "findingIds")
 
 				ids, ok := resp["findingIds"].([]any)
@@ -68,7 +69,7 @@ func TestMacie2_Findings(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "findings")
 			},
 		},
@@ -86,7 +87,7 @@ func TestMacie2_Findings(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp, "countsByGroup")
 			},
 		},
@@ -107,7 +108,7 @@ func TestMacie2_Findings(t *testing.T) {
 			if tt.name == "GetFindings returns findings array" {
 				listRec := doRequest(t, h, http.MethodPost, "/findings", map[string]any{})
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				ids := listResp["findingIds"].([]any)
 				body = map[string]any{"findingIds": ids}
 			}
@@ -131,7 +132,7 @@ func TestListFindingsEmptyNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, ok := resp["findingIds"]
 	require.True(t, ok, "response must contain findingIds key")
@@ -151,7 +152,7 @@ func TestGetFindingsEmptyInputNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, ok := resp["findings"]
 	require.True(t, ok, "response must contain findings key")
@@ -175,7 +176,7 @@ func TestCreateSampleFindingsFieldShape(t *testing.T) {
 
 	listRec := doRequest(t, h, http.MethodPost, "/findings", map[string]any{})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	ids, ok := listResp["findingIds"].([]any)
 	require.True(t, ok)
 	require.Len(t, ids, 2)
@@ -184,7 +185,7 @@ func TestCreateSampleFindingsFieldShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	findings, ok := getResp["findings"].([]any)
 	require.True(t, ok)
 	require.Len(t, findings, 2)
@@ -266,7 +267,7 @@ func TestFindingsPublicationConfig(t *testing.T) {
 				// Verify
 				rec = doRequest(t, h, http.MethodGet, "/findings-publication-configuration", nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 
 				_, hasTopClassification := updated["publishClassificationFindings"]
 				_, hasTopPolicy := updated["publishPolicyFindings"]

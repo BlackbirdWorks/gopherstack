@@ -2,7 +2,7 @@ package opensearch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -118,11 +118,11 @@ func fromDryRunSnapshot(v *dryRunSnapshot) *DryRunStatus {
 }
 
 type dataSourceSnapshot struct {
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	Status         string          `json:"status,omitempty"`
-	DomainName     string          `json:"domainName"`
-	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status,omitempty"`
+	DomainName     string         `json:"domainName"`
+	DataSourceType jsontext.Value `json:"dataSourceType,omitempty"`
 }
 
 func dataSourceSnapshotKey(v *dataSourceSnapshot) string { return dataSourceKey(v.DomainName, v.Name) }
@@ -381,7 +381,7 @@ var dirtyTableNames = struct {
 // conversion notes.
 type backendSnapshot struct {
 	AccountCapacityLimits ServerlessCapacityLimits         `json:"accountCapacityLimits"`
-	Tables                map[string]json.RawMessage       `json:"tables"`
+	Tables                map[string]jsontext.Value        `json:"tables"`
 	VpcAuthorizations     map[string][]AuthorizedPrincipal `json:"vpcAuthorizations"`
 	ScheduledActions      map[string][]*ScheduledAction    `json:"scheduledActions"`
 	PackageAssociations   map[string]map[string]bool       `json:"packageAssociations"`

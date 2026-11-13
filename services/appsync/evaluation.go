@@ -1,9 +1,11 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // evalContext decodes an EvaluateMappingTemplate/EvaluateCode context JSON
@@ -12,7 +14,7 @@ func evalContext(contextJSON string) (map[string]any, error) {
 	ctx := map[string]any{}
 
 	if strings.TrimSpace(contextJSON) != "" {
-		if err := json.Unmarshal([]byte(contextJSON), &ctx); err != nil {
+		if err := json.Unmarshal([]byte(contextJSON), &ctx, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid context JSON", ErrValidation)
 		}
 	}
@@ -116,7 +118,7 @@ func (b *InMemoryBackend) EvaluateCodeLogs(code, contextJSON, function, runtime 
 		return "", out.Logs, err
 	}
 
-	raw, err := json.Marshal(out.Value)
+	raw, err := json.Marshal(out.Value, jsonx.V1())
 	if err != nil {
 		return "", out.Logs, fmt.Errorf("%w: result is not JSON-serializable", ErrValidation)
 	}

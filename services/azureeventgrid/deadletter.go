@@ -1,15 +1,18 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func decodeFields(raw []byte) map[string]any {
 	var m map[string]any
-	_ = json.Unmarshal(raw, &m)
+	_ = json.Unmarshal(raw, &m, jsonx.V1())
 
 	return m
 }
@@ -21,11 +24,11 @@ const (
 
 // deadRetry is a dead-letter blob write that failed and is retried until deadLetterGiveUp has passed.
 type deadRetry struct {
-	Queued      time.Time       `json:"queued"`
-	Due         time.Time       `json:"due"`
-	Destination Destination     `json:"destination"`
-	Blob        string          `json:"blob"`
-	Payload     json.RawMessage `json:"payload"`
+	Queued      time.Time      `json:"queued"`
+	Due         time.Time      `json:"due"`
+	Destination Destination    `json:"destination"`
+	Blob        string         `json:"blob"`
+	Payload     jsontext.Value `json:"payload"`
 }
 
 // deadLetterPayload is the blob body: an array holding the event plus the dead-letter fields, with lower-case
@@ -51,7 +54,7 @@ func deadLetterPayload(item deadItem) ([]byte, error) {
 		m["lastDeliveryAttemptTime"] = item.d.LastAttempt.UTC().Format(time.RFC3339Nano)
 	}
 
-	return json.Marshal([]any{m})
+	return json.Marshal([]any{m}, jsonx.V1())
 }
 
 // blobName is <SUBSCRIPTION>/<YYYY>/<M>/<D>/<H>/<id>.json with the subscription upper-cased and the date

@@ -2,7 +2,7 @@ package gcpfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -93,8 +93,8 @@ func (s *iamServer) TestIamPermissions(
 	return s.b.TestIamPermissions(in)
 }
 
-func marshalPolicies(m map[string]*iampb.Policy) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(m))
+func marshalPolicies(m map[string]*iampb.Policy) map[string]jsontext.Value {
+	out := make(map[string]jsontext.Value, len(m))
 
 	for k, p := range m {
 		if raw, err := protojson.Marshal(p); err == nil {
@@ -105,7 +105,7 @@ func marshalPolicies(m map[string]*iampb.Policy) map[string]json.RawMessage {
 	return out
 }
 
-func unmarshalPolicies(raw map[string]json.RawMessage) (map[string]*iampb.Policy, error) {
+func unmarshalPolicies(raw map[string]jsontext.Value) (map[string]*iampb.Policy, error) {
 	out := make(map[string]*iampb.Policy, len(raw))
 
 	for k, r := range raw {

@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -24,7 +25,7 @@ type createExperimentInput struct {
 func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req createExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -41,7 +42,7 @@ func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]by
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created experiment", "name", e.ExperimentName)
 
-	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn})
+	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn}, jsonx.V1())
 }
 
 // describeExperimentInput mirrors DescribeExperimentInput
@@ -53,7 +54,7 @@ type describeExperimentInput struct {
 func (h *Handler) handleDescribeExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -85,7 +86,7 @@ func (h *Handler) handleDescribeExperiment(ctx context.Context, body []byte) ([]
 		resp["LastModifiedBy"] = e.LastModifiedBy
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type experimentSummary struct {
@@ -110,7 +111,7 @@ type listExperimentsInput struct {
 func (h *Handler) handleListExperiments(ctx context.Context, body []byte) ([]byte, error) {
 	var req listExperimentsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -138,7 +139,7 @@ func (h *Handler) handleListExperiments(ctx context.Context, body []byte) ([]byt
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteExperimentInput mirrors DeleteExperimentInput
@@ -150,7 +151,7 @@ type deleteExperimentInput struct {
 func (h *Handler) handleDeleteExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -165,7 +166,7 @@ func (h *Handler) handleDeleteExperiment(ctx context.Context, body []byte) ([]by
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted experiment", "name", req.ExperimentName)
 
-	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn})
+	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +187,7 @@ type updateExperimentInput struct {
 func (h *Handler) handleUpdateExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateExperimentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,5 +202,5 @@ func (h *Handler) handleUpdateExperiment(ctx context.Context, body []byte) ([]by
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated experiment", "name", e.ExperimentName)
 
-	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn})
+	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn}, jsonx.V1())
 }

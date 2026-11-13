@@ -1,7 +1,7 @@
 package ocimysql
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"strings"
 
@@ -29,13 +29,13 @@ type ChannelSourceIn struct {
 
 // ChannelTargetIn is the channel target details.
 type ChannelTargetIn struct {
-	DelayInSeconds                  *int            `json:"delayInSeconds"`
-	TargetType                      string          `json:"targetType"`
-	DBSystemID                      string          `json:"dbSystemId"`
-	ChannelName                     string          `json:"channelName"`
-	ApplierUsername                 string          `json:"applierUsername"`
-	TablesWithoutPrimaryKeyHandling string          `json:"tablesWithoutPrimaryKeyHandling"`
-	Filters                         json.RawMessage `json:"filters"`
+	DelayInSeconds                  *int           `json:"delayInSeconds"`
+	TargetType                      string         `json:"targetType"`
+	DBSystemID                      string         `json:"dbSystemId"`
+	ChannelName                     string         `json:"channelName"`
+	ApplierUsername                 string         `json:"applierUsername"`
+	TablesWithoutPrimaryKeyHandling string         `json:"tablesWithoutPrimaryKeyHandling"`
+	Filters                         jsontext.Value `json:"filters"`
 }
 
 // CreateChannelIn is the CreateChannel body.

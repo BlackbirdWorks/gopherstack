@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleRemoveAttributes handles PUT /v1/apps/{appId}/attributes/{attributeType}.
@@ -21,7 +22,7 @@ func (h *Handler) handleRemoveAttributes(c *echo.Context, appID, attributeType s
 
 	var req removeAttributesRequest
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		}
 	}

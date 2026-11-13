@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type (
@@ -16,7 +18,7 @@ func (h *Handler) eventSourceActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.ActivateEventSource(ctx, input.Name); err != nil {
@@ -29,7 +31,7 @@ func (h *Handler) eventSourceActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DeactivateEventSource(ctx, input.Name); err != nil {
@@ -84,7 +86,7 @@ func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -101,7 +103,7 @@ func (h *Handler) extendedEventSourceActions() map[string]actionFn {
 				NextToken  string `json:"NextToken"`
 				Limit      int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			srcs, next, err := h.Backend.ListEventSources(ctx, input.NamePrefix, input.NextToken, int(input.Limit))

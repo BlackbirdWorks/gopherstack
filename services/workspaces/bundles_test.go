@@ -1,7 +1,7 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -27,7 +28,7 @@ func TestDescribeWorkspaceBundles_PaginatesResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	bundles, _ := resp["Bundles"].([]any)
 	assert.NotEmpty(t, bundles, "DescribeWorkspaceBundles must return at least one bundle")
@@ -79,7 +80,7 @@ func TestDescribeWorkspaceBundles_FiltersByBundleID(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			bundles, _ := resp["Bundles"].([]any)
 			assert.Len(t, bundles, tc.wantCount)
@@ -95,7 +96,7 @@ func TestDescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	bundles := resp["Bundles"].([]any)
 	require.NotEmpty(t, bundles)
 
@@ -169,7 +170,7 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	bundles := resp["Bundles"].([]any)
 
 	for _, b := range bundles {
@@ -199,7 +200,7 @@ func TestCreateWorkspaceBundle_StoresStorageCapacity(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	bun := resp["WorkspaceBundle"].(map[string]any)
 
 	assert.Equal(t, "50", bun["UserStorage"].(map[string]any)["Capacity"])
@@ -222,7 +223,7 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	customBundleID := createResp["WorkspaceBundle"].(map[string]any)["BundleId"].(string)
 
 	// Without owner: only the account's own (custom) bundles.
@@ -230,7 +231,7 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	bundles := resp["Bundles"].([]any)
 
 	found := false
@@ -253,7 +254,7 @@ func TestDescribeWorkspaceBundles_FilterByID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	bundles := resp["Bundles"].([]any)
 	require.Len(t, bundles, 1)
 	assert.Equal(t, "wsb-bh8rsxt14", bundles[0].(map[string]any)["BundleId"])
@@ -475,7 +476,7 @@ func TestCreateWorkspaceBundle_UnknownImage_ConsumesNoState(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var before map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before, jsonx.V1()))
 	countBefore := len(before["Bundles"].([]any))
 
 	rejectedRec := doTargetRequest(
@@ -487,7 +488,7 @@ func TestCreateWorkspaceBundle_UnknownImage_ConsumesNoState(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec2.Code)
 
 	var after map[string]any
-	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after, jsonx.V1()))
 	countAfter := len(after["Bundles"].([]any))
 
 	assert.Equal(t, countBefore, countAfter, "rejected create must not add a bundle")

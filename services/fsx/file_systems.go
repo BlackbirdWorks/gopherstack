@@ -1,7 +1,7 @@
 package fsx
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // storedFileSystem is the persisted form of a FileSystem.
@@ -486,7 +487,7 @@ func fingerprintCreateFileSystemInput(input *createFileSystemInput) (string, err
 	cp := *input
 	cp.ClientRequestToken = ""
 
-	b, err := json.Marshal(cp)
+	b, err := json.Marshal(cp, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("canonicalize CreateFileSystem request: %w", err)
 	}

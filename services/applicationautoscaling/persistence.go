@@ -2,7 +2,7 @@ package applicationautoscaling
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -35,10 +35,10 @@ const applicationautoscalingSnapshotVersion = 1
 // it too), so it remains ephemeral, reset to empty by both Reset and a
 // version-mismatch Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

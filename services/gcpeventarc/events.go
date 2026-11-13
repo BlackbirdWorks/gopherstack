@@ -1,7 +1,8 @@
 package gcpeventarc
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // HandleLogEntry delivers a Cloud Audit Logs entry (protoPayload AuditLog) to the triggers on
@@ -157,14 +159,14 @@ func documentEventJSON(ev DocumentEvent) ([]byte, error) {
 			return nil, err //nolint:wrapcheck // message built by the emulator
 		}
 
-		out[k] = json.RawMessage(raw)
+		out[k] = jsontext.Value(raw)
 	}
 
 	if len(ev.UpdateMask) > 0 {
 		out["updateMask"] = map[string]any{"fieldPaths": ev.UpdateMask}
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 // auditSource is the documented audit-log ce-source //SERVICE_NAME/projects/PROJECT_ID

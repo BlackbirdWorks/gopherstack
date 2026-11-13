@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -16,20 +18,20 @@ import (
 // wire-field-audit tooling that only inspects named types can see it — see
 // gopherstack-oc9v).
 type createAppInput struct {
-	DomainID        string          `json:"DomainId"`
-	UserProfileName string          `json:"UserProfileName"`
-	SpaceName       string          `json:"SpaceName"`
-	AppType         string          `json:"AppType"`
-	AppName         string          `json:"AppName"`
-	ResourceSpec    json.RawMessage `json:"ResourceSpec"`
-	Tags            []tagObject     `json:"Tags"`
-	RecoveryMode    bool            `json:"RecoveryMode"`
+	DomainID        string         `json:"DomainId"`
+	UserProfileName string         `json:"UserProfileName"`
+	SpaceName       string         `json:"SpaceName"`
+	AppType         string         `json:"AppType"`
+	AppName         string         `json:"AppName"`
+	ResourceSpec    jsontext.Value `json:"ResourceSpec"`
+	Tags            []tagObject    `json:"Tags"`
+	RecoveryMode    bool           `json:"RecoveryMode"`
 }
 
 func (h *Handler) handleCreateApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -81,7 +83,7 @@ func (h *Handler) handleCreateApp(ctx context.Context, body []byte) ([]byte, err
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created app", "name", a.AppName)
 
-	return json.Marshal(map[string]string{keyAppArn: a.AppArn})
+	return json.Marshal(map[string]string{keyAppArn: a.AppArn}, jsonx.V1())
 }
 
 type describeAppInput struct {
@@ -95,7 +97,7 @@ type describeAppInput struct {
 func (h *Handler) handleDescribeApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -138,7 +140,7 @@ func (h *Handler) handleDescribeApp(ctx context.Context, body []byte) ([]byte, e
 		resp["ResourceSpec"] = a.ResourceSpec
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type appSummary struct {
@@ -165,7 +167,7 @@ type listAppsInput struct {
 func (h *Handler) handleListApps(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAppsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +203,7 @@ func (h *Handler) handleListApps(ctx context.Context, body []byte) ([]byte, erro
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type deleteAppInput struct {
@@ -215,7 +217,7 @@ type deleteAppInput struct {
 func (h *Handler) handleDeleteApp(ctx context.Context, body []byte) error {
 	var req deleteAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

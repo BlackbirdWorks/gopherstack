@@ -1,7 +1,7 @@
 package neptune_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -49,7 +50,7 @@ func loaderStart(t *testing.T, c neptune.DBCluster, body string) (int, loaderEnv
 
 	var env loaderEnvelope
 
-	_ = json.Unmarshal([]byte(res.body), &env)
+	_ = json.Unmarshal([]byte(res.body), &env, jsonx.V1())
 
 	return res.status, env, res.body
 }
@@ -66,7 +67,7 @@ func loaderWait(t *testing.T, c neptune.DBCluster, id, query string) loaderEnvel
 		}
 
 		env = loaderEnvelope{}
-		_ = json.Unmarshal([]byte(res.body), &env)
+		_ = json.Unmarshal([]byte(res.body), &env, jsonx.V1())
 
 		st, _ := env.Payload["overallStatus"].(map[string]any)
 		s, _ := st["status"].(string)
@@ -97,7 +98,7 @@ func countTriples(t *testing.T, c neptune.DBCluster, where string) string {
 		} `json:"results"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(res.body), &out))
+	require.NoError(t, json.Unmarshal([]byte(res.body), &out, jsonx.V1()))
 	require.Len(t, out.Results.Bindings, 1)
 
 	return out.Results.Bindings[0]["c"]["value"]
@@ -258,7 +259,7 @@ func TestBulkLoaderRequestErrors(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, status, raw)
 
 			var e map[string]string
-			require.NoError(t, json.Unmarshal([]byte(raw), &e))
+			require.NoError(t, json.Unmarshal([]byte(raw), &e, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, e["code"])
 			assert.Contains(t, e["detailedMessage"], tt.wantMsg)
 		})
@@ -290,11 +291,11 @@ func TestBulkLoaderListCancelDependencies(t *testing.T) {
 
 	var l loaderEnvelope
 
-	require.NoError(t, json.Unmarshal([]byte(list.body), &l))
+	require.NoError(t, json.Unmarshal([]byte(list.body), &l, jsonx.V1()))
 	assert.ElementsMatch(t, []any{badID, depID}, l.Payload["loadIds"])
 
 	limited := sparqlDo(t, c, http.MethodGet, "/loader?limit=1", "", "", "")
-	require.NoError(t, json.Unmarshal([]byte(limited.body), &l))
+	require.NoError(t, json.Unmarshal([]byte(limited.body), &l, jsonx.V1()))
 	assert.Len(t, l.Payload["loadIds"], 1)
 
 	byQuery := sparqlDo(t, c, http.MethodGet, "/loader?loadId="+badID, "", "", "")

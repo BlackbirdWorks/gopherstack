@@ -2,30 +2,32 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 type createDataProviderInput struct {
-	DataProviderName *string         `json:"DataProviderName"`
-	Engine           *string         `json:"Engine"`
-	Description      *string         `json:"Description"`
-	Settings         json.RawMessage `json:"Settings"`
-	Virtual          *bool           `json:"Virtual"`
-	Tags             []tagEntry      `json:"Tags"`
+	DataProviderName *string        `json:"DataProviderName"`
+	Engine           *string        `json:"Engine"`
+	Description      *string        `json:"Description"`
+	Settings         jsontext.Value `json:"Settings"`
+	Virtual          *bool          `json:"Virtual"`
+	Tags             []tagEntry     `json:"Tags"`
 }
 
 type dataProviderJSON struct {
-	DataProviderName string          `json:"DataProviderName"`
-	DataProviderArn  string          `json:"DataProviderArn"`
-	Engine           string          `json:"Engine"`
-	Description      string          `json:"Description,omitempty"`
-	Settings         json.RawMessage `json:"Settings,omitempty"`
-	Virtual          bool            `json:"Virtual,omitempty"`
+	DataProviderName string         `json:"DataProviderName"`
+	DataProviderArn  string         `json:"DataProviderArn"`
+	Engine           string         `json:"Engine"`
+	Description      string         `json:"Description,omitempty"`
+	Settings         jsontext.Value `json:"Settings,omitempty"`
+	Virtual          bool           `json:"Virtual,omitempty"`
 }
 
 type createDataProviderOutput struct {
@@ -80,13 +82,13 @@ func isDataProviderSettingsArm(arm string) bool {
 
 // validateDataProviderSettings checks that a supplied Settings document is a
 // union with exactly one known member and returns it as a string.
-func validateDataProviderSettings(raw json.RawMessage) (string, error) {
+func validateDataProviderSettings(raw jsontext.Value) (string, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
 
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil || len(doc) != 1 {
+	var doc map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &doc, jsonx.V1()); err != nil || len(doc) != 1 {
 		return "", fmt.Errorf("%w: Settings must be a union with exactly one member", ErrValidation)
 	}
 
@@ -108,7 +110,7 @@ func dpToJSON(dp *DataProvider) dataProviderJSON {
 		Virtual:          dp.Virtual,
 	}
 	if dp.Settings != "" {
-		out.Settings = json.RawMessage(dp.Settings)
+		out.Settings = jsontext.Value(dp.Settings)
 	}
 
 	return out
@@ -173,13 +175,13 @@ func (h *Handler) handleDescribeDataProviders(
 }
 
 type modifyDataProviderInput struct {
-	DataProviderIdentifier *string         `json:"DataProviderIdentifier"`
-	DataProviderName       *string         `json:"DataProviderName"`
-	Engine                 *string         `json:"Engine"`
-	Description            *string         `json:"Description"`
-	Virtual                *bool           `json:"Virtual"`
-	ExactSettings          *bool           `json:"ExactSettings"`
-	Settings               json.RawMessage `json:"Settings"`
+	DataProviderIdentifier *string        `json:"DataProviderIdentifier"`
+	DataProviderName       *string        `json:"DataProviderName"`
+	Engine                 *string        `json:"Engine"`
+	Description            *string        `json:"Description"`
+	Virtual                *bool          `json:"Virtual"`
+	ExactSettings          *bool          `json:"ExactSettings"`
+	Settings               jsontext.Value `json:"Settings"`
 }
 
 type modifyDataProviderOutput struct {

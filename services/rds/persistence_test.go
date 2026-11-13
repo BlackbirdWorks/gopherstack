@@ -1,13 +1,15 @@
 package rds_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
@@ -21,16 +23,16 @@ func TestPersistence_SnapshotJSON_ContainsExtendedKeys(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 
 	// As of the Phase 3.3 pkgs/store conversion, resource collections backed by
 	// a store.Table are serialized under the nested "tables" blob (produced by
 	// store.Registry.SnapshotAll) rather than as top-level snapshot keys.
 	require.Contains(t, raw, "tables")
 
-	var tables map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw["tables"], &tables))
+	var tables map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(raw["tables"], &tables, jsonx.V1()))
 
 	for _, key := range []string{
 		"customEngineVersions",

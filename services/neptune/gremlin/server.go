@@ -3,7 +3,8 @@ package gremlin
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -167,10 +169,9 @@ func parseJSONRequest(body []byte, c codec) (*message, error) {
 		Processor string         `json:"processor"`
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
 
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.UnmarshalDecode(dec, &raw, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, invalidArg("Malformed message: %v", err)
 	}
 
@@ -535,7 +536,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func toJSONNumber(v any) any {
 	if f, ok := v.(float64); ok {
-		return json.Number(formatFloat(f))
+		return jsonx.Number(formatFloat(f))
 	}
 
 	return v
@@ -550,7 +551,12 @@ func readHTTPRequest(w http.ResponseWriter, r *http.Request) (*httpRequest, erro
 
 		var req httpRequest
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		if err := json.UnmarshalDecode(
+			jsontext.NewDecoder(r.Body),
+			&req,
+			jsonx.V1(),
+		); err != nil &&
+			!errors.Is(err, io.EOF) {
 			return nil, invalidArg("Malformed request body: %v", err)
 		}
 
@@ -572,5 +578,8 @@ func writeHTTPError(w http.ResponseWriter, e *Error, id string) {
 
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonReqID: id, jsonCode: e.Code, "detailedMessage": e.Detail})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]string{jsonReqID: id, jsonCode: e.Code, "detailedMessage": e.Detail},
+	)
 }

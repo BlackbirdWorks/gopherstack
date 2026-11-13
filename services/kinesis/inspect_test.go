@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -79,7 +80,7 @@ func (e *inspectEnv) get(t *testing.T, path string, out any) int {
 	require.NoError(t, err)
 
 	if out != nil && resp.StatusCode == http.StatusOK {
-		require.NoError(t, json.Unmarshal(body, out))
+		require.NoError(t, json.Unmarshal(body, out, jsonx.V1()))
 	}
 
 	return resp.StatusCode

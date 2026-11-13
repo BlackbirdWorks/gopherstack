@@ -3,12 +3,14 @@ package ocivault
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -63,13 +65,13 @@ type SecretRotation struct {
 	Config RotationConfig `json:"config"`
 }
 
-func parseRotation(raw json.RawMessage) (*RotationConfig, *APIError) {
+func parseRotation(raw jsontext.Value) (*RotationConfig, *APIError) {
 	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
 
 	var c RotationConfig
-	if err := json.Unmarshal(raw, &c); err != nil {
+	if err := json.Unmarshal(raw, &c, jsonx.V1()); err != nil {
 		return nil, errParam("rotationConfig is not valid")
 	}
 
@@ -270,7 +272,7 @@ func (b *InMemoryBackend) runSteps(ctx context.Context, id string, run rotationR
 
 		body, _ := json.Marshal(map[string]any{
 			"secretId": id, "step": step, "versionNo": run.current,
-		})
+		}, jsonx.V1())
 
 		return run.invoke(ctx, run.target.FunctionID, body)
 	}

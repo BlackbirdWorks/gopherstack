@@ -1,7 +1,7 @@
 package quicksight
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"time"
 )
@@ -288,7 +288,7 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 // field of its own (see store_setup.go's doc comment for the full list and
 // rationale) -- these round-trip directly, same as before conversion.
 type backendSnapshot struct {
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 
 	GroupMembers map[string]bool              `json:"groupMembers"`
 	Tags         map[string]map[string]string `json:"tags"`

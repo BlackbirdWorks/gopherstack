@@ -1,7 +1,8 @@
 package amp_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"math"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
@@ -69,8 +71,8 @@ type promResult struct {
 	Status    string `json:"status"`
 	ErrorType string `json:"errorType"`
 	Data      struct {
-		ResultType string          `json:"resultType"`
-		Result     json.RawMessage `json:"result"`
+		ResultType string         `json:"resultType"`
+		Result     jsontext.Value `json:"result"`
 	} `json:"data"`
 }
 
@@ -80,7 +82,7 @@ func (f *fixture) query(t *testing.T, ws, path string, vals url.Values) (httpRes
 	r := f.do(t, http.MethodGet, "/workspaces/"+ws+"/api/v1/"+path+"?"+vals.Encode(), nil, nil)
 
 	var pr promResult
-	_ = json.Unmarshal(r.body, &pr)
+	_ = json.Unmarshal(r.body, &pr, jsonx.V1())
 
 	return r, pr
 }

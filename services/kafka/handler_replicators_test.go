@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -48,7 +49,7 @@ func TestKafka_CreateReplicator(t *testing.T) {
 			var bodyBytes []byte
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -66,7 +67,7 @@ func TestKafka_CreateReplicator(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "my-replicator", resp["replicatorName"])
 				assert.NotEmpty(t, resp["replicatorArn"])
 				assert.Equal(t, kafka.ReplicatorStateRunning, resp["replicatorState"])
@@ -97,7 +98,7 @@ func TestKafka_DeleteReplicator(t *testing.T) {
 			bodyBytes, _ := json.Marshal(map[string]any{
 				"replicatorName":          "my-replicator",
 				"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/my-role",
-			})
+			}, jsonx.V1())
 			req := httptest.NewRequest(http.MethodPost, "/replication/v1/replicators", bytes.NewReader(bodyBytes))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -107,7 +108,7 @@ func TestKafka_DeleteReplicator(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			var replicatorArn string
 			if tt.useRealArn {
@@ -172,7 +173,7 @@ func TestListReplicatorsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	reps := resp["replicators"].([]any)
 	assert.Len(t, reps, 2)
@@ -186,7 +187,7 @@ func TestListReplicatorsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	reps2 := resp2["replicators"].([]any)
 	assert.Len(t, reps2, 1)
 	assert.Empty(t, resp2["nextToken"])
@@ -341,7 +342,7 @@ func TestReplicator_UpdateReplicationInfo(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, replicatorArn, updateResp["replicatorArn"])
 	assert.NotEmpty(t, updateResp["replicatorState"])
 }

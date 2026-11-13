@@ -2,7 +2,8 @@ package ram_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -29,7 +31,7 @@ func doRAMRequest(t *testing.T, h *ram.Handler, path string, body any) *httptest
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -249,7 +251,7 @@ func TestHandler_Reset(t *testing.T) {
 		ResourceShares []any `json:"resourceShares"`
 	}
 
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.ResourceShares)
 }
 
@@ -286,9 +288,9 @@ func TestReset_ReSeedsBuiltIns(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var custResp struct {
-				Permissions []json.RawMessage `json:"permissions"`
+				Permissions []jsontext.Value `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &custResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &custResp, jsonx.V1()))
 			assert.Empty(t, custResp.Permissions, "customer permissions cleared after reset")
 
 			rec2 := doRAMRequest(t, h, "/listpermissions", map[string]any{
@@ -297,9 +299,9 @@ func TestReset_ReSeedsBuiltIns(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var awsResp struct {
-				Permissions []json.RawMessage `json:"permissions"`
+				Permissions []jsontext.Value `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &awsResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &awsResp, jsonx.V1()))
 			assert.Len(t, awsResp.Permissions, ram.BuiltInPermissionCount,
 				"built-in permissions re-seeded after reset")
 		})

@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	idbackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
@@ -361,13 +362,13 @@ func ociDBScrubJSON(raw []byte) []byte {
 	}
 
 	var doc any
-	if json.Unmarshal(raw, &doc) != nil {
+	if json.Unmarshal(raw, &doc, jsonx.V1()) != nil {
 		return []byte("{}")
 	}
 
 	ociDBStrip(doc)
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}
@@ -405,7 +406,7 @@ func ociDBWalletDownload(c *echo.Context, inner *echo.Echo, id string, body []by
 		DBName string `json:"dbName"`
 	}
 
-	_ = json.Unmarshal(meta.Body.Bytes(), &db)
+	_ = json.Unmarshal(meta.Body.Bytes(), &db, jsonx.V1())
 
 	c.Request().Method = http.MethodPost
 

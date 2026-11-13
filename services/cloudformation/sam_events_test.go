@@ -2,7 +2,7 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -54,12 +55,12 @@ func (r *recordingInvoker) InvokeFunction(
 			"Version": "2012-10-17", "Statement": []any{map[string]any{
 				"Action": "execute-api:Invoke", "Effect": effect, "Resource": "*",
 			}},
-		}})
+		}}, jsonx.V1())
 
 		return policy, http.StatusOK, nil
 	}
 	r.calls <- invocation{name: fn, payload: string(payload)}
-	resp, _ := json.Marshal(map[string]any{"statusCode": 200, "body": fn})
+	resp, _ := json.Marshal(map[string]any{"statusCode": 200, "body": fn}, jsonx.V1())
 
 	return resp, http.StatusOK, nil
 }

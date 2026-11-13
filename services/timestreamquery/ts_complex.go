@@ -1,9 +1,12 @@
 package timestreamquery
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const kindSeries, kindArray = "\x00timeseries", "\x00array"
@@ -45,7 +48,7 @@ func jsonScalarType(v any) string {
 		return ScalarTypeDouble
 	case bool:
 		return ScalarTypeBoolean
-	case json.Number:
+	case jsonx.Number:
 		if _, isInt := decodeJSONScalar(x).(int64); isInt {
 			return ScalarTypeBigint
 		}
@@ -61,11 +64,10 @@ func jsonScalarType(v any) string {
 }
 
 func decodeArray(s string) []any {
-	dec := json.NewDecoder(strings.NewReader(strings.TrimPrefix(s, arrayMark)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(strings.TrimPrefix(s, arrayMark)))
 
 	var out []any
-	if dec.Decode(&out) != nil {
+	if json.UnmarshalDecode(dec, &out, jsonx.V1(), jsonx.UseNumber()) != nil {
 		return nil
 	}
 
@@ -121,12 +123,12 @@ func scalarJSONDatum(v any) Datum {
 		return ScalarDatum(strconv.FormatInt(x, 10))
 	case float64:
 		return ScalarDatum(javaDouble(x))
-	case json.Number:
+	case jsonx.Number:
 		return scalarJSONDatum(decodeJSONScalar(x))
 	case string:
 		return ScalarDatum(x)
 	default:
-		b, _ := json.Marshal(x)
+		b, _ := json.Marshal(x, jsonx.V1())
 
 		return ScalarDatum(string(b))
 	}

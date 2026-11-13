@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -711,7 +712,7 @@ func TestGetScheduledQueryHistory_RealShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rawRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw, jsonx.V1()))
 	_, hasReal := raw["triggerHistory"]
 	assert.True(t, hasReal, "wrapper key must be triggerHistory")
 	_, hasFabricated := raw["scheduledQueryRunSummaries"]

@@ -2,9 +2,10 @@ package bedrockagentcorecontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 )
 
@@ -183,7 +184,7 @@ func (d dataSeam) SecretValue(arn, jsonKey string) (string, bool) {
 	}
 
 	var fields map[string]any
-	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+	if err := json.Unmarshal([]byte(raw), &fields, jsonx.V1()); err != nil {
 		return raw, true
 	}
 
@@ -198,7 +199,7 @@ func (d dataSeam) SecretValue(arn, jsonKey string) (string, bool) {
 }
 
 func mustMarshal(v any) []byte {
-	out, _ := json.Marshal(v)
+	out, _ := json.Marshal(v, jsonx.V1())
 
 	return out
 }

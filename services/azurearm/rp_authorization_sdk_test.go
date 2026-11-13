@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -126,7 +127,7 @@ func (s *authStack) raw(t *testing.T, method, path, body string) (int, map[strin
 	require.NoError(t, err)
 
 	var out map[string]any
-	_ = json.Unmarshal(data, &out)
+	_ = json.Unmarshal(data, &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

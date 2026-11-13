@@ -1,13 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
 
@@ -31,7 +32,7 @@ func TestHandler_TagAndUntagResource(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				metaRaw, ok := resp["repositoryMetadata"]
 				require.True(t, ok)
@@ -61,7 +62,7 @@ func TestHandler_TagAndUntagResource(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				metaRaw, ok := resp["repositoryMetadata"]
 				require.True(t, ok)
@@ -127,7 +128,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				metaRaw, ok := resp["repositoryMetadata"]
 				require.True(t, ok)
@@ -169,7 +170,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				tagsRaw, ok := resp["tags"].(map[string]any)
 				require.True(t, ok)
@@ -192,7 +193,7 @@ func TestHandler_ARN_TagOps_O1(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	meta := createResp["repositoryMetadata"].(map[string]any)
 	repoARN := meta["Arn"].(string)
@@ -212,7 +213,7 @@ func TestHandler_ARN_TagOps_O1(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 	tagMap, ok := tagsResp["tags"].(map[string]any)
 	require.True(t, ok)
@@ -231,7 +232,7 @@ func TestHandler_ARN_TagOps_O1(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tagMap, _ = tagsResp["tags"].(map[string]any)
 	assert.Empty(t, tagMap)
 }

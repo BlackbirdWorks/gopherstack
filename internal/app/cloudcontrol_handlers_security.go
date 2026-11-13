@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"net/url"
@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -78,7 +79,7 @@ func ccPolicyJSON(v any) (string, error) {
 		return s, nil
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
 	}
@@ -94,7 +95,7 @@ func ccPolicyObject(doc string, unescape bool) any {
 	}
 
 	var out any
-	if json.Unmarshal([]byte(doc), &out) != nil {
+	if json.Unmarshal([]byte(doc), &out, jsonx.V1()) != nil {
 		return doc
 	}
 

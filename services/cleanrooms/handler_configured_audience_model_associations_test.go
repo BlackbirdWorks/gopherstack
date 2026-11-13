@@ -1,11 +1,13 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestConfiguredAudienceModelAssociations_Handlers(t *testing.T) {
@@ -20,14 +22,14 @@ func TestConfiguredAudienceModelAssociations_Handlers(t *testing.T) {
 		"members":                []any{}, "queryLogStatus": "DISABLED",
 	})
 	var colResp map[string]any
-	json.Unmarshal(res.Body.Bytes(), &colResp)
+	json.Unmarshal(res.Body.Bytes(), &colResp, jsonx.V1())
 	collabID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
 		"collaborationIdentifier": collabID, "queryLogStatus": "DISABLED",
 	})
 	var memResp map[string]any
-	json.Unmarshal(rec2.Body.Bytes(), &memResp)
+	json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1())
 	memID := memResp["membership"].(map[string]any)["id"].(string)
 
 	tests := []struct {

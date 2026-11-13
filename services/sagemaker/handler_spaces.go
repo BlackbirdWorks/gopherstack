@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -16,19 +19,19 @@ import (
 // carried as opaque json.RawMessage passthrough per this file's established
 // convention.
 type createSpaceInput struct {
-	DomainID             string          `json:"DomainId"`
-	SpaceName            string          `json:"SpaceName"`
-	SpaceDisplayName     string          `json:"SpaceDisplayName"`
-	OwnershipSettings    json.RawMessage `json:"OwnershipSettings"`
-	SpaceSettings        json.RawMessage `json:"SpaceSettings"`
-	SpaceSharingSettings json.RawMessage `json:"SpaceSharingSettings"`
-	Tags                 []tagObject     `json:"Tags"`
+	DomainID             string         `json:"DomainId"`
+	SpaceName            string         `json:"SpaceName"`
+	SpaceDisplayName     string         `json:"SpaceDisplayName"`
+	OwnershipSettings    jsontext.Value `json:"OwnershipSettings"`
+	SpaceSettings        jsontext.Value `json:"SpaceSettings"`
+	SpaceSharingSettings jsontext.Value `json:"SpaceSharingSettings"`
+	Tags                 []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req createSpaceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -54,7 +57,7 @@ func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"SpaceArn": result.SpaceArn})
+	return json.Marshal(map[string]any{"SpaceArn": result.SpaceArn}, jsonx.V1())
 }
 
 type describeSpaceInput struct {
@@ -65,7 +68,7 @@ type describeSpaceInput struct {
 func (h *Handler) handleDescribeSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeSpaceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -82,7 +85,7 @@ func (h *Handler) handleDescribeSpace(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 type deleteSpaceInput struct {
@@ -93,7 +96,7 @@ type deleteSpaceInput struct {
 func (h *Handler) handleDeleteSpace(ctx context.Context, body []byte) error {
 	var req deleteSpaceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -120,7 +123,7 @@ type listSpacesInput struct {
 func (h *Handler) handleListSpaces(ctx context.Context, body []byte) ([]byte, error) {
 	var req listSpacesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -147,21 +150,21 @@ func (h *Handler) handleListSpaces(ctx context.Context, body []byte) ([]byte, er
 	return json.Marshal(map[string]any{
 		"Spaces":     summaries,
 		keyNextToken: next,
-	})
+	}, jsonx.V1())
 }
 
 // updateSpaceInput mirrors UpdateSpaceInput (api_op_UpdateSpace.go:27-42).
 type updateSpaceInput struct {
-	DomainID         string          `json:"DomainId"`
-	SpaceName        string          `json:"SpaceName"`
-	SpaceDisplayName string          `json:"SpaceDisplayName"`
-	SpaceSettings    json.RawMessage `json:"SpaceSettings"`
+	DomainID         string         `json:"DomainId"`
+	SpaceName        string         `json:"SpaceName"`
+	SpaceDisplayName string         `json:"SpaceDisplayName"`
+	SpaceSettings    jsontext.Value `json:"SpaceSettings"`
 }
 
 func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateSpaceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -185,5 +188,5 @@ func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keySpaceArn: s.SpaceArn})
+	return json.Marshal(map[string]string{keySpaceArn: s.SpaceArn}, jsonx.V1())
 }

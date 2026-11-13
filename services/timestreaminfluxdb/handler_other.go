@@ -2,7 +2,7 @@ package timestreaminfluxdb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 func registerGroupOps(ops map[string]opFunc) {
@@ -15,7 +15,7 @@ type createGroupReq struct {
 	Tags        map[string]string `json:"tags"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
-	Parameters  json.RawMessage   `json:"parameters"`
+	Parameters  jsontext.Value    `json:"parameters"`
 }
 
 func (h *Handler) createGroup(ctx context.Context, in *createGroupReq) (*wParameterGroup, error) {

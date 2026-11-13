@@ -2,7 +2,7 @@ package iotdataplane_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -212,7 +213,7 @@ func Test_ListRetainedMessages_Pagination(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	topics1 := page1["retainedTopics"].([]any)
 	assert.Len(t, topics1, 2)
@@ -225,7 +226,7 @@ func Test_ListRetainedMessages_Pagination(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	topics2 := page2["retainedTopics"].([]any)
 	assert.Len(t, topics2, 2)
 }
@@ -237,7 +238,7 @@ func Test_ListRetainedMessages_NonNilWhenEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	topics, ok := resp["retainedTopics"]
 	require.True(t, ok)
@@ -318,7 +319,7 @@ func Test_ListRetainedMessages_PageSizeParam(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			topics := resp["retainedTopics"].([]any)
 			assert.Len(t, topics, tt.wantPageCount, "query: %s", tt.query)
 		})
@@ -339,7 +340,7 @@ func Test_ListRetainedMessages_PaginationOffByOneFixed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	topics1 := page1["retainedTopics"].([]any)
 	require.Len(t, topics1, 2)
@@ -354,7 +355,7 @@ func Test_ListRetainedMessages_PaginationOffByOneFixed(t *testing.T) {
 	// Page 2: cursor=c/3 → page starts at c/3 (nextToken IS the first item of the page).
 	rec = doRequest(t, h, http.MethodGet, "/retainedMessage?pageSize=2&nextToken="+nextToken, nil)
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	topics2 := page2["retainedTopics"].([]any)
 	require.Len(t, topics2, 2)
@@ -373,7 +374,7 @@ func Test_ListRetainedMessages_SummaryIncludesQos(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	topics := resp["retainedTopics"].([]any)
 	require.Len(t, topics, 1)
@@ -401,7 +402,7 @@ func Test_GetRetainedMessage_StillHasQos(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "qos", "GetRetainedMessage full response must include qos")
 }
 
@@ -433,7 +434,7 @@ func Test_GetRetainedMessage_UserPropertiesField(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Contains(t, resp, "userProperties")
 
 			if tt.wantNull {
@@ -489,7 +490,7 @@ func Test_RetainedMessage_GetNonexistent_404Shape(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["error"])
 }
 func Test_RetainedMessage_Lifecycle(t *testing.T) {
@@ -550,7 +551,7 @@ func Test_ListRetainedMessages_MaxResultsAlias(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	topics := resp["retainedTopics"].([]any)
 	assert.Len(t, topics, 3)

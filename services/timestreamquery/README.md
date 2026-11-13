@@ -9,18 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 2 (1 ok, 1 deferred) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Query engine: no geospatial functions -- the Timestream LiveAnalytics SQL reference (SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) documents none, so none are emulated; typeof and the interval-typed result of parse_duration (rendered correctly but ColumnInfo reports VARCHAR, not INTERVAL_DAY_TO_SECOND) are not implemented.
+- Query engine: no geospatial functions -- the Timestream LiveAnalytics SQL reference (SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) documents none, so none are emulated; typeof is not implemented: the date/time function page gives one example result ('interval day to second' for typeof(parse_duration('42.8ms'))) and no table of type names (parse_duration and interval-typed columns report INTERVAL_DAY_TO_SECOND, syntactically like booleans, for a top-level or aliased parse_duration call only; interval year to month results are not produced).
 - Time-series functions: the Developer Guide gives signatures and example queries (now tests, ts_interpolation_docs_test.go) but no outputs for interpolate_*, derivative_*, integral_trapezoidal or correlate_*. Behaviour at the edges is unverified: interpolate_linear/spline_cubic omit target times outside the observed range, interpolate_locf omits times before the first sample, derivative_linear emits one point per sample after the first, non_negative_derivative_linear drops negative points. filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported.
 - Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type.
 - Query engine: SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is unverified.
-- Query paging: a NextToken is valid for 5 uses or 1 hour (Query API doc), but issuing a newer token does not invalidate older ones, and the 1 MB page-size cap is not applied (MaxRows only; default 1000).
 - Query: EXPLAIN is not documented for Timestream LiveAnalytics (SQL support lists SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) and is rejected with ValidationException. QueryInput has no parameter field, so @name queries other than ScheduledQuery @scheduled_runtime do not exist. UNLOAD keeps SSE_S3/SSE_KMS as request metadata on the S3 PutObject only and UNLOAD of the TIME type is not rejected.
 - ScheduledQuery: the exact SNS notification JSON casing (lower camelCase keys, epoch-second times), the error-report object key layout ({prefix}/{name}/{invocation time}/{Auto|Manual}/{trigger time}, RFC 3339 times), the RecentlyFailedRuns depth (5) and the AUTO disable-on-non-recoverable-error rule follow the Developer Guide prose (scheduledqueries-notification, scheduledqueries-errorreport) but real captures are unavailable; run QueryInsightsResponse is omitted and ScheduledQueryExecutionRoleArn is never assumed.
 

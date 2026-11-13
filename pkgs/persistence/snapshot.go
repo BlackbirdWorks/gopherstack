@@ -2,8 +2,9 @@ package persistence
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -15,7 +16,7 @@ import (
 // persistence Manager). Centralising this here keeps every backend's Snapshot
 // method consistent and gives the ctx parameter a purpose.
 func MarshalSnapshot(ctx context.Context, service string, v any) []byte {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx,
 			"persistence: snapshot marshal failed",
@@ -37,7 +38,7 @@ func MarshalSnapshot(ctx context.Context, service string, v any) []byte {
 // the decode error. Centralising this here keeps every backend's Restore method
 // consistent and gives the ctx parameter a purpose.
 func UnmarshalSnapshot(ctx context.Context, service string, data []byte, v any) error {
-	if err := json.Unmarshal(data, v); err != nil {
+	if err := json.Unmarshal(data, v, jsonx.V1()); err != nil {
 		logger.Load(ctx).WarnContext(ctx,
 			"persistence: snapshot unmarshal failed",
 			"service", service, "error", err)

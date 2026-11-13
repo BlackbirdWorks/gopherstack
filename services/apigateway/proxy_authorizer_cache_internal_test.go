@@ -2,7 +2,7 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // policyInvoker allows only callers whose "auth" header (or token) is in allowed, for allowedARN.
@@ -25,7 +27,7 @@ func (p *policyInvoker) InvokeFunction(_ context.Context, _, _ string, payload [
 	p.calls.Add(1)
 
 	var ev AuthorizerEvent
-	if err := json.Unmarshal(payload, &ev); err != nil {
+	if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
@@ -49,7 +51,7 @@ func (p *policyInvoker) InvokeFunction(_ context.Context, _, _ string, payload [
 		PolicyDocument: &PolicyDocument{Statement: []PolicyStatement{
 			{Effect: effect, Action: "execute-api:Invoke", Resource: res},
 		}},
-	})
+	}, jsonx.V1())
 
 	return body, http.StatusOK, nil
 }

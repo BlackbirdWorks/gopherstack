@@ -2,9 +2,11 @@ package route53
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -51,7 +53,7 @@ func zoneDataSnapshotKey(zs *zoneDataSnapshot) string { return zs.Zone.ID }
 // newer) build of this backend as though it were the current shape; see
 // Restore.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage               `json:"tables"`
+	Tables                 map[string]jsontext.Value                `json:"tables"`
 	TrafficPolicies        map[string][]*TrafficPolicy              `json:"trafficPolicies,omitempty"`
 	VPCAssociations        map[string][]vpcAssociation              `json:"vpcAssociations,omitempty"`
 	VPCAssocAuthorizations map[string][]VPCAssociationAuthorization `json:"vpcAssocAuthorizations,omitempty"`
@@ -108,7 +110,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tags:                   b.tags,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "route53 Snapshot failed", "error", err)
 
@@ -157,7 +159,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// silently produce zero-valued garbage (every entry keying to the same
 	// empty zone ID). zones is restored separately below via its own DTO
 	// registry, so it is excluded here.
-	cleanTables := make(map[string]json.RawMessage, len(snap.Tables))
+	cleanTables := make(map[string]jsontext.Value, len(snap.Tables))
 
 	for name, raw := range snap.Tables {
 		if name == "zones" {

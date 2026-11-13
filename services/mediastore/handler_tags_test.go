@@ -1,12 +1,14 @@
 package mediastore_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Tags(t *testing.T) {
@@ -48,7 +50,7 @@ func TestHandler_Tags(t *testing.T) {
 			require.Equal(t, http.StatusOK, setupRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(setupRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(setupRec.Body.Bytes(), &createResp, jsonx.V1()))
 			containerMap, _ := createResp["Container"].(map[string]any)
 			containerARN, _ := containerMap["ARN"].(string)
 

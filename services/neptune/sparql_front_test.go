@@ -1,7 +1,7 @@
 package neptune_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
@@ -180,7 +181,7 @@ func TestSparqlProtocol(t *testing.T) {
 
 			if tt.wantCode != "" {
 				var e map[string]string
-				require.NoError(t, json.Unmarshal([]byte(res.body), &e), res.body)
+				require.NoError(t, json.Unmarshal([]byte(res.body), &e, jsonx.V1()), res.body)
 				assert.Equal(t, tt.wantCode, e["code"])
 				assert.NotEmpty(t, e["detailedMessage"])
 				assert.NotEmpty(t, e["requestId"])

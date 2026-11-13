@@ -2,10 +2,12 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type scramSecretInput struct {
@@ -24,7 +26,7 @@ func (h *Handler) handleBatchAssociateScramSecret(
 	body []byte,
 ) error {
 	var in scramSecretInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -48,7 +50,7 @@ func (h *Handler) handleBatchDisassociateScramSecret(
 	body []byte,
 ) error {
 	var in scramSecretInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

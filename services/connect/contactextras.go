@@ -1,11 +1,12 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -218,7 +219,7 @@ func (b *Backend) ListContactReferences(inst, contactID string, types []string) 
 
 		var refs map[string]storedReference
 		if len(c.References) > 0 {
-			if err = json.Unmarshal(c.References, &refs); err != nil {
+			if err = json.Unmarshal(c.References, &refs, jsonx.V1()); err != nil {
 				return nil, invalidRequestErr("the references of contact %q are not readable", contactID)
 			}
 		}

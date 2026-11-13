@@ -1,7 +1,7 @@
 package sns_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
@@ -298,7 +299,7 @@ func newConfirmationEndpoint(out chan<- map[string]string) *httptest.Server {
 		body, _ := io.ReadAll(r.Body)
 
 		var m map[string]string
-		if json.Unmarshal(body, &m) == nil && m["Type"] == "SubscriptionConfirmation" {
+		if json.Unmarshal(body, &m, jsonx.V1()) == nil && m["Type"] == "SubscriptionConfirmation" {
 			select {
 			case out <- m:
 			default:

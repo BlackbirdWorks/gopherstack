@@ -3,12 +3,13 @@ package kinesis
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -77,7 +78,7 @@ func (h *Handler) handleAddTagsToStream(
 	body []byte,
 ) (any, error) {
 	var req handleAddTagsToStreamInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -124,7 +125,7 @@ func (h *Handler) handleRemoveTagsFromStream(
 	body []byte,
 ) (any, error) {
 	var req handleRemoveTagsFromStreamInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -151,7 +152,7 @@ func (h *Handler) handleListTagsForStream(
 	body []byte,
 ) (any, error) {
 	var req listTagsForStreamReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -205,7 +206,7 @@ func (h *Handler) handleTagResource(
 	body []byte,
 ) (any, error) {
 	var req jsonTagResourceReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -243,7 +244,7 @@ func (h *Handler) handleUntagResource(
 	body []byte,
 ) (any, error) {
 	var req jsonUntagResourceReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -263,7 +264,7 @@ func (h *Handler) handleListTagsForResource(
 	body []byte,
 ) (any, error) {
 	var req jsonResourceARNReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

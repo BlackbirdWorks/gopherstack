@@ -1,12 +1,13 @@
 package ses
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/mail"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -226,7 +227,7 @@ func (b *InMemoryBackend) PutIdentityPolicy(identity, policyName, policy string)
 		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
 	}
 
-	if !json.Valid([]byte(policy)) {
+	if !jsontext.Value([]byte(policy)).IsValid(jsonx.V1()) {
 		return fmt.Errorf("%w: Policy must be a valid JSON policy document", ErrInvalidPolicy)
 	}
 

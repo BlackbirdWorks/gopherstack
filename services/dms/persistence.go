@@ -2,9 +2,11 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -43,7 +45,7 @@ const dmsSnapshotVersion = 1
 // non-serializable live fields. ResourceTags is the side table that
 // survives what Tables can't carry -- see reinitTagsLocked.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage   `json:"tables"`
+	Tables       map[string]jsontext.Value    `json:"tables"`
 	ResourceTags map[string]map[string]string `json:"resourceTags,omitempty"`
 	AccountID    string                       `json:"accountID"`
 	Region       string                       `json:"region"`
@@ -70,7 +72,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:       b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "dms: Snapshot marshal failure", "error", err)
 

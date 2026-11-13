@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -23,7 +24,7 @@ func TestHandler_DescribeAgreementIncludesArnAndTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, localRec.Code)
 	var localResp map[string]any
-	require.NoError(t, json.Unmarshal(localRec.Body.Bytes(), &localResp))
+	require.NoError(t, json.Unmarshal(localRec.Body.Bytes(), &localResp, jsonx.V1()))
 	localProfileID := localResp["ProfileId"].(string)
 
 	partnerRec := doTransferRequest(t, h, "CreateProfile", map[string]any{
@@ -31,13 +32,13 @@ func TestHandler_DescribeAgreementIncludesArnAndTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, partnerRec.Code)
 	var partnerResp map[string]any
-	require.NoError(t, json.Unmarshal(partnerRec.Body.Bytes(), &partnerResp))
+	require.NoError(t, json.Unmarshal(partnerRec.Body.Bytes(), &partnerResp, jsonx.V1()))
 	partnerProfileID := partnerResp["ProfileId"].(string)
 
 	serverRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
 	require.Equal(t, http.StatusOK, serverRec.Code)
 	var serverResp map[string]any
-	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp))
+	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp, jsonx.V1()))
 	serverID := serverResp["ServerId"].(string)
 
 	agRec := doTransferRequest(t, h, "CreateAgreement", map[string]any{
@@ -50,7 +51,7 @@ func TestHandler_DescribeAgreementIncludesArnAndTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, agRec.Code)
 	var agResp map[string]any
-	require.NoError(t, json.Unmarshal(agRec.Body.Bytes(), &agResp))
+	require.NoError(t, json.Unmarshal(agRec.Body.Bytes(), &agResp, jsonx.V1()))
 	agreementID := agResp["AgreementId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeAgreement", map[string]any{
@@ -60,7 +61,7 @@ func TestHandler_DescribeAgreementIncludesArnAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ag := resp["Agreement"].(map[string]any)
 
 	arn, hasArn := ag["Arn"].(string)
@@ -116,7 +117,7 @@ func TestHandler_CreateAgreement(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["AgreementId"])
 			}
 		})
@@ -248,7 +249,7 @@ func TestHandler_DescribeAgreement(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	agreementID := createResp["AgreementId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeAgreement", map[string]any{
@@ -291,7 +292,7 @@ func TestHandler_UpdateAgreement(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	agreementID := createResp["AgreementId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateAgreement", map[string]any{
@@ -328,7 +329,7 @@ func TestHandler_ListAgreementsEnrichedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	agreements := listResp["Agreements"].([]any)
 	require.Len(t, agreements, 1)
 
@@ -376,7 +377,7 @@ func TestHandler_CreateAgreementInactiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	agID := createResp["AgreementId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeAgreement", map[string]any{
@@ -386,7 +387,7 @@ func TestHandler_CreateAgreementInactiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	ag := descResp["Agreement"].(map[string]any)
 	assert.Equal(t, "INACTIVE", ag["Status"])
 }

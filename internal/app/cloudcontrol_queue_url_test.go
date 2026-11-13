@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudControlQueueURLMatchesSQS(t *testing.T) {
@@ -68,7 +70,7 @@ func TestCloudFormationQueueURLMatchesSQS(t *testing.T) {
 			"Q": map[string]any{"Type": "AWS::SQS::Queue", "Properties": map[string]any{"QueueName": "cfn-url-q"}},
 		},
 		"Outputs": map[string]any{"Url": map[string]any{"Value": map[string]any{"Ref": "Q"}}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

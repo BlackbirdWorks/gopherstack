@@ -1,9 +1,11 @@
 package firehose
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // partitionQueryNamespace is the Firehose namespace for jq-derived partition keys.
@@ -81,7 +83,7 @@ func partitionValue(
 
 	if !*parsed {
 		*parsed = true
-		if err := json.Unmarshal(rec, obj); err != nil {
+		if err := json.Unmarshal(rec, obj, jsonx.V1()); err != nil {
 			return "", false
 		}
 	}
@@ -292,7 +294,7 @@ func scalarToString(v any) (string, bool) {
 		}
 
 		return "false", true
-	case json.Number:
+	case jsonx.Number:
 		return val.String(), true
 	case float64:
 		// Render integers without a trailing ".0" to match typical partition values.

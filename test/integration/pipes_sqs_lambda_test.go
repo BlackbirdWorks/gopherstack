@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	pipespkg "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -219,7 +220,7 @@ func TestIntegration_Pipes_SQS_To_Lambda(t *testing.T) {
 			EventSource string `json:"eventSource"`
 		} `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(payload, &event))
+	require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 
 	assert.NotEmpty(t, event.Records, "payload should have at least one record")
 	assert.Equal(t, "aws:sqs", event.Records[0].EventSource)

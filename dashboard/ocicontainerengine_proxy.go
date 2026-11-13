@@ -2,7 +2,8 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -131,7 +134,7 @@ func ociOKEResizeBody(in io.Reader) ([]byte, bool) {
 		Quantity *int `json:"quantityPerSubnet"`
 	}
 
-	if err := json.NewDecoder(in).Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(in), &req, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -146,7 +149,7 @@ func ociOKEResizeBody(in io.Reader) ([]byte, bool) {
 		return nil, false
 	}
 
-	body, err := json.Marshal(out)
+	body, err := json.Marshal(out, jsonx.V1())
 
 	return body, err == nil
 }

@@ -2,7 +2,8 @@ package s3files
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -287,8 +289,8 @@ func validatePolicy(policy string) error {
 		return validation("Policy must be between 1 and 20480 bytes")
 	}
 
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	var doc map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return validation("Policy is not a valid JSON document")
 	}
 

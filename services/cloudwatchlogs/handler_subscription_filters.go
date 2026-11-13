@@ -2,7 +2,9 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putSubscriptionFilterInput struct {
@@ -43,7 +45,7 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutSubscriptionFilter": func(ctx context.Context, b []byte) (any, error) {
 			var input putSubscriptionFilterInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.PutSubscriptionFilterWithOptions(
@@ -63,7 +65,7 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 		},
 		"DescribeSubscriptionFilters": func(ctx context.Context, b []byte) (any, error) {
 			var input describeSubscriptionFiltersInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			filters, next, err := h.Backend.DescribeSubscriptionFilters(
@@ -78,7 +80,7 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 		},
 		"DeleteSubscriptionFilter": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteSubscriptionFilterInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DeleteSubscriptionFilter(ctx, input.LogGroupName, input.FilterName); err != nil {

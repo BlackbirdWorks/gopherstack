@@ -1,7 +1,8 @@
 package lightsail_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lightsail"
 )
 
@@ -160,22 +162,22 @@ func testGetRelationalDatabaseEventsDuration(t *testing.T) {
 func backdateOldestEvent(t *testing.T, backend *lightsail.InMemoryBackend, dbName string, when time.Time) {
 	t.Helper()
 
-	type snapshot = map[string]json.RawMessage
+	type snapshot = map[string]jsontext.Value
 
 	raw := backend.Snapshot(t.Context())
 	require.NotEmpty(t, raw)
 
 	var snap snapshot
-	require.NoError(t, json.Unmarshal(raw, &snap))
+	require.NoError(t, json.Unmarshal(raw, &snap, jsonx.V1()))
 
 	var tables snapshot
-	require.NoError(t, json.Unmarshal(snap["tables"], &tables))
+	require.NoError(t, json.Unmarshal(snap["tables"], &tables, jsonx.V1()))
 
 	// Decoded as untyped maps, not lightsail.RelationalDatabase, so this
 	// edit doesn't need (and musttag doesn't demand) a json tag on an
 	// internal persistence struct that intentionally has none.
 	var dbs []map[string]any
-	require.NoError(t, json.Unmarshal(tables["databases"], &dbs))
+	require.NoError(t, json.Unmarshal(tables["databases"], &dbs, jsonx.V1()))
 	require.Len(t, dbs, 1)
 	require.Equal(t, dbName, dbs[0]["Name"])
 
@@ -187,15 +189,15 @@ func backdateOldestEvent(t *testing.T, backend *lightsail.InMemoryBackend, dbNam
 	require.True(t, ok)
 	event["CreatedAt"] = when.Format(time.RFC3339Nano)
 
-	newDBs, err := json.Marshal(dbs)
+	newDBs, err := json.Marshal(dbs, jsonx.V1())
 	require.NoError(t, err)
 	tables["databases"] = newDBs
 
-	newTables, err := json.Marshal(tables)
+	newTables, err := json.Marshal(tables, jsonx.V1())
 	require.NoError(t, err)
 	snap["tables"] = newTables
 
-	newSnap, err := json.Marshal(snap)
+	newSnap, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	require.NoError(t, backend.Restore(t.Context(), newSnap))

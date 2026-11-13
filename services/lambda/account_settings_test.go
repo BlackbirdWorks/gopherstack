@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -25,7 +27,7 @@ func TestAccountUsage_FunctionCount_Increments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec0.Code)
 
 	var s0 lambda.AccountSettingsOutput
-	require.NoError(t, json.NewDecoder(rec0.Body).Decode(&s0))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec0.Body), &s0, jsonx.V1()))
 	require.NotNil(t, s0.AccountUsage)
 	assert.Equal(t, 0, s0.AccountUsage.FunctionCount)
 
@@ -36,7 +38,7 @@ func TestAccountUsage_FunctionCount_Increments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var s2 lambda.AccountSettingsOutput
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&s2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &s2, jsonx.V1()))
 	require.NotNil(t, s2.AccountUsage)
 	assert.Equal(t, 2, s2.AccountUsage.FunctionCount)
 }
@@ -50,7 +52,7 @@ func TestAccountUsage_AccountLimit_Fields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var s lambda.AccountSettingsOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&s))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &s, jsonx.V1()))
 	require.NotNil(t, s.AccountLimit)
 	assert.Positive(t, s.AccountLimit.TotalCodeSize)
 	assert.Positive(t, s.AccountLimit.ConcurrentExecutions)
@@ -110,7 +112,7 @@ func TestGetAccountSettings_UnreservedConcurrency(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			limit, ok := out["AccountLimit"].(map[string]any)
 			require.True(t, ok, "AccountLimit must be present")
 
@@ -133,7 +135,7 @@ func TestGetAccountSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.AccountSettingsOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotNil(t, out.AccountLimit)
 	assert.Positive(t, out.AccountLimit.ConcurrentExecutions)
 	assert.Positive(t, out.AccountLimit.TotalCodeSize)
@@ -152,6 +154,6 @@ func TestGetAccountSettings_FunctionCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.AccountSettingsOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, 2, out.AccountUsage.FunctionCount)
 }

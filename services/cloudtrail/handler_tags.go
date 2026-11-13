@@ -1,10 +1,12 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- AddTags ---
@@ -19,7 +21,7 @@ type addTagsBody struct {
 
 func (h *Handler) handleAddTags(c *echo.Context, body []byte) error {
 	var in addTagsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -46,7 +48,7 @@ type removeTagsBody struct {
 
 func (h *Handler) handleRemoveTags(c *echo.Context, body []byte) error {
 	var in removeTagsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -70,7 +72,7 @@ type listTagsBody struct {
 
 func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 	var in listTagsBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

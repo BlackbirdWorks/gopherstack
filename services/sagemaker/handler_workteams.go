@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,7 +61,7 @@ type createWorkteamInput struct {
 func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req createWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -91,7 +93,7 @@ func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"WorkteamArn": result.WorkteamArn})
+	return json.Marshal(map[string]any{"WorkteamArn": result.WorkteamArn}, jsonx.V1())
 }
 
 // describeWorkteamInput mirrors DescribeWorkteamInput (api_op_DescribeWorkteam.go:31-36).
@@ -102,7 +104,7 @@ type describeWorkteamInput struct {
 func (h *Handler) handleDescribeWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -115,7 +117,7 @@ func (h *Handler) handleDescribeWorkteam(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)})
+	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)}, jsonx.V1())
 }
 
 // updateWorkteamInput mirrors UpdateWorkteamInput (api_op_UpdateWorkteam.go:28-70).
@@ -130,7 +132,7 @@ type updateWorkteamInput struct {
 func (h *Handler) handleUpdateWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -149,7 +151,7 @@ func (h *Handler) handleUpdateWorkteam(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)})
+	return json.Marshal(map[string]any{"Workteam": workteamResponseMap(result)}, jsonx.V1())
 }
 
 // deleteWorkteamInput mirrors DeleteWorkteamInput (api_op_DeleteWorkteam.go:27-32).
@@ -160,7 +162,7 @@ type deleteWorkteamInput struct {
 func (h *Handler) handleDeleteWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -172,7 +174,7 @@ func (h *Handler) handleDeleteWorkteam(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Success": true})
+	return json.Marshal(map[string]any{"Success": true}, jsonx.V1())
 }
 
 // listWorkteamsInput mirrors ListWorkteamsInput (api_op_ListWorkteams.go:31-51).
@@ -187,7 +189,7 @@ type listWorkteamsInput struct {
 func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte, error) {
 	var req listWorkteamsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -208,5 +210,5 @@ func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte,
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

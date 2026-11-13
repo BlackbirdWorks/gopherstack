@@ -2,7 +2,7 @@ package gcpfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
@@ -18,11 +18,11 @@ import (
 const snapshotVersion = 1
 
 type fnSnap struct {
-	Function json.RawMessage `json:"function"`
-	Failure  string          `json:"failure"`
-	SubName  string          `json:"subName"`
-	Zip      []byte          `json:"zip"`
-	RevSeq   int             `json:"revSeq"`
+	Function jsontext.Value `json:"function"`
+	Failure  string         `json:"failure"`
+	SubName  string         `json:"subName"`
+	Zip      []byte         `json:"zip"`
+	RevSeq   int            `json:"revSeq"`
 }
 
 type uploadSnap struct {
@@ -31,12 +31,12 @@ type uploadSnap struct {
 }
 
 type backendSnapshot struct {
-	Functions  map[string]fnSnap          `json:"functions"`
-	Uploads    map[string]uploadSnap      `json:"uploads"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	IAM        map[string]json.RawMessage `json:"iamPolicies"`
-	IAMSeq     uint64                     `json:"iamSeq"`
-	Version    int                        `json:"version"`
+	Functions  map[string]fnSnap         `json:"functions"`
+	Uploads    map[string]uploadSnap     `json:"uploads"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	IAM        map[string]jsontext.Value `json:"iamPolicies"`
+	IAMSeq     uint64                    `json:"iamSeq"`
+	Version    int                       `json:"version"`
 }
 
 // Snapshot serialises all functions and sources; containers are not part of it.

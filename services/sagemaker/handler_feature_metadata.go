@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ type describeFeatureMetadataInput struct {
 func (h *Handler) handleDescribeFeatureMetadata(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeFeatureMetadataInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -101,7 +103,7 @@ func (h *Handler) handleDescribeFeatureMetadata(ctx context.Context, body []byte
 		resp["Parameters"] = featureParametersToWire(meta.Parameters)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateFeatureMetadataInput mirrors UpdateFeatureMetadataInput
@@ -123,7 +125,7 @@ type updateFeatureMetadataInput struct {
 func (h *Handler) handleUpdateFeatureMetadata(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateFeatureMetadataInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -161,7 +163,7 @@ func (h *Handler) handleUpdateFeatureMetadata(ctx context.Context, body []byte) 
 		return nil, updateErr
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // featureExistsInGroup reports whether featureName is one of fg's defined features.

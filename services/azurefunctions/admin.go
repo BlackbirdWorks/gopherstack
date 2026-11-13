@@ -8,11 +8,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -50,12 +52,12 @@ func (b *InMemoryBackend) AdminToken(name string) (string, error) {
 
 	now := b.now().UTC()
 	site := a.Name
-	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
+	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"}, jsonx.V1())
 	claims, _ := json.Marshal(map[string]any{
 		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(adminTokenTTL).Unix(),
 		"iss": "https://" + site + ".scm.azurewebsites.net",
 		"aud": "https://" + site + ".azurewebsites.net/azurefunctions",
-	})
+	}, jsonx.V1())
 
 	signing := b64(header) + "." + b64(claims)
 	mac := hmac.New(sha256.New, adminSigningKey(&a.appState))

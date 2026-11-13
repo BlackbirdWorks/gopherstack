@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonRetentionPeriodReq struct {
@@ -18,7 +20,7 @@ func (h *Handler) handleIncreaseStreamRetentionPeriod(
 	body []byte,
 ) (any, error) {
 	var req jsonRetentionPeriodReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -40,7 +42,7 @@ func (h *Handler) handleDecreaseStreamRetentionPeriod(
 	body []byte,
 ) (any, error) {
 	var req jsonRetentionPeriodReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

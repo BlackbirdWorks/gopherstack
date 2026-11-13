@@ -3,7 +3,7 @@ package ssm
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -107,7 +108,7 @@ func (d *dataChannel) serve(parent context.Context) {
 	_ = d.ws.SetReadDeadline(time.Time{})
 
 	var open OpenDataChannelInput
-	if jerr := json.Unmarshal(raw, &open); jerr != nil {
+	if jerr := json.Unmarshal(raw, &open, jsonx.V1()); jerr != nil {
 		d.reject("malformed OpenDataChannel request")
 
 		return
@@ -230,7 +231,7 @@ func (d *dataChannel) process(ctx context.Context, m *StreamMessage) bool {
 		return d.completeHandshake(ctx, m.Payload)
 	case PayloadSize:
 		var sz SizePayload
-		if json.Unmarshal(m.Payload, &sz) == nil && sz.Cols > 0 && sz.Rows > 0 {
+		if json.Unmarshal(m.Payload, &sz, jsonx.V1()) == nil && sz.Cols > 0 && sz.Rows > 0 {
 			d.cols, d.rows = sz.Cols, sz.Rows
 			if d.shell != nil {
 				_ = d.shell.Resize(ctx, sz.Cols, sz.Rows)
@@ -272,14 +273,14 @@ func (d *dataChannel) sendHandshakeRequest() error {
 				"Properties":  props,
 			},
 		}},
-	})
+	}, jsonx.V1())
 
 	return d.sendOutput(PayloadHandshakeRequest, body)
 }
 
 func (d *dataChannel) completeHandshake(ctx context.Context, payload []byte) bool {
 	var resp HandshakeResponsePayload
-	if err := json.Unmarshal(payload, &resp); err != nil {
+	if err := json.Unmarshal(payload, &resp, jsonx.V1()); err != nil {
 		d.endSession("Malformed handshake response.")
 
 		return true
@@ -293,7 +294,7 @@ func (d *dataChannel) completeHandshake(ctx context.Context, payload []byte) boo
 		}
 	}
 
-	done, _ := json.Marshal(HandshakeCompletePayload{HandshakeTimeToComplete: int64(time.Since(d.started))})
+	done, _ := json.Marshal(HandshakeCompletePayload{HandshakeTimeToComplete: int64(time.Since(d.started))}, jsonx.V1())
 	if d.sendOutput(PayloadHandshakeComplete, done) != nil {
 		return true
 	}
@@ -396,7 +397,7 @@ func (d *dataChannel) finish(reason string) {
 		SessionID:     d.sessionID,
 		SchemaVersion: msgSchemaVersion,
 		Output:        reason,
-	})
+	}, jsonx.V1())
 
 	_ = d.send(NewStreamMessage(MsgChannelClosed, 0, 0, body))
 	d.closeNormal()
@@ -414,7 +415,7 @@ func (d *dataChannel) sendAck(m *StreamMessage) error {
 	body, _ := json.Marshal(AckPayload{
 		MessageType: m.MessageType, MessageID: m.MessageID.String(),
 		SequenceNumber: m.SequenceNumber, IsSequentialMessage: true,
-	})
+	}, jsonx.V1())
 
 	ack := NewStreamMessage(MsgAcknowledge, 0, 0, body)
 	ack.Flags = ackFlags

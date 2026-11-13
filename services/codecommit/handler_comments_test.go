@@ -1,13 +1,15 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PostCommentForComparedCommit(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_PostCommentForComparedCommit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	comment := resp["comment"].(map[string]any)
 	assert.Equal(t, "hello world", comment["content"])
 	assert.NotEmpty(t, comment["commentId"])
@@ -45,7 +47,7 @@ func TestHandler_PostCommentForPullRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	comment := resp["comment"].(map[string]any)
 	assert.Equal(t, "PR comment", comment["content"])
 }
@@ -64,7 +66,7 @@ func TestHandler_PostCommentReply(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var parentResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &parentResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &parentResp, jsonx.V1()))
 	parentID := parentResp["comment"].(map[string]any)["commentId"].(string)
 
 	rec = doRequest(t, h, "PostCommentReply", map[string]any{
@@ -74,7 +76,7 @@ func TestHandler_PostCommentReply(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "reply comment", resp["comment"].(map[string]any)["content"])
 }
 
@@ -92,7 +94,7 @@ func TestHandler_GetComment(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	cID := cr["comment"].(map[string]any)["commentId"].(string)
 
 	rec = doRequest(t, h, "GetComment", map[string]any{"commentId": cID})
@@ -121,7 +123,7 @@ func TestHandler_GetCommentsForComparedCommit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups := resp["commentsForComparedCommitData"].([]any)
 	require.Len(t, groups, 1)
 	assert.Len(t, groups[0].(map[string]any)["comments"], 1)
@@ -163,7 +165,7 @@ func TestHandler_GetCommentsForComparedCommit_TableDriven(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			groups := resp["commentsForComparedCommitData"].([]any)
 			if tt.commentCount == 0 {
 				assert.Empty(t, groups)
@@ -194,7 +196,7 @@ func TestHandler_GetCommentsForPullRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups := resp["commentsForPullRequestData"].([]any)
 	require.Len(t, groups, 1)
 	assert.Len(t, groups[0].(map[string]any)["comments"], 1)
@@ -234,7 +236,7 @@ func TestHandler_GetCommentsForPullRequest_TableDriven(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			groups := resp["commentsForPullRequestData"].([]any)
 			if tt.commentCount == 0 {
 				assert.Empty(t, groups)
@@ -261,7 +263,7 @@ func TestHandler_UpdateComment(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	cID := cr["comment"].(map[string]any)["commentId"].(string)
 
 	rec = doRequest(t, h, "UpdateComment", map[string]any{
@@ -271,7 +273,7 @@ func TestHandler_UpdateComment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "updated", resp["comment"].(map[string]any)["content"])
 }
 
@@ -289,14 +291,14 @@ func TestHandler_DeleteCommentContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	cID := cr["comment"].(map[string]any)["commentId"].(string)
 
 	rec = doRequest(t, h, "DeleteCommentContent", map[string]any{"commentId": cID})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, true, resp["comment"].(map[string]any)["deleted"])
 }
 
@@ -315,7 +317,7 @@ func TestHandler_CommentLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	commentID := resp["comment"].(map[string]any)["commentId"].(string)
 
 	// Update the comment.
@@ -325,7 +327,7 @@ func TestHandler_CommentLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "updated content", resp["comment"].(map[string]any)["content"])
 
 	// Add reaction.
@@ -339,7 +341,7 @@ func TestHandler_CommentLifecycle(t *testing.T) {
 	rec = doRequest(t, h, "GetCommentReactions", map[string]any{"commentId": commentID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	reactions := resp["reactionsForComment"].([]any)
 	assert.Len(t, reactions, 1)
 
@@ -354,7 +356,7 @@ func TestHandler_CommentLifecycle(t *testing.T) {
 	rec = doRequest(t, h, "DeleteCommentContent", map[string]any{"commentId": commentID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	c := resp["comment"].(map[string]any)
 	assert.Equal(t, true, c["deleted"])
 	assert.Empty(t, c["content"])

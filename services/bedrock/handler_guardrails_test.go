@@ -2,7 +2,7 @@ package bedrock_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -1081,7 +1082,7 @@ func TestAccuracy_GuardrailVersion_HTTPCreate(t *testing.T) {
 					"/guardrails/"+g.GuardrailID,
 					map[string]any{"description": fmt.Sprintf("v%d", i+1)})
 				require.Equal(t, http.StatusOK, rec.Code)
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lastOut))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lastOut, jsonx.V1()))
 			}
 
 			assert.Equal(t, tt.wantVersion, lastOut["version"])
@@ -1137,7 +1138,7 @@ func TestAccuracy_Guardrail_UpdatePreservesAllFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.newName, out["name"])
 			assert.Equal(t, tt.newDesc, out["description"])
 		})
@@ -1178,7 +1179,7 @@ func TestAccuracy_Tags_OnGuardrailViaListTags(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			returnedTags := out["tags"].([]any)
 			assert.Len(t, returnedTags, tt.tagCount)
 		})
@@ -1220,7 +1221,7 @@ func TestAccuracy_Tags_TagGuardrailAfterCreate(t *testing.T) {
 			require.Equal(t, http.StatusOK, recList.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 			returnedTags := out["tags"].([]any)
 			assert.Len(t, returnedTags, 1)
 			assert.Equal(t, tt.key, returnedTags[0].(map[string]any)["key"])
@@ -1246,7 +1247,7 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	guardrailID := out["guardrailId"].(string)
 
 	// Create a version
@@ -1255,7 +1256,7 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, versionRec.Code)
 
 	var verOut map[string]any
-	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &verOut))
+	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &verOut, jsonx.V1()))
 	version := verOut["version"].(string)
 	assert.NotEqual(t, "DRAFT", version)
 
@@ -1264,6 +1265,6 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, getVerRec.Code)
 
 	var verDetailOut map[string]any
-	require.NoError(t, json.Unmarshal(getVerRec.Body.Bytes(), &verDetailOut))
+	require.NoError(t, json.Unmarshal(getVerRec.Body.Bytes(), &verDetailOut, jsonx.V1()))
 	assert.NotNil(t, verDetailOut["contentPolicy"], "version should preserve policies")
 }

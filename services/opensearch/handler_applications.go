@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -150,7 +151,7 @@ func (h *Handler) handleDefaultApplicationSettingRoutes(w http.ResponseWriter, r
 		}
 
 		if len(body) > 0 {
-			if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 				h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 				return
@@ -215,7 +216,7 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 			DataSources []appDSJSON     `json:"DataSources"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		appConfigs := make([]AppConfig, len(req.AppConfigs))
 		for i, ac := range req.AppConfigs {
@@ -289,7 +290,7 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 	}
 
 	var req createApplicationRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

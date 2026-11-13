@@ -3,7 +3,7 @@ package sns
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/xml"
 	"net/http"
 	"sync"
@@ -718,7 +718,7 @@ type publishTargets struct {
 	filteredOut     filteredCounts
 }
 
-type parsedFilterPolicy map[string][]json.RawMessage
+type parsedFilterPolicy map[string][]jsontext.Value
 
 // snsHTTPNotification is the SNS notification JSON envelope sent to HTTP/HTTPS subscribers.
 // When RawMessageDelivery is false, this struct is serialised as the POST body.

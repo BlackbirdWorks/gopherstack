@@ -1,7 +1,8 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -121,7 +123,7 @@ func TestHTTP_StartMedicalTranscriptionJob_ContentIdentificationType(t *testing.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	job := out["MedicalTranscriptionJob"].(map[string]any)
 	assert.Equal(t, "PHI", job["ContentIdentificationType"])
 }
@@ -272,7 +274,7 @@ func TestMedicalTranscriptionJobTranscriptURI(t *testing.T) {
 					} `json:"Transcript"`
 				} `json:"MedicalTranscriptionJob"`
 			}
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 			uri := out.MedicalTranscriptionJob.Transcript.TranscriptFileURI
 			assert.NotEmpty(t, uri, "Transcript.TranscriptFileURI must not be empty")
@@ -312,7 +314,7 @@ func TestStartMedicalTranscriptionJob_TranscriptURIInStartResponse(t *testing.T)
 			} `json:"Transcript"`
 		} `json:"MedicalTranscriptionJob"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &out, jsonx.V1()))
 
 	uri := out.MedicalTranscriptionJob.Transcript.TranscriptFileURI
 	assert.NotEmpty(t, uri, "StartMedicalTranscriptionJob response must include TranscriptFileUri")
@@ -369,9 +371,9 @@ func TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape(t *testing.
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var raw struct {
-		MedicalTranscriptionJobSummaries []map[string]json.RawMessage `json:"MedicalTranscriptionJobSummaries"`
+		MedicalTranscriptionJobSummaries []map[string]jsontext.Value `json:"MedicalTranscriptionJobSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.MedicalTranscriptionJobSummaries, 1)
 
 	summary := raw.MedicalTranscriptionJobSummaries[0]
@@ -380,6 +382,6 @@ func TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape(t *testing.
 	assert.NotContains(t, summary, "Tags", "MedicalTranscriptionJobSummary must not include Tags")
 
 	var outputLocationType string
-	require.NoError(t, json.Unmarshal(summary["OutputLocationType"], &outputLocationType))
+	require.NoError(t, json.Unmarshal(summary["OutputLocationType"], &outputLocationType, jsonx.V1()))
 	assert.Equal(t, "CUSTOMER_BUCKET", outputLocationType)
 }

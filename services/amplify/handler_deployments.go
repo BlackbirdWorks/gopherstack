@@ -2,12 +2,13 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createDeployment handles POST /apps/{appId}/branches/{branchName}/deployments.
@@ -26,7 +27,7 @@ func (h *Handler) createDeployment(ctx context.Context, c *echo.Context, appID, 
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 			return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 		}
 	}
@@ -60,7 +61,7 @@ func (h *Handler) startDeployment(ctx context.Context, c *echo.Context, appID, b
 		SourceURLType string `json:"sourceUrlType"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 

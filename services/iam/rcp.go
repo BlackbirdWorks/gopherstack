@@ -2,12 +2,13 @@ package iam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // RCPProvider resolves the resource control policies governing resources owned by an account.
@@ -179,7 +180,7 @@ func (p RoleTrustPolicyProvider) GetResourcePolicy(_ context.Context, resourceAR
 
 func scopeTrustPolicy(doc string) string {
 	var raw map[string]any
-	if json.Unmarshal([]byte(doc), &raw) != nil {
+	if json.Unmarshal([]byte(doc), &raw, jsonx.V1()) != nil {
 		return doc
 	}
 
@@ -199,7 +200,7 @@ func scopeTrustPolicy(doc string) string {
 
 	raw["Statement"] = stmts
 
-	out, err := json.Marshal(raw)
+	out, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return doc
 	}

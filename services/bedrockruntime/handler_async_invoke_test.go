@@ -2,7 +2,7 @@ package bedrockruntime_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )
 
@@ -76,7 +77,7 @@ func TestHandler_StartAsyncInvoke(t *testing.T) {
 			assert.Equal(t, http.StatusAccepted, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "invocationArn")
 			assert.NotEmpty(t, out["invocationArn"])
 		})
@@ -101,7 +102,7 @@ func TestHandler_StartAsyncInvoke_MissingS3URI(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out, "__type")
 }
 
@@ -123,7 +124,7 @@ func TestHandler_StartAsyncInvoke_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut, jsonx.V1()))
 	invocationArn := startOut["invocationArn"].(string)
 
 	getPath := "/async-invoke/" + url.PathEscape(invocationArn)
@@ -131,7 +132,7 @@ func TestHandler_StartAsyncInvoke_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.NotContains(
 		t, getOut, "tags",
 		"neither GetAsyncInvokeOutput nor AsyncInvokeSummary has a tags member; "+
@@ -230,7 +231,7 @@ func TestStartAsyncInvoke_ModelIDAsInferenceProfileARN(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["invocationArn"])
 }
 
@@ -318,7 +319,7 @@ func TestHandler_GetAsyncInvoke(t *testing.T) {
 				require.Equal(t, http.StatusAccepted, startRec.Code)
 
 				var startOut map[string]any
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 				invocationArn := startOut["invocationArn"].(string)
 
 				getPath := "/async-invoke/" + url.PathEscape(invocationArn)
@@ -327,7 +328,7 @@ func TestHandler_GetAsyncInvoke(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, invocationArn, out["invocationArn"])
 				assert.Contains(t, out, "modelArn")
 				assert.Contains(t, out, "status")
@@ -362,7 +363,7 @@ func TestHandler_GetAsyncInvoke_FullFields(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	invocationArn := startOut["invocationArn"].(string)
 
 	getPath := "/async-invoke/" + url.PathEscape(invocationArn)
@@ -371,7 +372,7 @@ func TestHandler_GetAsyncInvoke_FullFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out, "clientRequestToken")
 	assert.Equal(t, "my-idempotency-token", out["clientRequestToken"])
 	assert.NotContains(
@@ -423,14 +424,14 @@ func TestAsyncInvoke_GetResponseShape(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, recCreate.Code)
 
 			var createOut map[string]any
-			require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 			arn := createOut["invocationArn"].(string)
 
 			recGet := doRequest(t, h, http.MethodGet, "/async-invoke/"+arn, nil)
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, arn, out["invocationArn"])
 			assert.Contains(t, out["modelArn"].(string), tt.modelID)
 			assert.Equal(t, "InProgress", out["status"])
@@ -501,7 +502,7 @@ func TestHandler_ListAsyncInvokes(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, "asyncInvokeSummaries")
 
 			summaries, ok := out["asyncInvokeSummaries"].([]any)
@@ -568,7 +569,7 @@ func TestHandler_ListAsyncInvokes_StatusFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			summaries, ok := out["asyncInvokeSummaries"].([]any)
 			require.True(t, ok)
@@ -595,7 +596,7 @@ func TestHandler_ListAsyncInvokes_WithClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, ok := out["asyncInvokeSummaries"].([]any)
 	require.True(t, ok)
@@ -613,7 +614,7 @@ func TestListAsyncInvokes_EmptyList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	invokes, ok := out["asyncInvokeSummaries"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, invokes)
@@ -664,7 +665,7 @@ func TestListAsyncInvokes_AfterCreate(t *testing.T) {
 			require.Equal(t, http.StatusOK, recList.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 			invokes := out["asyncInvokeSummaries"].([]any)
 			assert.Len(t, invokes, tt.wantLen)
 

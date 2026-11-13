@@ -2,12 +2,14 @@ package detective_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -18,7 +20,7 @@ func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	unknownArn := missingGraphARN
@@ -79,7 +81,7 @@ func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // exist
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["InvestigationId"])
 			},
 		},
@@ -92,7 +94,7 @@ func TestDetective_Investigations(t *testing.T) { //nolint:paralleltest // exist
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				details, ok := resp["InvestigationDetails"].([]any)
 				require.True(t, ok)
 				assert.Len(t, details, 1)
@@ -183,7 +185,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	// Start investigation.
@@ -196,7 +198,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	invID := startResp["InvestigationId"].(string)
 	require.NotEmpty(t, invID)
 
@@ -217,7 +219,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, invID, resp["InvestigationId"])
 				assert.Equal(t, graphArn, resp["GraphArn"])
 				assert.Equal(t, "arn:aws:iam::000000000000:user/alice", resp["EntityArn"])
@@ -241,7 +243,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ARCHIVED", resp["State"])
 			},
 		},
@@ -254,7 +256,7 @@ func TestDetective_InvestigationGetAndUpdate(t *testing.T) { //nolint:parallelte
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				indicators, ok := resp["Indicators"].([]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, indicators, "ListIndicators should return indicators for an investigation")

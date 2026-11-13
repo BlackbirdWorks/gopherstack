@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +21,7 @@ import (
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -160,11 +161,11 @@ func readJSON[T any](c *echo.Context) (*T, map[string]any, error) {
 		return v, raw, nil
 	}
 
-	if err = json.Unmarshal(data, v); err != nil {
+	if err = json.Unmarshal(data, v, jsonx.V1()); err != nil {
 		return nil, nil, errInvalidArg("Invalid JSON payload received. %v", err)
 	}
 
-	if err = json.Unmarshal(data, &raw); err != nil {
+	if err = json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return nil, nil, errInvalidArg("Invalid JSON payload received. %v", err)
 	}
 

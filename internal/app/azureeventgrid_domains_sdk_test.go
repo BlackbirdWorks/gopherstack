@@ -1,7 +1,8 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
@@ -42,9 +44,9 @@ func newEGReceiver(t *testing.T) *egReceiver {
 		if req.Header.Get("Aeg-Event-Type") == "SubscriptionValidation" {
 			var evs []map[string]any
 
-			_ = json.Unmarshal(body, &evs)
+			_ = json.Unmarshal(body, &evs, jsonx.V1())
 			code, _ := evs[0]["data"].(map[string]any)["validationCode"].(string)
-			_ = json.NewEncoder(w).Encode(map[string]string{"validationResponse": code})
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{"validationResponse": code})
 
 			return
 		}
@@ -70,7 +72,7 @@ func (r *egReceiver) events(t *testing.T) ([]map[string]any, int) {
 	for _, b := range r.bodies {
 		var arr []map[string]any
 
-		require.NoError(t, json.Unmarshal(b, &arr))
+		require.NoError(t, json.Unmarshal(b, &arr, jsonx.V1()))
 
 		out = append(out, arr...)
 	}

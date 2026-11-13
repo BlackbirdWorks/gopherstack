@@ -1,12 +1,14 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ScanJobsFilterFromQuery builds a ListScanJobsFilter from ListScanJobs
@@ -140,7 +142,7 @@ type createReportPlanBody struct {
 
 func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 	var in createReportPlanBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -239,7 +241,7 @@ func (h *Handler) handleUpdateReportPlan(c *echo.Context, name string, body []by
 
 	var in updateReportPlanBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -413,7 +415,7 @@ func (h *Handler) handleStartScanJob(c *echo.Context, body []byte) error {
 		IdempotencyToken         string   `json:"IdempotencyToken"`
 		ScanBaseRecoveryPointArn string   `json:"ScanBaseRecoveryPointArn"`
 	}
-	if err := json.Unmarshal(body, &reqBody); err != nil {
+	if err := json.Unmarshal(body, &reqBody, jsonx.V1()); err != nil {
 		return c.JSON(
 			http.StatusBadRequest,
 			errResp("InvalidParameterValueException", "invalid request body"),

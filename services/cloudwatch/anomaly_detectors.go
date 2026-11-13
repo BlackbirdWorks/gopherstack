@@ -3,7 +3,7 @@ package cloudwatch
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -27,7 +28,7 @@ func detectorKey(d *AnomalyDetector) string {
 		return anomalyDetectorKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
 	}
 
-	raw, err := json.Marshal(d.MetricMath)
+	raw, err := json.Marshal(d.MetricMath, jsonx.V1())
 	if err != nil {
 		return "math/" + d.ID
 	}

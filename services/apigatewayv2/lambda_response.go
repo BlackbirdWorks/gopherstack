@@ -3,11 +3,14 @@ package apigatewayv2
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -22,16 +25,16 @@ const (
 func writeHTTPAPILambdaResponse(c *echo.Context, respBytes []byte, payloadVersion string) error {
 	trimmed := bytes.TrimSpace(respBytes)
 
-	var envelope map[string]json.RawMessage
+	var envelope map[string]jsontext.Value
 
-	isObject := json.Unmarshal(trimmed, &envelope) == nil && envelope != nil
+	isObject := json.Unmarshal(trimmed, &envelope, jsonx.V1()) == nil && envelope != nil
 	if isObject && isFunctionErrorEnvelope(envelope) {
 		return writeJSONMessage(c, http.StatusInternalServerError, msgInternalError)
 	}
 
 	_, hasStatus := envelope["statusCode"]
 	if !isObject || !hasStatus {
-		if payloadVersion == payloadFormatV1 || len(trimmed) == 0 || !json.Valid(trimmed) {
+		if payloadVersion == payloadFormatV1 || len(trimmed) == 0 || !jsontext.Value(trimmed).IsValid(jsonx.V1()) {
 			return writeJSONMessage(c, http.StatusInternalServerError, msgInternalError)
 		}
 
@@ -43,14 +46,14 @@ func writeHTTPAPILambdaResponse(c *echo.Context, respBytes []byte, payloadVersio
 	}
 
 	var lambdaResp httpAPILambdaResponse
-	if err := json.Unmarshal(trimmed, &lambdaResp); err != nil {
+	if err := json.Unmarshal(trimmed, &lambdaResp, jsonx.V1()); err != nil {
 		return writeJSONMessage(c, http.StatusInternalServerError, msgInternalError)
 	}
 
 	return writeLambdaEnvelope(c, &lambdaResp)
 }
 
-func isFunctionErrorEnvelope(envelope map[string]json.RawMessage) bool {
+func isFunctionErrorEnvelope(envelope map[string]jsontext.Value) bool {
 	_, hasMsg := envelope["errorMessage"]
 	_, hasType := envelope["errorType"]
 	_, hasStatus := envelope["statusCode"]
@@ -111,7 +114,7 @@ func writeJSONMessage(c *echo.Context, status int, body string) error {
 
 // httpAPIMessage renders the `{"message":"..."}` body execute-api returns for gateway errors.
 func httpAPIMessage(msg string) string {
-	b, _ := json.Marshal(map[string]string{jsonKeyMessage: msg})
+	b, _ := json.Marshal(map[string]string{jsonKeyMessage: msg}, jsonx.V1())
 
 	return strings.TrimSpace(string(b))
 }

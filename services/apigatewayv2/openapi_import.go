@@ -1,7 +1,8 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -26,7 +29,7 @@ const (
 
 // openAPISpec is the subset of an OpenAPI 3 / Swagger 2 document an HTTP API import reads.
 type openAPISpec struct {
-	Paths      map[string]map[string]json.RawMessage `json:"paths"`
+	Paths      map[string]map[string]jsontext.Value `json:"paths"`
 	Components struct {
 		SecuritySchemes map[string]openAPISecurityScheme `json:"securitySchemes"`
 	} `json:"components"`
@@ -73,11 +76,11 @@ type openAPISecurityScheme struct {
 type openAPIAuthorizer struct {
 	JwtConfiguration *JwtConfiguration `json:"jwtConfiguration"`
 	TTL              *int32            `json:"authorizerResultTtlInSeconds"`
-	IdentitySource   json.RawMessage   `json:"identitySource"`
+	IdentitySource   jsontext.Value    `json:"identitySource"`
 	Type             string            `json:"type"`
 	URI              string            `json:"authorizerUri"`
 	Credentials      string            `json:"authorizerCredentials"`
-	PayloadFormat    json.RawMessage   `json:"authorizerPayloadFormatVersion"`
+	PayloadFormat    jsontext.Value    `json:"authorizerPayloadFormatVersion"`
 	SimpleResponses  bool              `json:"enableSimpleResponses"`
 }
 
@@ -98,7 +101,7 @@ type openAPIIntegration struct {
 	ConnectionID         string            `json:"connectionId"`
 	Credentials          string            `json:"credentials"`
 	Description          string            `json:"description"`
-	PayloadFormatVersion json.RawMessage   `json:"payloadFormatVersion"`
+	PayloadFormatVersion jsontext.Value    `json:"payloadFormatVersion"`
 	TimeoutInMillis      int32             `json:"timeoutInMillis"`
 }
 
@@ -118,7 +121,7 @@ func parseOpenAPISpec(body string) (*openAPISpec, error) {
 			return nil, err
 		}
 
-		raw, err := json.Marshal(doc)
+		raw, err := json.Marshal(doc, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +129,7 @@ func parseOpenAPISpec(body string) (*openAPISpec, error) {
 		body = string(raw)
 	}
 
-	if err := json.Unmarshal([]byte(body), &spec); err != nil {
+	if err := json.Unmarshal([]byte(body), &spec, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +141,7 @@ func (s *openAPISpec) operation(path, method string) (openAPIOperation, bool) {
 
 	var op openAPIOperation
 
-	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &op) != nil {
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &op, jsonx.V1()) != nil {
 		return openAPIOperation{}, false
 	}
 
@@ -374,28 +377,28 @@ func authorizerInput(name string, az *openAPIAuthorizer) CreateAuthorizerInput {
 	return in
 }
 
-func rawScalar(raw json.RawMessage) string {
+func rawScalar(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonx.V1()) == nil {
 		return s
 	}
 
 	var f float64
-	if json.Unmarshal(raw, &f) == nil {
+	if json.Unmarshal(raw, &f, jsonx.V1()) == nil {
 		return fmt.Sprintf("%.1f", f)
 	}
 
 	return ""
 }
 
-func identitySources(raw json.RawMessage) []string {
+func identitySources(raw jsontext.Value) []string {
 	var list []string
-	if json.Unmarshal(raw, &list) == nil {
+	if json.Unmarshal(raw, &list, jsonx.V1()) == nil {
 		return list
 	}
 
 	var one string
-	if json.Unmarshal(raw, &one) == nil && one != "" {
+	if json.Unmarshal(raw, &one, jsonx.V1()) == nil && one != "" {
 		return strings.Split(one, ",")
 	}
 

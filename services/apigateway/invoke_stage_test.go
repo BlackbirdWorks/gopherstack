@@ -1,13 +1,14 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -64,7 +65,7 @@ func TestInvokeStage(t *testing.T) {
 
 			var ev apigateway.LambdaProxyEvent
 
-			require.NoError(t, json.Unmarshal(captured, &ev))
+			require.NoError(t, json.Unmarshal(captured, &ev, jsonx.V1()))
 			assert.Equal(t, "/items", ev.Resource)
 			assert.Equal(t, `{"a":1}`, ev.Body)
 			assert.Equal(t, "v", ev.QueryStringParameters["q"])

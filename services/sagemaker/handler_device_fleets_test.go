@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DeviceFleetLifecycle(t *testing.T) {
@@ -30,7 +32,7 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Empty(t, createResp)
 
 	// Describe
@@ -40,7 +42,7 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "my-fleet", descResp["DeviceFleetName"])
 	assert.Equal(t, "test fleet", descResp["Description"])
 	assert.Contains(t, descResp["DeviceFleetArn"], "my-fleet")
@@ -56,7 +58,7 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["DeviceFleetSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 
@@ -73,7 +75,7 @@ func TestHandler_DeviceFleetLifecycle(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "DescribeDeviceFleet", map[string]any{
 		"DeviceFleetName": "my-fleet",
 	})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "updated description", descResp["Description"])
 	outCfg, ok = descResp["OutputConfig"].(map[string]any)
 	require.True(t, ok)
@@ -151,7 +153,7 @@ func TestHandler_DeviceLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "dev-1", descResp["DeviceName"])
 	assert.Equal(t, "fleet-a", descResp["DeviceFleetName"])
 
@@ -162,7 +164,7 @@ func TestHandler_DeviceLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["DeviceSummaries"].([]any)
 	assert.Len(t, summaries, 2)
 
@@ -175,7 +177,7 @@ func TestHandler_DeviceLifecycle(t *testing.T) {
 
 	// Verify only one remains
 	rec = doSageMakerRequest(t, h, "ListDevices", map[string]any{"DeviceFleetName": "fleet-a"})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries = listResp["DeviceSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 }
@@ -207,7 +209,7 @@ func TestHandler_ListDevices_NoFleetFilter(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["DeviceSummaries"].([]any)
 	assert.Len(t, summaries, 2)
 }

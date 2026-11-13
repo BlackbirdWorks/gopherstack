@@ -1,7 +1,8 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -404,7 +406,7 @@ func TestFullJobLifecycle_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	jobID := jobData["id"].(string)
 	assert.Equal(t, "SUBMITTED", jobData["status"])
@@ -418,7 +420,7 @@ func TestFullJobLifecycle_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out2, jsonx.V1()))
 	j2 := out2["job"].(map[string]any)
 	assert.Equal(t, "COMPLETE", j2["status"])
 	timing := j2["timing"].(map[string]any)

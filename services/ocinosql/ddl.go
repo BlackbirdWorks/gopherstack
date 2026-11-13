@@ -1,11 +1,13 @@
 package ocinosql
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -20,12 +22,12 @@ var identRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // Column is one table column.
 type Column struct {
-	Name    string          `json:"name"`
-	Type    string          `json:"type"`
-	Default json.RawMessage `json:"default,omitempty"`
-	NotNull bool            `json:"notNull,omitempty"`
-	AsUUID  bool            `json:"asUuid,omitempty"`
-	Gen     bool            `json:"generated,omitempty"`
+	Name    string         `json:"name"`
+	Type    string         `json:"type"`
+	Default jsontext.Value `json:"default,omitempty"`
+	NotNull bool           `json:"notNull,omitempty"`
+	AsUUID  bool           `json:"asUuid,omitempty"`
+	Gen     bool           `json:"generated,omitempty"`
 }
 
 // Identity is the table's identity column spec and its counter.
@@ -346,21 +348,21 @@ func (p *parser) parseColumnOption(col *Column, t *dtype, id *Identity) (bool, *
 	return true, id, nil
 }
 
-func (p *parser) defaultLiteral() (json.RawMessage, *APIError) {
+func (p *parser) defaultLiteral() (jsontext.Value, *APIError) {
 	t := p.next()
 	switch {
 	case t.kind == tkNumber:
-		return json.RawMessage(t.text), nil
+		return jsontext.Value(t.text), nil
 	case t.kind == tkString:
-		b, _ := json.Marshal(t.text)
+		b, _ := json.Marshal(t.text, jsonx.V1())
 
 		return b, nil
 	case t.up == kwTrue || t.up == kwFalse:
-		return json.RawMessage(strings.ToLower(t.text)), nil
+		return jsontext.Value(strings.ToLower(t.text)), nil
 	case t.up == kwNull:
-		return json.RawMessage("null"), nil
+		return jsontext.Value("null"), nil
 	case t.text == "-" && p.peek().kind == tkNumber:
-		return json.RawMessage("-" + p.next().text), nil
+		return jsontext.Value("-" + p.next().text), nil
 	}
 
 	return nil, errParam("syntax error: DEFAULT must be a number, string, boolean or NULL literal")

@@ -2,7 +2,7 @@ package verifiedpermissions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -147,7 +148,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		PolicyID         string `json:"policyId"`
 		PolicyTemplateID string `json:"policyTemplateId"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.PolicyStoreID != "" && req.PolicyID != "" {
 		return req.PolicyStoreID + "/" + req.PolicyID
@@ -223,14 +224,11 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	message := stripCodePrefix(err.Error())
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -263,7 +261,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyMessageField: message,
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ValidationException",
 			keyMessageField: message,

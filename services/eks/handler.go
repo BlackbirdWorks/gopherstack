@@ -1,7 +1,8 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -539,9 +541,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		var body []byte
 		if c.Request().Body != nil {
-			decoder := json.NewDecoder(c.Request().Body)
-			var raw json.RawMessage
-			if err := decoder.Decode(&raw); err == nil {
+			decoder := jsontext.NewDecoder(c.Request().Body)
+			var raw jsontext.Value
+			if err := json.UnmarshalDecode(decoder, &raw, jsonx.V1()); err == nil {
 				body = raw
 			}
 		}

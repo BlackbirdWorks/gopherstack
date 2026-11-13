@@ -2,8 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // tagResourceRequest mirrors TagResourceInput's JSON body.
@@ -20,7 +22,7 @@ func (h *Handler) handleListTagsForResource(_ context.Context, r *http.Request, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"tags": tags})
+	return json.Marshal(map[string]any{"tags": tags}, jsonx.V1())
 }
 
 func (h *Handler) handleTagResource(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
@@ -28,7 +30,7 @@ func (h *Handler) handleTagResource(ctx context.Context, r *http.Request, body [
 	resourceArn := segs[1]
 
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -36,7 +38,7 @@ func (h *Handler) handleTagResource(ctx context.Context, r *http.Request, body [
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) handleUntagResource(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -48,5 +50,5 @@ func (h *Handler) handleUntagResource(ctx context.Context, r *http.Request, _ []
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

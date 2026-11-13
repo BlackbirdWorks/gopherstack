@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 )
 
@@ -222,7 +223,7 @@ func decode(t *testing.T, body string) received {
 
 	var r received
 
-	require.NoError(t, json.Unmarshal([]byte(body), &r))
+	require.NoError(t, json.Unmarshal([]byte(body), &r, jsonx.V1()))
 
 	return r
 }

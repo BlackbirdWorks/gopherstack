@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -31,7 +33,7 @@ func TestOpenSearchHandler_UpdateDomainConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, upResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(upResp.Body), &out, jsonx.V1()))
 
 	domainConfig, ok := out["DomainConfig"].(map[string]any)
 	require.True(t, ok)
@@ -58,7 +60,7 @@ func Test_UpdateDomainConfig_DryRun(t *testing.T) {
 	assert.Equal(t, http.StatusOK, dryResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(dryResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dryResp.Body), &out, jsonx.V1()))
 
 	domainConfig, ok := out["DomainConfig"].(map[string]any)
 	require.True(t, ok)
@@ -75,7 +77,7 @@ func Test_UpdateDomainConfig_DryRun(t *testing.T) {
 	defer descResp.Body.Close()
 
 	var descOut map[string]any
-	require.NoError(t, json.NewDecoder(descResp.Body).Decode(&descOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &descOut, jsonx.V1()))
 	status, ok := descOut["DomainStatus"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "OpenSearch_2.7", status["EngineVersion"], "dry run must not persist the change")
@@ -101,7 +103,7 @@ func TestOpenSearchHandler_DefaultApplicationSetting(t *testing.T) {
 	// GET before any setting → empty ARN.
 	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/defaultApplicationSetting", nil)
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Empty(t, out["applicationArn"])
@@ -115,7 +117,7 @@ func TestOpenSearchHandler_DefaultApplicationSetting(t *testing.T) {
 	assert.Equal(t, http.StatusOK, putResp.StatusCode)
 
 	var putOut map[string]any
-	require.NoError(t, json.NewDecoder(putResp.Body).Decode(&putOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putResp.Body), &putOut, jsonx.V1()))
 	assert.Equal(t, appArn, putOut["applicationArn"])
 
 	// GET after PUT → should return the stored ARN.
@@ -125,7 +127,7 @@ func TestOpenSearchHandler_DefaultApplicationSetting(t *testing.T) {
 	assert.Equal(t, http.StatusOK, getResp.StatusCode)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getResp.Body), &out2, jsonx.V1()))
 	assert.Equal(t, appArn, out2["applicationArn"])
 
 	// PUT with SetAsDefault=false clears the default.
@@ -135,7 +137,7 @@ func TestOpenSearchHandler_DefaultApplicationSetting(t *testing.T) {
 	assert.Equal(t, http.StatusOK, clearResp.StatusCode)
 
 	var clearOut map[string]any
-	require.NoError(t, json.NewDecoder(clearResp.Body).Decode(&clearOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(clearResp.Body), &clearOut, jsonx.V1()))
 	assert.Empty(t, clearOut["applicationArn"])
 }
 
@@ -167,7 +169,7 @@ func TestDescribeDomainConfig_RealData(t *testing.T) {
 	require.Equal(t, http.StatusOK, cfgResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(cfgResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cfgResp.Body), &out, jsonx.V1()))
 
 	domainConfig, ok := out["DomainConfig"].(map[string]any)
 	require.True(t, ok)
@@ -453,7 +455,7 @@ func TestUpdateDomainConfig_AllOptions(t *testing.T) {
 			require.Equal(t, http.StatusOK, upResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(upResp.Body), &out, jsonx.V1()))
 			tt.verify(t, out)
 		})
 	}
@@ -527,7 +529,7 @@ func TestDescribeDomainConfig_FullConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, cfgResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(cfgResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cfgResp.Body), &out, jsonx.V1()))
 			dc, ok := out["DomainConfig"].(map[string]any)
 			require.True(t, ok)
 
@@ -614,7 +616,7 @@ func TestUpdateDomainConfig_MutatesState(t *testing.T) {
 			require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 			tt.verifyFn(t, out)
 		})
 	}
@@ -682,7 +684,7 @@ func TestCancelDomainConfigChange_ReturnsLastChangeID(t *testing.T) {
 			var got struct {
 				CancelledChangeIDs []string `json:"CancelledChangeIds"`
 			}
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &got, jsonx.V1()))
 
 			if tt.wantEmptyIDs {
 				assert.Empty(t, got.CancelledChangeIDs)

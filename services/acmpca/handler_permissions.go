@@ -2,7 +2,9 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type listPermissionsInput struct {
@@ -44,7 +46,7 @@ type deletePermissionOutput struct{}
 
 func (h *Handler) jsonListPermissions(ctx context.Context, body []byte) (any, error) {
 	var input listPermissionsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -76,7 +78,7 @@ func (h *Handler) jsonListPermissions(ctx context.Context, body []byte) (any, er
 
 func (h *Handler) jsonCreatePermission(ctx context.Context, body []byte) (any, error) {
 	var input createPermissionInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -95,7 +97,7 @@ func (h *Handler) jsonCreatePermission(ctx context.Context, body []byte) (any, e
 
 func (h *Handler) jsonDeletePermission(ctx context.Context, body []byte) (any, error) {
 	var input deletePermissionInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 

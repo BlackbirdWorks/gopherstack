@@ -1,12 +1,13 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -125,7 +126,7 @@ func fetchResultRows(t *testing.T, h *athena.Handler, id string) [][]string {
 	rec := doRequest(t, h, "GetQueryResults", `{"QueryExecutionId":"`+id+`"}`)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rs, _ := resp["ResultSet"].(map[string]any)
 	require.NotNil(t, rs)

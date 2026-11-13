@@ -2,9 +2,11 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Profile handlers ----
@@ -22,7 +24,7 @@ func (h *Handler) handleCreateProfile(ctx context.Context, body []byte) (any, in
 		RequireInstanceProperties bool       `json:"requireInstanceProperties"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -104,7 +106,7 @@ func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []b
 		ManagedPolicyArns         []string `json:"managedPolicyArns"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

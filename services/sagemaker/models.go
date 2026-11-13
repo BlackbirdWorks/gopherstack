@@ -1,10 +1,13 @@
 package sagemaker
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ImageConfig specifies where SageMaker should pull the container image from.
@@ -139,7 +142,7 @@ func (pv *ProductionVariant) UnmarshalJSON(data []byte) error {
 	type plain ProductionVariant
 
 	aux := plain{InitialVariantWeight: defaultVariantWeight}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -157,7 +160,7 @@ func (pv ProductionVariant) MarshalJSON() ([]byte, error) {
 		plain
 
 		InitialVariantWeight float64 `json:"InitialVariantWeight"`
-	}{plain: plain(pv), InitialVariantWeight: pv.InitialVariantWeight})
+	}{plain: plain(pv), InitialVariantWeight: pv.InitialVariantWeight}, jsonx.V1())
 }
 
 // DataCaptureConfig specifies real-time data capture for an endpoint config.
@@ -219,8 +222,8 @@ type EndpointConfig struct {
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
-	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
-	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
+	ExplainerConfig          jsontext.Value        `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            jsontext.Value        `json:"MetricsConfig,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	EndpointConfigARN        string                `json:"EndpointConfigARN"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
@@ -275,8 +278,8 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 		aic := *ec.AsyncInferenceConfig
 		cp.AsyncInferenceConfig = &aic
 	}
-	cp.ExplainerConfig = append(json.RawMessage(nil), ec.ExplainerConfig...)
-	cp.MetricsConfig = append(json.RawMessage(nil), ec.MetricsConfig...)
+	cp.ExplainerConfig = append(jsontext.Value(nil), ec.ExplainerConfig...)
+	cp.MetricsConfig = append(jsontext.Value(nil), ec.MetricsConfig...)
 
 	return &cp
 }
@@ -360,9 +363,9 @@ type Algorithm struct {
 	AlgorithmStatus         string                 `json:"AlgorithmStatus"`
 	ProductID               string                 `json:"ProductId,omitempty"`
 	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
-	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification,omitempty"`
-	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
-	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
+	TrainingSpecification   jsontext.Value         `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  jsontext.Value         `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification jsontext.Value         `json:"ValidationSpecification,omitempty"`
 	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
 }
 
@@ -370,9 +373,9 @@ type Algorithm struct {
 func cloneAlgorithm(al *Algorithm) *Algorithm {
 	cp := *al
 	cp.Tags = maps.Clone(al.Tags)
-	cp.TrainingSpecification = append(json.RawMessage(nil), al.TrainingSpecification...)
-	cp.InferenceSpecification = append(json.RawMessage(nil), al.InferenceSpecification...)
-	cp.ValidationSpecification = append(json.RawMessage(nil), al.ValidationSpecification...)
+	cp.TrainingSpecification = append(jsontext.Value(nil), al.TrainingSpecification...)
+	cp.InferenceSpecification = append(jsontext.Value(nil), al.InferenceSpecification...)
+	cp.ValidationSpecification = append(jsontext.Value(nil), al.ValidationSpecification...)
 	cp.AlgorithmStatusDetails.ImageScanStatuses = append(
 		[]AlgorithmStatusItem(nil), al.AlgorithmStatusDetails.ImageScanStatuses...,
 	)
@@ -847,18 +850,18 @@ type ModelPackage struct {
 	LastModifiedTime                  time.Time                 `json:"LastModifiedTime,omitzero"`
 	Tags                              map[string]string         `json:"Tags,omitempty"`
 	CustomerMetadataProperties        map[string]string         `json:"CustomerMetadataProperties,omitempty"`
-	InferenceSpecification            json.RawMessage           `json:"InferenceSpecification,omitempty"`
-	SourceAlgorithmSpecification      json.RawMessage           `json:"SourceAlgorithmSpecification,omitempty"`
-	ValidationSpecification           json.RawMessage           `json:"ValidationSpecification,omitempty"`
-	DriftCheckBaselines               json.RawMessage           `json:"DriftCheckBaselines,omitempty"`
-	ModelMetrics                      json.RawMessage           `json:"ModelMetrics,omitempty"`
-	ModelCard                         json.RawMessage           `json:"ModelCard,omitempty"`
-	ModelLifeCycle                    json.RawMessage           `json:"ModelLifeCycle,omitempty"`
+	InferenceSpecification            jsontext.Value            `json:"InferenceSpecification,omitempty"`
+	SourceAlgorithmSpecification      jsontext.Value            `json:"SourceAlgorithmSpecification,omitempty"`
+	ValidationSpecification           jsontext.Value            `json:"ValidationSpecification,omitempty"`
+	DriftCheckBaselines               jsontext.Value            `json:"DriftCheckBaselines,omitempty"`
+	ModelMetrics                      jsontext.Value            `json:"ModelMetrics,omitempty"`
+	ModelCard                         jsontext.Value            `json:"ModelCard,omitempty"`
+	ModelLifeCycle                    jsontext.Value            `json:"ModelLifeCycle,omitempty"`
 	CreatedBy                         *UserContext              `json:"CreatedBy,omitempty"`
 	LastModifiedBy                    *UserContext              `json:"LastModifiedBy,omitempty"`
-	MetadataProperties                json.RawMessage           `json:"MetadataProperties,omitempty"`
-	SecurityConfig                    json.RawMessage           `json:"SecurityConfig,omitempty"`
-	AdditionalInferenceSpecifications json.RawMessage           `json:"AdditionalInferenceSpecifications,omitempty"`
+	MetadataProperties                jsontext.Value            `json:"MetadataProperties,omitempty"`
+	SecurityConfig                    jsontext.Value            `json:"SecurityConfig,omitempty"`
+	AdditionalInferenceSpecifications jsontext.Value            `json:"AdditionalInferenceSpecifications,omitempty"`
 	ModelPackageName                  string                    `json:"ModelPackageName"`
 	ModelPackageArn                   string                    `json:"ModelPackageArn"`
 	ModelPackageGroupName             string                    `json:"ModelPackageGroupName,omitempty"`
@@ -891,16 +894,16 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 	cp.ModelPackageStatusDetails.ImageScanStatuses = append(
 		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ImageScanStatuses...,
 	)
-	cp.InferenceSpecification = append(json.RawMessage(nil), mp.InferenceSpecification...)
-	cp.SourceAlgorithmSpecification = append(json.RawMessage(nil), mp.SourceAlgorithmSpecification...)
-	cp.ValidationSpecification = append(json.RawMessage(nil), mp.ValidationSpecification...)
-	cp.DriftCheckBaselines = append(json.RawMessage(nil), mp.DriftCheckBaselines...)
-	cp.ModelMetrics = append(json.RawMessage(nil), mp.ModelMetrics...)
-	cp.ModelCard = append(json.RawMessage(nil), mp.ModelCard...)
-	cp.ModelLifeCycle = append(json.RawMessage(nil), mp.ModelLifeCycle...)
-	cp.MetadataProperties = append(json.RawMessage(nil), mp.MetadataProperties...)
-	cp.SecurityConfig = append(json.RawMessage(nil), mp.SecurityConfig...)
-	cp.AdditionalInferenceSpecifications = append(json.RawMessage(nil), mp.AdditionalInferenceSpecifications...)
+	cp.InferenceSpecification = append(jsontext.Value(nil), mp.InferenceSpecification...)
+	cp.SourceAlgorithmSpecification = append(jsontext.Value(nil), mp.SourceAlgorithmSpecification...)
+	cp.ValidationSpecification = append(jsontext.Value(nil), mp.ValidationSpecification...)
+	cp.DriftCheckBaselines = append(jsontext.Value(nil), mp.DriftCheckBaselines...)
+	cp.ModelMetrics = append(jsontext.Value(nil), mp.ModelMetrics...)
+	cp.ModelCard = append(jsontext.Value(nil), mp.ModelCard...)
+	cp.ModelLifeCycle = append(jsontext.Value(nil), mp.ModelLifeCycle...)
+	cp.MetadataProperties = append(jsontext.Value(nil), mp.MetadataProperties...)
+	cp.SecurityConfig = append(jsontext.Value(nil), mp.SecurityConfig...)
+	cp.AdditionalInferenceSpecifications = append(jsontext.Value(nil), mp.AdditionalInferenceSpecifications...)
 
 	return &cp
 }
@@ -923,7 +926,7 @@ func (mp *ModelPackage) MarshalJSON() ([]byte, error) {
 		aux.LastModifiedTime = epochSeconds(mp.LastModifiedTime)
 	}
 
-	return json.Marshal(aux)
+	return json.Marshal(aux, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ModelPackage.MarshalJSON], read by
@@ -937,7 +940,7 @@ func (mp *ModelPackage) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(mp)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

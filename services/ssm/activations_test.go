@@ -2,7 +2,8 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -86,7 +88,7 @@ func TestResourceDataSync_CRUD(t *testing.T) {
 			SyncType string `json:"SyncType"`
 		} `json:"ResourceDataSyncItems"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	require.Len(t, listResp.ResourceDataSyncItems, 1)
 	item := listResp.ResourceDataSyncItems[0]
 	assert.Equal(t, "SyncFromSource", item.SyncType)
@@ -369,7 +371,7 @@ func TestStubOps_DeleteActivation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"ActivationId": act.ActivationID})
+	body, _ := json.Marshal(map[string]any{"ActivationId": act.ActivationID}, jsonx.V1())
 	rec := doRequest(t, h, "DeleteActivation", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -425,7 +427,7 @@ func TestCreateActivation_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateActivationOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.ActivationID)
 			assert.NotEmpty(t, resp.ActivationCode)
 			assert.True(t, strings.HasPrefix(resp.ActivationID, "act-"))
@@ -545,18 +547,18 @@ func TestCreateActivationWithTags(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp ssm.CreateActivationOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotEmpty(t, resp.ActivationID)
 
 			listBody, _ := json.Marshal(map[string]any{
 				"ResourceType": "Activation",
 				"ResourceId":   resp.ActivationID,
-			})
+			}, jsonx.V1())
 			listRec := doRequest(t, h, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var tagResp ssm.ListTagsForResourceOutput
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagResp, jsonx.V1()))
 			assert.Len(t, tagResp.TagList, tt.tagCount)
 		})
 	}
@@ -839,7 +841,7 @@ func TestDeleteActivation_TableDriven(t *testing.T) {
 				activationID = act.ActivationID
 			}
 
-			body, _ := json.Marshal(map[string]any{"ActivationId": activationID})
+			body, _ := json.Marshal(map[string]any{"ActivationId": activationID}, jsonx.V1())
 			rec := doRequest(t, h, "DeleteActivation", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -864,7 +866,7 @@ func TestDescribeInstanceProperties_DerivedFromActivations(t *testing.T) {
 	var activation struct {
 		ActivationID string `json:"ActivationId"`
 	}
-	require.NoError(t, json.Unmarshal(actResp.Body.Bytes(), &activation))
+	require.NoError(t, json.Unmarshal(actResp.Body.Bytes(), &activation, jsonx.V1()))
 	require.NotEmpty(t, activation.ActivationID)
 
 	propsResp := doRequest(t, h, "DescribeInstanceProperties", `{}`)

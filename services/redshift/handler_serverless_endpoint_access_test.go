@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_EndpointAccess_CRUD(t *testing.T) {
@@ -27,7 +30,7 @@ func TestServerless_EndpointAccess_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	ep, _ := createResp["endpoint"].(map[string]any)
 	require.NotNil(t, ep)
 	assert.Equal(t, "ea-endpoint", ep["endpointName"])
@@ -46,7 +49,7 @@ func TestServerless_EndpointAccess_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	got, _ := getResp["endpoint"].(map[string]any)
 	require.NotNil(t, got)
 	assert.Equal(t, "ea-endpoint", got["endpointName"])
@@ -55,7 +58,7 @@ func TestServerless_EndpointAccess_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	list, _ := listResp["endpoints"].([]any)
 	require.Len(t, list, 1)
 
@@ -66,7 +69,7 @@ func TestServerless_EndpointAccess_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	updated, _ := updateResp["endpoint"].(map[string]any)
 	require.NotNil(t, updated)
 	groups, _ = updated["vpcSecurityGroups"].([]any)
@@ -76,7 +79,7 @@ func TestServerless_EndpointAccess_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&deleteResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &deleteResp, jsonx.V1()))
 	deleted, _ := deleteResp["endpoint"].(map[string]any)
 	require.NotNil(t, deleted, "DeleteEndpointAccessResponse echoes the deleted object on the real wire")
 	assert.Equal(t, "ea-endpoint", deleted["endpointName"])
@@ -149,7 +152,7 @@ func TestServerless_EndpointAccess_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -173,7 +176,7 @@ func TestServerless_EndpointAccess_DuplicateName(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errResp["__type"])
 }
 
@@ -186,7 +189,7 @@ func TestServerless_ListManagedWorkgroups_AlwaysEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	list, ok := resp["managedWorkgroups"].([]any)
 	require.True(t, ok, "managedWorkgroups must be a correctly-shaped (empty) array, not absent")
 	assert.Empty(t, list)

@@ -2,7 +2,7 @@ package glue_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
@@ -43,7 +44,7 @@ func dqEvalRunRequiredFields(rulesetNames []string) map[string]any {
 func doGlueRequest(t *testing.T, h *glue.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -229,7 +230,7 @@ func TestGlue_DatabaseLifecycle(t *testing.T) {
 			CatalogID string `json:"CatalogId"`
 		} `json:"Database"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "mydb", getOut.Database.Name)
 	assert.Equal(t, testAccountID, getOut.Database.CatalogID)
 
@@ -242,7 +243,7 @@ func TestGlue_DatabaseLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"DatabaseList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.DatabaseList, 1)
 
 	// Delete
@@ -289,7 +290,7 @@ func TestGlue_TableLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Table"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "mytable", getOut.Table.Name)
 
 	// Update table
@@ -311,7 +312,7 @@ func TestGlue_TableLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"TableList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.TableList, 1)
 
 	// Delete table
@@ -364,7 +365,7 @@ func TestGlue_CrawlerLifecycle(t *testing.T) {
 			State string `json:"State"`
 		} `json:"Crawler"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "my-crawler", getOut.Crawler.Name)
 	assert.Equal(t, "READY", getOut.Crawler.State)
 
@@ -377,7 +378,7 @@ func TestGlue_CrawlerLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Crawlers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Crawlers, 1)
 
 	// UpdateCrawler
@@ -420,7 +421,7 @@ func TestGlue_JobLifecycle(t *testing.T) {
 	var createOut struct {
 		Name string `json:"Name"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.Equal(t, "my-job", createOut.Name)
 
 	// GetJob
@@ -432,7 +433,7 @@ func TestGlue_JobLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Job"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "my-job", getOut.Job.Name)
 
 	// GetJobs
@@ -444,7 +445,7 @@ func TestGlue_JobLifecycle(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Jobs"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Jobs, 1)
 
 	// UpdateJob
@@ -460,7 +461,7 @@ func TestGlue_JobLifecycle(t *testing.T) {
 	var updateOut struct {
 		JobName string `json:"JobName"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateOut, jsonx.V1()))
 	assert.Equal(t, "my-job", updateOut.JobName)
 
 	// DeleteJob
@@ -502,7 +503,7 @@ func TestGlue_Tags(t *testing.T) {
 	var tagsOut struct {
 		Tags map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut, jsonx.V1()))
 	assert.Equal(t, "value1", tagsOut.Tags["key1"])
 
 	// TagResource
@@ -527,7 +528,7 @@ func TestGlue_Tags(t *testing.T) {
 		Tags map[string]string `json:"Tags"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &finalTagsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &finalTagsOut, jsonx.V1()))
 	assert.NotContains(t, finalTagsOut.Tags, "key1")
 	assert.Equal(t, "value2", finalTagsOut.Tags["key2"])
 }
@@ -635,7 +636,7 @@ func TestGlue_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			e := echo.New()
@@ -716,7 +717,7 @@ func TestGlue_CrawlerTagsLifecycle(t *testing.T) {
 	var tagsOut struct {
 		Tags map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut, jsonx.V1()))
 	assert.Equal(t, "tag", tagsOut.Tags["extra"])
 	assert.Equal(t, "test", tagsOut.Tags["env"])
 
@@ -767,7 +768,7 @@ func TestGlue_JobTagsLifecycle(t *testing.T) {
 	var tagsOut struct {
 		Tags map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsOut, jsonx.V1()))
 	assert.Equal(t, "prod", tagsOut.Tags["env"])
 	assert.Equal(t, "data", tagsOut.Tags["team"])
 
@@ -882,7 +883,7 @@ func idFromResponse(t *testing.T, body []byte) string {
 	var out struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 	require.NotEmpty(t, out.ID)
 
 	return out.ID
@@ -1202,7 +1203,7 @@ func TestGlue_AssociateGlossaryTerms_TableDriven(t *testing.T) {
 				var assocOut struct {
 					GlossaryTerms []string `json:"GlossaryTerms"`
 				}
-				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocOut))
+				require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocOut, jsonx.V1()))
 				require.Contains(t, assocOut.GlossaryTerms, termID)
 
 				return map[string]any{"AssetIdentifier": "asset-2", "GlossaryTermIdentifiers": []string{termID}}
@@ -1213,7 +1214,7 @@ func TestGlue_AssociateGlossaryTerms_TableDriven(t *testing.T) {
 				var out struct {
 					GlossaryTerms []string `json:"GlossaryTerms"`
 				}
-				require.NoError(t, json.Unmarshal([]byte(body), &out))
+				require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 				assert.Empty(t, out.GlossaryTerms)
 			},
 		},
@@ -1246,7 +1247,7 @@ func TestGlue_AssociateGlossaryTerms_TableDriven(t *testing.T) {
 				var out struct {
 					GlossaryTerms []string `json:"GlossaryTerms"`
 				}
-				require.NoError(t, json.Unmarshal([]byte(body), &out))
+				require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 				assert.Empty(t, out.GlossaryTerms, "deleted glossary term must be disassociated from the asset")
 			},
 		},

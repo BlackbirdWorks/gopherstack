@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -47,7 +48,7 @@ func TestHandler_DescribeEntity_Fields(t *testing.T) {
 			FieldType string `json:"FieldType"`
 		} `json:"Fields"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Fields)
 
 	names := make([]string, 0, len(out.Fields))
@@ -129,7 +130,7 @@ func TestHandler_ListEntities(t *testing.T) {
 					EntityName string `json:"EntityName"`
 				} `json:"Entities"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(out.Entities), tc.wantMin)
 		})
 	}
@@ -154,7 +155,7 @@ func TestHandler_GetEntityRecords_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Records   []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Records, 2)
 	require.NotEmpty(t, page1.NextToken)
 
@@ -169,7 +170,7 @@ func TestHandler_GetEntityRecords_Pagination(t *testing.T) {
 	var page2 struct {
 		Records []map[string]any `json:"Records"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.NotEmpty(t, page2.Records)
 	assert.NotEqual(t, page1.Records[0]["Id"], page2.Records[0]["Id"])
 }
@@ -201,7 +202,7 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 	var regOut struct {
 		ConnectionTypeArn string `json:"ConnectionTypeArn"`
 	}
-	require.NoError(t, json.Unmarshal(reg.Body.Bytes(), &regOut))
+	require.NoError(t, json.Unmarshal(reg.Body.Bytes(), &regOut, jsonx.V1()))
 	assert.NotEmpty(t, regOut.ConnectionTypeArn, "RegisterConnectionType must return ConnectionTypeArn")
 
 	// It appears in ListConnectionTypes alongside built-ins.
@@ -213,7 +214,7 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 			ConnectionType string `json:"ConnectionType"`
 		} `json:"ConnectionTypes"`
 	}
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &listOut, jsonx.V1()))
 
 	names := make([]string, 0, len(listOut.ConnectionTypes))
 	for _, ct := range listOut.ConnectionTypes {
@@ -231,7 +232,7 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 	var descOut struct {
 		RestConfiguration map[string]any `json:"RestConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.RestConfiguration)
 	validationCfg, _ := descOut.RestConfiguration["ValidationEndpointConfiguration"].(map[string]any)
 	require.NotNil(t, validationCfg)
@@ -386,7 +387,7 @@ func TestHandler_ListEntities_NativeCatalog(t *testing.T) {
 		var out struct {
 			Entities []glue.EntityDescriptor `json:"Entities"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.Entities)
 	})
 
@@ -402,7 +403,7 @@ func TestHandler_ListEntities_NativeCatalog(t *testing.T) {
 		var out struct {
 			Entities []glue.EntityDescriptor `json:"Entities"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.Entities, 1)
 		assert.Equal(t, "salesdb", out.Entities[0].EntityName)
 		assert.Equal(t, "DATABASES", out.Entities[0].Category)
@@ -421,7 +422,7 @@ func TestHandler_ListEntities_NativeCatalog(t *testing.T) {
 		var out struct {
 			Entities []glue.EntityDescriptor `json:"Entities"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.Entities, 1)
 		assert.Equal(t, "salesdb.orders", out.Entities[0].EntityName)
 		assert.Equal(t, "TABLES", out.Entities[0].Category)
@@ -451,7 +452,7 @@ func TestHandler_ListEntities_NativeCatalog(t *testing.T) {
 		var out struct {
 			Entities []glue.EntityDescriptor `json:"Entities"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		names := make([]string, 0, len(out.Entities))
 		for _, e := range out.Entities {
@@ -485,7 +486,7 @@ func TestHandler_GetEntityRecords_NativeCatalog(t *testing.T) {
 		var out struct {
 			Records []map[string]any `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.Records, 3)
 
 		for _, r := range out.Records {
@@ -541,7 +542,7 @@ func TestHandler_GetEntityRecords_NativeCatalog(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Records   []map[string]any `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 		assert.Len(t, page1.Records, 2)
 		require.NotEmpty(t, page1.NextToken)
 
@@ -555,7 +556,7 @@ func TestHandler_GetEntityRecords_NativeCatalog(t *testing.T) {
 		var page2 struct {
 			Records []map[string]any `json:"Records"`
 		}
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 		require.NotEmpty(t, page2.Records)
 		assert.NotEqual(t, page1.Records[0]["id"], page2.Records[0]["id"])
 	})

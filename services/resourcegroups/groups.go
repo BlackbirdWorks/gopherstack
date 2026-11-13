@@ -2,7 +2,8 @@ package resourcegroups
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -147,8 +149,8 @@ func validateResourceQuery(q *ResourceQuery) error {
 		return fmt.Errorf("%w: ResourceQuery.Query must be a non-empty JSON string", ErrValidation)
 	}
 
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(q.Query), &raw); err != nil {
+	var raw jsontext.Value
+	if err := json.Unmarshal([]byte(q.Query), &raw, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: ResourceQuery.Query is not valid JSON: %s",
 			ErrValidation,

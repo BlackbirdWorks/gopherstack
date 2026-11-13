@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -38,7 +39,7 @@ func TestAppStream_Entitlements(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ent := resp["Entitlement"].(map[string]any)
 				assert.Equal(t, "my-ent", ent["Name"])
 				assert.Equal(t, "ALL", ent["AppVisibility"])
@@ -63,7 +64,7 @@ func TestAppStream_Entitlements(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ents := resp["Entitlements"].([]any)
 				assert.Len(t, ents, 1)
 			},
@@ -84,7 +85,7 @@ func TestAppStream_Entitlements(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ent := resp["Entitlement"].(map[string]any)
 				assert.Equal(t, "updated", ent["Description"])
 			},
@@ -137,7 +138,7 @@ func TestAppStream_Entitlements(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				apps := resp["EntitledApplications"].([]any)
 				assert.Len(t, apps, 1)
 			},
@@ -206,7 +207,7 @@ func TestAppStream_EntitlementRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp, jsonx.V1()))
 	entitlements := resp["Entitlements"].([]any)
 	require.Len(t, entitlements, 1)
 	ent := entitlements[0].(map[string]any)

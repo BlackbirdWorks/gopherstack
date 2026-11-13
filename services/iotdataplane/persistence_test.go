@@ -1,13 +1,14 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -377,7 +378,7 @@ func Test_Persistence_ShadowWithMetadata(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
@@ -412,7 +413,7 @@ func Test_Persistence_NullWipeSurvivesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 	state := doc["state"].(map[string]any)
 
 	_, hasDesired := state["desired"]

@@ -3,7 +3,7 @@ package sdkwire
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +25,8 @@ import (
 	"github.com/aws/smithy-go/transport/http/protocol/restxml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const testEndpoint = "http://sfn-sdk-integration.local"
@@ -166,7 +168,7 @@ func decodeJSONBody(raw []byte) (any, bool) {
 
 	var v any
 
-	return v, json.Unmarshal(raw, &v) == nil
+	return v, json.Unmarshal(raw, &v, jsonx.V1()) == nil
 }
 
 func bodyDiff(contentType string, want, got []byte) string {

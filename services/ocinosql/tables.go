@@ -1,13 +1,14 @@
 package ocinosql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -429,7 +430,7 @@ func schemaView2(t *Table) *schemaWire {
 
 		if len(c.Default) > 0 {
 			var s string
-			if json.Unmarshal(c.Default, &s) != nil {
+			if json.Unmarshal(c.Default, &s, jsonx.V1()) != nil {
 				s = string(c.Default)
 			}
 

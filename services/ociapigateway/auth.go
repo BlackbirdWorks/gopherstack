@@ -7,7 +7,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -173,7 +175,11 @@ func (b *InMemoryBackend) remoteKeys(ctx context.Context, uri string, hours *int
 		} `json:"keys"`
 	}
 
-	if err = json.NewDecoder(io.LimitReader(resp.Body, jwksMaxBytes)).Decode(&doc); err != nil {
+	if err = json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(resp.Body, jwksMaxBytes)),
+		&doc,
+		jsonx.V1(),
+	); err != nil {
 		return nil, err
 	}
 
@@ -467,7 +473,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 		payload = map[string]any{keyType: "USER_DEFINED", "data": data}
 	}
 
-	body, _ := json.Marshal(payload) //nolint:errchkjson // static shape
+	body, _ := json.Marshal(payload, jsonx.V1()) //nolint:errchkjson // static shape
 
 	out, err := inv.InvokeFunction(ctx, a.FunctionID, FunctionRequest{
 		Method: http.MethodPost, Header: http.Header{"Content-Type": {"application/json"}}, Body: body,
@@ -481,12 +487,12 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 	}
 
 	var verdict struct {
-		WWWAuth string          `json:"wwwAuthenticate"`
-		Scope   json.RawMessage `json:"scope"`
-		Active  bool            `json:"active"`
+		WWWAuth string         `json:"wwwAuthenticate"`
+		Scope   jsontext.Value `json:"scope"`
+		Active  bool           `json:"active"`
 	}
 
-	if json.Unmarshal(out.Body, &verdict) != nil || !verdict.Active {
+	if json.Unmarshal(out.Body, &verdict, jsonx.V1()) != nil || !verdict.Active {
 		return authResult{wwwAuth: verdict.WWWAuth}
 	}
 
@@ -494,7 +500,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 }
 
 // authorizerScopes reads the scope field, which Oracle allows as a JSON array or a space-separated string.
-func authorizerScopes(raw json.RawMessage) []string {
+func authorizerScopes(raw jsontext.Value) []string {
 	var list []string
 	if json.Unmarshal(raw, &list) == nil {
 		return list

@@ -5,7 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -28,7 +29,7 @@ func decodeJWTPayload(t *testing.T, token string) map[string]any {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(payload, &claims))
+	require.NoError(t, json.Unmarshal(payload, &claims, jsonx.V1()))
 
 	return claims
 }
@@ -79,7 +80,7 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp.UserPool.ID
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -93,7 +94,7 @@ func setupHandlerPoolAndClient(t *testing.T, h *cognitoidp.Handler, poolName str
 			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 
 	return poolID, clientResp.UserPoolClient.ClientID
 }
@@ -114,7 +115,7 @@ func signUpAndConfirmViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, u
 		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 		UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp, jsonx.V1()))
 
 	if signUpResp.UserConfirmed {
 		return
@@ -147,7 +148,7 @@ func loginViaHandler(t *testing.T, h *cognitoidp.Handler, clientID, username str
 			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotNil(t, resp.AuthenticationResult)
 
 	return resp.AuthenticationResult.AccessToken
@@ -175,7 +176,7 @@ func newTestHandler(t *testing.T) *cognitoidp.Handler {
 func doCognitoRequest(t *testing.T, h *cognitoidp.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -214,7 +215,7 @@ func setupPoolAndClientNamed(t *testing.T, h *cognitoidp.Handler, poolName, clie
 	require.Equal(t, http.StatusOK, poolRec.Code)
 
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -224,7 +225,7 @@ func setupPoolAndClientNamed(t *testing.T, h *cognitoidp.Handler, poolName, clie
 	require.Equal(t, http.StatusOK, clientRec.Code)
 
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 
 	return poolID, clientID

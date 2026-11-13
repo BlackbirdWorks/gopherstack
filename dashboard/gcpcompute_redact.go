@@ -2,13 +2,16 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -51,17 +54,16 @@ func computeRevealable(key string) bool {
 }
 
 func redactComputeMetadata(body []byte, reveal string) []byte {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
 
 	var doc any
-	if err := dec.Decode(&doc); err != nil {
+	if err := json.UnmarshalDecode(dec, &doc, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return body
 	}
 
 	redactWalk(doc, reveal)
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return body
 	}

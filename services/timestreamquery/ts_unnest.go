@@ -3,7 +3,7 @@ package timestreamquery
 import (
 	"database/sql/driver"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"modernc.org/sqlite/vtab"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -143,7 +145,7 @@ func (c *unnestCursor) Filter(_ int, _ string, vals []vtab.Value) error {
 	}
 
 	var root any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, arrayMark)), &root); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, arrayMark)), &root, jsonx.V1()); err != nil {
 		return nil //nolint:nilerr // not JSON: no rows
 	}
 
@@ -187,7 +189,7 @@ func unnestValue(v any) driver.Value {
 	case string:
 		return t
 	default:
-		b, _ := json.Marshal(t)
+		b, _ := json.Marshal(t, jsonx.V1())
 
 		return arrayMark + string(b)
 	}

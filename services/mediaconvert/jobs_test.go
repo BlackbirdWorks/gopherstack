@@ -1,7 +1,8 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -23,7 +25,7 @@ func createTestJob(t *testing.T, h *mediaconvert.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	job, ok := resp["job"].(map[string]any)
 	require.True(t, ok)
 	id, _ := job["id"].(string)
@@ -68,7 +70,7 @@ func TestMediaConvert_Job_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	jobData, ok := createResp["job"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, role, jobData["role"])
@@ -130,7 +132,7 @@ func TestCreateJob_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	j := resp["job"].(map[string]any)
 	tags := j["tags"].(map[string]any)
 	assert.Equal(t, "nightly", tags["run"])
@@ -279,7 +281,7 @@ func TestListJobs_OmitsTotalCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.NotContains(t, out, "totalCount")
 	assert.Len(t, out["jobs"], 2)
 }
@@ -336,7 +338,7 @@ func TestCreateJob_TimingViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	job := out["job"].(map[string]any)
 	timing := job["timing"].(map[string]any)
 	assert.Greater(t, timing["submitTime"], float64(0))
@@ -463,7 +465,7 @@ func TestUpdateJob_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData, ok := out["job"].(map[string]any)
 	require.True(t, ok)
 	assert.InDelta(t, float64(5), jobData["priority"], 0)
@@ -511,7 +513,7 @@ func TestCreateJob_HopDestinationsViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	hops, ok := jobData["hopDestinations"].([]any)
 	require.True(t, ok)
@@ -588,7 +590,7 @@ func TestCreateJob_StatusUpdateIntervalViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	assert.Equal(t, "SECONDS_20", jobData["statusUpdateInterval"])
 	assert.Equal(t, "ENABLED", jobData["simulateReservedQueue"])
@@ -608,7 +610,7 @@ func TestCreateJob_AccelerationViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	assert.Equal(t, "PREFERRED", jobData["accelerationStatus"])
 	as := jobData["accelerationSettings"].(map[string]any)
@@ -688,7 +690,7 @@ func TestCreateJob_MessagesFieldViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	_, hasMessages := jobData["messages"]
 	assert.True(t, hasMessages, "messages field should be present")
@@ -786,14 +788,14 @@ func TestCreateJob_ClientRequestTokenDedupViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &out1, jsonx.V1()))
 	id1 := out1["job"].(map[string]any)["id"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/2017-08-29/jobs", body)
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out2, jsonx.V1()))
 	id2 := out2["job"].(map[string]any)["id"].(string)
 
 	assert.Equal(t, id1, id2, "duplicate token should return same job ID")
@@ -872,7 +874,7 @@ func TestCreateJob_JobEngineVersionViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	assert.Equal(t, "2017-08-29", jobData["jobEngineVersionUsed"])
 	assert.Equal(t, "2017-08-29", jobData["jobEngineVersionRequested"])
@@ -956,7 +958,7 @@ func TestCreateJob_PriorityViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	jobData := out["job"].(map[string]any)
 	assert.InDelta(t, float64(15), jobData["priority"], 0)
 }
@@ -1188,7 +1190,7 @@ func TestListJobs_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			jobs, ok := out["jobs"].([]any)
 			require.True(t, ok)

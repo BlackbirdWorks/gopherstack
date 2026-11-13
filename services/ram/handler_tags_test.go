@@ -1,13 +1,14 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -221,7 +222,7 @@ func TestToTagObjectsSorted(t *testing.T) {
 			} `json:"tags"`
 		} `json:"resourceShares"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ResourceShares, 1)
 
 	tags := resp.ResourceShares[0].Tags
@@ -259,7 +260,7 @@ func TestTagsRoundTrip(t *testing.T) {
 			Value string `json:"value"`
 		} `json:"tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Tags, 1)
 	assert.Equal(t, "env", listResp.Tags[0].Key)
 	assert.Equal(t, "prod", listResp.Tags[0].Value)
@@ -276,6 +277,6 @@ func TestTagsRoundTrip(t *testing.T) {
 		"resourceShareArn": rs.ARN,
 	})
 	require.Equal(t, http.StatusOK, listRec2.Code)
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.Tags)
 }

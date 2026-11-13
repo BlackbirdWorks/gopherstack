@@ -3,7 +3,7 @@ package azurearm_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -315,7 +316,7 @@ func TestEventHubRegenerateKeys(t *testing.T) {
 			ctx := t.Context()
 			rights := map[string]any{"properties": map[string]any{"rights": []any{"Listen", "Send"}}}
 			do := func(method, path string, body any) (int, map[string]any) {
-				raw, err := json.Marshal(body)
+				raw, err := json.Marshal(body, jsonx.V1())
 				require.NoError(t, err)
 
 				req := httptest.NewRequestWithContext(ctx, method, path+"?api-version=2024-01-01",
@@ -324,7 +325,7 @@ func TestEventHubRegenerateKeys(t *testing.T) {
 				newEchoServer(h).ServeHTTP(rec, req)
 
 				var out map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &out)
+				_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 
 				return rec.Code, out
 			}

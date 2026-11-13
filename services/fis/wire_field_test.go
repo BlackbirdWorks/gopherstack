@@ -1,7 +1,8 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/fis"
@@ -229,11 +231,11 @@ func assertNoRawKey(t *testing.T, url, listKey, itemKey string) {
 
 	t.Cleanup(func() { _ = resp.Body.Close() })
 
-	var body map[string]json.RawMessage
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	var body map[string]jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()))
 
-	var items []map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(body[listKey], &items))
+	var items []map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(body[listKey], &items, jsonx.V1()))
 	require.NotEmpty(t, items)
 
 	for _, item := range items {

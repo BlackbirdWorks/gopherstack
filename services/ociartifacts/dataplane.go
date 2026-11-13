@@ -4,12 +4,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -111,7 +112,7 @@ func (b *InMemoryBackend) IssueToken(user string, anon bool, scopes []Scope) (st
 	b.mu.RUnlock()
 
 	body, _ := json.Marshal(
-		tokenClaims{Sub: user, Anon: anon, Scopes: raw, Exp: exp},
+		tokenClaims{Sub: user, Anon: anon, Scopes: raw, Exp: exp}, jsonx.V1(),
 	) //nolint:errchkjson // static shape
 	payload := base64.RawURLEncoding.EncodeToString(body)
 
@@ -131,7 +132,7 @@ func (b *InMemoryBackend) ParseToken(token string) (tokenClaims, bool) {
 	}
 
 	var c tokenClaims
-	if json.Unmarshal(raw, &c) != nil {
+	if json.Unmarshal(raw, &c, jsonx.V1()) != nil {
 		return tokenClaims{}, false
 	}
 
@@ -274,7 +275,7 @@ func (b *InMemoryBackend) RecordPush(display, ref, digest, user string, body []b
 
 	var doc manifestDoc
 
-	_ = json.Unmarshal(body, &doc)
+	_ = json.Unmarshal(body, &doc, jsonx.V1())
 
 	b.mu.Lock("RecordPush")
 	defer b.mu.Unlock()

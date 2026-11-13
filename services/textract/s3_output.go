@@ -3,13 +3,14 @@ package textract
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"path"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -87,7 +88,7 @@ func (b *InMemoryBackend) writeJobOutputLocked(cfg *OutputConfig, jobID string, 
 		return true
 	}
 
-	body, err := json.Marshal(page)
+	body, err := json.Marshal(page, jsonx.V1())
 	if err != nil {
 		return false
 	}

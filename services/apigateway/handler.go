@@ -3,7 +3,8 @@ package apigateway
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -23,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/executeapi"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -446,7 +448,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -515,7 +517,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func writeJSONProtocolDispatchError(c *echo.Context, status int, errType, message string) error {
 	c.Response().Header().Set(headerContentType, "application/x-amz-json-1.1")
 
-	payload, err := json.Marshal(ErrorResponse{Type: errType, Message: message})
+	payload, err := json.Marshal(ErrorResponse{Type: errType, Message: message}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -715,7 +717,7 @@ func detectImportRESTAPI(
 			Body:           body,
 			FailOnWarnings: query.Get("failonwarnings") == litTrue,
 		}
-		encoded, err := json.Marshal(in)
+		encoded, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return "", nil, false
 		}
@@ -728,7 +730,7 @@ func detectImportRESTAPI(
 			Body:   body,
 			Format: query.Get("format"),
 		}
-		encoded, err := json.Marshal(in)
+		encoded, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return "", nil, false
 		}
@@ -741,7 +743,7 @@ func detectImportRESTAPI(
 			FailOnWarnings: query.Get("failonwarnings") == litTrue,
 			Body:           body,
 		}
-		encoded, err := json.Marshal(in)
+		encoded, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return "", nil, false
 		}
@@ -759,28 +761,28 @@ func detectImportRESTAPI(
 // must be injected as a bare JSON number, not a quoted string, or a real
 // client's Limit always 500s on json.Unmarshal.
 func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &m); err != nil {
-			m = make(map[string]json.RawMessage)
+		if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
+			m = make(map[string]jsontext.Value)
 		}
 	} else {
-		m = make(map[string]json.RawMessage)
+		m = make(map[string]jsontext.Value)
 	}
 
 	if key == keyLimit {
 		if n, err := strconv.Atoi(value); err == nil {
-			m[key] = json.RawMessage(strconv.Itoa(n))
-			result, _ := json.Marshal(m)
+			m[key] = jsontext.Value(strconv.Itoa(n))
+			result, _ := json.Marshal(m, jsonx.V1())
 
 			return result
 		}
 	}
 
-	quoted, _ := json.Marshal(value)
-	m[key] = json.RawMessage(quoted)
+	quoted, _ := json.Marshal(value, jsonx.V1())
+	m[key] = jsontext.Value(quoted)
 
-	result, _ := json.Marshal(m)
+	result, _ := json.Marshal(m, jsonx.V1())
 
 	return result
 }
@@ -790,19 +792,19 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 // (encoder.AddQuery in a loop) rather than a single scalar -- e.g. tagKeys
 // (UntagResource, serializers.go:9284).
 func injectJSONArrayFieldAPIGW(body []byte, key string, values []string) []byte {
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &m); err != nil {
-			m = make(map[string]json.RawMessage)
+		if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
+			m = make(map[string]jsontext.Value)
 		}
 	} else {
-		m = make(map[string]json.RawMessage)
+		m = make(map[string]jsontext.Value)
 	}
 
-	encoded, _ := json.Marshal(values)
+	encoded, _ := json.Marshal(values, jsonx.V1())
 	m[key] = encoded
 
-	result, _ := json.Marshal(m)
+	result, _ := json.Marshal(m, jsonx.V1())
 
 	return result
 }
@@ -984,7 +986,7 @@ func (h *Handler) dispatch(
 		return statusCode, nil, raw, nil
 	}
 
-	encoded, err := json.Marshal(response)
+	encoded, err := json.Marshal(response, jsonx.V1())
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -1047,7 +1049,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		Message: strings.TrimPrefix(reqErr.Error(), errType+": "),
 	}
 
-	payload, _ := json.Marshal(errResp)
+	payload, _ := json.Marshal(errResp, jsonx.V1())
 
 	return c.JSONBlob(statusCode, payload)
 }

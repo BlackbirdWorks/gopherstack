@@ -2,12 +2,14 @@ package cloudformation
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // The policy templates and the AWS managed policy name table are the SAM translator's own data
@@ -36,7 +38,7 @@ type samPolicyTemplate struct {
 var (
 	samPolicyTemplates = sync.OnceValue(func() map[string]samPolicyTemplate {
 		var out map[string]samPolicyTemplate
-		if err := json.Unmarshal(samPolicyTemplatesJSON, &out); err != nil {
+		if err := json.Unmarshal(samPolicyTemplatesJSON, &out, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded sam_policy_templates.json: " + err.Error())
 		}
 
@@ -44,7 +46,7 @@ var (
 	})
 	samManagedPolicies = sync.OnceValue(func() map[string]string {
 		var out map[string]string
-		if err := json.Unmarshal(samManagedPoliciesJSON, &out); err != nil {
+		if err := json.Unmarshal(samManagedPoliciesJSON, &out, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded sam_managed_policies.json: " + err.Error())
 		}
 

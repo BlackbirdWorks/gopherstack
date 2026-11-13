@@ -2,13 +2,14 @@ package azuresearch_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
 	"github.com/labstack/echo/v5"
@@ -77,7 +78,7 @@ func (s *stack) do(t *testing.T, method, path, key string, body any) resp {
 	case string:
 		rd = bytes.NewBufferString(v)
 	default:
-		raw, err := json.Marshal(v)
+		raw, err := json.Marshal(v, jsonx.V1())
 		require.NoError(t, err)
 
 		rd = bytes.NewReader(raw)
@@ -100,7 +101,7 @@ func (s *stack) do(t *testing.T, method, path, key string, body any) resp {
 	require.NoError(t, err)
 
 	out := resp{status: res.StatusCode, header: res.Header, raw: raw}
-	_ = json.Unmarshal(raw, &out.body)
+	_ = json.Unmarshal(raw, &out.body, jsonx.V1())
 
 	return out
 }
@@ -294,7 +295,7 @@ func keysOf(r resp) []string {
 }
 
 func jsonBody(v any) (io.ReadCloser, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,7 @@
 package ecs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func planInput(td *TaskDefinition) k8sPlanInput {
@@ -128,7 +129,7 @@ func TestPlanK8sPod_Mapping(t *testing.T) {
 	assert.Equal(t, "ecs-task1", env["TOKEN"].ValueFrom.SecretKeyRef.Name)
 	assert.Equal(t, map[string][]byte{"web-app.TOKEN": []byte("s3cret"), "web-app.B": []byte("override")}, plan.secret)
 
-	raw, err := json.Marshal(plan.spec)
+	raw, err := json.Marshal(plan.spec, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "s3cret", "secret values never appear in the Pod spec")
 	assert.NotContains(t, string(raw), "override")

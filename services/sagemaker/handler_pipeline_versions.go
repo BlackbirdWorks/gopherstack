@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ type listPipelineVersionsRequest struct {
 func (h *Handler) handleListPipelineVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listPipelineVersionsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -103,7 +105,7 @@ type updatePipelineVersionRequest struct {
 func (h *Handler) handleUpdatePipelineVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req updatePipelineVersionRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -125,7 +127,7 @@ func (h *Handler) handleUpdatePipelineVersion(ctx context.Context, body []byte) 
 	return json.Marshal(map[string]any{
 		keyPipelineArn:      v.PipelineArn,
 		"PipelineVersionId": v.PipelineVersionID,
-	})
+	}, jsonx.V1())
 }
 
 type describePipelineDefinitionForExecutionRequest struct {
@@ -135,7 +137,7 @@ type describePipelineDefinitionForExecutionRequest struct {
 func (h *Handler) handleDescribePipelineDefinitionForExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req describePipelineDefinitionForExecutionRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -151,7 +153,7 @@ func (h *Handler) handleDescribePipelineDefinitionForExecution(ctx context.Conte
 	return json.Marshal(map[string]any{
 		keyPipelineDefinition: definition,
 		keyCreationTime:       epochSeconds(creationTime),
-	})
+	}, jsonx.V1())
 }
 
 type updatePipelineExecutionRequest struct {
@@ -164,7 +166,7 @@ type updatePipelineExecutionRequest struct {
 func (h *Handler) handleUpdatePipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req updatePipelineExecutionRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -183,5 +185,5 @@ func (h *Handler) handleUpdatePipelineExecution(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn})
+	return json.Marshal(map[string]string{keyPipelineExecutionArn: pe.PipelineExecutionArn}, jsonx.V1())
 }

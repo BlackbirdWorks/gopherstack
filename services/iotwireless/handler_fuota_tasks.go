@@ -1,13 +1,14 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -84,7 +85,7 @@ type listMulticastGroupsByFuotaTaskResponse struct {
 
 func (h *Handler) createFuotaTask(c *echo.Context, body []byte) error {
 	var req createFuotaTaskRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -166,7 +167,7 @@ func (h *Handler) deleteFuotaTask(c *echo.Context, id string) error {
 
 func (h *Handler) associateMulticastGroupWithFuotaTask(c *echo.Context, fuotaTaskID string, body []byte) error {
 	var req associateMulticastGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -181,7 +182,7 @@ func (h *Handler) associateMulticastGroupWithFuotaTask(c *echo.Context, fuotaTas
 
 func (h *Handler) associateWirelessDeviceWithFuotaTask(c *echo.Context, fuotaTaskID string, body []byte) error {
 	var req associateWirelessDeviceWithFuotaRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -208,7 +209,7 @@ func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateFuotaTask(
 		h.AccountID, h.DefaultRegion, id, req.Name, req.Description,
@@ -230,7 +231,7 @@ func (h *Handler) startFuotaTask(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	var startTime *time.Time
 

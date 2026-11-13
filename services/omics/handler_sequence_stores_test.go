@@ -1,12 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestOmics_SequenceStore(t *testing.T) {
@@ -29,7 +31,7 @@ func TestOmics_SequenceStore(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
 				assert.Equal(t, "seq-store", resp["name"])
 			},
@@ -55,7 +57,7 @@ func TestOmics_SequenceStore(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				stores := resp["sequenceStores"].([]any)
 				assert.Empty(t, stores)
 			},
@@ -89,7 +91,7 @@ func TestSequenceStoreHasStatusAndUpdateTime(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", created["status"])
 
 	id, ok := created["id"].(string)
@@ -99,7 +101,7 @@ func TestSequenceStoreHasStatusAndUpdateTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", resp["status"])
 	assert.NotEmpty(t, resp["updateTime"])
 }
@@ -122,7 +124,7 @@ func TestCreateSequenceStoreETagAlgorithmAndS3AccessConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "SHA256up", resp["eTagAlgorithmFamily"])
 	assert.NotContains(t, resp, "eTagAlgorithm")
 
@@ -143,13 +145,13 @@ func TestDeleteSequenceStoreReturnsID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	storeID := createResp["id"].(string)
 
 	delRec := doRequest(t, h, http.MethodDelete, "/sequencestore/"+storeID, nil)
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp, jsonx.V1()))
 	assert.Equal(t, storeID, delResp["id"])
 }

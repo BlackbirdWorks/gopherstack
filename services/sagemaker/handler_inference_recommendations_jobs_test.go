@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -12,6 +12,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
@@ -34,7 +36,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		assert.Contains(t, createResp["JobArn"], "my-rec-job")
 
 		// Describe
@@ -44,7 +46,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "my-rec-job", descResp["JobName"])
 		assert.Equal(t, "IN_PROGRESS", descResp["Status"])
 		assert.Equal(t, "Default", descResp["JobType"])
@@ -56,7 +58,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		summaries := listResp["InferenceRecommendationsJobs"].([]any)
 		assert.Len(t, summaries, 1)
 
@@ -67,7 +69,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var stepsResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stepsResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stepsResp, jsonx.V1()))
 		steps := stepsResp["Steps"].([]any)
 		assert.Empty(t, steps)
 
@@ -80,7 +82,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
 			"JobName": "my-rec-job",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "STOPPING", descResp["Status"])
 
 		// Correct immediately after Stop, but an assertion that only checks this
@@ -92,7 +94,7 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
 			"JobName": "my-rec-job",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "STOPPED", descResp["Status"])
 	})
 }
@@ -121,7 +123,7 @@ func TestHandler_InferenceRecommendationsJob_ReachesCompleted(t *testing.T) {
 			"JobName": "rec-job-completes",
 		})
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "COMPLETED", out["Status"])
 	})
 }
@@ -150,7 +152,7 @@ func TestHandler_CreateInferenceRecommendationsJob_InputConfigRoundTrip(t *testi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	inputConfig, ok := descResp["InputConfig"].(map[string]any)
 	require.True(t, ok, "DescribeInferenceRecommendationsJob must return the accepted InputConfig")
@@ -211,7 +213,7 @@ func TestHandler_CreateInferenceRecommendationsJob_JobTypeDefault(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Default", resp["JobType"])
 }
 
@@ -353,7 +355,7 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				assert.Contains(t, createResp["AIRecommendationJobArn"], "rec-2")
 
 				rec = doSageMakerRequest(t, h, "DescribeAIRecommendationJob", map[string]any{
@@ -362,7 +364,7 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "InProgress", descResp["AIRecommendationJobStatus"])
 				assert.Empty(t, descResp["Recommendations"])
 			},
@@ -385,7 +387,7 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 					"AIRecommendationJobName": "rec-stop",
 				})
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "Stopping", descResp["AIRecommendationJobStatus"])
 			},
 		},
@@ -422,7 +424,7 @@ func TestHandler_AIRecommendationJobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items := resp["AIRecommendationJobs"].([]any)
 				require.Len(t, items, 1)
 				assert.Equal(t, "rec-list", items[0].(map[string]any)["AIRecommendationJobName"])

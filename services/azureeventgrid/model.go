@@ -1,7 +1,7 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -73,14 +73,14 @@ type Spec struct {
 }
 
 type delivery struct {
-	Due         time.Time       `json:"due"`
-	Published   time.Time       `json:"published"`
-	LastAttempt time.Time       `json:"lastAttempt"`
-	ID          string          `json:"id"`
-	LastOutcome string          `json:"lastOutcome,omitempty"`
-	Event       json.RawMessage `json:"event"`
-	Attempts    int             `json:"attempts"`
-	InFlight    bool            `json:"-"`
+	Due         time.Time      `json:"due"`
+	Published   time.Time      `json:"published"`
+	LastAttempt time.Time      `json:"lastAttempt"`
+	ID          string         `json:"id"`
+	LastOutcome string         `json:"lastOutcome,omitempty"`
+	Event       jsontext.Value `json:"event"`
+	Attempts    int            `json:"attempts"`
+	InFlight    bool           `json:"-"`
 }
 
 type subscription struct {
@@ -104,12 +104,12 @@ type topic struct {
 }
 
 type pullEvent struct {
-	AvailableAt time.Time       `json:"availableAt"`
-	LockedUntil time.Time       `json:"lockedUntil"`
-	ExpiresAt   time.Time       `json:"expiresAt"`
-	LockToken   string          `json:"lockToken,omitempty"`
-	Event       json.RawMessage `json:"event"`
-	Count       int             `json:"count"`
+	AvailableAt time.Time      `json:"availableAt"`
+	LockedUntil time.Time      `json:"lockedUntil"`
+	ExpiresAt   time.Time      `json:"expiresAt"`
+	LockToken   string         `json:"lockToken,omitempty"`
+	Event       jsontext.Value `json:"event"`
+	Count       int            `json:"count"`
 }
 
 type pullSub struct {

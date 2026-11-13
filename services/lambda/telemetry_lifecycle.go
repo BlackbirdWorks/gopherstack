@@ -2,13 +2,14 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -185,7 +186,7 @@ func functionErrorType(header string, body []byte) string {
 		ErrorType string `json:"errorType"`
 	}
 
-	if json.Unmarshal(body, &e) == nil {
+	if json.Unmarshal(body, &e, jsonx.V1()) == nil {
 		return e.ErrorType
 	}
 

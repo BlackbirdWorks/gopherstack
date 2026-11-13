@@ -2,7 +2,7 @@ package batch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -331,7 +332,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, opErr)
 		}
 
-		out, marshalErr := json.Marshal(result)
+		out, marshalErr := json.Marshal(result, jsonx.V1())
 		if marshalErr != nil {
 			log.ErrorContext(ctx, "batch: failed to marshal response", "error", marshalErr)
 

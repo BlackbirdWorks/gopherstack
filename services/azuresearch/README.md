@@ -15,14 +15,14 @@
 
 ### Known gaps
 
-- No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here) and null ordering in $orderby are recalled, not verified.
+- No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here; the Create Index reference lists only 201 and a generic ErrorResponse) and null ordering in $orderby are not documented anywhere fetched.
 - Semantic ranking, spell correction, answers/captions, vectorizers (text/image vector queries), vector thresholds and compression, debug subscores and maxTextRecallSize are not implemented.
-- HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; euclidean, dotProduct and hamming score formulas are unverified.
+- HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; the euclidean, dotProduct and hamming score formulas are not documented (the vector relevance page documents only cosine, which matches).
 - Indexers run synchronously inside search.run and do not report inProgress; no document cracking for PDF/Office/images, no AI skills (only Split, Merge, Shaper), no knowledge store, projections or enrichment cache, and no Azure SQL, ADLS Gen2 or Table sources.
 - Bearer tokens are accepted without validation and data-plane RBAC roles are not modelled.
 - Language analyzers are approximations (light stemmer, short stop lists), the pattern analyzer ignores its configuration, custom tokenizers/filters are a subset, and character filters, normalizers and the Microsoft language tokenizers are rejected.
-- Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters but are not verified against the service.
-- ARM: private endpoint connections, shared private link resources, network security perimeter configurations, the upgrade action, customer-managed encryption, semanticSearch and IP rule enforcement are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas); the operations list endpoint is not served.
+- Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters, but the docs give no formulas, so they are not verified against the service.
+- ARM: private endpoint connections (created by Microsoft.Network), network security perimeter configurations, the upgrade action, customer-managed encryption enforcement, semanticSearch and IP rule enforcement are not implemented (properties round-trip only); usage quotas per SKU are the documented defaults (unverified for raised quotas).
 
 ## More
 

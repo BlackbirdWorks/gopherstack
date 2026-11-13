@@ -1,7 +1,7 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,8 +101,8 @@ func TestDeleteAnalyzer_CascadesGhostRows(t *testing.T) {
 	_, err = b.AddAnalyzedResource(a.Arn, "arn:aws:s3:::analyzed-bucket", "AWS::S3::Bucket", false)
 	require.NoError(t, err)
 
-	preview, err := b.CreateAccessPreview(a.Arn, map[string]json.RawMessage{
-		"arn:aws:s3:::analyzed-bucket": json.RawMessage(`{"s3Bucket":{"bucketPolicy":"{}"}}`),
+	preview, err := b.CreateAccessPreview(a.Arn, map[string]jsontext.Value{
+		"arn:aws:s3:::analyzed-bucket": jsontext.Value(`{"s3Bucket":{"bucketPolicy":"{}"}}`),
 	})
 	require.NoError(t, err)
 

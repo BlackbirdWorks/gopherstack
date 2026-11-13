@@ -1,7 +1,7 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 	"time"
@@ -16,26 +16,26 @@ func (i *createGatewayIn) setRetryToken(t string) { i.RetryToken = t }
 
 type createGatewayIn struct {
 	Tags
-	RetryToken    string          `json:"-"`
-	Locks         []lockIn        `json:"locks"`
-	CaBundles     json.RawMessage `json:"caBundles"`
-	ResponseCache json.RawMessage `json:"responseCacheDetails"`
-	DisplayName   string          `json:"displayName"`
-	CompartmentID string          `json:"compartmentId"`
-	EndpointType  string          `json:"endpointType"`
-	SubnetID      string          `json:"subnetId"`
-	CertificateID string          `json:"certificateId"`
-	IPMode        string          `json:"ipMode"`
-	NSGs          []string        `json:"networkSecurityGroupIds"`
+	RetryToken    string         `json:"-"`
+	Locks         []lockIn       `json:"locks"`
+	CaBundles     jsontext.Value `json:"caBundles"`
+	ResponseCache jsontext.Value `json:"responseCacheDetails"`
+	DisplayName   string         `json:"displayName"`
+	CompartmentID string         `json:"compartmentId"`
+	EndpointType  string         `json:"endpointType"`
+	SubnetID      string         `json:"subnetId"`
+	CertificateID string         `json:"certificateId"`
+	IPMode        string         `json:"ipMode"`
+	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
 type updateGatewayIn struct {
 	Tags
-	CaBundles     json.RawMessage `json:"caBundles"`
-	ResponseCache json.RawMessage `json:"responseCacheDetails"`
-	DisplayName   *string         `json:"displayName"`
-	CertificateID *string         `json:"certificateId"`
-	NSGs          []string        `json:"networkSecurityGroupIds"`
+	CaBundles     jsontext.Value `json:"caBundles"`
+	ResponseCache jsontext.Value `json:"responseCacheDetails"`
+	DisplayName   *string        `json:"displayName"`
+	CertificateID *string        `json:"certificateId"`
+	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
 type changeCompartmentIn struct {
@@ -52,8 +52,8 @@ type GatewayWire struct {
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
 	Locks          []Lock                    `json:"locks,omitempty"`
-	CaBundles      json.RawMessage           `json:"caBundles,omitempty"`
-	ResponseCache  json.RawMessage           `json:"responseCacheDetails,omitempty"`
+	CaBundles      jsontext.Value            `json:"caBundles,omitempty"`
+	ResponseCache  jsontext.Value            `json:"responseCacheDetails,omitempty"`
 	ID             string                    `json:"id"`
 	CompartmentID  string                    `json:"compartmentId"`
 	EndpointType   string                    `json:"endpointType"`
@@ -190,7 +190,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	return gatewayView(g), wr, g.Etag, nil
 }
 
-func nullRaw(r json.RawMessage) json.RawMessage {
+func nullRaw(r jsontext.Value) jsontext.Value {
 	if string(r) == jsonNull {
 		return nil
 	}

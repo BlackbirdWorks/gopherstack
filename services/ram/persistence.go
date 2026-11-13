@@ -2,10 +2,12 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -35,7 +37,7 @@ const ramSnapshotVersion = 1
 // newer) build of this backend as though it were the current shape; see
 // Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage  `json:"tables"`
+	Tables           map[string]jsontext.Value   `json:"tables"`
 	SharePermissions map[string]map[string]int32 `json:"sharePermissions"`
 	AccountID        string                      `json:"accountID"`
 	Region           string                      `json:"region"`
@@ -88,7 +90,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:           b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "ram: failed to snapshot backend state", "error", err)
 

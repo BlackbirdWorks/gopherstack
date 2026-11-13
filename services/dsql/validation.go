@@ -1,7 +1,7 @@
 package dsql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -46,7 +47,7 @@ func (b *InMemoryBackend) dwell(def time.Duration) time.Duration {
 
 func validatePolicyDocument(policy string) error {
 	var doc map[string]any
-	if policy == "" || json.Unmarshal([]byte(policy), &doc) != nil || doc == nil {
+	if policy == "" || json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil || doc == nil {
 		return fmt.Errorf("%w: policy must be a valid JSON policy document", ErrValidation)
 	}
 

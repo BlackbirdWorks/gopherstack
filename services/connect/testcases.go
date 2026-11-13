@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -194,7 +196,7 @@ func (b *Backend) validateTestCaseVersion(inst string, v *testCaseVersion, publi
 		return invalidParamErr("Content must be 1-%d characters", maxTestCaseContent)
 	}
 
-	if v.InitializationData != "" && !json.Valid([]byte(v.InitializationData)) {
+	if v.InitializationData != "" && !jsontext.Value([]byte(v.InitializationData)).IsValid(jsonx.V1()) {
 		return invalidParamErr("InitializationData must be a valid JSON string")
 	}
 
@@ -203,7 +205,7 @@ func (b *Backend) validateTestCaseVersion(inst string, v *testCaseVersion, publi
 	}
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(v.Content), &doc); err != nil {
+	if err := json.Unmarshal([]byte(v.Content), &doc, jsonx.V1()); err != nil {
 		return invalidParamErr("Content must be a JSON object to be published")
 	}
 

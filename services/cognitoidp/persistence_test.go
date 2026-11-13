@@ -2,13 +2,14 @@ package cognitoidp_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -391,7 +392,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "persist-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -399,7 +400,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 		"ClientName": "persist-client",
 	})
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 
 	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
 		"UserPoolId":        poolID,
@@ -427,7 +428,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 		"Username":   "persist-user",
 	})
 	var getUserResp map[string]any
-	require.NoError(t, json.Unmarshal(getUserRec.Body.Bytes(), &getUserResp))
+	require.NoError(t, json.Unmarshal(getUserRec.Body.Bytes(), &getUserResp, jsonx.V1()))
 	assert.False(t, getUserResp["Enabled"].(bool))
 }
 
@@ -542,7 +543,7 @@ func TestInMemoryBackend_RestoreDropsPreRedesignTerms(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(data, &raw))
+	require.NoError(t, json.Unmarshal(data, &raw, jsonx.V1()))
 
 	tables, ok := raw["tables"].(map[string]any)
 	require.True(t, ok)
@@ -557,7 +558,7 @@ func TestInMemoryBackend_RestoreDropsPreRedesignTerms(t *testing.T) {
 		{"userPoolID": pool.ID, "text": "accept these terms"},
 	}
 
-	spliced, err := json.Marshal(raw)
+	spliced, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	restored := newTestBackend()

@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -19,6 +19,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/queue"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -223,7 +224,7 @@ func get(t *testing.T, c queue.QueueClient, q queue.Queue, mod func(*queue.GetMe
 }
 
 func quote(s string) string {
-	b, _ := json.Marshal(s)
+	b, _ := json.Marshal(s, jsonx.V1())
 
 	return string(b)
 }

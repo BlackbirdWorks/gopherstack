@@ -1,7 +1,8 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -290,7 +292,7 @@ func TestBatch1_EvaluationJob_RAGConfig_RoundTrip(t *testing.T) {
 		},
 		InferenceConfig: &bedrock.EvaluationInferenceConfig{
 			RagConfigs: []bedrock.RAGConfig{
-				{KnowledgeBaseConfig: json.RawMessage(`{"retrieveConfig":{"knowledgeBaseId":"kb-0001"}}`)},
+				{KnowledgeBaseConfig: jsontext.Value(`{"retrieveConfig":{"knowledgeBaseId":"kb-0001"}}`)},
 			},
 		},
 	}
@@ -508,7 +510,7 @@ func TestAccuracy_EvaluationJob_StopTransitionsStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "Stopping", out["status"])
 		})
 	}
@@ -542,7 +544,7 @@ func TestAccuracy_EvaluationJob_ListResponseShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries := out["jobSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantLen)
 
@@ -595,14 +597,14 @@ func TestAccuracy_EvaluationJob_EvaluatorModelConfigPreserved(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			jobArn := out["jobArn"].(string)
 
 			getRec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+jobArn, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getOut map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 			automated := getOut["evaluationConfig"].(map[string]any)["automated"].(map[string]any)
 			evaluatorModelConfig := automated["evaluatorModelConfig"].(map[string]any)
@@ -631,14 +633,14 @@ func TestAccuracy_EvaluationJob_InferenceModelsPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobArn := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	inferCfg := getOut["inferenceConfig"].(map[string]any)
 	models := inferCfg["models"].([]any)
@@ -663,14 +665,14 @@ func TestAccuracy_EvaluationJob_RAGConfigPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobArn := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	inferCfg := getOut["inferenceConfig"].(map[string]any)
 	ragConfigs := inferCfg["ragConfigs"].([]any)
@@ -707,14 +709,14 @@ func TestAccuracy_EvaluationJob_EvalTaskConfigPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobArn := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	automated := getOut["evaluationConfig"].(map[string]any)["automated"].(map[string]any)
 	datasetMetricConfigs := automated["datasetMetricConfigs"].([]any)
@@ -738,14 +740,14 @@ func TestAccuracy_EvaluationJob_JobDescriptionPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobArn := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, desc, getOut["jobDescription"])
 }
 
@@ -983,7 +985,7 @@ func TestBatch2Ops_StopEvaluationJob_AlreadyStopped_Rejected(t *testing.T) {
 				"stop of already-stopped job should return 400 ValidationException")
 
 			var errBody map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Equal(t, "ValidationException", errBody["__type"],
 				"error type must be ValidationException")
 		})

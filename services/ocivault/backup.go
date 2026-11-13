@@ -5,8 +5,10 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -144,7 +146,7 @@ func (b *InMemoryBackend) backupGCM() (cipher.AEAD, error) {
 
 // sealBackup encrypts a payload so key material never appears in a backup file in the clear.
 func (b *InMemoryBackend) sealBackup(kind string, payload any) ([]byte, *APIError) {
-	plain, err := json.Marshal(payload)
+	plain, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return nil, newErr(http.StatusInternalServerError, "InternalServerError", "backup encoding failed")
 	}
@@ -176,7 +178,7 @@ func (b *InMemoryBackend) openBackup(kind string, blob []byte, dst any) *APIErro
 	}
 
 	plain, err := gcm.Open(nil, rest[:gcm.NonceSize()], rest[gcm.NonceSize():], []byte(backupMagic+kind))
-	if err != nil || json.Unmarshal(plain, dst) != nil {
+	if err != nil || json.Unmarshal(plain, dst, jsonx.V1()) != nil {
 		return bad
 	}
 

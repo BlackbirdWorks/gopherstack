@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestService_CapacityProviderStrategy_Roundtrip(t *testing.T) {
@@ -34,7 +36,7 @@ func TestService_CapacityProviderStrategy_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	strategy := svc["capacityProviderStrategy"].([]any)
 	require.Len(t, strategy, 2)
@@ -85,7 +87,7 @@ func TestService_CapacityProviderStrategy_UpdateService(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateResp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	strategy := svc["capacityProviderStrategy"].([]any)
 	assert.Len(t, strategy, 2)
@@ -119,7 +121,7 @@ func TestService_CircuitBreaker_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 
@@ -156,7 +158,7 @@ func TestService_CircuitBreaker_EnabledNoRollback(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	cb := dc["deploymentCircuitBreaker"].(map[string]any)
@@ -196,7 +198,7 @@ func TestService_CircuitBreaker_UpdatePreserved(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateResp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	cb := dc["deploymentCircuitBreaker"].(map[string]any)
@@ -224,7 +226,7 @@ func TestService_DeploymentConfig_Defaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	// AWS defaults: minimumHealthyPercent=100, maximumPercent=200
@@ -265,7 +267,7 @@ func TestServiceConnect_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, true, sc["enabled"])
@@ -307,7 +309,7 @@ func TestServiceConnect_Disabled(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, false, sc["enabled"])
@@ -341,7 +343,7 @@ func TestServiceConnect_UpdateService(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateResp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	sc := primaryServiceConnect(t, svc)
 	assert.Equal(t, true, sc["enabled"])
@@ -375,7 +377,7 @@ func TestServiceDiscovery_CloudMap_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	registries := svc["serviceRegistries"].([]any)
 	require.Len(t, registries, 1)
@@ -420,7 +422,7 @@ func TestServiceDiscovery_MultipleRegistries(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	registries := svc["serviceRegistries"].([]any)
 	assert.Len(t, registries, 2)
@@ -454,7 +456,7 @@ func TestServiceDiscovery_DescribeServices_Preserved(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out, jsonx.V1()))
 	services := out["services"].([]any)
 	require.Len(t, services, 1)
 	svc := services[0].(map[string]any)

@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -26,7 +27,7 @@ func TestAPIGateway_UpdateClientCertificate_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "updated desc", resp["description"])
 }
 
@@ -81,7 +82,7 @@ func TestClientCertificates(t *testing.T) {
 			assert.Equal(t, tt.wantCreateCode, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			certID := createResp["clientCertificateId"].(string)
 
 			// Get
@@ -98,7 +99,7 @@ func TestClientCertificates(t *testing.T) {
 				listRec := postWithHandler(t, handler, e, "GetClientCertificates", `{}`)
 				assert.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.GreaterOrEqual(t, len(listResp["item"].([]any)), tt.wantListMinLen)
 			}
 

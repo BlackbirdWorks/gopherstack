@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -30,13 +32,13 @@ type hpResourceLimitsRequest struct {
 // one Unmarshal pass — encoding/json drops both silently on that ambiguity —
 // hence the second decode.)
 type createHPTuningJobRequest struct {
-	HyperParameterTuningJobName   string          `json:"HyperParameterTuningJobName"`
-	HyperParameterTuningJobConfig json.RawMessage `json:"HyperParameterTuningJobConfig"`
-	Autotune                      json.RawMessage `json:"Autotune"`
-	WarmStartConfig               json.RawMessage `json:"WarmStartConfig"`
-	TrainingJobDefinition         json.RawMessage `json:"TrainingJobDefinition"`
-	TrainingJobDefinitions        json.RawMessage `json:"TrainingJobDefinitions"`
-	Tags                          []tagObject     `json:"Tags"`
+	HyperParameterTuningJobName   string         `json:"HyperParameterTuningJobName"`
+	HyperParameterTuningJobConfig jsontext.Value `json:"HyperParameterTuningJobConfig"`
+	Autotune                      jsontext.Value `json:"Autotune"`
+	WarmStartConfig               jsontext.Value `json:"WarmStartConfig"`
+	TrainingJobDefinition         jsontext.Value `json:"TrainingJobDefinition"`
+	TrainingJobDefinitions        jsontext.Value `json:"TrainingJobDefinitions"`
+	Tags                          []tagObject    `json:"Tags"`
 }
 
 // hpTuningJobConfigStrategyAndLimits mirrors the Strategy/ResourceLimits
@@ -51,7 +53,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	body []byte,
 ) ([]byte, error) {
 	var req createHPTuningJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -64,7 +66,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	}
 
 	var config hpTuningJobConfigStrategyAndLimits
-	if err := json.Unmarshal(req.HyperParameterTuningJobConfig, &config); err != nil {
+	if err := json.Unmarshal(req.HyperParameterTuningJobConfig, &config, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -93,7 +95,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	log.InfoContext(ctx, "sagemaker: created HP tuning job", "name", j.HyperParameterTuningJobName)
 
 	return json.Marshal(
-		map[string]string{"HyperParameterTuningJobArn": j.HyperParameterTuningJobArn},
+		map[string]string{"HyperParameterTuningJobArn": j.HyperParameterTuningJobArn}, jsonx.V1(),
 	)
 }
 
@@ -109,7 +111,7 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 ) ([]byte, error) {
 	var req describeHPTuningJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -153,7 +155,7 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 		resp["HyperParameterTuningEndTime"] = epochSeconds(*j.HyperParameterTuningEndTime)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type hpTuningJobSummary struct {
@@ -187,7 +189,7 @@ type listHPTuningJobsInput struct {
 func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listHPTuningJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -228,7 +230,7 @@ func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body [
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // stopHPTuningJobInput mirrors StopHyperParameterTuningJobInput
@@ -240,7 +242,7 @@ type stopHPTuningJobInput struct {
 func (h *Handler) handleStopHyperParameterTuningJob(ctx context.Context, body []byte) error {
 	var req stopHPTuningJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -272,7 +274,7 @@ type deleteHPTuningJobInput struct {
 func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body []byte) error {
 	var req deleteHPTuningJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -328,7 +330,7 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(
 ) ([]byte, error) {
 	var req listTrainingJobsForHPTuningJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -371,5 +373,5 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

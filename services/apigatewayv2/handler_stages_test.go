@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -54,7 +55,7 @@ func TestHandler_CreateStage(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var stage apigatewayv2.Stage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &stage))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &stage, jsonx.V1()))
 				assert.Equal(t, tt.stageName, stage.StageName)
 			}
 		})
@@ -116,7 +117,7 @@ func TestHandler_GetStages(t *testing.T) {
 				}
 
 				var resp listResp
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.Items, len(tt.stages))
 			}
 		})
@@ -306,7 +307,7 @@ func TestGetStages_Pagination(t *testing.T) {
 					NextToken string           `json:"nextToken"`
 					Items     []map[string]any `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Items), tc.maxResults)
 
 				for _, s := range resp.Items {

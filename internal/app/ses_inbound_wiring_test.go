@@ -4,7 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/smtp"
 	"testing"
 
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 )
 
@@ -110,7 +111,7 @@ func TestSESInboundKMSAndAuthWiring(t *testing.T) {
 	require.NoError(t, err)
 
 	var matdesc map[string]string
-	require.NoError(t, json.Unmarshal([]byte(obj.Metadata["x-amz-matdesc"]), &matdesc))
+	require.NoError(t, json.Unmarshal([]byte(obj.Metadata["x-amz-matdesc"]), &matdesc, jsonx.V1()))
 
 	dec, err := kmsC.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: wrapped, EncryptionContext: matdesc})
 	require.NoError(t, err)

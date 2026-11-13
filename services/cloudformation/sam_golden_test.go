@@ -1,7 +1,7 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -40,7 +41,7 @@ func samGoldenIDOnly() map[string]string {
 func jsonString(t *testing.T, v any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)
@@ -158,12 +159,12 @@ func TestSAMGolden_Translator(t *testing.T) {
 			wantRaw, err := os.ReadFile(filepath.Join(samGoldenDir, "output", name+".json"))
 			require.NoError(t, err)
 			var want map[string]any
-			require.NoError(t, json.Unmarshal(wantRaw, &want))
+			require.NoError(t, json.Unmarshal(wantRaw, &want, jsonx.V1()))
 
 			processed, err := transformGolden(t, name)
 			require.NoError(t, err)
 			var doc map[string]any
-			require.NoError(t, json.Unmarshal([]byte(processed), &doc))
+			require.NoError(t, json.Unmarshal([]byte(processed), &doc, jsonx.V1()))
 
 			got := normalizeSAMOutput(t, doc["Resources"].(map[string]any))
 			exp := normalizeSAMOutput(t, want["Resources"].(map[string]any))

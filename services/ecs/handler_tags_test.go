@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -92,7 +93,7 @@ func TestTagResource_Service(t *testing.T) {
 		"desiredCount":   1,
 	})
 	var svcOut map[string]any
-	require.NoError(t, json.Unmarshal(svcResp.Body.Bytes(), &svcOut))
+	require.NoError(t, json.Unmarshal(svcResp.Body.Bytes(), &svcOut, jsonx.V1()))
 	svcArn := svcOut["service"].(map[string]any)["serviceArn"].(string)
 
 	// Tag
@@ -111,7 +112,7 @@ func TestTagResource_Service(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	tags := listOut["tags"].([]any)
 	assert.Len(t, tags, 2)
 }
@@ -136,7 +137,7 @@ func TestTagResource_Overwrite(t *testing.T) {
 		"resourceArn": fakeArn,
 	})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	tags := listOut["tags"].([]any)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "prod", tags[0].(map[string]any)["value"])
@@ -167,7 +168,7 @@ func TestUntagResource(t *testing.T) {
 		"resourceArn": fakeArn,
 	})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	tags := listOut["tags"].([]any)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "team", tags[0].(map[string]any)["key"])
@@ -191,7 +192,7 @@ func TestCreateCapacityProvider_TagsVisibleViaListTagsForResource(t *testing.T) 
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	cpArn := createOut["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
 
 	listResp := doECSRequest(t, h, "ListTagsForResource", map[string]any{
@@ -200,7 +201,7 @@ func TestCreateCapacityProvider_TagsVisibleViaListTagsForResource(t *testing.T) 
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	tags := listOut["tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["key"])
@@ -222,7 +223,7 @@ func TestDescribeCapacityProviders_TagResource_ReflectsInDescribe(t *testing.T) 
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	cpArn := createOut["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
 
 	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
@@ -238,7 +239,7 @@ func TestDescribeCapacityProviders_TagResource_ReflectsInDescribe(t *testing.T) 
 	require.Equal(t, http.StatusOK, describeResp.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &describeOut, jsonx.V1()))
 	providers := describeOut["capacityProviders"].([]any)
 	require.Len(t, providers, 1)
 	tags := providers[0].(map[string]any)["tags"].([]any)
@@ -264,7 +265,7 @@ func TestTagResource_Cluster(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out, jsonx.V1()))
 	tags := out["tags"].([]any)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "owner", tags[0].(map[string]any)["key"])
@@ -334,7 +335,7 @@ func TestECS_Tagging(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec3.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 
 			tagList, ok := resp["tags"].([]any)
 			require.True(t, ok)

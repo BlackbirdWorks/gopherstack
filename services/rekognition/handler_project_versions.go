@@ -2,7 +2,7 @@ package rekognition
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -53,8 +53,8 @@ type createProjectVersionReq struct {
 	VersionName        string                          `json:"VersionName"`
 	KmsKeyID           string                          `json:"KmsKeyId"`
 	VersionDescription string                          `json:"VersionDescription"`
-	TrainingData       json.RawMessage                 `json:"TrainingData"`
-	TestingData        json.RawMessage                 `json:"TestingData"`
+	TrainingData       jsontext.Value                  `json:"TrainingData"`
+	TestingData        jsontext.Value                  `json:"TestingData"`
 }
 
 type createProjectVersionResp struct {

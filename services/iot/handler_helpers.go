@@ -1,7 +1,8 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // errTypeInvalidRequest is the AWS IoT restjson1 __type for a malformed or
@@ -20,7 +23,12 @@ const errTypeInvalidRequest = "InvalidRequestException"
 const maxTopicRuleBodyBytes int64 = 1 << 20
 
 func readBody(c *echo.Context, dst any) error {
-	if err := json.NewDecoder(c.Request().Body).Decode(dst); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(c.Request().Body),
+		dst,
+		jsonx.V1(),
+	); err != nil &&
+		!errors.Is(err, io.EOF) {
 		if jsonErr := c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()}); jsonErr != nil {
 			return jsonErr
 		}

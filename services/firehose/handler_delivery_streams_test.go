@@ -1,7 +1,7 @@
 package firehose_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -530,7 +531,7 @@ func TestDeleteThenDescribeReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, descRec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"])
 }
 
@@ -681,7 +682,7 @@ func TestDescribeDeliveryStream_SourceField(t *testing.T) {
 			Source *firehose.SourceDescription `json:"Source"`
 		} `json:"DeliveryStreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.DeliveryStreamDescription.Source)
 	require.NotNil(t, out.DeliveryStreamDescription.Source.KinesisStreamSourceDescription)
 	assert.Equal(t, "arn:aws:kinesis:us-east-1:000000000000:stream/my-ks",
@@ -761,7 +762,7 @@ func TestDescribeDeliveryStream_Timestamps(t *testing.T) {
 			LastUpdateTimestamp *int64 `json:"LastUpdateTimestamp"`
 		} `json:"DeliveryStreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out.DeliveryStreamDescription.CreateTimestamp)
 	assert.NotNil(t, out.DeliveryStreamDescription.LastUpdateTimestamp)
 	assert.Positive(t, *out.DeliveryStreamDescription.CreateTimestamp)
@@ -1139,7 +1140,7 @@ func TestListDeliveryStreams_Empty(t *testing.T) {
 		DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
 		HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.DeliveryStreamNames)
 	assert.False(t, out.HasMoreDeliveryStreams)
 }
@@ -1161,7 +1162,7 @@ func TestListDeliveryStreams_Limit(t *testing.T) {
 		DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
 		HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.DeliveryStreamNames, 2)
 	assert.True(t, out.HasMoreDeliveryStreams)
 }
@@ -1183,7 +1184,7 @@ func TestListDeliveryStreams_ExclusiveStart(t *testing.T) {
 	var out struct {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, []string{"b-stream", "c-stream"}, out.DeliveryStreamNames)
 }
 
@@ -1205,7 +1206,7 @@ func TestListDeliveryStreams_Pagination(t *testing.T) {
 		DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
 		HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 	}
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.DeliveryStreamNames, 2)
 	assert.True(t, page1.HasMoreDeliveryStreams)
 
@@ -1219,7 +1220,7 @@ func TestListDeliveryStreams_Pagination(t *testing.T) {
 		DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
 		HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 	}
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.DeliveryStreamNames, 2)
 	// No overlap between pages.
 	for _, n := range page2.DeliveryStreamNames {
@@ -1249,7 +1250,7 @@ func TestListDeliveryStreams_TypeFilter(t *testing.T) {
 	var out struct {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out.DeliveryStreamNames, "direct-put-stream")
 	assert.NotContains(t, out.DeliveryStreamNames, "kinesis-src-stream-lf")
 
@@ -1259,7 +1260,7 @@ func TestListDeliveryStreams_TypeFilter(t *testing.T) {
 	var out2 struct {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	assert.Contains(t, out2.DeliveryStreamNames, "kinesis-src-stream-lf")
 	assert.NotContains(t, out2.DeliveryStreamNames, "direct-put-stream")
 
@@ -1273,7 +1274,7 @@ func TestListDeliveryStreams_TypeFilter(t *testing.T) {
 	var outInvalid struct {
 		DeliveryStreamNames []string `json:"DeliveryStreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(recInvalid.Body.Bytes(), &outInvalid))
+	require.NoError(t, json.Unmarshal(recInvalid.Body.Bytes(), &outInvalid, jsonx.V1()))
 	assert.NotContains(t, outInvalid.DeliveryStreamNames, "direct-put-stream")
 	assert.NotContains(t, outInvalid.DeliveryStreamNames, "kinesis-src-stream-lf")
 }

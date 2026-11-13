@@ -1,13 +1,15 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAndDescribeChannel(t *testing.T) {
@@ -85,7 +87,7 @@ func TestHandler_ListChannels(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			err := json.Unmarshal(rec.Body.Bytes(), &resp)
+			err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 			require.NoError(t, err)
 
 			summaries, ok := resp["channelSummaries"].([]any)
@@ -270,7 +272,7 @@ func TestHandler_SampleChannelData_WithMessages(t *testing.T) {
 	require.Equal(t, http.StatusOK, sampleRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sampleRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sampleRec.Body.Bytes(), &resp, jsonx.V1()))
 	payloads, ok := resp["payloads"].([]any)
 	require.True(t, ok)
 	assert.Len(t, payloads, 2)
@@ -394,7 +396,7 @@ func TestHandler_DescribeChannel_NewFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "describe response must contain field %q", field)
 			}
@@ -435,7 +437,7 @@ func TestHandler_CreateChannel_RetentionPeriodInResponse(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasRP := resp["retentionPeriod"]
 			assert.Equal(t, tt.wantRetention, hasRP)
 		})
@@ -484,7 +486,7 @@ func TestHandler_DescribeChannel_IncludeStatistics(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasStats := resp["statistics"]
 			assert.Equal(t, tt.wantStatistics, hasStats)
 		})
@@ -508,7 +510,7 @@ func TestHandler_ListChannels_ChannelStorage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, _ := resp["channelSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	summary, _ := summaries[0].(map[string]any)

@@ -1,7 +1,7 @@
 package eks_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -624,7 +625,7 @@ func TestLogging_HTTP_AllTypes_In_Response(t *testing.T) {
 
 	rec2 := doREST(t, h, http.MethodGet, "/clusters/logging-http-all", nil)
 	cluster := parseClusterResp(t, rec2)
-	raw, _ := json.Marshal(cluster)
+	raw, _ := json.Marshal(cluster, jsonx.V1())
 	body := string(raw)
 
 	for _, lt := range []string{"api", "audit", "authenticator", "controllerManager", "scheduler"} {

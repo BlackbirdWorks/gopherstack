@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_NetworkAnalyzerCRUD(t *testing.T) {
@@ -20,7 +22,7 @@ func TestHandler_NetworkAnalyzerCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	name, _ := createResp["Name"].(string)
 	assert.Equal(t, "na1", name)
 
@@ -29,7 +31,7 @@ func TestHandler_NetworkAnalyzerCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "na1", getResp["Name"])
 	assert.Equal(t, "test config", getResp["Description"])
 
@@ -38,7 +40,7 @@ func TestHandler_NetworkAnalyzerCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok := listResp["NetworkAnalyzerConfigurationList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, configs, 1)
@@ -50,7 +52,7 @@ func TestHandler_NetworkAnalyzerCRUD(t *testing.T) {
 
 	// Verify update
 	rec = doIoTWRequest(t, h, http.MethodGet, "/network-analyzer-configurations/na1", "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "updated", getResp["Description"])
 
 	// Delete

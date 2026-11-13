@@ -2,17 +2,18 @@ package gcpsql
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"sort"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // RestoreBackupInput is the restoreBackupContext of instances.restoreBackup.
 type RestoreBackupInput struct {
-	BackupRunID json.Number `json:"backupRunId"`
-	InstanceID  string      `json:"instanceId"`
-	Project     string      `json:"project"`
+	BackupRunID jsonx.Number `json:"backupRunId"`
+	InstanceID  string       `json:"instanceId"`
+	Project     string       `json:"project"`
 }
 
 func (b *InMemoryBackend) nextBackupID() string {

@@ -3,7 +3,8 @@ package ociapigateway
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -130,7 +132,11 @@ func (b *InMemoryBackend) introspectionEndpoint(ctx context.Context, uri string,
 		Introspection string `json:"introspection_endpoint"`
 	}
 
-	if err = json.NewDecoder(io.LimitReader(resp.Body, discoveryMaxBytes)).Decode(&doc); err != nil {
+	if err = json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(resp.Body, discoveryMaxBytes)),
+		&doc,
+		jsonx.V1(),
+	); err != nil {
 		return "", err
 	}
 
@@ -203,7 +209,11 @@ func (b *InMemoryBackend) introspectionVerdict(a *authDoc, resp *http.Response) 
 	}
 
 	claims := map[string]any{}
-	if json.NewDecoder(io.LimitReader(resp.Body, discoveryMaxBytes)).Decode(&claims) != nil {
+	if json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(resp.Body, discoveryMaxBytes)),
+		&claims,
+		jsonx.V1(),
+	) != nil {
 		return authResult{}
 	}
 

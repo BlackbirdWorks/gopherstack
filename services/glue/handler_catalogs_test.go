@@ -1,13 +1,15 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -19,7 +21,7 @@ func dispatchNewOp(t *testing.T, h *glue.Handler, op string, body any) map[strin
 		t.Fatalf("op %s: got status %d, body: %s", op, rr.Code, rr.Body.String())
 	}
 	var out map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(rr.Body), &out, jsonx.V1()); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
@@ -202,7 +204,7 @@ func TestCatalogImport_Lifecycle(t *testing.T) {
 					ImportCompleted bool    `json:"ImportCompleted"`
 				} `json:"ImportStatus"`
 			}
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tc.wantCompleted, out.ImportStatus.ImportCompleted)
 
 			if tc.wantCompleted {
@@ -231,7 +233,7 @@ func TestCatalogImport_Idempotent(t *testing.T) {
 			ImportCompleted bool `json:"ImportCompleted"`
 		} `json:"ImportStatus"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.True(t, out.ImportStatus.ImportCompleted)
 }
 
@@ -293,7 +295,7 @@ func TestCatalogImportStatus(t *testing.T) {
 					ImportCompleted bool    `json:"ImportCompleted"`
 				} `json:"ImportStatus"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tc.wantCompleted, out.ImportStatus.ImportCompleted)
 
 			if tc.wantCompleted {

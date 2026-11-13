@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 )
 
@@ -31,7 +32,7 @@ func newHookSink(t *testing.T) *hookSink {
 		raw, _ := io.ReadAll(r.Body)
 
 		var m map[string]any
-		_ = json.Unmarshal(raw, &m)
+		_ = json.Unmarshal(raw, &m, jsonx.V1())
 
 		s.mu.Lock()
 		s.got = append(s.got, m)

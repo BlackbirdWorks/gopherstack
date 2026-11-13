@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -154,7 +155,7 @@ func endpointConfig(ep *Endpoint) dmsengine.EndpointConfig {
 			Port                        int    `json:"Port"`
 		}
 
-		if json.Unmarshal([]byte(raw), &s) != nil {
+		if json.Unmarshal([]byte(raw), &s, jsonx.V1()) != nil {
 			continue
 		}
 

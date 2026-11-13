@@ -1,10 +1,12 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -451,7 +453,7 @@ func (a *samHTTPAPI) baseDocument() (map[string]any, error) {
 
 func decodeJSONMap(raw string) (map[string]any, error) {
 	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	if err := json.Unmarshal([]byte(raw), &out, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -459,12 +461,12 @@ func decodeJSONMap(raw string) (map[string]any, error) {
 }
 
 func deepCopyMap(v any) (map[string]any, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 	var out map[string]any
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

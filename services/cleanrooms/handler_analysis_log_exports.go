@@ -2,11 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -24,7 +25,7 @@ func (h *Handler) handleStartAnalysisLogExport(_ context.Context, body []byte) (
 		AnalysisID           string         `json:"analysisId"`
 		AnalysisType         string         `json:"analysisType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	e, err := h.Backend.StartAnalysisLogExport(
 		req.MembershipIdentifier, req.AnalysisID, req.AnalysisType, req.ResultConfiguration,
@@ -41,7 +42,7 @@ func (h *Handler) handleGetAnalysisLogExport(_ context.Context, body []byte) ([]
 		MembershipIdentifier        string `json:"membershipIdentifier"`
 		AnalysisLogExportIdentifier string `json:"analysisLogExportIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	e, err := h.Backend.GetAnalysisLogExport(req.MembershipIdentifier, req.AnalysisLogExportIdentifier)
 	if err != nil {
@@ -55,7 +56,7 @@ func (h *Handler) handleListAnalysisLogExports(_ context.Context, body []byte, c
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	limit := 0
 	if raw := qp(c, exportMaxResultsParamName); raw != "" {

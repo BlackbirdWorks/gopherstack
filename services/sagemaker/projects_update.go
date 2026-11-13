@@ -1,8 +1,11 @@
 package sagemaker
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // UpdateProjectOptions holds the parameters for UpdateProject.
@@ -35,7 +38,7 @@ type updateTemplateProviderInput struct {
 
 // applyProvisioningUpdate merges ServiceCatalogProvisioningUpdateDetails
 // (ProvisioningArtifactId, ProvisioningParameters) into the stored details.
-func applyProvisioningUpdate(stored json.RawMessage, upd *serviceCatalogUpdateDetails) (json.RawMessage, error) {
+func applyProvisioningUpdate(stored jsontext.Value, upd *serviceCatalogUpdateDetails) (jsontext.Value, error) {
 	if upd == nil {
 		return stored, nil
 	}
@@ -47,7 +50,7 @@ func applyProvisioningUpdate(stored json.RawMessage, upd *serviceCatalogUpdateDe
 	}
 
 	var details map[string]any
-	if err := json.Unmarshal(stored, &details); err != nil {
+	if err := json.Unmarshal(stored, &details, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: stored provisioning details: %w", ErrValidation, err)
 	}
 
@@ -59,22 +62,22 @@ func applyProvisioningUpdate(stored json.RawMessage, upd *serviceCatalogUpdateDe
 		details["ProvisioningParameters"] = upd.ProvisioningParameters
 	}
 
-	return json.Marshal(details)
+	return json.Marshal(details, jsonx.V1())
 }
 
 // applyTemplateProviderUpdates replaces TemplateURL/Parameters of each stored
 // CfnTemplateProvider matched by TemplateName.
 func applyTemplateProviderUpdates(
-	stored json.RawMessage,
+	stored jsontext.Value,
 	updates []cfnUpdateTemplateProvider,
-) (json.RawMessage, error) {
+) (jsontext.Value, error) {
 	if len(updates) == 0 {
 		return stored, nil
 	}
 
 	var providers []map[string]map[string]any
 	if len(stored) > 0 {
-		if err := json.Unmarshal(stored, &providers); err != nil {
+		if err := json.Unmarshal(stored, &providers, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: stored template providers: %w", ErrValidation, err)
 		}
 	}
@@ -85,7 +88,7 @@ func applyTemplateProviderUpdates(
 		}
 	}
 
-	return json.Marshal(providers)
+	return json.Marshal(providers, jsonx.V1())
 }
 
 func updateOneTemplateProvider(providers []map[string]map[string]any, u cfnUpdateTemplateProvider) bool {
@@ -108,9 +111,9 @@ func updateOneTemplateProvider(providers []map[string]map[string]any, u cfnUpdat
 
 // templateProviderDetails converts stored CreateTemplateProvider entries to the
 // TemplateProviderDetail wire shape (CfnTemplateProviderDetail key).
-func templateProviderDetails(stored json.RawMessage) []map[string]any {
+func templateProviderDetails(stored jsontext.Value) []map[string]any {
 	var providers []map[string]map[string]any
-	if err := json.Unmarshal(stored, &providers); err != nil {
+	if err := json.Unmarshal(stored, &providers, jsonx.V1()); err != nil {
 		return nil
 	}
 

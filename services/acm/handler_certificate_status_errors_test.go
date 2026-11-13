@@ -2,7 +2,7 @@ package acm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -49,7 +50,7 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 				var reqOut struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+				require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 				return reqOut.CertificateArn
 			},
@@ -85,7 +86,7 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{
 				"CertificateArn": certARN,
 				"Passphrase":     "dGVzdA==",
-			})
+			}, jsonx.V1())
 			rec := postACMJSON(t, h, "ExportCertificate", string(body))
 
 			if tt.wantErrType == "" {
@@ -96,7 +97,7 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 					CertificateChain string `json:"CertificateChain"`
 					PrivateKey       string `json:"PrivateKey"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Contains(t, out.Certificate, "BEGIN CERTIFICATE")
 				assert.NotEmpty(t, out.PrivateKey)
 
@@ -112,7 +113,7 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 						Exported       bool   `json:"Exported"`
 					} `json:"CertificateSummaryList"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 
 				var found bool
 				for _, s := range listOut.CertificateSummaryList {
@@ -132,7 +133,7 @@ func TestACMHandler_ExportCertificate_AmazonIssued(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, errResp.Type)
 		})
 	}
@@ -148,7 +149,7 @@ func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOptio
 		reqBody["Options"] = map[string]string{"Export": exportOption}
 	}
 
-	reqJSON, err := json.Marshal(reqBody)
+	reqJSON, err := json.Marshal(reqBody, jsonx.V1())
 	require.NoError(t, err)
 
 	reqRec := postACMJSON(t, h, "RequestCertificate", string(reqJSON))
@@ -157,7 +158,7 @@ func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOptio
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	descRec := postACMJSON(t, h, "DescribeCertificate", `{"CertificateArn":"`+reqOut.CertificateArn+`"}`)
 
@@ -166,7 +167,7 @@ func requestAndAwaitIssued(t *testing.T, h *acm.Handler, domainName, exportOptio
 			Status string `json:"Status"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Equal(t, "ISSUED", out.Certificate.Status)
 
 	return reqOut.CertificateArn
@@ -204,14 +205,14 @@ func TestACMHandler_RenewCertificate_Imported_Returns_RequestInProgressException
 			require.NoError(t, err)
 
 			h := acm.NewHandler(b)
-			body, _ := json.Marshal(map[string]string{"CertificateArn": imported.ARN})
+			body, _ := json.Marshal(map[string]string{"CertificateArn": imported.ARN}, jsonx.V1())
 			rec := postACMJSON(t, h, "RenewCertificate", string(body))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "RequestInProgressException", errResp.Type,
 				"RenewCertificate on IMPORTED cert must return RequestInProgressException, not RequestError")
 		})
@@ -298,14 +299,14 @@ func TestACMHandler_GetCertificate_NonIssuedStates_Returns_RequestInProgressExce
 			certARN := tt.setup(t, b)
 
 			h := acm.NewHandler(b)
-			body, _ := json.Marshal(map[string]string{"CertificateArn": certARN})
+			body, _ := json.Marshal(map[string]string{"CertificateArn": certARN}, jsonx.V1())
 			rec := postACMJSON(t, h, "GetCertificate", string(body))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(
 				t,
 				"RequestInProgressException",
@@ -348,16 +349,16 @@ func TestACMHandler_RevokeCertificate_PendingValidation_Returns_ConflictExceptio
 			body, _ := json.Marshal(map[string]string{
 				"DomainName":       "revoke-pending.example.com",
 				"ValidationMethod": method,
-			})
+			}, jsonx.V1())
 			reqRec := postACMJSON(t, h, "RequestCertificate", string(body))
 			require.Equal(t, http.StatusOK, reqRec.Code)
 
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-			descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+			descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 			require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -366,20 +367,20 @@ func TestACMHandler_RevokeCertificate_PendingValidation_Returns_ConflictExceptio
 					Status string `json:"Status"`
 				} `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			require.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
 
 			revokeBody, _ := json.Marshal(map[string]string{
 				"CertificateArn":   reqOut.CertificateArn,
 				"RevocationReason": "UNSPECIFIED",
-			})
+			}, jsonx.V1())
 			rec := postACMJSON(t, h, "RevokeCertificate", string(revokeBody))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(
 				t,
 				"ConflictException",
@@ -459,14 +460,14 @@ func TestACMHandler_UpdateCertificateOptions_NonIssued_Returns_InvalidStateExcep
 				"Options": map[string]string{
 					"CertificateTransparencyLoggingPreference": "ENABLED",
 				},
-			})
+			}, jsonx.V1())
 			rec := postACMJSON(t, h, "UpdateCertificateOptions", string(body))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(
 				t,
 				"InvalidStateException",
@@ -499,7 +500,7 @@ func TestACMHandler_GetCertificate_Issued_Succeeds(t *testing.T) {
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 			// No ValidationMethod is set, so the cert issues synchronously.
 			descRec := postACMJSON(t, h, "DescribeCertificate",
@@ -509,17 +510,17 @@ func TestACMHandler_GetCertificate_Issued_Succeeds(t *testing.T) {
 					Status string `json:"Status"`
 				} `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			require.Equal(t, "ISSUED", descOut.Certificate.Status)
 
-			body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+			body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 			rec := postACMJSON(t, h, "GetCertificate", string(body))
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
 				Certificate string `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out.Certificate, "BEGIN CERTIFICATE")
 		})
 	}

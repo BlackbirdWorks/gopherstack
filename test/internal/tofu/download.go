@@ -8,7 +8,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -48,7 +51,7 @@ func DownloadBinary(ctx context.Context, logf func(format string, args ...any)) 
 		} `json:"versions"`
 	}
 
-	if err = json.NewDecoder(resp.Body).Decode(&api); err != nil {
+	if err = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &api, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("decoding OpenTofu version list: %w", err)
 	}
 

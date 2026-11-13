@@ -1,13 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -253,7 +254,7 @@ func TestAddPermission_UpdatesPolicyAttribute(t *testing.T) {
 	assert.NotEmpty(t, policyJSON)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(policyJSON), &doc))
+	require.NoError(t, json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()))
 	assert.Equal(t, "2012-10-17", doc["Version"])
 
 	stmts := doc["Statement"].([]any)
@@ -279,7 +280,7 @@ func TestAddPermission_WildcardAction(t *testing.T) {
 
 	attrs := b2getAttrs(t, b, qURL, "Policy")
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc))
+	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc, jsonx.V1()))
 	stmts := doc["Statement"].([]any)
 	stmt := stmts[0].(map[string]any)
 	actions := stmt["Action"].([]any)
@@ -330,7 +331,7 @@ func TestAddPermission_MultipleStatements(t *testing.T) {
 
 	attrs := b2getAttrs(t, b, qURL, "Policy")
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc))
+	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc, jsonx.V1()))
 	stmts := doc["Statement"].([]any)
 	assert.Len(t, stmts, 2)
 }
@@ -357,7 +358,7 @@ func TestRemovePermission_PartialRemoval(t *testing.T) {
 
 	attrs := b2getAttrs(t, b, qURL, "Policy")
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc))
+	require.NoError(t, json.Unmarshal([]byte(attrs["Policy"]), &doc, jsonx.V1()))
 	stmts := doc["Statement"].([]any)
 	assert.Len(t, stmts, 1)
 	stmt := stmts[0].(map[string]any)

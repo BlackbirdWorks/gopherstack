@@ -1,10 +1,11 @@
 package directconnect
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -511,7 +512,7 @@ func (b *InMemoryBackend) macSecSecretARNLocked(req *associateMacSecKeyRequest) 
 		return b.synthesizeMacSecSecretARN(id), nil
 	}
 
-	payload, err := json.Marshal(map[string]string{"ckn": req.Ckn, "cak": req.Cak})
+	payload, err := json.Marshal(map[string]string{"ckn": req.Ckn, "cak": req.Cak}, jsonx.V1())
 	if err != nil {
 		return "", serverError(err.Error())
 	}

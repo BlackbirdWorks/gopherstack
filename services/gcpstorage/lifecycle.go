@@ -2,10 +2,12 @@ package gcpstorage
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -17,19 +19,19 @@ const (
 )
 
 type lifecycleCondition struct {
-	NumNewerVersions        *int64       `json:"numNewerVersions"`
-	SizeAboveBytes          *json.Number `json:"sizeAboveBytes"`
-	SizeBelowBytes          *json.Number `json:"sizeBelowBytes"`
-	IsLive                  *bool        `json:"isLive"`
-	DaysSinceCustomTime     *int64       `json:"daysSinceCustomTime"`
-	DaysSinceNoncurrentTime *int64       `json:"daysSinceNoncurrentTime"`
-	Age                     *int64       `json:"age"`
-	CustomTimeBefore        string       `json:"customTimeBefore"`
-	NoncurrentTimeBefore    string       `json:"noncurrentTimeBefore"`
-	CreatedBefore           string       `json:"createdBefore"`
-	MatchesSuffix           []string     `json:"matchesSuffix"`
-	MatchesStorageClass     []string     `json:"matchesStorageClass"`
-	MatchesPrefix           []string     `json:"matchesPrefix"`
+	NumNewerVersions        *int64        `json:"numNewerVersions"`
+	SizeAboveBytes          *jsonx.Number `json:"sizeAboveBytes"`
+	SizeBelowBytes          *jsonx.Number `json:"sizeBelowBytes"`
+	IsLive                  *bool         `json:"isLive"`
+	DaysSinceCustomTime     *int64        `json:"daysSinceCustomTime"`
+	DaysSinceNoncurrentTime *int64        `json:"daysSinceNoncurrentTime"`
+	Age                     *int64        `json:"age"`
+	CustomTimeBefore        string        `json:"customTimeBefore"`
+	NoncurrentTimeBefore    string        `json:"noncurrentTimeBefore"`
+	CreatedBefore           string        `json:"createdBefore"`
+	MatchesSuffix           []string      `json:"matchesSuffix"`
+	MatchesStorageClass     []string      `json:"matchesStorageClass"`
+	MatchesPrefix           []string      `json:"matchesPrefix"`
 }
 
 type lifecycleRule struct {
@@ -50,7 +52,7 @@ func lifecycleRules(bk *Bucket) []lifecycleRule {
 		Rule []lifecycleRule `json:"rule"`
 	}
 
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -67,7 +69,7 @@ func daysSince(t, now time.Time, n int64) bool {
 	return !t.IsZero() && now.Sub(t) >= time.Duration(n)*day
 }
 
-func sizeCompare(limit *json.Number, size int64, cmp func(size, limit int64) bool) bool {
+func sizeCompare(limit *jsonx.Number, size int64, cmp func(size, limit int64) bool) bool {
 	if limit == nil {
 		return false
 	}

@@ -4,10 +4,12 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -67,13 +69,13 @@ func (t *topoBuilder) entity(r resource) {
 
 	t.seen[id] = true
 
-	raw, err := json.Marshal(r.view())
+	raw, err := json.Marshal(r.view(), jsonx.V1())
 	if err != nil {
 		return
 	}
 
 	m := map[string]any{}
-	if json.Unmarshal(raw, &m) != nil {
+	if json.Unmarshal(raw, &m, jsonx.V1()) != nil {
 		return
 	}
 
@@ -319,7 +321,7 @@ func (b *InMemoryBackend) GetNetworkingTopology(compartment string) (TopologyOut
 
 // etag identifies the topology content independent of when it was read.
 func (o TopologyOut) etag() string {
-	raw, err := json.Marshal([]any{o.Type, o.VcnID, o.SubnetID, o.Entities, o.Relationships})
+	raw, err := json.Marshal([]any{o.Type, o.VcnID, o.SubnetID, o.Entities, o.Relationships}, jsonx.V1())
 	if err != nil {
 		return ""
 	}

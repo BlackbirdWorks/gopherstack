@@ -2,13 +2,15 @@
 package ocitags
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Limits from https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm.
@@ -68,7 +70,7 @@ func Validate(free map[string]string, defined map[string]map[string]any, lookup 
 		return err
 	}
 
-	raw, _ := json.Marshal([]any{free, defined})
+	raw, _ := json.Marshal([]any{free, defined}, jsonx.V1())
 	if len(raw) > MaxTotalSize {
 		return invalid("The total tag data for a resource is limited to 5 K")
 	}

@@ -2,7 +2,8 @@ package bedrockagentcore_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 )
 
@@ -32,7 +34,10 @@ func tokenServer(t *testing.T) *httptest.Server {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok-for-" + r.FormValue("scope")})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"access_token": "tok-for-" + r.FormValue("scope")},
+		)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -81,7 +86,7 @@ func TestIdentity_WorkloadTokens(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, *plain.WorkloadAccessToken)
 
-	payload, _ := json.Marshal(map[string]string{"sub": "user-9"})
+	payload, _ := json.Marshal(map[string]string{"sub": "user-9"}, jsonx.V1())
 	jwt := "e30." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 
 	viaJWT, err := f.client.GetWorkloadAccessTokenForJWT(t.Context(), &sdk.GetWorkloadAccessTokenForJWTInput{

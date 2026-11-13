@@ -5,7 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"slices"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -124,7 +125,7 @@ type audience []string
 
 func (a *audience) UnmarshalJSON(raw []byte) error {
 	var one string
-	if json.Unmarshal(raw, &one) == nil {
+	if json.Unmarshal(raw, &one, jsonx.V1()) == nil {
 		*a = audience{one}
 
 		return nil
@@ -132,7 +133,7 @@ func (a *audience) UnmarshalJSON(raw []byte) error {
 
 	var many []string
 
-	if err := json.Unmarshal(raw, &many); err != nil {
+	if err := json.Unmarshal(raw, &many, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -163,7 +164,7 @@ func verifyPodIdentityToken(token, issuer string, pub *rsa.PublicKey, now time.T
 	}
 
 	var c podIdentityClaims
-	if json.Unmarshal(raw, &c) != nil {
+	if json.Unmarshal(raw, &c, jsonx.V1()) != nil {
 		return nil, errMsgf(ErrInvalidToken, "The token payload is malformed.")
 	}
 
@@ -309,7 +310,7 @@ func (h *Handler) handleAssumeRoleForPodIdentity(c *echo.Context, clusterName st
 		Token string `json:"token"`
 	}
 
-	if err := json.Unmarshal(body, &in); err != nil || in.Token == "" {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil || in.Token == "" {
 		return h.handleError(c, errMsgf(ErrValidation, "token is required."))
 	}
 

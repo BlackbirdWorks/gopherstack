@@ -1,7 +1,7 @@
 package lambdaweb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -61,7 +62,7 @@ func events(t *testing.T, logs *fakeLogs, group string) []map[string]any {
 
 	for _, line := range lines {
 		var ev map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line), &ev), "log line %q is a JSON event", line)
+		require.NoError(t, json.Unmarshal([]byte(line), &ev, jsonx.V1()), "log line %q is a JSON event", line)
 
 		out = append(out, ev)
 	}

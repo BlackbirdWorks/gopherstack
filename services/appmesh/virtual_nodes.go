@@ -1,12 +1,14 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (b *InMemoryBackend) virtualNodeARN(meshName, name string) string {
@@ -14,7 +16,7 @@ func (b *InMemoryBackend) virtualNodeARN(meshName, name string) string {
 }
 
 func (b *InMemoryBackend) CreateVirtualNode(
-	meshName, name string, spec json.RawMessage, tags map[string]string,
+	meshName, name string, spec jsontext.Value, tags map[string]string,
 ) (*VirtualNode, error) {
 	if err := b.schemas.validate("virtualNodeSpec", spec); err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNo
 	return vn, nil
 }
 
-func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.RawMessage) (*VirtualNode, error) {
+func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec jsontext.Value) (*VirtualNode, error) {
 	if err := b.schemas.validate("virtualNodeSpec", spec); err != nil {
 		return nil, err
 	}
@@ -87,7 +89,7 @@ func (b *InMemoryBackend) virtualNodeIsServiceProvider(meshName, name string) bo
 		var body struct {
 			Provider *virtualServiceProviderBody `json:"provider"`
 		}
-		if err := json.Unmarshal(vs.Spec, &body); err != nil {
+		if err := json.Unmarshal(vs.Spec, &body, jsonx.V1()); err != nil {
 			continue
 		}
 		if body.Provider != nil && body.Provider.VirtualNode != nil &&

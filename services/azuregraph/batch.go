@@ -2,7 +2,8 @@ package azuregraph
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"slices"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxBatchRequests = 20
@@ -20,14 +23,14 @@ type batchRequest struct {
 	ID        string            `json:"id"`
 	Method    string            `json:"method"`
 	URL       string            `json:"url"`
-	Body      json.RawMessage   `json:"body"`
+	Body      jsontext.Value    `json:"body"`
 	DependsOn []string          `json:"dependsOn"`
 }
 
 type batchResponse struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	ID      string            `json:"id"`
-	Body    json.RawMessage   `json:"body,omitempty"`
+	Body    jsontext.Value    `json:"body,omitempty"`
 	Status  int               `json:"status"`
 }
 
@@ -63,7 +66,7 @@ func (h *Handler) handleBatch(c *echo.Context, segs []string, claims jwt.MapClai
 		Requests []batchRequest `json:"requests"`
 	}
 
-	if err != nil || json.Unmarshal(data, &in) != nil {
+	if err != nil || json.Unmarshal(data, &in, jsonx.V1()) != nil {
 		return h.writeErr(c, badRequest(
 			"Unable to read JSON request payload. Please ensure Content-Type header is set and payload is of valid JSON format.",
 		))
@@ -100,7 +103,7 @@ func (h *Handler) handleBatch(c *echo.Context, segs []string, claims jwt.MapClai
 func failedDependency(id string) batchResponse {
 	body, _ := json.Marshal(errorEnvelope{Error: errorBody{
 		Code: "FailedDependency", Message: "Failed Dependency",
-	}})
+	}}, jsonx.V1())
 
 	return batchResponse{
 		ID: id, Status: http.StatusFailedDependency, Body: body,
@@ -223,7 +226,7 @@ func (h *Handler) runBatchItem(c *echo.Context, item batchRequest, claims jwt.Ma
 
 	switch raw := bytes.TrimSpace(rec.body.Bytes()); {
 	case len(raw) == 0:
-	case json.Valid(raw) && strings.Contains(rec.header.Get(headerContentType), "json"):
+	case jsontext.Value(raw).IsValid(jsonx.V1()) && strings.Contains(rec.header.Get(headerContentType), "json"):
 		resp.Body = slices.Clone(raw)
 	default:
 		resp.Body = []byte(strconv.Quote(string(raw)))
@@ -233,7 +236,7 @@ func (h *Handler) runBatchItem(c *echo.Context, item batchRequest, claims jwt.Ma
 }
 
 func errorItem(id string, status int, code, msg string) batchResponse {
-	body, _ := json.Marshal(errorEnvelope{Error: errorBody{Code: code, Message: msg}})
+	body, _ := json.Marshal(errorEnvelope{Error: errorBody{Code: code, Message: msg}}, jsonx.V1())
 
 	return batchResponse{
 		ID:      id,

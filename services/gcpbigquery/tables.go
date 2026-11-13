@@ -2,10 +2,11 @@ package gcpbigquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -24,7 +25,7 @@ func decodeSchema(raw any) ([]bqsql.Field, error) {
 		return nil, nil
 	}
 
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return nil, errInvalid("Invalid schema")
 	}
@@ -33,7 +34,7 @@ func decodeSchema(raw any) ([]bqsql.Field, error) {
 		Fields []bqsql.Field `json:"fields"`
 	}
 
-	if err = json.Unmarshal(b, &s); err != nil {
+	if err = json.Unmarshal(b, &s, jsonx.V1()); err != nil {
 		return nil, errInvalid("Invalid schema: %v", err)
 	}
 

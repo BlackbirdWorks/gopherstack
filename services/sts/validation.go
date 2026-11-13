@@ -1,11 +1,13 @@
 package sts
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // roleSessionNameRe is the AWS-allowed character set for RoleSessionName/FederationToken Name.
@@ -198,7 +200,7 @@ func validateInlinePolicy(policy string) error {
 	}
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", ErrMalformedPolicyDocument, err)
 	}
 
@@ -306,7 +308,7 @@ func validateJWTNotExpired(token string) error {
 	switch v := exp.(type) {
 	case float64:
 		expTime = time.Unix(int64(v), 0).UTC()
-	case json.Number:
+	case jsonx.Number:
 		n, err := v.Int64()
 		if err != nil {
 			return err

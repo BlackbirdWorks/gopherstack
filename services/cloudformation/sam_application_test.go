@@ -1,12 +1,13 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -73,7 +74,7 @@ func TestSAMTransform_Application(t *testing.T) {
 			}
 			require.NoError(t, err)
 			var doc map[string]map[string]any
-			require.NoError(t, json.Unmarshal([]byte(out), &doc))
+			require.NoError(t, json.Unmarshal([]byte(out), &doc, jsonx.V1()))
 			assert.Equal(t, tc.want, doc["Resources"]["App"])
 		})
 	}

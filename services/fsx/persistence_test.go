@@ -8,7 +8,7 @@ package fsx_test
 // sharedVpcEnabled scalar, and a snapshot-version-mismatch test.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -148,7 +149,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Equal(t, http.StatusOK, dedupRec.Code)
 
 	var dedupOut map[string]any
-	require.NoError(t, json.Unmarshal(dedupRec.Body.Bytes(), &dedupOut))
+	require.NoError(t, json.Unmarshal(dedupRec.Body.Bytes(), &dedupOut, jsonx.V1()))
 	assert.Equal(t, fsID, dedupOut["FileSystem"].(map[string]any)["FileSystemId"])
 	assert.Equal(
 		t, fsx.FileSystemCount(b), fsx.FileSystemCount(fresh), "dedup replay must not create a new file system",
@@ -190,7 +191,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fsOut, jsonx.V1()))
 	fsList, ok := fsOut["FileSystems"].([]any)
 	require.True(t, ok)
 	require.Len(t, fsList, 1)
@@ -212,7 +213,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var aliasOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aliasOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aliasOut, jsonx.V1()))
 	aliasList, ok := aliasOut["Aliases"].([]any)
 	require.True(t, ok)
 	require.Len(t, aliasList, 1)
@@ -260,7 +261,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var vpcOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vpcOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vpcOut, jsonx.V1()))
 	assert.Equal(t, "true", vpcOut["EnableFsxRouteTableUpdatesFromParticipantAccounts"])
 
 	rec = doFSxRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": fsRecord["ResourceARN"]})
@@ -275,7 +276,7 @@ func assertOutputLen(t *testing.T, rec *httptest.ResponseRecorder, field string)
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out[field].([]any)
 	require.True(t, ok, "field %q missing or not an array in response %s", field, rec.Body.String())
@@ -305,7 +306,7 @@ func createTaggedFS(t *testing.T, h *fsx.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	fs, ok := out["FileSystem"].(map[string]any)
 	require.True(t, ok)
@@ -327,7 +328,7 @@ func createBackupForFS(t *testing.T, h *fsx.Handler, fsID string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	backup, ok := out["Backup"].(map[string]any)
 	require.True(t, ok)
@@ -349,7 +350,7 @@ func createDRA(t *testing.T, h *fsx.Handler, fsID string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assoc, ok := out["Association"].(map[string]any)
 	require.True(t, ok)
@@ -377,7 +378,7 @@ func createDRT(t *testing.T, h *fsx.Handler, fsID string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	task, ok := out["DataRepositoryTask"].(map[string]any)
 	require.True(t, ok)
@@ -398,7 +399,7 @@ func createVolSnapshot(t *testing.T, h *fsx.Handler, volumeID string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	snap, ok := out["Snapshot"].(map[string]any)
 	require.True(t, ok)
@@ -423,7 +424,7 @@ func createS3AP(t *testing.T, h *fsx.Handler, volumeID string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ap, ok := out["S3AccessPointAttachment"].(map[string]any)
 	require.True(t, ok)

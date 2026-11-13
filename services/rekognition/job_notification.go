@@ -2,10 +2,11 @@ package rekognition
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sns"
@@ -94,7 +95,7 @@ func buildJobNotification(jobID string, p StartAsyncJobParams) jobNotification {
 		"Timestamp": time.Now().UnixMilli(),
 		"Video":     map[string]string{"S3ObjectName": p.VideoS3Name, "S3Bucket": p.VideoS3Bucket},
 	}
-	data, _ := json.Marshal(msg)
+	data, _ := json.Marshal(msg, jsonx.V1())
 
 	return jobNotification{topic: p.NotificationTopicARN, message: data}
 }

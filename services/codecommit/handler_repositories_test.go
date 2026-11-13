@@ -1,13 +1,15 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateRepository(t *testing.T) {
@@ -48,7 +50,7 @@ func TestHandler_CreateRepository(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				meta, ok := resp["repositoryMetadata"].(map[string]any)
 				require.True(t, ok, "repositoryMetadata should be present")
@@ -182,7 +184,7 @@ func TestHandler_ListRepositories(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			repos, ok := resp["repositories"].([]any)
 			require.True(t, ok)
@@ -221,7 +223,7 @@ func TestHandler_SortedListRepositories(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, ok := resp["repositories"].([]any)
 	require.True(t, ok)
@@ -287,7 +289,7 @@ func TestHandler_DeleteRepository_Cascade_Comments(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, commitRec.Code)
 	var commitOut map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut, jsonx.V1()))
 	commitID := commitOut["commitId"].(string)
 
 	commentRec := doRequest(t, h, "PostCommentForComparedCommit", map[string]any{
@@ -297,7 +299,7 @@ func TestHandler_DeleteRepository_Cascade_Comments(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, commentRec.Code)
 	var commentOut map[string]any
-	require.NoError(t, json.Unmarshal(commentRec.Body.Bytes(), &commentOut))
+	require.NoError(t, json.Unmarshal(commentRec.Body.Bytes(), &commentOut, jsonx.V1()))
 	comment, ok := commentOut["comment"].(map[string]any)
 	require.True(t, ok)
 	commentID, _ := comment["commentId"].(string)
@@ -346,7 +348,7 @@ func TestHandler_DeleteRepository_Cascade_FileHistory(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dag, ok := resp["revisionDag"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, dag,
@@ -365,7 +367,7 @@ func TestHandler_RepoMetadataTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	meta, ok := resp["repositoryMetadata"].(map[string]any)
 	require.True(t, ok)
@@ -446,7 +448,7 @@ func TestHandler_RepoMetadata_DefaultBranchAndKmsKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	meta := resp["repositoryMetadata"].(map[string]any)
 	_, hasDefault := meta["defaultBranch"]
 	_, hasKms := meta["kmsKeyId"]
@@ -479,7 +481,7 @@ func TestHandler_RepoMetadata_DefaultBranchAndKmsKey(t *testing.T) {
 	rec = doRequest(t, h, "GetRepository", map[string]any{"repositoryName": "repo"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	meta = resp["repositoryMetadata"].(map[string]any)
 	assert.Equal(t, "main", meta["defaultBranch"])
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/my-key", meta["kmsKeyId"])
@@ -539,7 +541,7 @@ func TestHandler_BatchGetRepositories(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			repos, _ := resp["repositories"].([]any)
 			assert.Len(t, repos, tt.wantFoundCount)
@@ -569,7 +571,7 @@ func TestHandler_BatchGetRepositories_MaxLimit(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "MaximumRepositoryNamesExceededException", errResp["__type"])
 
 	// Request 25 — should succeed.
@@ -591,7 +593,7 @@ func TestHandler_BatchGetRepositories_PartialFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	repos := resp["repositories"].([]any)
 	notFound := resp["repositoriesNotFound"].([]any)
@@ -615,7 +617,7 @@ func TestHandler_GetRepository_FullMetadata(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	meta := resp["repositoryMetadata"].(map[string]any)
 
 	assert.NotEmpty(t, meta["repositoryId"])
@@ -644,7 +646,7 @@ func TestHandler_UpdateRepositoryDescription_Reflected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	meta := resp["repositoryMetadata"].(map[string]any)
 	assert.Equal(t, "new description", meta["repositoryDescription"])
 }
@@ -657,7 +659,7 @@ func TestHandler_CreateRepository_InvalidName_ErrorType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidRepositoryNameException", errResp["__type"])
 }
 

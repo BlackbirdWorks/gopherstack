@@ -2,9 +2,11 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseTagsOp(method, _ string) string {
@@ -47,14 +49,14 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, e
 		Tags        map[string]string `json:"Tags"`
 		ResourceArn string            `json:"ResourceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateTagsByArn(ctx, req.ResourceArn, req.Tags, nil); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
@@ -62,21 +64,21 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte,
 		ResourceArn string   `json:"ResourceArn"`
 		TagKeys     []string `json:"TagKeys"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateTagsByArn(ctx, req.ResourceArn, nil, req.TagKeys); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	tags, err := h.Backend.FindTagsByArn(ctx, req.ResourceArn)
@@ -84,5 +86,5 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Tags": tags})
+	return json.Marshal(map[string]any{"Tags": tags}, jsonx.V1())
 }

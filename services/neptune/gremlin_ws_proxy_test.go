@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -124,7 +125,7 @@ func (fg *fakeGremlin) frames() int {
 func wsEval(script string) []byte {
 	b, _ := json.Marshal(map[string]any{
 		"requestId": wsTestReqID, "op": "eval", "processor": "", "args": map[string]any{"gremlin": script},
-	})
+	}, jsonx.V1())
 
 	return b
 }
@@ -277,7 +278,7 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 				return
 			}
 
-			require.NoError(t, json.Unmarshal(raw, &out), string(raw))
+			require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()), string(raw))
 			assert.InDelta(t, tt.wantCode, out.Status.Code, 0)
 			assert.Contains(t, out.Status.Message, tt.wantMsg)
 

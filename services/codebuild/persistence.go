@@ -2,7 +2,7 @@ package codebuild
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -30,12 +30,12 @@ const codebuildSnapshotVersion = 2
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables            map[string]json.RawMessage `json:"tables"`
-	ResourcePolicies  map[string]string          `json:"resourcePolicies"`
-	BuildBatchNumbers map[string]int64           `json:"buildBatchNumbers"`
-	AccountID         string                     `json:"accountID"`
-	Region            string                     `json:"region"`
-	Version           int                        `json:"version"`
+	Tables            map[string]jsontext.Value `json:"tables"`
+	ResourcePolicies  map[string]string         `json:"resourcePolicies"`
+	BuildBatchNumbers map[string]int64          `json:"buildBatchNumbers"`
+	AccountID         string                    `json:"accountID"`
+	Region            string                    `json:"region"`
+	Version           int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

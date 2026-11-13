@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 )
@@ -36,7 +37,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				assert.Empty(t, createResp["unprocessedAccounts"])
 
 				// ListMembers
@@ -44,7 +45,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				members, _ := listResp["members"].([]any)
 				assert.Len(t, members, 2)
 
@@ -55,7 +56,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				got, _ := getResp["members"].([]any)
 				assert.Len(t, got, 1)
 
@@ -68,7 +69,7 @@ func TestMembers(t *testing.T) {
 				// ListMembers after delete
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/member", nil)
 				var listAfter map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listAfter))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listAfter, jsonx.V1()))
 				membersAfter, _ := listAfter["members"].([]any)
 				assert.Empty(t, membersAfter)
 			},
@@ -99,7 +100,7 @@ func TestMembers(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				members, _ := resp["members"].([]any)
 				require.Len(t, members, 1)
 
@@ -310,7 +311,7 @@ func TestMemberOps_AutoEnableOrganizationMembersAll_Rejected(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var errOut map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 			assert.Equal(t, "BadRequestException", errOut["__type"])
 		})
 	}
@@ -382,7 +383,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var countResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &countResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &countResp, jsonx.V1()))
 				assert.NotNil(t, countResp["invitationsCount"])
 
 				// ListInvitations
@@ -390,7 +391,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				assert.NotNil(t, listResp["invitations"])
 			},
 		},
@@ -431,7 +432,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var adminResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &adminResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &adminResp, jsonx.V1()))
 				assert.NotNil(t, adminResp["administrator"])
 
 				// DisassociateFromAdministratorAccount
@@ -458,7 +459,7 @@ func TestInvitations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var masterResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &masterResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &masterResp, jsonx.V1()))
 				assert.NotNil(t, masterResp["master"])
 
 				// DisassociateFromMasterAccount

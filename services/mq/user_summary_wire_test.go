@@ -1,13 +1,14 @@
 package mq_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mq"
 )
 
@@ -40,7 +41,7 @@ func TestUserSummary_NoFabricatedConsoleAccess(t *testing.T) {
 		"ListUsers' UserSummary items must not carry a fabricated consoleAccess key")
 
 	broker := describeTestBroker(t, h, brokerID)
-	usersRaw, err := json.Marshal(broker["users"])
+	usersRaw, err := json.Marshal(broker["users"], jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(usersRaw), "consoleAccess",
 		"DescribeBrokerOutput.Users (UserSummary) must not carry a fabricated consoleAccess key")

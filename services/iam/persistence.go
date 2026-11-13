@@ -2,7 +2,7 @@ package iam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -32,7 +32,7 @@ type backendSnapshot struct {
 	PolicyVersions             map[string][]StoredPolicyVersion `json:"policyVersions,omitempty"`
 	RoleByARN                  map[string]string                `json:"roleByARN,omitempty"`
 	PolicyByARN                map[string]string                `json:"policyByARN,omitempty"`
-	Tables                     map[string]json.RawMessage       `json:"tables"`
+	Tables                     map[string]jsontext.Value        `json:"tables"`
 	PolicyAttachments          map[string]policyAttachmentRefs  `json:"policyAttachments,omitempty"`
 	DeletedV1Policies          map[string]bool                  `json:"deletedV1Policies,omitempty"`
 	AccountProperties          map[string]string                `json:"accountProperties,omitempty"`
@@ -329,8 +329,8 @@ func parseVersionNum(id string) int {
 type handlerSnapshot struct {
 	Tags map[string]map[string]string `json:"tags,omitempty"`
 	// Accounts holds each non-default account's handler snapshot.
-	Accounts map[string]json.RawMessage `json:"accounts,omitempty"`
-	Backend  json.RawMessage            `json:"backend,omitempty"`
+	Accounts map[string]jsontext.Value `json:"accounts,omitempty"`
+	Backend  jsontext.Value            `json:"backend,omitempty"`
 }
 
 // Snapshot implements persistence.Persistable. It combines the backend's own
@@ -344,7 +344,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 
 	if s, ok := h.Backend.(snapshotter); ok {
 		if b := s.Snapshot(ctx); len(b) > 0 {
-			snap.Backend = json.RawMessage(b)
+			snap.Backend = jsontext.Value(b)
 		}
 	}
 

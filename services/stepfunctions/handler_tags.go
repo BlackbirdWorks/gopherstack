@@ -1,8 +1,10 @@
 package stepfunctions
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type sfnListTagsForResourceInput struct {
@@ -82,7 +84,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsForResource": func(b []byte) (any, error) {
 			var input sfnListTagsForResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -96,7 +98,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input sfnTagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -116,7 +118,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 		},
 		"UntagResource": func(b []byte) (any, error) {
 			var input sfnUntagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			h.removeTags(input.ResourceArn, input.TagKeys)

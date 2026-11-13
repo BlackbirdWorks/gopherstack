@@ -1,10 +1,12 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- DeleteResourcePolicy ---
@@ -15,7 +17,7 @@ type deleteResourcePolicyBody struct {
 
 func (h *Handler) handleDeleteResourcePolicy(c *echo.Context, body []byte) error {
 	var in deleteResourcePolicyBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -34,7 +36,7 @@ type getResourcePolicyBody struct {
 
 func (h *Handler) handleGetResourcePolicy(c *echo.Context, body []byte) error {
 	var in getResourcePolicyBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -58,7 +60,7 @@ type putResourcePolicyBody struct {
 
 func (h *Handler) handlePutResourcePolicy(c *echo.Context, body []byte) error {
 	var in putResourcePolicyBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

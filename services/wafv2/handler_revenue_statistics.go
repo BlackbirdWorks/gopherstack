@@ -2,8 +2,10 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // This file implements the AI-bot pay-per-crawl monetization reporting family added to
@@ -333,7 +335,7 @@ func validateGetRevenueStatisticsRequest(req getRevenueStatisticsRequest) error 
 // dollar amount.
 func (h *Handler) handleGetRevenueStatistics(body []byte) ([]byte, error) {
 	var req getRevenueStatisticsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -366,7 +368,7 @@ func (h *Handler) handleGetRevenueStatistics(body []byte) ([]byte, error) {
 		resp["RevenuePathStatistics"] = []any{}
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---- GetRevenueStatisticsSummary ---------------------------------------------------
@@ -385,7 +387,7 @@ type getRevenueStatisticsSummaryRequest struct {
 // ("zero monetized traffic observed") rather than a fabricated dollar figure.
 func (h *Handler) handleGetRevenueStatisticsSummary(body []byte) ([]byte, error) {
 	var req getRevenueStatisticsSummaryRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -414,7 +416,7 @@ func (h *Handler) handleGetRevenueStatisticsSummary(body []byte) ([]byte, error)
 			"UnverifiedAmount":    "0",
 			"VerifiedAmount":      "0",
 		},
-	})
+	}, jsonx.V1())
 }
 
 // ---- GetRevenueStatisticsTimeSeries -------------------------------------------------
@@ -487,7 +489,7 @@ func validateGetRevenueStatisticsTimeSeriesRequest(req getRevenueStatisticsTimeS
 // time-series intervals, so there is nothing genuine to aggregate.
 func (h *Handler) handleGetRevenueStatisticsTimeSeries(body []byte) ([]byte, error) {
 	var req getRevenueStatisticsTimeSeriesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -511,7 +513,7 @@ func (h *Handler) handleGetRevenueStatisticsTimeSeries(body []byte) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"DataPoints": []any{}})
+	return json.Marshal(map[string]any{"DataPoints": []any{}}, jsonx.V1())
 }
 
 // ---- ListSettlementRecords ----------------------------------------------------------
@@ -565,7 +567,7 @@ func validateListSettlementRecordsRequest(req listSettlementRecordsRequest) erro
 // TransactionId, or Amount.
 func (h *Handler) handleListSettlementRecords(body []byte) ([]byte, error) {
 	var req listSettlementRecordsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -589,7 +591,7 @@ func (h *Handler) handleListSettlementRecords(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Settlements": []any{}})
+	return json.Marshal(map[string]any{"Settlements": []any{}}, jsonx.V1())
 }
 
 // revenueStatisticsDispatchOps returns the AI-bot monetization reporting operation

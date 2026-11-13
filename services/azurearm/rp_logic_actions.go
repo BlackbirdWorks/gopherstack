@@ -1,7 +1,7 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -805,7 +806,7 @@ func (rs *logicRunState) parseJSONOp(env *logicEnv, raw map[string]any) (any, an
 
 	if s, ok := content.(string); ok {
 		var parsed any
-		if jerr := json.Unmarshal([]byte(s), &parsed); jerr != nil {
+		if jerr := json.Unmarshal([]byte(s), &parsed, jsonx.V1()); jerr != nil {
 			return nil, nil, exprErr("the content is not valid JSON: %v", jerr)
 		}
 

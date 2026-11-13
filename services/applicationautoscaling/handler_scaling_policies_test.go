@@ -1,7 +1,7 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PutScalingPolicy(t *testing.T) {
@@ -26,7 +28,7 @@ func TestHandler_PutScalingPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	policyARN, _ := resp["PolicyARN"].(string)
 	assert.Contains(t, policyARN, "arn:aws:autoscaling:")
 	assert.Contains(t, policyARN, "scalingPolicy:")
@@ -125,7 +127,7 @@ func TestHandler_PutScalingPolicy_DefaultPolicyType(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	policies, ok := resp["ScalingPolicies"].([]any)
 	require.True(t, ok)
 	require.Len(t, policies, 1)
@@ -161,7 +163,7 @@ func TestHandler_PutScalingPolicy_PreservesTypeOnUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	policies, _ := resp["ScalingPolicies"].([]any)
 	require.Len(t, policies, 1)
 	policy := policies[0].(map[string]any)
@@ -284,7 +286,7 @@ func TestHandler_DescribeScalingPolicies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			policies, ok := resp["ScalingPolicies"].([]any)
 			require.True(t, ok)
 			assert.Len(t, policies, tt.wantCount)
@@ -350,7 +352,7 @@ func TestHandler_DescribeScalingPolicies_RicherFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			policies, ok := resp["ScalingPolicies"].([]any)
 			require.True(t, ok)
 			assert.Len(t, policies, tt.wantCount)
@@ -382,7 +384,7 @@ func TestHandler_DescribeScalingPolicies_IncludesConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	policies, _ := resp["ScalingPolicies"].([]any)
 	require.Len(t, policies, 1)
 	policy := policies[0].(map[string]any)
@@ -413,7 +415,7 @@ func TestHandler_MaxResults_DescribeScalingPolicies(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	policies, ok := resp["ScalingPolicies"].([]any)
 	require.True(t, ok)
 	assert.Len(t, policies, 2)
@@ -444,7 +446,7 @@ func TestScalingPolicyCRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, putRec.Code)
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	policyARN := putOut["PolicyARN"].(string)
 	assert.NotEmpty(t, policyARN)
 
@@ -452,7 +454,7 @@ func TestScalingPolicyCRUD(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	policies := descOut["ScalingPolicies"].([]any)
 	require.Len(t, policies, 1)
 	p0 := policies[0].(map[string]any)
@@ -473,7 +475,7 @@ func TestScalingPolicyCRUD(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var afterOut map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut, jsonx.V1()))
 	assert.Empty(t, afterOut["ScalingPolicies"])
 }
 
@@ -540,7 +542,7 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var putOut map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut, jsonx.V1()))
 			_, putHasAlarms := putOut["Alarms"]
 			assert.False(t, putHasAlarms, "PutScalingPolicy response Alarms should be omitted")
 
@@ -551,7 +553,7 @@ func TestHandler_PutScalingPolicy_Alarms(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descOut map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			policies := descOut["ScalingPolicies"].([]any)
 			require.Len(t, policies, 1)
 			_, descHasAlarms := policies[0].(map[string]any)["Alarms"]
@@ -591,7 +593,7 @@ func TestHandler_PutScalingPolicy_PredictiveScalingConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	policies := descOut["ScalingPolicies"].([]any)
 	require.Len(t, policies, 1)
 	p0 := policies[0].(map[string]any)

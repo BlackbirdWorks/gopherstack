@@ -2,7 +2,7 @@ package bedrockagentcorecontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -44,13 +46,13 @@ type gatewayView struct {
 }
 
 func deepCopy(m map[string]any) map[string]any {
-	raw, err := json.Marshal(m)
+	raw, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return map[string]any{}
 	}
 
 	var out map[string]any
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return map[string]any{}
 	}
 
@@ -71,11 +73,11 @@ func (b *InMemoryBackend) targetViewLocked(t *Resource) targetView {
 }
 
 func deepCopyList(l []any) []any {
-	raw, _ := json.Marshal(l)
+	raw, _ := json.Marshal(l, jsonx.V1())
 
 	var out []any
 
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return out
 }
@@ -211,7 +213,7 @@ func (b *InMemoryBackend) lambdaToolDefs(cfg map[string]any) ([]any, error) {
 	}
 
 	var defs []any
-	if err = json.Unmarshal(raw, &defs); err != nil {
+	if err = json.Unmarshal(raw, &defs, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: not a JSON array of tool definitions: %w", errSchemaUnreadable, err)
 	}
 
@@ -229,7 +231,7 @@ func (b *InMemoryBackend) mcpServerTools(ctx context.Context, t targetView, cfg 
 			Tools []any `json:"tools"`
 		}
 
-		if err = json.Unmarshal(raw, &doc); err != nil {
+		if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: not an MCP tools/list result: %w", errSchemaUnreadable, err)
 		}
 
@@ -256,13 +258,13 @@ func (b *InMemoryBackend) discoverMCPServer(
 				return terr
 			}
 
-			raw, merr := json.Marshal(tool)
+			raw, merr := json.Marshal(tool, jsonx.V1())
 			if merr != nil {
 				return merr
 			}
 
 			var def map[string]any
-			if merr = json.Unmarshal(raw, &def); merr != nil {
+			if merr = json.Unmarshal(raw, &def, jsonx.V1()); merr != nil {
 				return merr
 			}
 

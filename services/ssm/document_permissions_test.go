@@ -2,13 +2,15 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -165,7 +167,7 @@ func TestDistributorPackage_TableDriven(t *testing.T) {
 				"Filters": []map[string]any{
 					{"Key": "DocumentType", "Values": []string{tt.filterType}},
 				},
-			})
+			}, jsonx.V1())
 
 			rec := doRequest(t, h, "ListDocuments", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -213,7 +215,7 @@ func TestHandler_CreateDocument(t *testing.T) {
 
 			if tt.wantName != "" {
 				var out ssm.CreateDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantName, out.DocumentDescription.Name)
 				assert.Equal(t, "1", out.DocumentDescription.DocumentVersion)
 			}
@@ -319,7 +321,7 @@ func TestHandler_UpdateDocument(t *testing.T) {
 
 			if tt.wantVer != "" {
 				var out ssm.UpdateDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantVer, out.DocumentDescription.DocumentVersion)
 			}
 		})
@@ -367,7 +369,7 @@ func TestHandler_DescribeDocumentPermission(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out ssm.DescribeDocumentPermissionOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Len(t, out.AccountIDs, tt.wantLen)
 			}
 		})
@@ -467,7 +469,7 @@ func TestHandler_ListDocumentVersions(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var out ssm.ListDocumentVersionsOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Len(t, out.DocumentVersions, tt.wantCount)
 			}
 		})

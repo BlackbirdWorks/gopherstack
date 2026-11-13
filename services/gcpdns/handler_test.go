@@ -1,7 +1,8 @@
 package gcpdns_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 )
@@ -66,7 +68,7 @@ func TestWireErrorsAndRouting(t *testing.T) {
 				} `json:"error"`
 			}
 
-			require.NoError(t, json.Unmarshal(raw, &body), string(raw))
+			require.NoError(t, json.Unmarshal(raw, &body, jsonx.V1()), string(raw))
 			assert.Equal(t, tt.status, body.Error.Code)
 			assert.NotEmpty(t, body.Error.Message)
 			require.Len(t, body.Error.Errors, 1)
@@ -90,7 +92,7 @@ func TestWireShapes(t *testing.T) {
 
 		var m map[string]any
 
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &m, jsonx.V1()))
 
 		return m
 	}

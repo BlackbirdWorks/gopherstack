@@ -1,13 +1,14 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -370,7 +371,7 @@ func TestPersistenceRoundTrip_DataRetrievalPolicy(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.NotEmpty(t, got)
 		})
 	}
@@ -425,7 +426,7 @@ func TestPersistenceRoundTrip_MultipartAndCapacity(t *testing.T) {
 			var uploadsResp struct {
 				UploadsList []any `json:"UploadsList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp, jsonx.V1()))
 			assert.Len(t, uploadsResp.UploadsList, 1)
 
 			// Verify provisioned capacity is restored
@@ -435,7 +436,7 @@ func TestPersistenceRoundTrip_MultipartAndCapacity(t *testing.T) {
 			var capsResp struct {
 				ProvisionedCapacityList []any `json:"ProvisionedCapacityList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &capsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &capsResp, jsonx.V1()))
 			assert.Len(t, capsResp.ProvisionedCapacityList, 1)
 		})
 	}
@@ -475,7 +476,7 @@ func TestPersistenceRoundTrip_SelectAndRangeInventoryJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var selectResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &selectResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &selectResp, jsonx.V1()))
 	assert.Equal(t, "Select", selectResp["Action"])
 	assert.NotEmpty(t, selectResp["JobOutputPath"])
 
@@ -502,7 +503,7 @@ func TestPersistenceRoundTrip_SelectAndRangeInventoryJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var invResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &invResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &invResp, jsonx.V1()))
 
 	invParams, ok := invResp["InventoryRetrievalParameters"].(map[string]any)
 	require.True(t, ok, "InventoryRetrievalParameters must survive restore: %#v", invResp)

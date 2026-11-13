@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	opensearchsdktypes "github.com/aws/aws-sdk-go-v2/service/opensearch/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestUpgradeDomain_RealSDKClient proves UpgradeDomainOutput
@@ -64,7 +67,7 @@ func TestUpgradeDomain_RawBody_NoInventedStepStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	_, hasStepStatus := out["StepStatus"]
 	assert.False(t, hasStepStatus, "UpgradeDomainOutput has no StepStatus member")
@@ -87,7 +90,7 @@ func TestVpcEndpoint_RawBody_NoLeakedStatusUntil(t *testing.T) {
 	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints",
 		map[string]any{"DomainArn": domARN, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-1"}}})
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	cr.Body.Close()
 	epID := cOut["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
 
@@ -100,7 +103,7 @@ func TestVpcEndpoint_RawBody_NoLeakedStatusUntil(t *testing.T) {
 	require.Equal(t, http.StatusOK, descResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(descResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descResp.Body), &out, jsonx.V1()))
 	endpoints, ok := out["VpcEndpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 1, "endpoint must still be present during its DELETING window")

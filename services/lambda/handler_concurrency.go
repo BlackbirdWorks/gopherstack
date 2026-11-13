@@ -1,13 +1,15 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const opListProvisionedConcurrencyConfigs = "ListProvisionedConcurrencyConfigs"
@@ -29,8 +31,8 @@ func (h *Handler) handlePutFunctionConcurrency(c *echo.Context, name string) err
 			"ReservedConcurrentExecutions is required")
 	}
 
-	var raw map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(body, &raw); unmarshalErr != nil {
+	var raw map[string]jsontext.Value
+	if unmarshalErr := json.Unmarshal(body, &raw, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 
@@ -40,7 +42,7 @@ func (h *Handler) handlePutFunctionConcurrency(c *echo.Context, name string) err
 	}
 
 	var input PutFunctionConcurrencyInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 
@@ -131,7 +133,7 @@ func (h *Handler) handlePutProvisionedConcurrencyConfig(c *echo.Context, name st
 	}
 
 	var input PutProvisionedConcurrencyConfigInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 

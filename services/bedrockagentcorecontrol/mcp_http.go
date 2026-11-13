@@ -3,7 +3,8 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -59,10 +61,10 @@ func gatewayRoute(r *http.Request) (string, string, bool) {
 }
 
 type rpcRequest struct {
-	Method  string          `json:"method"`
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	Method  string         `json:"method"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id,omitempty"`
+	Params  jsontext.Value `json:"params,omitempty"`
 }
 
 type rpcError struct {
@@ -71,15 +73,15 @@ type rpcError struct {
 }
 
 type rpcResponse struct {
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
+	Result  any            `json:"result,omitempty"`
+	Error   *rpcError      `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id"`
 }
 
-func rpcFail(id json.RawMessage, code int, msg string) rpcResponse {
+func rpcFail(id jsontext.Value, code int, msg string) rpcResponse {
 	if id == nil {
-		id = json.RawMessage("null")
+		id = jsontext.Value("null")
 	}
 
 	return rpcResponse{JSONRPC: jsonRPCVersion, ID: id, Error: &rpcError{Code: code, Message: msg}}
@@ -89,7 +91,7 @@ func writeJSON(c *echo.Context, status int, v any) error {
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().WriteHeader(status)
 
-	return json.NewEncoder(c.Response()).Encode(v)
+	return json.MarshalEncode(jsontext.NewEncoder(c.Response(), jsonx.V1()), v)
 }
 
 // serveGateway answers one MCP streamable-HTTP request addressed to a gateway.
@@ -134,8 +136,8 @@ func (h *Handler) serveGateway(c *echo.Context, gatewayID, region string) error 
 }
 
 func (h *Handler) serveBatch(c *echo.Context, gw *gatewayView, body []byte) error {
-	var items []json.RawMessage
-	if err := json.Unmarshal(body, &items); err != nil || len(items) == 0 {
+	var items []jsontext.Value
+	if err := json.Unmarshal(body, &items, jsonx.V1()); err != nil || len(items) == 0 {
 		return writeJSON(c, http.StatusOK, rpcFail(nil, rpcInvalidRequest, "invalid batch"))
 	}
 
@@ -157,7 +159,7 @@ func (h *Handler) serveBatch(c *echo.Context, gw *gatewayView, body []byte) erro
 // handleRPC processes one JSON-RPC message; reply is false for notifications and client responses.
 func (b *InMemoryBackend) handleRPC(ctx context.Context, gw *gatewayView, raw []byte) (rpcResponse, bool) {
 	var req rpcRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := json.Unmarshal(raw, &req, jsonx.V1()); err != nil {
 		return rpcFail(nil, rpcParseError, "parse error"), true
 	}
 
@@ -198,13 +200,13 @@ func (b *InMemoryBackend) handleRPC(ctx context.Context, gw *gatewayView, raw []
 	return rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID, Result: result}, true
 }
 
-func mcpInitialize(gw *gatewayView, params json.RawMessage) (any, *rpcError) {
+func mcpInitialize(gw *gatewayView, params jsontext.Value) (any, *rpcError) {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 
 	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
+		if err := json.Unmarshal(params, &p, jsonx.V1()); err != nil {
 			return nil, &rpcError{Code: rpcInvalidParams, Message: "invalid initialize params"}
 		}
 	}
@@ -246,13 +248,13 @@ func latestVersion(versions []string) string {
 	return best
 }
 
-func (b *InMemoryBackend) mcpToolsList(ctx context.Context, gw *gatewayView, params json.RawMessage) (any, *rpcError) {
+func (b *InMemoryBackend) mcpToolsList(ctx context.Context, gw *gatewayView, params jsontext.Value) (any, *rpcError) {
 	var p struct {
 		Cursor string `json:"cursor"`
 	}
 
 	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
+		if err := json.Unmarshal(params, &p, jsonx.V1()); err != nil {
 			return nil, &rpcError{Code: rpcInvalidParams, Message: "invalid tools/list params"}
 		}
 	}
@@ -311,7 +313,7 @@ func (b *InMemoryBackend) mcpToolsCall(ctx context.Context, gw *gatewayView, req
 		Name      string         `json:"name"`
 	}
 
-	if err := json.Unmarshal(req.Params, &p); err != nil || p.Name == "" {
+	if err := json.Unmarshal(req.Params, &p, jsonx.V1()); err != nil || p.Name == "" {
 		return nil, &rpcError{Code: rpcInvalidParams, Message: "tools/call requires a tool name"}
 	}
 

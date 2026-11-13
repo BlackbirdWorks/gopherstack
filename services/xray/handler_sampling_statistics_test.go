@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -26,7 +27,7 @@ func TestGetSamplingTargets_LastRuleModAndTTL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// LastRuleModification should be a timestamp.
 	lastMod, ok := resp["LastRuleModification"].(float64)
@@ -65,7 +66,7 @@ func TestGetSamplingStatisticSummaries_AfterPut(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["SamplingStatisticSummaries"].([]any)
 	require.True(t, ok)
@@ -92,7 +93,7 @@ func TestGetSamplingTargets_UnprocessedWithErrorCode(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedStatistics"].([]any)
 	require.True(t, ok)
@@ -126,7 +127,7 @@ func TestGetSamplingTargets_EmptyClientID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedStatistics"].([]any)
 	require.True(t, ok)
@@ -159,7 +160,7 @@ func TestHandler_GetSamplingStatisticSummaries(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, ok := resp["SamplingStatisticSummaries"].([]any)
 			require.True(t, ok)
@@ -233,7 +234,7 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			targets, ok := resp["SamplingTargetDocuments"].([]any)
 			require.True(t, ok)
@@ -260,7 +261,7 @@ func TestHandler_GetSamplingTargets_TargetFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	targets, ok := resp["SamplingTargetDocuments"].([]any)
 	require.True(t, ok)
@@ -305,7 +306,7 @@ func TestHandler_GetSamplingStatisticSummaries_Pagination(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "SamplingStatisticSummaries")
 			assert.Contains(t, resp, "NextToken")
 		})
@@ -326,7 +327,7 @@ func TestGetSamplingTargets_LastRuleModification(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	lastMod, ok := resp["LastRuleModification"].(float64)
 	require.True(t, ok, "LastRuleModification must be present")
@@ -347,7 +348,7 @@ func TestGetSamplingTargets_ReservoirQuotaTTL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	targets, ok := resp["SamplingTargetDocuments"].([]any)
 	require.True(t, ok)
@@ -417,7 +418,7 @@ func TestGetSamplingTargets_UnprocessedForUnknownRules(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			targets, _ := resp["SamplingTargetDocuments"].([]any)
 			assert.Len(t, targets, tt.wantTargets)
@@ -490,7 +491,7 @@ func TestGetSamplingTargets_BoostStatistics(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			unprocessedBoost, _ := resp["UnprocessedBoostStatistics"].([]any)
 			assert.Len(t, unprocessedBoost, tt.wantUnprocessed)
@@ -524,7 +525,7 @@ func TestGetSamplingStatisticSummaries_AccumulationFromTargets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["SamplingStatisticSummaries"].([]any)
 	require.True(t, ok)
@@ -547,7 +548,7 @@ func TestGetSamplingStatisticSummaries_EmptyWithoutStats(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["SamplingStatisticSummaries"].([]any)
 	require.True(t, ok)
@@ -573,7 +574,7 @@ func TestGetSamplingStatisticSummaries_AccumulatesAcrossCalls(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["SamplingStatisticSummaries"].([]any)
 	require.Len(t, summaries, 1)

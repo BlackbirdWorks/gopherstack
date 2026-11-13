@@ -1,7 +1,7 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -65,7 +66,7 @@ func TestGetVaultLock(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantState, resp["State"])
 			}
 		})
@@ -276,7 +277,7 @@ func TestCompleteVaultLock_Success(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			lockID := resp["lockId"]
 			require.NotEmpty(t, lockID)
 
@@ -316,7 +317,7 @@ func TestInitiateVaultLock_ReadsPolicy(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["lockId"])
 		})
 	}
@@ -384,7 +385,7 @@ func TestVaultLock_CompleteClearsExpirationDate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var lockResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockResp, jsonx.V1()))
 	lockID := lockResp["lockId"].(string)
 
 	rec = doRequest(t, h, http.MethodPost,
@@ -396,7 +397,7 @@ func TestVaultLock_CompleteClearsExpirationDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "Locked", getResp["State"])
 	// ExpirationDate must be absent after completing a lock per AWS spec.
 	_, hasExpiration := getResp["ExpirationDate"]
@@ -420,7 +421,7 @@ func TestVaultLock_LockedStateHasNoExpirationDate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var initResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 	lockID := initResp["lockId"].(string)
 
 	// InProgress state should have ExpirationDate.
@@ -429,7 +430,7 @@ func TestVaultLock_LockedStateHasNoExpirationDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var inProgressResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inProgressResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inProgressResp, jsonx.V1()))
 	assert.Equal(t, "InProgress", inProgressResp["State"])
 	assert.NotEmpty(t, inProgressResp["ExpirationDate"], "InProgress lock should have ExpirationDate")
 
@@ -444,7 +445,7 @@ func TestVaultLock_LockedStateHasNoExpirationDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var lockedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockedResp, jsonx.V1()))
 	assert.Equal(t, "Locked", lockedResp["State"])
 
 	exp, hasExp := lockedResp["ExpirationDate"]
@@ -533,7 +534,7 @@ func TestVaultLock_FullLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/lock-lifecycle-vault/lock-policy", body, nil)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			lockID := initResp["lockId"]
 			require.NotEmpty(t, lockID)
 
@@ -542,7 +543,7 @@ func TestVaultLock_FullLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/lock-lifecycle-vault/lock-policy", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var lockState map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState, jsonx.V1()))
 			assert.Equal(t, "InProgress", lockState["State"])
 			assert.NotEmpty(t, lockState["ExpirationDate"])
 
@@ -555,7 +556,7 @@ func TestVaultLock_FullLifecycle(t *testing.T) {
 			rec = doRequestWithHeaders(t, h, http.MethodGet,
 				"/"+testAccountID+"/vaults/lock-lifecycle-vault/lock-policy", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState, jsonx.V1()))
 			assert.Equal(t, "Locked", lockState["State"], tt.name)
 		})
 	}

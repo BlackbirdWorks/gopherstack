@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"time"
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) gatewayRouteARN(meshName, vgName, routeName string) st
 // ─── VirtualGateway ───
 
 func (b *InMemoryBackend) CreateVirtualGateway(
-	meshName, name string, spec json.RawMessage, tags map[string]string,
+	meshName, name string, spec jsontext.Value, tags map[string]string,
 ) (*VirtualGateway, error) {
 	b.mu.Lock("CreateVirtualGateway")
 	defer b.mu.Unlock()
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*Virtua
 	return vg, nil
 }
 
-func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.RawMessage) (*VirtualGateway, error) {
+func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec jsontext.Value) (*VirtualGateway, error) {
 	if err := b.schemas.validate("virtualGatewaySpec", spec); err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ListVirtualGateways(
 // ─── GatewayRoute ───
 
 func (b *InMemoryBackend) CreateGatewayRoute(
-	meshName, virtualGatewayName, routeName string, spec json.RawMessage, tags map[string]string,
+	meshName, virtualGatewayName, routeName string, spec jsontext.Value, tags map[string]string,
 ) (*GatewayRoute, error) {
 	if err := b.schemas.validate("gatewayRouteSpec", spec); err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, rou
 }
 
 func (b *InMemoryBackend) UpdateGatewayRoute(
-	meshName, virtualGatewayName, routeName string, spec json.RawMessage,
+	meshName, virtualGatewayName, routeName string, spec jsontext.Value,
 ) (*GatewayRoute, error) {
 	if err := b.schemas.validate("gatewayRouteSpec", spec); err != nil {
 		return nil, err

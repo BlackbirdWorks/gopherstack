@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validOptimizationJobBody returns a CreateOptimizationJob request carrying
@@ -50,7 +52,7 @@ func TestHandler_CreateOptimizationJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["OptimizationJobArn"], "my-opt-job")
 }
 
@@ -96,7 +98,7 @@ func TestHandler_DescribeOptimizationJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "opt-1", resp["OptimizationJobName"])
 	assert.Equal(t, "ml.g5.2xlarge", resp["DeploymentInstanceType"])
 }
@@ -177,14 +179,14 @@ func TestHandler_ListOptimizationJobs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["OptimizationJobSummaries"])
 
 	// Create and list
 	doSageMakerRequest(t, h, "CreateOptimizationJob", validOptimizationJobBody("my-opt-job"))
 
 	rec = doSageMakerRequest(t, h, "ListOptimizationJobs", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["OptimizationJobSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 	s := summaries[0].(map[string]any)
@@ -296,7 +298,7 @@ func TestHandler_AIWorkloadConfigLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				assert.Contains(t, createResp["AIWorkloadConfigArn"], "cfg-1")
 
 				rec = doSageMakerRequest(t, h, "DescribeAIWorkloadConfig", map[string]any{
@@ -305,7 +307,7 @@ func TestHandler_AIWorkloadConfigLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "cfg-1", descResp["AIWorkloadConfigName"])
 				assert.NotEmpty(t, descResp["CreationTime"])
 			},
@@ -336,7 +338,7 @@ func TestHandler_AIWorkloadConfigLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "ResourceNotFound", out["__type"])
 			},
 		},
@@ -371,7 +373,7 @@ func TestHandler_AIWorkloadConfigLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items := resp["AIWorkloadConfigs"].([]any)
 				assert.Len(t, items, 1)
 				assert.Equal(t, "cfg-list", items[0].(map[string]any)["AIWorkloadConfigName"])

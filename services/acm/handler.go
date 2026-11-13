@@ -2,7 +2,8 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -182,8 +184,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err != nil {
 		return ""
 	}
-	var m map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(body, &m); unmarshalErr != nil {
+	var m map[string]jsontext.Value
+	if unmarshalErr := json.Unmarshal(body, &m, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -194,7 +196,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		}
 
 		var arn string
-		if unmarshalErr := json.Unmarshal(raw, &arn); unmarshalErr == nil && arn != "" {
+		if unmarshalErr := json.Unmarshal(raw, &arn, jsonx.V1()); unmarshalErr == nil && arn != "" {
 			return arn
 		}
 	}
@@ -227,7 +229,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // handleError writes a standardized error response back to the client.

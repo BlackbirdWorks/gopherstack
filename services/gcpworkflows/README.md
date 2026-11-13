@@ -21,7 +21,7 @@
 - experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference.
 - Only the listed googleapis.* connectors exist; other connectors, connector retry/long-running-operation polling helpers and calls to *.googleapis.com hosts (which would leave the emulator) are not rewritten.
 - Operations are recorded already finished: no CREATING state, and CancelOperation has no effect.
-- ListWorkflows and ListExecutions reject unsupported filter expressions instead of evaluating the full AIP-160 grammar; UpdateWorkflow with an empty mask updates only the fields present.
+- ListWorkflows and ListExecutions reject unsupported filter expressions instead of evaluating the full AIP-160 grammar.
 - Callback endpoints and in-flight executions do not survive a restore, and a callback URL is bound to the listener port of the run that created it.
 
 ## More

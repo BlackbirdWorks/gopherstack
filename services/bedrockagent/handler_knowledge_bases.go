@@ -2,11 +2,13 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,7 +26,7 @@ func (h *Handler) handleCreateKB(ctx context.Context, c *echo.Context, body []by
 		ClientToken          string            `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -63,7 +65,7 @@ func (h *Handler) handleUpdateKB(ctx context.Context, c *echo.Context, kbID stri
 		RoleARN              string            `json:"roleArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) handleIngestKBDocs(
 		} `json:"documents"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -195,7 +197,7 @@ func (h *Handler) handleGetKBDocs(
 		DocumentIdentifiers []KBDocumentIdentifier `json:"documentIdentifiers"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -215,7 +217,7 @@ func (h *Handler) handleDeleteKBDocs(
 		DocumentIdentifiers []KBDocumentIdentifier `json:"documentIdentifiers"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 

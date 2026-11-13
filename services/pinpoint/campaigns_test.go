@@ -1,13 +1,16 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCampaignFullDTO_Create(t *testing.T) {
@@ -169,7 +172,7 @@ func TestCampaignFullDTO_Create(t *testing.T) {
 			require.Equal(t, http.StatusCreated, appRec.Code)
 
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns", tc.body)
@@ -180,7 +183,7 @@ func TestCampaignFullDTO_Create(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotEmpty(t, resp["Id"])
 			assert.Equal(t, appID, resp["ApplicationId"])
@@ -299,13 +302,13 @@ func TestCampaignStateMachine_Update(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns", tc.createBody)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			campaignID := created["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/campaigns/"+campaignID, tc.updateBody)
@@ -316,7 +319,7 @@ func TestCampaignStateMachine_Update(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantState != "" {
 				state, _ := resp["State"].(map[string]any)
@@ -342,14 +345,14 @@ func TestCampaignVersioning(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
 		map[string]any{"Name": "versioned", "SegmentId": "seg-1"})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	campaignID := created["Id"].(string)
 
 	// Do 3 updates.
@@ -363,7 +366,7 @@ func TestCampaignVersioning(t *testing.T) {
 	verRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campaignID+"/versions", nil)
 	require.Equal(t, http.StatusOK, verRec.Code)
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp, jsonx.V1()))
 	items, _ := verResp["Item"].([]any)
 	assert.Len(t, items, 4, "should have 4 versions")
 
@@ -371,7 +374,7 @@ func TestCampaignVersioning(t *testing.T) {
 	v1Rec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campaignID+"/versions/1", nil)
 	require.Equal(t, http.StatusOK, v1Rec.Code)
 	var v1Resp map[string]any
-	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1Resp))
+	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1Resp, jsonx.V1()))
 	assert.InDelta(t, float64(1), v1Resp["Version"], 0.001)
 }
 
@@ -387,14 +390,14 @@ func TestCampaignPauseUnpauseCycle(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
 		map[string]any{"Name": "cycle", "SegmentId": "seg-1"})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	campaignID := created["Id"].(string)
 
 	// Check initial state.
@@ -406,7 +409,7 @@ func TestCampaignPauseUnpauseCycle(t *testing.T) {
 		map[string]any{"IsPaused": true})
 	require.Equal(t, http.StatusOK, pauseRec.Code)
 	var paused map[string]any
-	require.NoError(t, json.Unmarshal(pauseRec.Body.Bytes(), &paused))
+	require.NoError(t, json.Unmarshal(pauseRec.Body.Bytes(), &paused, jsonx.V1()))
 	pausedState, _ := paused["State"].(map[string]any)
 	assert.Equal(t, "PAUSED", pausedState["CampaignStatus"])
 
@@ -415,7 +418,7 @@ func TestCampaignPauseUnpauseCycle(t *testing.T) {
 		map[string]any{"IsPaused": false})
 	require.Equal(t, http.StatusOK, unpauseRec.Code)
 	var unpaused map[string]any
-	require.NoError(t, json.Unmarshal(unpauseRec.Body.Bytes(), &unpaused))
+	require.NoError(t, json.Unmarshal(unpauseRec.Body.Bytes(), &unpaused, jsonx.V1()))
 	unpausedState, _ := unpaused["State"].(map[string]any)
 	assert.Equal(t, "SCHEDULED", unpausedState["CampaignStatus"])
 }
@@ -440,7 +443,7 @@ func TestCampaign_ScheduleFrequencyRoundTrip(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
@@ -455,7 +458,7 @@ func TestCampaign_ScheduleFrequencyRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			schedule, _ := resp["Schedule"].(map[string]any)
 			assert.Equal(t, freq, schedule["Frequency"])
@@ -471,7 +474,7 @@ func TestCampaign_AdditionalTreatments_RoundTrip(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/campaigns",
@@ -495,7 +498,7 @@ func TestCampaign_AdditionalTreatments_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	treatments, _ := resp["AdditionalTreatments"].([]any)
 	assert.Len(t, treatments, 2)
@@ -516,7 +519,7 @@ func TestCampaignCRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	campaignID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, campaignID)
 
@@ -626,7 +629,7 @@ func TestHandler_CreateCampaign(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, appID, resp["ApplicationId"])
@@ -652,7 +655,7 @@ func TestGetCampaignVersion_UnknownVersionNotFound(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&created))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &created, jsonx.V1()))
 	campaignID, _ := created["Id"].(string)
 	require.NotEmpty(t, campaignID)
 
@@ -668,7 +671,7 @@ func TestGetCampaignVersion_UnknownVersionNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(missingRec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "NotFoundException", errResp["__type"])
 }
 
@@ -696,7 +699,7 @@ func TestHandler_GetCampaigns_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			created[resp["Id"].(string)] = true
 		}
 
@@ -708,7 +711,7 @@ func TestHandler_GetCampaigns_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			for _, item := range items {

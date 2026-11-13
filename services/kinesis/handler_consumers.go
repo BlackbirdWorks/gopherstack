@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/crc32"
 	"math"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -124,7 +125,7 @@ func (h *Handler) handleRegisterStreamConsumer(
 	body []byte,
 ) (any, error) {
 	var req jsonRegisterStreamConsumerReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -146,7 +147,7 @@ func (h *Handler) handleDescribeStreamConsumer(
 	body []byte,
 ) (any, error) {
 	var req jsonDescribeStreamConsumerReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -168,7 +169,7 @@ func (h *Handler) handleListStreamConsumers(
 	body []byte,
 ) (any, error) {
 	var req jsonListStreamConsumersReq
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	out, err := h.Backend.ListStreamConsumers(ctx, &ListStreamConsumersInput{
 		StreamARN:  req.StreamARN,
@@ -193,7 +194,7 @@ func (h *Handler) handleDeregisterStreamConsumer(
 	body []byte,
 ) (any, error) {
 	var req jsonDeregisterStreamConsumerReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -351,7 +352,7 @@ func (h *Handler) parseSubscribeToShardRequest(
 		return req, StartingPosition{}, false, h.handleError(ctx, c, "SubscribeToShard", readErr)
 	}
 
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return req, StartingPosition{}, false, h.handleError(ctx, c, "SubscribeToShard", ErrInvalidArgument)
 	}
 
@@ -552,7 +553,7 @@ func (h *Handler) pollSubscribeToShardTick(
 		Records:                    records,
 		ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
 		MillisBehindLatest:         out.Event.MillisBehindLatest,
-	})
+	}, jsonx.V1())
 	if marshalErr != nil {
 		return nil, false, marshalErr
 	}

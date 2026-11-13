@@ -1,7 +1,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"regexp"
@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // undef is the Cosmos SQL "undefined" value (a missing property, an unbound parameter, a failed operation).
@@ -247,7 +249,7 @@ func (ec *evalCtx) evalUnary(n *exprUnary, env []any) any {
 			return undef{}
 		}
 
-		return numArith(sqlTokMinus, json.Number("0"), num)
+		return numArith(sqlTokMinus, jsonx.Number("0"), num)
 	default:
 		if num, ok := toNumber(v); ok {
 			return num
@@ -445,16 +447,16 @@ func (ec *evalCtx) evalSubquery(n *exprSubquery, env []any) any {
 
 // --- numbers ---
 
-func toNumber(v any) (json.Number, bool) {
+func toNumber(v any) (jsonx.Number, bool) {
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		return t, true
 	case int:
-		return json.Number(strconv.Itoa(t)), true
+		return jsonx.Number(strconv.Itoa(t)), true
 	case int32:
-		return json.Number(strconv.FormatInt(int64(t), 10)), true
+		return jsonx.Number(strconv.FormatInt(int64(t), 10)), true
 	case int64:
-		return json.Number(strconv.FormatInt(t, 10)), true
+		return jsonx.Number(strconv.FormatInt(t, 10)), true
 	case float32:
 		return formatFloatNumber(float64(t))
 	case float64:
@@ -464,7 +466,7 @@ func toNumber(v any) (json.Number, bool) {
 	}
 }
 
-func formatFloatNumber(f float64) (json.Number, bool) {
+func formatFloatNumber(f float64) (jsonx.Number, bool) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return "", false
 	}
@@ -474,10 +476,10 @@ func formatFloatNumber(f float64) (json.Number, bool) {
 		format = 'e'
 	}
 
-	return json.Number(strconv.FormatFloat(f, format, -1, 64)), true
+	return jsonx.Number(strconv.FormatFloat(f, format, -1, 64)), true
 }
 
-func numFloat(n json.Number) float64 {
+func numFloat(n jsonx.Number) float64 {
 	f, _ := n.Float64()
 
 	return f
@@ -493,7 +495,7 @@ func floatResult(f float64) any {
 }
 
 // numArith applies + - * / % to a and b, staying in int64 when exact and falling back to float64.
-func numArith(op sqlTokenType, a, b json.Number) any {
+func numArith(op sqlTokenType, a, b jsonx.Number) any {
 	ai, aErr := a.Int64()
 	bi, bErr := b.Int64()
 
@@ -554,7 +556,7 @@ func intArith(op sqlTokenType, a, b int64) (any, bool) {
 		return nil, false
 	}
 
-	return json.Number(strconv.FormatInt(v, 10)), true
+	return jsonx.Number(strconv.FormatInt(v, 10)), true
 }
 
 func intAdd(a, b int64) (int64, bool) {
@@ -720,7 +722,7 @@ func objectsEqual(a, b map[string]any) bool {
 }
 
 // compareJSONNumbers compares as int64 when both are exact integers, else as float64.
-func compareJSONNumbers(a, b json.Number) int {
+func compareJSONNumbers(a, b jsonx.Number) int {
 	ai, aErr := a.Int64()
 	bi, bErr := b.Int64()
 
@@ -856,7 +858,7 @@ func compareArrays(a, b []any) int {
 }
 
 func canonicalJSON(v any) string {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprint(v)
 	}

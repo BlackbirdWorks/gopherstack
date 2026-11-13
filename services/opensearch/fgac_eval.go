@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxActionGroupDepth = 8
@@ -396,7 +398,7 @@ func (e effectivePerms) restrictionFor(index, action string) (accessRestriction,
 		}
 
 		var q map[string]any
-		if err := json.Unmarshal([]byte(g.DLS), &q); err != nil {
+		if err := json.Unmarshal([]byte(g.DLS), &q, jsonx.V1()); err != nil {
 			return accessRestriction{}, fmt.Errorf("%w: %w", errBadDLSQuery, err)
 		}
 

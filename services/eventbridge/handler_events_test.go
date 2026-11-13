@@ -1,7 +1,7 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -77,7 +78,7 @@ func TestHandler_PutEvents(t *testing.T) {
 				Entries          []eventbridge.EventResultEntry `json:"Entries"`
 				FailedEntryCount int                            `json:"FailedEntryCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantFailedCount, resp.FailedEntryCount)
 			assert.Len(t, resp.Entries, tt.wantEntryCount)
 			for _, entry := range resp.Entries {

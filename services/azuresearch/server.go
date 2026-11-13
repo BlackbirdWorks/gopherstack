@@ -1,7 +1,7 @@
 package azuresearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -114,7 +116,7 @@ func readBody(r *http.Request) ([]byte, error) {
 }
 
 func mustJSON(v any) []byte {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}

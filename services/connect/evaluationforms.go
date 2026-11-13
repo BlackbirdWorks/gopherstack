@@ -2,11 +2,13 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -54,15 +56,15 @@ type evalFormVersion struct {
 }
 
 type formContent struct {
-	ScoringStrategy             json.RawMessage   `json:"ScoringStrategy,omitempty"`
-	AutoEvaluationConfiguration json.RawMessage   `json:"AutoEvaluationConfiguration,omitempty"`
-	ReviewConfiguration         json.RawMessage   `json:"ReviewConfiguration,omitempty"`
-	TargetConfiguration         json.RawMessage   `json:"TargetConfiguration,omitempty"`
-	LanguageConfiguration       json.RawMessage   `json:"LanguageConfiguration,omitempty"`
-	Title                       string            `json:"Title"`
-	Description                 string            `json:"Description,omitempty"`
-	AIVersion                   string            `json:"AIVersion,omitempty"`
-	Items                       []json.RawMessage `json:"Items"`
+	ScoringStrategy             jsontext.Value   `json:"ScoringStrategy,omitempty"`
+	AutoEvaluationConfiguration jsontext.Value   `json:"AutoEvaluationConfiguration,omitempty"`
+	ReviewConfiguration         jsontext.Value   `json:"ReviewConfiguration,omitempty"`
+	TargetConfiguration         jsontext.Value   `json:"TargetConfiguration,omitempty"`
+	LanguageConfiguration       jsontext.Value   `json:"LanguageConfiguration,omitempty"`
+	Title                       string           `json:"Title"`
+	Description                 string           `json:"Description,omitempty"`
+	AIVersion                   string           `json:"AIVersion,omitempty"`
+	Items                       []jsontext.Value `json:"Items"`
 }
 
 type evalFormRec struct {
@@ -212,9 +214,9 @@ func (w *formWalk) problem(sev, code, desc string) {
 	w.findings = append(w.findings, FormFinding{Description: desc, IssueCode: code, Severity: sev})
 }
 
-func (w *formWalk) item(raw json.RawMessage, depth int) {
-	var u map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &u); err != nil || len(u) != 1 {
+func (w *formWalk) item(raw jsontext.Value, depth int) {
+	var u map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &u, jsonx.V1()); err != nil || len(u) != 1 {
 		w.problem(findingError, "InvalidItem", "an item must be an object with exactly one of Section or Question")
 
 		return
@@ -248,14 +250,14 @@ func (w *formWalk) ref(ref string) {
 	}
 }
 
-func (w *formWalk) section(raw json.RawMessage, depth int) {
+func (w *formWalk) section(raw jsontext.Value, depth int) {
 	var s struct {
-		RefID string            `json:"RefId"`
-		Title string            `json:"Title"`
-		Items []json.RawMessage `json:"Items"`
+		RefID string           `json:"RefId"`
+		Title string           `json:"Title"`
+		Items []jsontext.Value `json:"Items"`
 	}
 
-	if json.Unmarshal(raw, &s) != nil {
+	if json.Unmarshal(raw, &s, jsonx.V1()) != nil {
 		w.problem(findingError, "InvalidSection", "a Section is not valid")
 
 		return
@@ -278,15 +280,15 @@ func (w *formWalk) section(raw json.RawMessage, depth int) {
 	}
 }
 
-func (w *formWalk) question(raw json.RawMessage) {
+func (w *formWalk) question(raw jsontext.Value) {
 	var q struct {
-		Props        map[string]json.RawMessage `json:"QuestionTypeProperties"`
-		RefID        string                     `json:"RefId"`
-		Title        string                     `json:"Title"`
-		QuestionType string                     `json:"QuestionType"`
+		Props        map[string]jsontext.Value `json:"QuestionTypeProperties"`
+		RefID        string                    `json:"RefId"`
+		Title        string                    `json:"Title"`
+		QuestionType string                    `json:"QuestionType"`
 	}
 
-	if json.Unmarshal(raw, &q) != nil {
+	if json.Unmarshal(raw, &q, jsonx.V1()) != nil {
 		w.problem(findingError, "InvalidQuestion", "a Question is not valid")
 
 		return
@@ -313,7 +315,7 @@ func (w *formWalk) question(raw json.RawMessage) {
 }
 
 // inspectForm walks the items and reports structural problems and warnings.
-func inspectForm(items []json.RawMessage) *formWalk {
+func inspectForm(items []jsontext.Value) *formWalk {
 	w := &formWalk{refs: map[string]bool{}}
 	for _, it := range items {
 		w.item(it, 0)
@@ -346,7 +348,7 @@ func checkFormContent(c *formContent) error {
 			Mode   string `json:"Mode"`
 			Status string `json:"Status"`
 		}
-		if json.Unmarshal(c.ScoringStrategy, &s) != nil {
+		if json.Unmarshal(c.ScoringStrategy, &s, jsonx.V1()) != nil {
 			return invalidParamErr("ScoringStrategy is not valid")
 		}
 
@@ -730,13 +732,13 @@ func (b *Backend) SearchEvaluationForms(in *SearchRequest) (*SearchResult, error
 }
 
 // rejectCriteria refuses criteria members the emulator does not evaluate, at any nesting level.
-func rejectCriteria(raw json.RawMessage, members ...string) error {
+func rejectCriteria(raw jsontext.Value, members ...string) error {
 	if len(raw) == 0 {
 		return nil
 	}
 
-	var node map[string]json.RawMessage
-	if json.Unmarshal(raw, &node) != nil {
+	var node map[string]jsontext.Value
+	if json.Unmarshal(raw, &node, jsonx.V1()) != nil {
 		return invalidParamErr("SearchCriteria is not valid")
 	}
 
@@ -747,8 +749,8 @@ func rejectCriteria(raw json.RawMessage, members ...string) error {
 	}
 
 	for _, key := range []string{"AndConditions", "OrConditions"} {
-		var subs []json.RawMessage
-		if json.Unmarshal(node[key], &subs) != nil {
+		var subs []jsontext.Value
+		if json.Unmarshal(node[key], &subs, jsonx.V1()) != nil {
 			continue
 		}
 

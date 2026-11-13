@@ -2,7 +2,7 @@ package azurearm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -88,7 +89,7 @@ func acaTemplateKey(t map[string]any) string {
 	c := acaClone(t)
 	delete(c, fieldRevSuffix)
 
-	b, _ := json.Marshal(c)
+	b, _ := json.Marshal(c, jsonx.V1())
 
 	return string(b)
 }

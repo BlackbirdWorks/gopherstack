@@ -2,12 +2,14 @@ package azurearm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func msiTestID(sub, rg, name string) ResourceID {
@@ -25,7 +27,7 @@ func TestManagedIdentityRestoreOldSnapshot(t *testing.T) {
 		`"issuer":"https://issuer.example","subject":"s","audiences":["api://x"]}]}}}`
 
 	var snap managedIdentitySnapshot
-	require.NoError(t, json.Unmarshal([]byte(old), &snap))
+	require.NoError(t, json.Unmarshal([]byte(old), &snap, jsonx.V1()))
 
 	p := NewManagedIdentityProvider("tenant")
 	p.SetDefaultSubscription("sub-default")
@@ -51,7 +53,7 @@ func TestManagedIdentityRestoreOldSnapshot(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "c-1", principal)
 
-	out, err := json.Marshal(p.snapshot())
+	out, err := json.Marshal(p.snapshot(), jsonx.V1())
 	require.NoError(t, err)
 
 	fields := []string{`"identities"`, `"name"`, `"resourceGroup"`, `"principalId"`, `"clientId"`, `"federated"`}
@@ -77,11 +79,11 @@ func TestManagedIdentityRoundTripKeepsSubscriptions(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := json.Marshal(p.snapshot())
+	out, err := json.Marshal(p.snapshot(), jsonx.V1())
 	require.NoError(t, err)
 
 	var snap managedIdentitySnapshot
-	require.NoError(t, json.Unmarshal(out, &snap))
+	require.NoError(t, json.Unmarshal(out, &snap, jsonx.V1()))
 
 	q := NewManagedIdentityProvider("tenant")
 	q.SetDefaultSubscription("sub-default")

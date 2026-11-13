@@ -1,7 +1,7 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cleanrooms"
 )
 
@@ -22,7 +23,7 @@ func queryStatus(t *testing.T, e *echo.Echo, memID, id string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["protectedQuery"]["status"].(string)
 }
@@ -142,7 +143,7 @@ func TestStartProtectedQuery_KeepsSQLParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	got := resp["protectedQuery"]["sqlParameters"].(map[string]any)
 	assert.Equal(t, tmpl, got["analysisTemplateArn"])
 	assert.Equal(t, map[string]any{"k": "v"}, got["parameters"])

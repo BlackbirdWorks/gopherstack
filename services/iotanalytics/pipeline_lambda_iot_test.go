@@ -2,13 +2,14 @@ package iotanalytics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
 
@@ -43,7 +44,7 @@ func echoAddFieldLambda(calls *[]string) *fakeLambdaInvoker {
 		calls: calls,
 		invoke: func(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 			var msgs []map[string]any
-			if err := json.Unmarshal(payload, &msgs); err != nil {
+			if err := json.Unmarshal(payload, &msgs, jsonx.V1()); err != nil {
 				return nil, 0, err
 			}
 
@@ -51,7 +52,7 @@ func echoAddFieldLambda(calls *[]string) *fakeLambdaInvoker {
 				m["seen"] = true
 			}
 
-			out, err := json.Marshal(msgs)
+			out, err := json.Marshal(msgs, jsonx.V1())
 
 			return out, 200, err
 		},
@@ -105,7 +106,7 @@ func TestInMemoryBackend_RunPipelineActivity_Lambda(t *testing.T) {
 		require.Len(t, out, 1)
 
 		var decoded map[string]any
-		require.NoError(t, json.Unmarshal(out[0], &decoded))
+		require.NoError(t, json.Unmarshal(out[0], &decoded, jsonx.V1()))
 		assert.Equal(t, true, decoded["seen"])
 		assert.InDelta(t, 1.0, decoded["x"], 1e-9)
 	})
@@ -130,11 +131,11 @@ func TestInMemoryBackend_RunPipelineActivity_Lambda(t *testing.T) {
 		require.Len(t, calls, 2, "3 payloads at batchSize=2 must invoke twice (2 then 1)")
 
 		var firstBatch []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(calls[0]), &firstBatch))
+		require.NoError(t, json.Unmarshal([]byte(calls[0]), &firstBatch, jsonx.V1()))
 		assert.Len(t, firstBatch, 2)
 
 		var secondBatch []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(calls[1]), &secondBatch))
+		require.NoError(t, json.Unmarshal([]byte(calls[1]), &secondBatch, jsonx.V1()))
 		assert.Len(t, secondBatch, 1)
 	})
 
@@ -218,7 +219,7 @@ func TestInMemoryBackend_RunPipelineActivity_DeviceRegistryEnrich(t *testing.T) 
 		require.Len(t, out, 1)
 
 		var decoded map[string]any
-		require.NoError(t, json.Unmarshal(out[0], &decoded))
+		require.NoError(t, json.Unmarshal(out[0], &decoded, jsonx.V1()))
 
 		registry, ok := decoded["registry"].(map[string]any)
 		require.True(t, ok)
@@ -270,7 +271,7 @@ func TestInMemoryBackend_RunPipelineActivity_DeviceShadowEnrich(t *testing.T) {
 		require.Len(t, out, 1)
 
 		var decoded map[string]any
-		require.NoError(t, json.Unmarshal(out[0], &decoded))
+		require.NoError(t, json.Unmarshal(out[0], &decoded, jsonx.V1()))
 
 		shadow, ok := decoded["shadow"].(map[string]any)
 		require.True(t, ok)

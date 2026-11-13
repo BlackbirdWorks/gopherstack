@@ -2,11 +2,13 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createLogGroupInput struct {
@@ -124,7 +126,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 // keep that function's cognitive complexity under the gocognit limit.
 func (h *Handler) handleCreateLogGroup(ctx context.Context, b []byte) (any, error) {
 	var input createLogGroupInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -158,7 +160,7 @@ func (h *Handler) handleCreateLogGroup(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleDeleteLogGroup(ctx context.Context, b []byte) (any, error) {
 	var input deleteLogGroupInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteLogGroup(ctx, input.LogGroupName); err != nil {
@@ -170,7 +172,7 @@ func (h *Handler) handleDeleteLogGroup(ctx context.Context, b []byte) (any, erro
 
 func (h *Handler) handleDescribeLogGroups(ctx context.Context, b []byte) (any, error) {
 	var input describeLogGroupsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -234,7 +236,7 @@ func (h *Handler) retentionActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutRetentionPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input putRetentionPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			days := input.RetentionInDays
@@ -246,7 +248,7 @@ func (h *Handler) retentionActions() map[string]actionFn {
 		},
 		"DeleteRetentionPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteRetentionPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.SetRetentionPolicy(ctx, input.LogGroupName, nil); err != nil {
@@ -260,7 +262,7 @@ func (h *Handler) retentionActions() map[string]actionFn {
 
 func (h *Handler) handleAssociateKmsKey(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input associateKmsKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.AssociateKmsKey(input.LogGroupName, input.ResourceIdentifier, input.KmsKeyID); err != nil {
@@ -275,7 +277,7 @@ func (h *Handler) handleDisassociateKmsKey(
 	b []byte,
 ) (any, error) {
 	var input disassociateKmsKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DisassociateKmsKey(input.LogGroupName, input.ResourceIdentifier); err != nil {
@@ -287,7 +289,7 @@ func (h *Handler) handleDisassociateKmsKey(
 
 func (h *Handler) handleGetLogGroupFields(ctx context.Context, b []byte) (any, error) {
 	var input getLogGroupFieldsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -306,7 +308,7 @@ func (h *Handler) handleGetLogGroupFields(ctx context.Context, b []byte) (any, e
 
 func (h *Handler) handleListLogGroups(ctx context.Context, b []byte) (any, error) {
 	var input listLogGroupsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	for _, f := range input.LogGroupTags {
@@ -344,7 +346,7 @@ func (h *Handler) handlePutLogGroupDeletionProtection(
 	body []byte,
 ) (any, error) {
 	var in putLogGroupDeletionProtectionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -388,7 +390,7 @@ func (h *Handler) handleListAggregateLogGroupSummaries(
 		GroupBy string `json:"groupBy"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 		}
 	}

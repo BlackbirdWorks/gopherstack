@@ -2,7 +2,7 @@ package gcpmonitoring
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"sort"
@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -329,7 +330,7 @@ func scalarText(v any) string {
 		return strconv.FormatBool(t)
 	}
 
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonx.V1())
 
 	return string(raw)
 }

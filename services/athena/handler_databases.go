@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type getDatabaseInput struct {
 	CatalogName  string `json:"CatalogName"`
@@ -31,7 +35,7 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"GetDatabase": func(b []byte) (any, error) {
 			var input getDatabaseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -44,7 +48,7 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 		},
 		"ListDatabases": func(b []byte) (any, error) {
 			var input listDatabasesInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -68,7 +72,7 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 		},
 		"GetTableMetadata": func(b []byte) (any, error) {
 			var input getTableMetadataInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -81,7 +85,7 @@ func (h *Handler) databaseOps() map[string]athenaActionFn {
 		},
 		"ListTableMetadata": func(b []byte) (any, error) {
 			var input listTableMetadataInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

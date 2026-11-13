@@ -2,7 +2,7 @@ package replicator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func sqsCreateAttrs() []sqstypes.QueueAttributeName {
@@ -79,7 +80,7 @@ func dlqName(redrive string) string {
 		Arn string `json:"deadLetterTargetArn"`
 	}
 
-	if json.Unmarshal([]byte(redrive), &rp) != nil || rp.Arn == "" {
+	if json.Unmarshal([]byte(redrive), &rp, jsonx.V1()) != nil || rp.Arn == "" {
 		return ""
 	}
 

@@ -1,13 +1,14 @@
 package route53resolver_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -22,7 +23,7 @@ func TestFirewallDomainList_ManagedOwnerName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dl := resp["FirewallDomainList"].(map[string]any)
 
 	// ManagedOwnerName should be empty for user-created domain lists.
@@ -78,7 +79,7 @@ func TestCreateFirewallDomainList(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				dl, ok := resp["FirewallDomainList"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, dl["Name"])
@@ -108,7 +109,7 @@ func TestDeleteFirewallDomainList(t *testing.T) {
 				rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "dl-del"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["FirewallDomainList"].(map[string]any)["Id"].(string)
 			},
@@ -149,7 +150,7 @@ func TestDeleteFirewallDomainList(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				dl, ok := resp["FirewallDomainList"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, id, dl["Id"])
@@ -170,7 +171,7 @@ func TestListFirewallDomains_Pagination(t *testing.T) {
 	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "dl-paginate"})
 	require.Equal(t, http.StatusOK, dlRec.Code)
 	var dlOut map[string]any
-	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlOut))
+	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlOut, jsonx.V1()))
 	dlID := dlOut["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 	domains := []string{"example.com", "foo.com", "bar.com", "baz.com"}
@@ -207,7 +208,7 @@ func TestListFirewallDomains_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListFirewallDomains", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			domList, _ := out["Domains"].([]any)
 			assert.Len(t, domList, tt.wantLen)
 			if tt.wantNextToken {
@@ -296,7 +297,7 @@ func TestListFirewallDomainLists_NoOverwideLeak(t *testing.T) {
 	var raw struct {
 		FirewallDomainLists []map[string]any `json:"FirewallDomainLists"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.FirewallDomainLists, 1)
 
 	item := raw.FirewallDomainLists[0]

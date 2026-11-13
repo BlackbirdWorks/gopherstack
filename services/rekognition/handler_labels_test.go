@@ -1,13 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -32,7 +33,7 @@ func TestDetectLabels_ReturnsEmptyList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Labels"])
 }
 
@@ -44,7 +45,7 @@ func TestAsyncVideoJobs_LabelDetection(t *testing.T) { //nolint:paralleltest // 
 	require.Equal(t, http.StatusOK, rec.Code, "StartLabelDetection")
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 	assert.NotEmpty(t, jobID)
@@ -54,7 +55,7 @@ func TestAsyncVideoJobs_LabelDetection(t *testing.T) { //nolint:paralleltest // 
 	require.Equal(t, http.StatusOK, rec.Code, "GetLabelDetection")
 
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 	assert.Equal(t, "IN_PROGRESS", firstResp["JobStatus"])
 
 	// Second poll returns SUCCEEDED
@@ -62,7 +63,7 @@ func TestAsyncVideoJobs_LabelDetection(t *testing.T) { //nolint:paralleltest // 
 	require.Equal(t, http.StatusOK, rec.Code, "GetLabelDetection")
 
 	var secondResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", secondResp["JobStatus"])
 	assert.NotNil(t, secondResp["Labels"])
 }

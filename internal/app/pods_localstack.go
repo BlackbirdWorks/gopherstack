@@ -1,12 +1,14 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/pods"
 )
 
@@ -118,10 +120,10 @@ func (a *podAPI) lsDelete(c *echo.Context) error {
 
 func (a *podAPI) lsStateExport(c *echo.Context) error {
 	raw := a.manager.ExportAll()
-	services := make(map[string]json.RawMessage, len(raw))
+	services := make(map[string]jsontext.Value, len(raw))
 
 	for n, d := range raw {
-		services[n] = json.RawMessage(d)
+		services[n] = jsontext.Value(d)
 	}
 
 	return c.JSON(http.StatusOK, snapshotResponse{
@@ -131,7 +133,7 @@ func (a *podAPI) lsStateExport(c *echo.Context) error {
 
 func (a *podAPI) lsStateImport(c *echo.Context) error {
 	var bundle snapshotBundle
-	if err := json.NewDecoder(c.Request().Body).Decode(&bundle); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &bundle, jsonx.V1()); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid snapshot bundle: "+err.Error())
 	}
 

@@ -1,13 +1,14 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -120,7 +121,7 @@ func TestCustomInputSchema(t *testing.T) {
 			var got map[string]any
 
 			require.Len(t, rec.all(), 1)
-			require.NoError(t, json.Unmarshal([]byte(rec.all()[0].text), &got))
+			require.NoError(t, json.Unmarshal([]byte(rec.all()[0].text), &got, jsonx.V1()))
 			tt.check(t, got)
 		})
 	}

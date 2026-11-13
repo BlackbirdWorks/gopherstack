@@ -1,11 +1,12 @@
 package ocimonitoring
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -189,7 +190,7 @@ func validateSuppressionIn(in *CreateSuppressionIn) (string, []SuppressionCond, 
 		return "", nil, errMissing("dimensions is required when level is DIMENSION and cannot be an empty object")
 	}
 
-	if raw, _ := json.Marshal(in.Dimensions); len(raw) > maxDimensionsLen {
+	if raw, _ := json.Marshal(in.Dimensions, jsonx.V1()); len(raw) > maxDimensionsLen {
 		return "", nil, errParam("dimensions values are too long")
 	}
 

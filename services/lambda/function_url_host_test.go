@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -296,7 +297,7 @@ func TestFunctionURLHost_EventShape(t *testing.T) {
 				Cookies        []string `json:"cookies"`
 				IsBase64       bool     `json:"isBase64Encoded"`
 			}
-			require.NoError(t, json.Unmarshal(<-env.events, &ev))
+			require.NoError(t, json.Unmarshal(<-env.events, &ev, jsonx.V1()))
 
 			assert.Equal(t, "2.0", ev.Version)
 			assert.Equal(t, "/a%20b/c", ev.RawPath)
@@ -371,7 +372,7 @@ func TestFunctionURLHost_IAMAuthorizerContext(t *testing.T) {
 			} `json:"authorizer"`
 		} `json:"requestContext"`
 	}
-	require.NoError(t, json.Unmarshal(<-env.events, &ev))
+	require.NoError(t, json.Unmarshal(<-env.events, &ev, jsonx.V1()))
 	assert.Equal(t, "AKIDEXAMPLE", ev.RequestContext.Authorizer.IAM.AccessKey)
 	assert.Equal(t, "000000000000", ev.RequestContext.Authorizer.IAM.AccountID)
 }
@@ -499,7 +500,7 @@ func TestFunctionURLConfig_Validation(t *testing.T) {
 
 			if tt.want == http.StatusCreated {
 				var cfg lambda.FunctionURLConfig
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 				assert.Regexp(t, `^https://[0-9a-f]{32}\.lambda-url\.us-east-1\.on\.aws/$`, cfg.FunctionURL)
 
 				up := callHandler(t, h, http.MethodPut, "/2021-10-31/functions/val-fn/url", `{"InvokeMode":"X"}`, nil)

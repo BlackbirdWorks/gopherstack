@@ -2,7 +2,7 @@ package mediapackage_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediapackage"
 )
 
@@ -30,7 +31,7 @@ func doRequest(t *testing.T, h *mediapackage.Handler, method, path string, body 
 	if body != nil {
 		var err error
 
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -62,7 +63,7 @@ func doRequestJSON(t *testing.T, h *mediapackage.Handler, method, path string, b
 	}
 
 	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 
 	return rec.Code, out
 }
@@ -77,7 +78,7 @@ func createTestChannel(t *testing.T, h *mediapackage.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -92,7 +93,7 @@ func createTestOriginEndpoint(t *testing.T, h *mediapackage.Handler, channelID s
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }

@@ -1,8 +1,11 @@
 package glue
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // DatabaseInput is the input for creating or updating a Glue database.
@@ -359,13 +362,13 @@ type Job struct {
 	// NonOverridableArguments are job arguments a run cannot override.
 	NonOverridableArguments map[string]string `json:"NonOverridableArguments,omitempty"`
 	// CodeGenConfigurationNodes is the visual-job DAG, stored verbatim.
-	CodeGenConfigurationNodes map[string]json.RawMessage `json:"CodeGenConfigurationNodes,omitempty"`
-	JobRunQueuingEnabled      *bool                      `json:"JobRunQueuingEnabled,omitempty"`
-	Command                   JobCommand                 `json:"Command,omitzero"`
-	LogURI                    string                     `json:"LogUri,omitempty"`
-	SecurityConfiguration     string                     `json:"SecurityConfiguration,omitempty"`
-	ExecutionClass            string                     `json:"ExecutionClass,omitempty"`
-	MaintenanceWindow         string                     `json:"MaintenanceWindow,omitempty"`
+	CodeGenConfigurationNodes map[string]jsontext.Value `json:"CodeGenConfigurationNodes,omitempty"`
+	JobRunQueuingEnabled      *bool                     `json:"JobRunQueuingEnabled,omitempty"`
+	Command                   JobCommand                `json:"Command,omitzero"`
+	LogURI                    string                    `json:"LogUri,omitempty"`
+	SecurityConfiguration     string                    `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass            string                    `json:"ExecutionClass,omitempty"`
+	MaintenanceWindow         string                    `json:"MaintenanceWindow,omitempty"`
 	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
 	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
 	JobMode         string          `json:"JobMode,omitempty"`
@@ -651,7 +654,7 @@ func (b *JobBookmark) UnmarshalJSON(data []byte) error {
 		ActiveRun string `json:"ActiveRun,omitempty"`
 	}{alias: (*alias)(b)}
 
-	if err := json.Unmarshal(data, aux); err != nil {
+	if err := json.Unmarshal(data, aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -926,7 +929,7 @@ func (p *IntegrationResourceProperty) UnmarshalJSON(data []byte) error {
 		*alias
 	}{alias: (*alias)(p)}
 
-	if err := json.Unmarshal(data, aux); err != nil {
+	if err := json.Unmarshal(data, aux, jsonx.V1()); err != nil {
 		return err
 	}
 

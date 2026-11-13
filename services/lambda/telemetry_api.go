@@ -3,7 +3,7 @@ package lambda
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleSubscribe serves PUT /2022-07-01/telemetry and PUT /2020-08-15/logs.
@@ -49,7 +50,7 @@ func (s *runtimeServer) handleSubscribe(api string) http.HandlerFunc {
 		var req subscribeRequest
 
 		body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSubscribeBodyBytes))
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			writeExtError(w, http.StatusBadRequest, errType, "malformed subscription body")
 
 			return

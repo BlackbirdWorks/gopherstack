@@ -2,11 +2,13 @@ package ociapigateway
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"mime"
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Policy discriminators and limits from the Oracle deployment specification reference.
@@ -33,7 +35,7 @@ func (p *paramItems) UnmarshalJSON(raw []byte) error {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) > 0 && raw[0] == '{' {
 		var one paramItem
-		if err := json.Unmarshal(raw, &one); err != nil {
+		if err := json.Unmarshal(raw, &one, jsonx.V1()); err != nil {
 			return err
 		}
 
@@ -44,7 +46,7 @@ func (p *paramItems) UnmarshalJSON(raw []byte) error {
 
 	var many []paramItem
 
-	if err := json.Unmarshal(raw, &many); err != nil {
+	if err := json.Unmarshal(raw, &many, jsonx.V1()); err != nil {
 		return err
 	}
 

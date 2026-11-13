@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"strings"
@@ -39,7 +40,7 @@ func TestHandler_ListAliases_FilterByKeyID_ViaHTTP(t *testing.T) {
 			AliasName string `json:"AliasName"`
 		} `json:"Aliases"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp.Aliases)
 	for _, a := range resp.Aliases {
 		assert.Equal(t, "alias/filter-test", a.AliasName)
@@ -61,7 +62,7 @@ func TestHandler_RotateKeyOnDemand_ViaHTTP(t *testing.T) {
 	var resp struct {
 		KeyID string `json:"KeyId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, keyID, resp.KeyID)
 }
 
@@ -86,7 +87,7 @@ func TestHandler_EnableKeyRotation_ViaHTTP(t *testing.T) {
 		KeyRotationEnabled   bool  `json:"KeyRotationEnabled"`
 		RotationPeriodInDays int32 `json:"RotationPeriodInDays"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &status))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &status, jsonx.V1()))
 	assert.True(t, status.KeyRotationEnabled)
 	assert.Equal(t, int32(90), status.RotationPeriodInDays)
 }
@@ -107,14 +108,14 @@ func TestKMSHandlerAliasOperations(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut.KeyMetadata.KeyID
 
 	// CreateAlias
 	aliasBody, _ := json.Marshal(map[string]string{
 		"AliasName":   "alias/test-alias",
 		"TargetKeyId": keyID,
-	})
+	}, jsonx.V1())
 	aliasReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(aliasBody)))
 	aliasReq.Header.Set("X-Amz-Target", "TrentService.CreateAlias")
 	aliasRec := httptest.NewRecorder()
@@ -128,11 +129,11 @@ func TestKMSHandlerAliasOperations(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(listReq, listRec)))
 
 	var listOut kms.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Aliases, 1)
 
 	// DeleteAlias
-	deleteBody, _ := json.Marshal(map[string]string{"AliasName": "alias/test-alias"})
+	deleteBody, _ := json.Marshal(map[string]string{"AliasName": "alias/test-alias"}, jsonx.V1())
 	deleteReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(deleteBody)))
 	deleteReq.Header.Set("X-Amz-Target", "TrentService.DeleteAlias")
 	deleteRec := httptest.NewRecorder()
@@ -156,11 +157,11 @@ func TestKMSHandlerKeyRotation(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut.KeyMetadata.KeyID
 
 	// GetKeyRotationStatus
-	statusBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+	statusBody, _ := json.Marshal(map[string]string{"KeyID": keyID}, jsonx.V1())
 
 	statusReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(statusBody)))
 	statusReq.Header.Set("X-Amz-Target", "TrentService.GetKeyRotationStatus")
@@ -168,11 +169,11 @@ func TestKMSHandlerKeyRotation(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(statusReq, statusRec)))
 
 	var statusOut kms.GetKeyRotationStatusOutput
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusOut))
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusOut, jsonx.V1()))
 	assert.False(t, statusOut.KeyRotationEnabled)
 
 	// EnableKeyRotation
-	enableBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+	enableBody, _ := json.Marshal(map[string]string{"KeyID": keyID}, jsonx.V1())
 	enableReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(enableBody)))
 	enableReq.Header.Set("X-Amz-Target", "TrentService.EnableKeyRotation")
 	enableRec := httptest.NewRecorder()
@@ -180,7 +181,7 @@ func TestKMSHandlerKeyRotation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, enableRec.Code)
 
 	// DisableKeyRotation
-	disableBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+	disableBody, _ := json.Marshal(map[string]string{"KeyID": keyID}, jsonx.V1())
 	disableReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(disableBody)))
 	disableReq.Header.Set("X-Amz-Target", "TrentService.DisableKeyRotation")
 	disableRec := httptest.NewRecorder()
@@ -293,7 +294,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 
 			var errResp kms.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.expectedErrTyp, errResp.Type)
 		})
 	}
@@ -321,7 +322,7 @@ func TestKMSListAliasesFiltered(t *testing.T) {
 	)
 
 	// Filter by key1
-	body, _ := json.Marshal(map[string]string{"KeyId": key1.KeyMetadata.KeyID})
+	body, _ := json.Marshal(map[string]string{"KeyId": key1.KeyMetadata.KeyID}, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
 	req.Header.Set("X-Amz-Target", "TrentService.ListAliases")
 	rec := httptest.NewRecorder()
@@ -329,7 +330,7 @@ func TestKMSListAliasesFiltered(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out kms.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Aliases, 1)
 	assert.Equal(t, "alias/key1", out.Aliases[0].AliasName)
 }
@@ -354,7 +355,7 @@ func TestKMSUpdateAlias_Handler(t *testing.T) {
 	body, err := json.Marshal(kms.UpdateAliasInput{
 		AliasName:   "alias/handler-update-test",
 		TargetKeyID: k2.KeyMetadata.KeyID,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doKMSHTTPRequest(t, h, "UpdateAlias", string(body))
@@ -377,7 +378,7 @@ func TestHandlerCreateAliasWhitespaceRejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	rec := sendKMSOp(t, h, "CreateAlias", `{"AliasName":"alias/my bad alias","TargetKeyId":"`+keyID+`"}`)
@@ -394,7 +395,7 @@ func TestHandlerListKeyRotationsViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	sendKMSOp(t, h, "RotateKeyOnDemand", `{"KeyId":"`+keyID+`"}`)
@@ -403,7 +404,7 @@ func TestHandlerListKeyRotationsViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	rotations := out["Rotations"].([]any)
 	require.NotEmpty(t, rotations)
 

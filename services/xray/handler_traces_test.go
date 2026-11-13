@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -73,7 +74,7 @@ func TestHandler_BatchGetTraces(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantTraces > 0 {
 				traces, ok := resp["Traces"].([]any)
@@ -110,7 +111,7 @@ func TestBatchGetTraces_SegmentShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	traces, ok := resp["Traces"].([]any)
 	require.True(t, ok)
@@ -163,7 +164,7 @@ func TestGetTraceSummaries_FaultFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -197,7 +198,7 @@ func TestGetTraceSummaries_TimeRangeType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Should still return the trace — TimeRangeType is accepted without error.
 	summaries, ok := resp["TraceSummaries"].([]any)
@@ -225,7 +226,7 @@ func TestTraceSummary_FaultAndErrorPropagation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -270,7 +271,7 @@ func TestGetTraceSummaries_ThrottleFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -337,7 +338,7 @@ func TestGetTraceSummariesTimeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, ok := resp["TraceSummaries"].([]any)
 			require.True(t, ok)
@@ -366,7 +367,7 @@ func TestGetTraceSummaries_TimeWindowExclusion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -393,7 +394,7 @@ func TestTraceSummary_UsersFromAnnotations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -429,7 +430,7 @@ func TestTraceSummary_OmitsForecastStatistics(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["TraceSummaries"].([]any)
 	require.True(t, ok)
@@ -453,7 +454,7 @@ func TestBatchGetTraces_UnprocessedForMissingIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, ok := resp["UnprocessedTraceIds"].([]any)
 	require.True(t, ok)
@@ -545,7 +546,7 @@ func TestHandler_GetTraceSummaries_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	summaries1, _ := resp1["TraceSummaries"].([]any)
 	assert.Len(t, summaries1, defaultPageSize)
@@ -556,7 +557,7 @@ func TestHandler_GetTraceSummaries_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	summaries2, _ := resp2["TraceSummaries"].([]any)
 	assert.Len(t, summaries2, total-defaultPageSize)
@@ -581,7 +582,7 @@ func TestGetTraceSummaries_DurationFromSegmentTimes(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -644,7 +645,7 @@ func TestGetTraceSummaries_BooleanFlagFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, sumRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["TraceSummaries"].([]any)
 			require.Len(t, summaries, 1)
@@ -710,7 +711,7 @@ func TestGetTraceSummaries_HTTPFieldsPopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, sumRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["TraceSummaries"].([]any)
 			require.Len(t, summaries, 1)
@@ -749,7 +750,7 @@ func TestGetTraceSummaries_ServiceIDsFromSegments(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -781,7 +782,7 @@ func TestGetTraceSummaries_EntryPointFromRootSegment(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -812,7 +813,7 @@ func TestGetTraceSummaries_IsPartialWithoutRootSegment(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -839,7 +840,7 @@ func TestGetTraceSummaries_TracesProcessedCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	count, ok := resp["TracesProcessedCount"].(float64)
 	require.True(t, ok)
@@ -928,7 +929,7 @@ func TestGetTraceSummaries_FilterExpressions(t *testing.T) {
 			require.Equal(t, http.StatusOK, sumRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["TraceSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantCount, "filter=%q wantCount=%d", tt.filter, tt.wantCount)
@@ -961,7 +962,7 @@ func TestGetTraceSummaries_OmitsForecastStatistics(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -996,7 +997,7 @@ func TestGetTraceSummaries_AnnotationFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -1026,7 +1027,7 @@ func TestGetTraceSummaries_ResponseTimeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, sumRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sumRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, _ := resp["TraceSummaries"].([]any)
 	require.Len(t, summaries, 1)
@@ -1076,7 +1077,7 @@ func TestBatchGetTraces_UnprocessedForMissingTraces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	traces, _ := resp["Traces"].([]any)
 	assert.Empty(t, traces, "missing traces produce no Traces entries")

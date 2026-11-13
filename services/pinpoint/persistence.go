@@ -2,7 +2,7 @@ package pinpoint
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -48,21 +48,21 @@ const pinpointSnapshotVersion = 2
 // plain JSON-friendly struct with no live/non-serialisable state, so a
 // direct field-for-field mapping (no separate DTO type) is sufficient.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage            `json:"tables"`
-	AppSettings            map[string]*StoredAppSettings         `json:"appSettings"`
-	CampaignVersions       map[string][]*Campaign                `json:"campaignVersions"`
-	SegmentVersions        map[string][]*Segment                 `json:"segmentVersions"`
-	TemplateVersionHistory map[string][]templateVersionItem      `json:"templateVersionHistory"`
-	TemplateVersionData    map[string]map[string]json.RawMessage `json:"templateVersionData"`
-	TemplateActiveVersion  map[string]string                     `json:"templateActiveVersion"`
-	CampaignActivities     map[string][]campaignActivity         `json:"campaignActivities"`
-	JourneyRuns            map[string][]*journeyRun              `json:"journeyRuns"`
-	AppEvents              map[string][]storedPinpointEvent      `json:"appEvents"`
-	SentMessages           map[string]int                        `json:"sentMessages"`
-	OtpCodes               map[string]string                     `json:"otpCodes"`
-	AccountID              string                                `json:"accountID"`
-	Region                 string                                `json:"region"`
-	Version                int                                   `json:"version"`
+	Tables                 map[string]jsontext.Value            `json:"tables"`
+	AppSettings            map[string]*StoredAppSettings        `json:"appSettings"`
+	CampaignVersions       map[string][]*Campaign               `json:"campaignVersions"`
+	SegmentVersions        map[string][]*Segment                `json:"segmentVersions"`
+	TemplateVersionHistory map[string][]templateVersionItem     `json:"templateVersionHistory"`
+	TemplateVersionData    map[string]map[string]jsontext.Value `json:"templateVersionData"`
+	TemplateActiveVersion  map[string]string                    `json:"templateActiveVersion"`
+	CampaignActivities     map[string][]campaignActivity        `json:"campaignActivities"`
+	JourneyRuns            map[string][]*journeyRun             `json:"journeyRuns"`
+	AppEvents              map[string][]storedPinpointEvent     `json:"appEvents"`
+	SentMessages           map[string]int                       `json:"sentMessages"`
+	OtpCodes               map[string]string                    `json:"otpCodes"`
+	AccountID              string                               `json:"accountID"`
+	Region                 string                               `json:"region"`
+	Version                int                                  `json:"version"`
 }
 
 // persistRegistry builds an ephemeral [store.Registry] over every
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) resetMapStateLocked() {
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
 	b.templateVersionHistory = make(map[string][]templateVersionItem)
-	b.templateVersionData = make(map[string]map[string]json.RawMessage)
+	b.templateVersionData = make(map[string]map[string]jsontext.Value)
 	b.templateActiveVersion = make(map[string]string)
 	b.campaignActivities = make(map[string][]campaignActivity)
 	b.journeyRuns = make(map[string][]*journeyRun)
@@ -327,9 +327,9 @@ func rebuildARNIndexLocked(b *InMemoryBackend) {
 	}
 }
 
-func nonNilStringMap2(m map[string]map[string]json.RawMessage) map[string]map[string]json.RawMessage {
+func nonNilStringMap2(m map[string]map[string]jsontext.Value) map[string]map[string]jsontext.Value {
 	if m == nil {
-		return make(map[string]map[string]json.RawMessage)
+		return make(map[string]map[string]jsontext.Value)
 	}
 
 	return m

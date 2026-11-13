@@ -1,10 +1,12 @@
 package ecr
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -33,7 +35,7 @@ func validateRepositoryName(name string) error {
 
 func validateJSONObject(field, text string) error {
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(text), &doc); err != nil || doc == nil {
+	if err := json.Unmarshal([]byte(text), &doc, jsonx.V1()); err != nil || doc == nil {
 		return invalidParam("Invalid parameter at '%s' failed to satisfy constraint: 'Invalid JSON syntax'", field)
 	}
 
@@ -50,7 +52,7 @@ func validateRepositoryPolicyText(text string) error {
 
 func validateLifecyclePolicyText(text string) error {
 	var doc lifecyclePolicyDoc
-	if err := json.Unmarshal([]byte(text), &doc); err != nil {
+	if err := json.Unmarshal([]byte(text), &doc, jsonx.V1()); err != nil {
 		return invalidParam("Lifecycle policy validation failure: Invalid JSON")
 	}
 

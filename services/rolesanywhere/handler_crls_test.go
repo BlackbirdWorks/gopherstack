@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- CRL HTTP CRUD ----
@@ -44,7 +46,7 @@ func TestHandler_CRL_CRUD(t *testing.T) {
 			assert.Equal(t, tt.wantCreate, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			crl := createResp["crl"].(map[string]any)
 			id := crl["crlId"].(string)
 			assert.NotEmpty(t, id)
@@ -205,8 +207,8 @@ func TestHandler_CRL_DuplicateNameAllowed(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 
 			var resp1, resp2 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 			c1 := resp1["crl"].(map[string]any)
 			c2 := resp2["crl"].(map[string]any)

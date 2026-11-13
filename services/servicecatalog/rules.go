@@ -2,9 +2,11 @@ package servicecatalog
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const pairArgs = 2
@@ -58,13 +60,13 @@ func isRuleFunc(fn string) bool {
 
 // validateTemplateRules rejects a Rules document CloudFormation would not accept.
 func validateTemplateRules(rules map[string]any) error {
-	raw, err := json.Marshal(map[string]any{"Rules": rules})
+	raw, err := json.Marshal(map[string]any{"Rules": rules}, jsonx.V1())
 	if err != nil {
 		return invalid("Rules is not valid JSON")
 	}
 
 	var doc ruleDoc
-	if err = json.Unmarshal(raw, &doc); err != nil {
+	if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return invalid("Rules is malformed: %v", err)
 	}
 
@@ -131,7 +133,7 @@ func validateRuleExpr(rule string, expr any) error {
 func checkTemplateRules(env *ruleEnv, constraintParams []string) error {
 	for _, raw := range constraintParams {
 		var doc ruleDoc
-		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		if err := json.Unmarshal([]byte(raw), &doc, jsonx.V1()); err != nil {
 			continue
 		}
 
@@ -435,7 +437,7 @@ func toStr(v any) string {
 
 		return "false"
 	case float64:
-		b, _ := json.Marshal(s)
+		b, _ := json.Marshal(s, jsonx.V1())
 
 		return string(b)
 	}

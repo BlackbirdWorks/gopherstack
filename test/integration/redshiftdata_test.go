@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -20,7 +21,7 @@ func redshiftDataRequest(t *testing.T, target string, body any) *http.Response {
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -62,7 +63,7 @@ func TestIntegration_RedshiftData_ExecuteStatement(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var respObj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &respObj))
+	require.NoError(t, json.Unmarshal([]byte(body), &respObj, jsonx.V1()))
 	assert.NotEmpty(t, respObj["Id"], "expected statement ID in response")
 }
 
@@ -79,7 +80,7 @@ func TestIntegration_RedshiftData_DescribeStatement(t *testing.T) {
 	require.Equal(t, http.StatusOK, execResp.StatusCode, "body: %s", execBody)
 
 	var execObj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(execBody), &execObj))
+	require.NoError(t, json.Unmarshal([]byte(execBody), &execObj, jsonx.V1()))
 
 	id := execObj["Id"].(string)
 
@@ -89,7 +90,7 @@ func TestIntegration_RedshiftData_DescribeStatement(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var descObj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &descObj))
+	require.NoError(t, json.Unmarshal([]byte(body), &descObj, jsonx.V1()))
 	assert.Equal(t, id, descObj["Id"])
 	assert.Equal(t, "FINISHED", descObj["Status"])
 }
@@ -107,7 +108,7 @@ func TestIntegration_RedshiftData_GetStatementResult(t *testing.T) {
 	require.Equal(t, http.StatusOK, execResp.StatusCode, "body: %s", execBody)
 
 	var execObj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(execBody), &execObj))
+	require.NoError(t, json.Unmarshal([]byte(execBody), &execObj, jsonx.V1()))
 
 	id := execObj["Id"].(string)
 
@@ -149,7 +150,7 @@ func TestIntegration_RedshiftData_BatchExecuteStatement(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var respObj map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &respObj))
+	require.NoError(t, json.Unmarshal([]byte(body), &respObj, jsonx.V1()))
 	assert.NotEmpty(t, respObj["Id"])
 }
 

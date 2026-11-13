@@ -1,13 +1,16 @@
 package account_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ContactInformation_PutGet(t *testing.T) {
@@ -42,7 +45,7 @@ func TestHandler_ContactInformation_PutGet(t *testing.T) {
 	var out struct {
 		ContactInformation map[string]any `json:"ContactInformation"`
 	}
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &out, jsonx.V1()))
 
 	// Every field set on Put round-trips through Get exactly.
 	for k, v := range full {
@@ -137,7 +140,7 @@ func TestHandler_AlternateContact_PutGetDelete(t *testing.T) {
 			var out struct {
 				AlternateContact map[string]any `json:"AlternateContact"`
 			}
-			require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &out, jsonx.V1()))
 			assert.Equal(t, "Test Contact", out.AlternateContact["Name"])
 			assert.Equal(t, tt.contactType, out.AlternateContact["AlternateContactType"])
 

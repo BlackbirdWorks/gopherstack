@@ -1,12 +1,13 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 )
 
@@ -21,7 +22,7 @@ func (c *connectCall) viewContent() (*connectbackend.ViewInputContent, error) {
 		return &connectbackend.ViewInputContent{Template: s, Actions: c.actionStrings()}, nil
 	}
 
-	raw, err := json.Marshal(template)
+	raw, err := json.Marshal(template, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}

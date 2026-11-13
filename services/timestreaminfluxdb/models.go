@@ -1,7 +1,7 @@
 package timestreaminfluxdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -149,7 +149,7 @@ type DBParameterGroup struct {
 	Description string            `json:"description,omitempty"`
 	AccountID   string            `json:"accountId"`
 	Region      string            `json:"region"`
-	Parameters  json.RawMessage   `json:"parameters,omitempty"`
+	Parameters  jsontext.Value    `json:"parameters,omitempty"`
 }
 
 // DBBackup is a backup of an instance or cluster.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +28,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -271,7 +273,7 @@ func parseDSQLConnInfo(t *testing.T, raw []byte) (string, int) {
 		Port int    `json:"port"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &info))
+	require.NoError(t, json.Unmarshal(raw, &info, jsonx.V1()))
 	require.NotEmpty(t, info.Host)
 	require.NotZero(t, info.Port)
 

@@ -2,7 +2,7 @@ package efs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -52,7 +52,7 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage              `json:"tables"`
+	Tables             map[string]jsontext.Value               `json:"tables"`
 	LifecyclePolicies  map[string]map[string][]LifecyclePolicy `json:"lifecyclePolicies"`
 	BackupPolicies     map[string]map[string]string            `json:"backupPolicies"`
 	FileSystemPolicies map[string]map[string]string            `json:"fileSystemPolicies"`
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 
 	if err := dtos.registry.RestoreAll(tables); err != nil {

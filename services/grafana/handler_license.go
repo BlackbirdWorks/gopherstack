@@ -2,8 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // grafanaTokenHeader is the HTTP header AssociateLicenseInput.GrafanaToken is
@@ -24,7 +26,7 @@ func (h *Handler) handleAssociateLicense(_ context.Context, r *http.Request, _ [
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }
 
 func (h *Handler) handleDisassociateLicense(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -36,5 +38,5 @@ func (h *Handler) handleDisassociateLicense(_ context.Context, r *http.Request, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }

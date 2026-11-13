@@ -1,10 +1,11 @@
 package networkmanager
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -42,7 +43,7 @@ func (b *InMemoryBackend) CreateCoreNetwork(
 		return nil, validationError(fmt.Sprintf("%s %s not found", resourceGlobalNetwork, globalNetworkID))
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+	if policyDocument != "" && !jsontext.Value([]byte(policyDocument)).IsValid(jsonx.V1()) {
 		return nil, coreNetworkPolicyError("PolicyDocument is not valid JSON", []CoreNetworkPolicyError{
 			{ErrorCode: "InvalidPolicyDocument", Message: "PolicyDocument must be valid JSON", Path: "/"},
 		})
@@ -170,7 +171,7 @@ func (b *InMemoryBackend) PutCoreNetworkPolicy(
 		return nil, nil, notFoundError(resourceCoreNetwork, coreNetworkID)
 	}
 
-	if !json.Valid([]byte(policyDocument)) {
+	if !jsontext.Value([]byte(policyDocument)).IsValid(jsonx.V1()) {
 		return nil, nil, coreNetworkPolicyError("PolicyDocument is not valid JSON", []CoreNetworkPolicyError{
 			{ErrorCode: "InvalidPolicyDocument", Message: "PolicyDocument must be valid JSON", Path: "/"},
 		})

@@ -6,7 +6,8 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -166,7 +168,7 @@ func (r *s3Runner) manifestObjects(ctx context.Context, bucket, key string) ([]s
 		} `json:"entries"`
 	}
 
-	if err = json.Unmarshal(raw, &m); err != nil {
+	if err = json.Unmarshal(raw, &m, jsonx.V1()); err != nil {
 		return nil, stmtErrorf("Manifest file is not in correct json format")
 	}
 
@@ -331,12 +333,11 @@ func appendJSON(
 		return err
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
 
 	for {
 		var rec any
-		if err = dec.Decode(&rec); errors.Is(err, io.EOF) {
+		if err = json.UnmarshalDecode(dec, &rec, jsonx.V1(), jsonx.UseNumber()); errors.Is(err, io.EOF) {
 			return nil
 		} else if err != nil {
 			return stmtErrorf("Invalid JSON record in S3 object: %v", err)
@@ -379,7 +380,7 @@ func jsonPathsFor(s *copySpec, cols []string, fetch func(string) ([]byte, error)
 		JSONPaths []string `json:"jsonpaths"`
 	}
 
-	if err = json.Unmarshal(raw, &doc); err != nil {
+	if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return nil, stmtErrorf("The JSONPaths file is not valid JSON: %v", err)
 	}
 
@@ -504,14 +505,14 @@ func textCell(v any) *string {
 		return nil
 	case string:
 		s = x
-	case json.Number:
+	case jsonx.Number:
 		s = x.String()
 	case bool:
 		s = strconv.FormatBool(x)
 	case int64, float64, int32, int:
 		s = fmt.Sprint(x)
 	default:
-		raw, err := json.Marshal(x)
+		raw, err := json.Marshal(x, jsonx.V1())
 		if err != nil {
 			s = fmt.Sprint(x)
 		} else {

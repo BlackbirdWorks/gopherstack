@@ -8,7 +8,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"io"
 	"math/big"
@@ -20,13 +21,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func acmPost(t *testing.T, action string, body any) *http.Response {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint,
@@ -57,7 +59,7 @@ func acmReadJSON(t *testing.T, resp *http.Response) map[string]any {
 	defer resp.Body.Close()
 
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &m, jsonx.V1()))
 
 	return m
 }
@@ -218,7 +220,7 @@ func TestIntegration_ACM_ImportCertificate(t *testing.T) {
 	importedARN := struct {
 		CertificateArn string `json:"CertificateArn"`
 	}{}
-	require.NoError(t, json.Unmarshal([]byte(importBody), &importedARN))
+	require.NoError(t, json.Unmarshal([]byte(importBody), &importedARN, jsonx.V1()))
 
 	// Describe the imported cert
 	descImportedResp := acmPost(t, "DescribeCertificate", map[string]any{"CertificateArn": importedARN.CertificateArn})

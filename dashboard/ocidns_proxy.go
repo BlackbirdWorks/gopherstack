@@ -3,7 +3,7 @@ package dashboard
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"regexp"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 	mdns "github.com/miekg/dns"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	idbackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
@@ -356,13 +357,13 @@ func ociDNSScrub(raw []byte) []byte {
 	}
 
 	var doc any
-	if json.Unmarshal(raw, &doc) != nil {
+	if json.Unmarshal(raw, &doc, jsonx.V1()) != nil {
 		return []byte("{}")
 	}
 
 	ociDNSStrip(doc)
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}

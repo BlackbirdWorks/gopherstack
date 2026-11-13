@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestServerless_TagResource_RoundTrip proves creation-time Tags on
@@ -28,7 +31,7 @@ func TestServerless_TagResource_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	nsData, _ := createResp["namespace"].(map[string]any)
 	require.NotNil(t, nsData)
 	nsArn, _ := nsData["namespaceArn"].(string)
@@ -42,7 +45,7 @@ func TestServerless_TagResource_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	tagList, _ := listResp["tags"].([]any)
 	require.Len(t, tagList, 1)
 
@@ -61,7 +64,7 @@ func TestServerless_TagResource_RoundTrip(t *testing.T) {
 
 	rec = doServerlessOp(t, h, "ListTagsForResource", map[string]any{"resourceArn": nsArn})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	tagList, _ = listResp["tags"].([]any)
 	assert.Len(t, tagList, 2)
 
@@ -73,7 +76,7 @@ func TestServerless_TagResource_RoundTrip(t *testing.T) {
 
 	rec = doServerlessOp(t, h, "ListTagsForResource", map[string]any{"resourceArn": nsArn})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	tagList, _ = listResp["tags"].([]any)
 	require.Len(t, tagList, 1)
 
@@ -99,7 +102,7 @@ func TestServerless_TagResource_WorkgroupAndSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var wgResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&wgResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &wgResp, jsonx.V1()))
 	wgData, _ := wgResp["workgroup"].(map[string]any)
 	wgArn, _ := wgData["workgroupArn"].(string)
 	require.NotEmpty(t, wgArn)
@@ -108,7 +111,7 @@ func TestServerless_TagResource_WorkgroupAndSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	tagList, _ := listResp["tags"].([]any)
 	require.Len(t, tagList, 1)
 
@@ -120,14 +123,14 @@ func TestServerless_TagResource_WorkgroupAndSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var snapResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&snapResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &snapResp, jsonx.V1()))
 	snapData, _ := snapResp["snapshot"].(map[string]any)
 	snapArn, _ := snapData["snapshotArn"].(string)
 	require.NotEmpty(t, snapArn)
 
 	rec = doServerlessOp(t, h, "ListTagsForResource", map[string]any{"resourceArn": snapArn})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	tagList, _ = listResp["tags"].([]any)
 	assert.Len(t, tagList, 1)
 }
@@ -174,7 +177,7 @@ func TestServerless_TagResource_Errors(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 		})
 	}
@@ -190,7 +193,7 @@ func TestServerless_TagResource_Errors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 		assert.Equal(t, "ValidationException", errResp["__type"])
 	})
 
@@ -205,7 +208,7 @@ func TestServerless_TagResource_Errors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 		assert.Equal(t, "ValidationException", errResp["__type"])
 	})
 }

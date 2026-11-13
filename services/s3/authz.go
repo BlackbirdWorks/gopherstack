@@ -2,11 +2,12 @@ package s3
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Data-plane access control. This file evaluates the stored bucket policy + ACL
@@ -109,7 +110,7 @@ func (h *S3Handler) evaluateBucketPolicy(
 	}
 
 	var doc bucketPolicyDocument
-	if uErr := json.Unmarshal([]byte(arn.Canonical(policyJSON)), &doc); uErr != nil {
+	if uErr := json.Unmarshal([]byte(arn.Canonical(policyJSON)), &doc, jsonx.V1()); uErr != nil {
 		return effectDefault
 	}
 

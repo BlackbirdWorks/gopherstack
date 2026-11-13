@@ -1,7 +1,7 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 )
@@ -32,7 +33,7 @@ func connectFlowContent(t *testing.T) string {
 			"Identifier": "end", "Type": "DisconnectParticipant", "Parameters": map[string]any{},
 			"Transitions": map[string]any{},
 		}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(doc)

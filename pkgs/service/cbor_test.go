@@ -2,7 +2,7 @@ package service_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/aws/smithy-go/encoding/cbor"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -109,7 +110,7 @@ func TestCBORToJSON(t *testing.T) {
 			}
 
 			var got map[string]any
-			if err := json.Unmarshal(jsonBytes, &got); err != nil {
+			if err := json.Unmarshal(jsonBytes, &got, jsonx.V1()); err != nil {
 				t.Fatalf("unmarshal result: %v", err)
 			}
 
@@ -290,15 +291,15 @@ func TestCBORRoundTrip(t *testing.T) {
 			}
 
 			var orig, got map[string]any
-			if e := json.Unmarshal([]byte(tc.args.jsonInput), &orig); e != nil {
+			if e := json.Unmarshal([]byte(tc.args.jsonInput), &orig, jsonx.V1()); e != nil {
 				t.Fatalf("unmarshal orig: %v", e)
 			}
-			if e := json.Unmarshal(jsonOut, &got); e != nil {
+			if e := json.Unmarshal(jsonOut, &got, jsonx.V1()); e != nil {
 				t.Fatalf("unmarshal got: %v", e)
 			}
 
-			origJSON, _ := json.Marshal(orig)
-			gotJSON, _ := json.Marshal(got)
+			origJSON, _ := json.Marshal(orig, jsonx.V1())
+			gotJSON, _ := json.Marshal(got, jsonx.V1())
 
 			if string(origJSON) != string(gotJSON) {
 				t.Errorf("round-trip mismatch:\n  orig: %s\n   got: %s", origJSON, gotJSON)
@@ -359,7 +360,7 @@ func TestCBORBinaryRoundTrip(t *testing.T) {
 			}
 
 			var jsonMap map[string]any
-			if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
+			if err = json.Unmarshal(jsonBytes, &jsonMap, jsonx.V1()); err != nil {
 				t.Fatalf("unmarshal: %v", err)
 			}
 

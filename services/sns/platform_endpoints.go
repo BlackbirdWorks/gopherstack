@@ -1,7 +1,7 @@
 package sns
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // CreatePlatformEndpoint registers a device token as an endpoint for a platform application.
@@ -267,6 +268,6 @@ func (b *InMemoryBackend) fireEndpointEvent(appArn, eventAttr string, payload ma
 		return
 	}
 
-	msg, _ := json.Marshal(payload)
+	msg, _ := json.Marshal(payload, jsonx.V1())
 	_, _ = b.Publish(topicArn, string(msg), "", "", nil)
 }

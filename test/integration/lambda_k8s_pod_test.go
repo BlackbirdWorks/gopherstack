@@ -3,7 +3,7 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +22,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
@@ -178,7 +179,7 @@ func TestLambda_KubernetesPodExecutor(t *testing.T) {
 	createBody, err := json.Marshal(map[string]any{
 		"FunctionName": "k8s-pod-fn", "PackageType": "Zip", "Runtime": "python3.12", "Handler": "index.handler",
 		"Code": map[string]string{"ZipFile": zipB64}, "Role": "arn:aws:iam::000000000000:role/test", "MemorySize": 256,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost, server.URL+"/2015-03-31/functions", "application/json",
@@ -197,7 +198,7 @@ func TestLambda_KubernetesPodExecutor(t *testing.T) {
 		Fn   string         `json:"fn"`
 	}
 
-	require.NoError(t, json.Unmarshal(result, &out), string(result))
+	require.NoError(t, json.Unmarshal(result, &out, jsonx.V1()), string(result))
 	assert.Equal(t, 7, out.Echo["n"])
 	assert.Equal(t, "k8s-pod-fn", out.Fn)
 

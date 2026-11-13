@@ -2,11 +2,12 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -115,7 +116,7 @@ func (a *schedUniversalAdapter) InvokeUniversalTarget(
 	ctx context.Context, region, roleARN, svc, action string, input []byte,
 ) error {
 	var params any
-	if err := json.Unmarshal(input, &params); err != nil {
+	if err := json.Unmarshal(input, &params, jsonx.V1()); err != nil {
 		return fmt.Errorf("universal target input is not valid JSON: %w", err)
 	}
 

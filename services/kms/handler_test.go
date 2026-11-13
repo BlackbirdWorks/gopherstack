@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -68,7 +69,10 @@ func TestErrValidation_Mapping(t *testing.T) {
 				if err != nil {
 					return `{}`
 				}
-				body, _ := json.Marshal(map[string]any{"KeyId": key.KeyMetadata.KeyID, "PendingWindowInDays": 3})
+				body, _ := json.Marshal(
+					map[string]any{"KeyId": key.KeyMetadata.KeyID, "PendingWindowInDays": 3},
+					jsonx.V1(),
+				)
 
 				return string(body)
 			},

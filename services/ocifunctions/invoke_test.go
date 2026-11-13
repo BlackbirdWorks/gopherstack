@@ -2,7 +2,7 @@ package ocifunctions_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	oci "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
 
@@ -116,7 +117,7 @@ func TestInvoke_FDKContract(t *testing.T) {
 	require.NoError(t, err)
 
 	var got echo
-	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	require.NoError(t, json.Unmarshal([]byte(out), &got, jsonx.V1()))
 	assert.Equal(t, "hello", got.Body)
 	assert.Equal(t, "/call", got.Path)
 	assert.Equal(t, "1", resp.RawResponse.Header.Get("Fn-Http-H-X-Echo"))

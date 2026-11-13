@@ -2,7 +2,7 @@ package managedblockchain
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -63,8 +63,8 @@ func buildProposalVoteDTORegistry() (*store.Registry, *store.Table[proposalVoteD
 // is a derived reverse-lookup cache rebuilt from the tables above by
 // rebuildARNIndexLocked on Restore, exactly as it was before this refactor.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreTablesLocked rebuilds every store.Table on b from tables' per-table
 // JSON, factored out of Restore to keep Restore's own cognitive complexity
 // low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreTablesLocked(tables map[string]jsontext.Value) error {
 	if err := b.registry.RestoreAll(tables); err != nil {
 		return fmt.Errorf("managedblockchain: restore tables: %w", err)
 	}

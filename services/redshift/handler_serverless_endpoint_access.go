@@ -1,11 +1,13 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // slVpcSecurityGroupMembership mirrors types.VpcSecurityGroupMembership --
@@ -61,7 +63,7 @@ func (h *ServerlessHandler) handleCreateEndpointAccessSL(c *echo.Context, body [
 		VpcSecurityGroupIDs []string `json:"vpcSecurityGroupIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -80,7 +82,7 @@ func (h *ServerlessHandler) handleGetEndpointAccessSL(c *echo.Context, body []by
 		EndpointName string `json:"endpointName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -108,7 +110,7 @@ func (h *ServerlessHandler) handleListEndpointAccessSL(c *echo.Context, body []b
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -135,7 +137,7 @@ func (h *ServerlessHandler) handleUpdateEndpointAccessSL(c *echo.Context, body [
 		VpcSecurityGroupIDs []string `json:"vpcSecurityGroupIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -152,7 +154,7 @@ func (h *ServerlessHandler) handleDeleteEndpointAccessSL(c *echo.Context, body [
 		EndpointName string `json:"endpointName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -175,7 +177,7 @@ func (h *ServerlessHandler) handleListManagedWorkgroups(c *echo.Context, body []
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}

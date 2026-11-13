@@ -9,7 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -92,13 +93,13 @@ func (f fakeInvoker) InvokeLambda(
 	f.calls.record(invocation{arn: arn, clientContext: clientContext, payload: payload})
 
 	var in map[string]any
-	_ = json.Unmarshal(payload, &in)
+	_ = json.Unmarshal(payload, &in, jsonx.V1())
 
 	if in["boom"] == true {
 		return []byte(`{"errorMessage":"boom"}`), "Unhandled", nil
 	}
 
-	out, _ := json.Marshal(map[string]any{"echo": in})
+	out, _ := json.Marshal(map[string]any{"echo": in}, jsonx.V1())
 
 	return out, "", nil
 }
@@ -281,7 +282,7 @@ func TestGatewayMCPLambdaTarget(t *testing.T) {
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)
@@ -314,7 +315,7 @@ func TestGatewayMCPClientContext(t *testing.T) {
 		Custom map[string]string `json:"custom"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &cc))
+	require.NoError(t, json.Unmarshal(raw, &cc, jsonx.V1()))
 	assert.Equal(t, "util___echo", cc.Custom["bedrockAgentCoreToolName"])
 	assert.Equal(t, gid, cc.Custom["bedrockAgentCoreGatewayId"])
 	assert.Equal(t, tid, cc.Custom["bedrockAgentCoreTargetId"])

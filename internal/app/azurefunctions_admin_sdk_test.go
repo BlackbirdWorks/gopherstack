@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -15,6 +15,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func flexSDKConfig() *armappservice.FunctionAppConfig {
@@ -246,7 +248,7 @@ func TestAzureFunctionsARMSDK_Management(t *testing.T) {
 		require.NoError(t, err)
 
 		var c map[string]any
-		require.NoError(t, json.Unmarshal(claims, &c))
+		require.NoError(t, json.Unmarshal(claims, &c, jsonx.V1()))
 		assert.Equal(t, "https://tokapp.azurewebsites.net/azurefunctions", c["aud"])
 		assert.Greater(t, c["exp"], c["iat"])
 

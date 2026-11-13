@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/http"
 	"testing"
@@ -291,7 +291,7 @@ func TestBackend_UpdateVirtualRouter(t *testing.T) {
 			t.Parallel()
 			b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
-			vr, err := b.UpdateVirtualRouter(tt.meshName, tt.vrName, json.RawMessage(`{}`))
+			vr, err := b.UpdateVirtualRouter(tt.meshName, tt.vrName, jsontext.Value(`{}`))
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))
@@ -360,7 +360,7 @@ func TestBackend_UpdateRoute(t *testing.T) {
 			t.Parallel()
 			b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
-			r, err := b.UpdateRoute(tt.meshName, tt.vrName, tt.routeName, json.RawMessage(`{}`))
+			r, err := b.UpdateRoute(tt.meshName, tt.vrName, tt.routeName, jsontext.Value(`{}`))
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))

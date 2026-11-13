@@ -1,13 +1,14 @@
 package dax_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
@@ -81,7 +82,7 @@ func TestHandlerCreateCluster(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -104,7 +105,7 @@ func TestHandlerClusterResponseHasNoTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cluster := resp["Cluster"].(map[string]any)
 	_, hasTags := cluster["Tags"]
 	assert.False(t, hasTags, "Cluster response must not include a Tags field")
@@ -122,7 +123,7 @@ func TestHandlerCreateCluster_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ClusterAlreadyExistsFault", errResp["__type"])
 }
 
@@ -164,7 +165,7 @@ func TestHandlerDescribeClusters(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			clusters := resp["Clusters"].([]any)
 			assert.Len(t, clusters, tt.wantCount)
 		})
@@ -237,7 +238,7 @@ func TestHandlerUpdateCluster(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -351,7 +352,7 @@ func TestHandlerReplicationFactor(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -407,7 +408,7 @@ func TestHandlerRebootNode(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})

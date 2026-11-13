@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"strings"
 	"testing"
@@ -12,6 +12,8 @@ import (
 	s3tablestypes "github.com/aws/aws-sdk-go-v2/service/s3tables/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestS3TablesInitialMetadataMaterialized(t *testing.T) {
@@ -84,7 +86,7 @@ func TestS3TablesInitialMetadataMaterialized(t *testing.T) {
 			require.NoError(t, err)
 
 			var doc map[string]any
-			require.NoError(t, json.Unmarshal(raw, &doc))
+			require.NoError(t, json.Unmarshal(raw, &doc, jsonx.V1()))
 			assert.InDelta(t, 2, doc["format-version"], 0)
 			assert.Equal(t, aws.ToString(loc.WarehouseLocation), doc["location"])
 			assert.InDelta(t, 2, doc["last-column-id"], 0)

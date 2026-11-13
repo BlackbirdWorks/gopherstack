@@ -2,7 +2,8 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -85,7 +87,10 @@ func TestDockerRunnerLiveRelativeCredentialsURI(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_gopherstack/ecs/credentials/"+taskID, func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"AccessKeyId": "ASIALIVE", "Token": "tok"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"AccessKeyId": "ASIALIVE", "Token": "tok"},
+		)
 	})
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}

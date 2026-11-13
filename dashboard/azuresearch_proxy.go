@@ -5,7 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -216,7 +219,7 @@ func (a searchAccess) adminKeys(c *echo.Context, ids searchIDs) (string, string,
 		Primary   string `json:"primaryKey"`
 		Secondary string `json:"secondaryKey"`
 	}
-	if json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()) != nil {
 		_ = azureACIFail(c, http.StatusBadGateway, "KeysUnavailable", "unreadable admin keys")
 
 		return "", "", false
@@ -239,7 +242,7 @@ func (a searchAccess) queryKeys(c *echo.Context, ids searchIDs) ([]searchKey, bo
 			Key  string `json:"key"`
 		} `json:"value"`
 	}
-	if json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()) != nil {
 		_ = azureACIFail(c, http.StatusBadGateway, "KeysUnavailable", "unreadable query keys")
 
 		return nil, false
@@ -318,10 +321,10 @@ func (a searchAccess) createQueryKey(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 
-	dec := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, srchPxMaxBody))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, srchPxMaxBody))
 
-	if dec.Decode(&in) != nil || !srchPxKeyRe.MatchString(in.Name) {
+	if json.UnmarshalDecode(dec, &in, jsonx.V1(), json.RejectUnknownMembers(true)) != nil ||
+		!srchPxKeyRe.MatchString(in.Name) {
 		return azureACIFail(c, http.StatusBadRequest, "InvalidRequestContent", "the key name is invalid")
 	}
 
@@ -338,7 +341,7 @@ func (a searchAccess) createQueryKey(c *echo.Context) error {
 		Name string `json:"name"`
 		Key  string `json:"key"`
 	}
-	if json.Unmarshal(rec.Body.Bytes(), &made) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &made, jsonx.V1()) != nil {
 		return azureACIFail(c, http.StatusBadGateway, "CreateFailed", "unreadable query key")
 	}
 
@@ -485,10 +488,9 @@ func (q searchQueryIn) valid() bool {
 func searchQueryBody(raw []byte) ([]byte, bool) {
 	var in searchQueryIn
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
-	if dec.Decode(&in) != nil || !in.valid() {
+	if json.UnmarshalDecode(dec, &in, jsonx.V1(), json.RejectUnknownMembers(true)) != nil || !in.valid() {
 		return nil, false
 	}
 
@@ -515,7 +517,7 @@ func searchQueryBody(raw []byte) ([]byte, bool) {
 		out["skip"] = *in.Skip
 	}
 
-	body, err := json.Marshal(out)
+	body, err := json.Marshal(out, jsonx.V1())
 
 	return body, err == nil
 }
@@ -604,10 +606,10 @@ func searchRelay(c *echo.Context, rec *httptest.ResponseRecorder, isQuery bool) 
 
 	if !isQuery && rec.Code < http.StatusMultipleChoices {
 		var doc any
-		if json.Unmarshal(reply, &doc) == nil {
+		if json.Unmarshal(reply, &doc, jsonx.V1()) == nil {
 			searchScrub(doc)
 
-			if out, err := json.Marshal(doc); err == nil {
+			if out, err := json.Marshal(doc, jsonx.V1()); err == nil {
 				reply = out
 			}
 		}

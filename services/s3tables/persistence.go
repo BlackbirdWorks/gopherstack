@@ -2,7 +2,7 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -87,7 +87,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // against decoding a snapshot from an incompatible (older or newer) build
 // of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold every mutex.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	if err := b.registry.RestoreAll(tables); err != nil {
 		return fmt.Errorf("s3tables: restore clean tables: %w", err)
 	}

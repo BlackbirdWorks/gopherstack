@@ -1,13 +1,14 @@
 package lakeformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -61,7 +62,7 @@ func TestHandler_AssumeDecoratedRoleWithSAML(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				for _, field := range tt.wantFields {
 					assert.Contains(t, resp, field)
 					assert.NotEmpty(t, resp[field])
@@ -85,7 +86,7 @@ func TestAssumeDecoratedRoleWithSAML_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["AccessKeyId"])
 	assert.NotEmpty(t, out["SecretAccessKey"])
 	assert.NotEmpty(t, out["SessionToken"])

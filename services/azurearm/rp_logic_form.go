@@ -2,13 +2,15 @@ package azurearm
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type formField struct {
@@ -181,7 +183,7 @@ func partBody(ct string, body []byte) any {
 	switch {
 	case strings.Contains(mt, "json"):
 		var v any
-		if err := json.Unmarshal(body, &v); err == nil {
+		if err := json.Unmarshal(body, &v, jsonx.V1()); err == nil {
 			return normLogic(v)
 		}
 	case mt == "" || strings.HasPrefix(mt, "text/"):

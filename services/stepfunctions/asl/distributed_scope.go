@@ -1,11 +1,13 @@
 package asl
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var varRefRe = regexp.MustCompile(
@@ -30,13 +32,13 @@ func checkDistributedScope(mapName string, states map[string]*State, outer map[s
 			continue
 		}
 
-		b, err := json.Marshal(st)
+		b, err := json.Marshal(st, jsonx.V1())
 		if err != nil {
 			return fmt.Errorf("%w: state %q: %w", ErrParseError, name, err)
 		}
 
 		var doc any
-		if err = json.Unmarshal(b, &doc); err != nil {
+		if err = json.Unmarshal(b, &doc, jsonx.V1()); err != nil {
 			return fmt.Errorf("%w: state %q: %w", ErrParseError, name, err)
 		}
 

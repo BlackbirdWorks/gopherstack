@@ -2,7 +2,7 @@ package sesv2_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
@@ -34,7 +35,7 @@ func doRequest(
 	var bodyReader *bytes.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		bodyReader = bytes.NewReader(b)
@@ -366,7 +367,7 @@ func TestSESv2Handler_ErrorResponseIncludesType(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(
 		t,
 		"NotFoundException",
@@ -399,7 +400,7 @@ func TestSESv2Handler_URLEncodedIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotContains(t, out, "EmailIdentity")
 
 	// DELETE using percent-encoded path.

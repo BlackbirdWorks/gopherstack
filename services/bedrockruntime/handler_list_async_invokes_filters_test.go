@@ -1,7 +1,7 @@
 package bedrockruntime_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func startAsyncInvokeBody(i int) map[string]any {
@@ -71,7 +73,7 @@ func TestHandler_ListAsyncInvokes_SubmitTimeFilters(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				summaries, ok := out["asyncInvokeSummaries"].([]any)
 				require.True(t, ok)
@@ -93,7 +95,7 @@ func TestHandler_ListAsyncInvokes_SortOrder(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, rec1.Code)
 
 		var firstBody map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &firstBody))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &firstBody, jsonx.V1()))
 		firstARN, ok := firstBody["invocationArn"].(string)
 		require.True(t, ok)
 
@@ -103,7 +105,7 @@ func TestHandler_ListAsyncInvokes_SortOrder(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, rec2.Code)
 
 		var secondBody map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &secondBody))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &secondBody, jsonx.V1()))
 		secondARN, ok := secondBody["invocationArn"].(string)
 		require.True(t, ok)
 
@@ -111,7 +113,7 @@ func TestHandler_ListAsyncInvokes_SortOrder(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		summaries, ok := out["asyncInvokeSummaries"].([]any)
 		require.True(t, ok)

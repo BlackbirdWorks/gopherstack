@@ -15,13 +15,14 @@ package pipes_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -828,7 +829,7 @@ func TestPipesRunner_StreamSourcePolling(t *testing.T) {
 						EventSource string `json:"eventSource"`
 					} `json:"Records"`
 				}
-				require.NoError(t, json.Unmarshal(payloads[0], &event))
+				require.NoError(t, json.Unmarshal(payloads[0], &event, jsonx.V1()))
 				require.Len(t, event.Records, 1)
 				assert.Equal(t, "pk1", event.Records[0].Kinesis.PartitionKey)
 				assert.Equal(t, "aws:kinesis", event.Records[0].EventSource)
@@ -997,7 +998,7 @@ func TestPipesRunner_StreamSourcePolling(t *testing.T) {
 						EventName string `json:"eventName"`
 					} `json:"Records"`
 				}
-				require.NoError(t, json.Unmarshal(payloads[0], &event))
+				require.NoError(t, json.Unmarshal(payloads[0], &event, jsonx.V1()))
 				require.Len(t, event.Records, 1)
 				assert.Equal(t, "INSERT", event.Records[0].EventName)
 			},

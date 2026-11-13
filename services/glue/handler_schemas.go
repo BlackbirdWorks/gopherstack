@@ -2,7 +2,7 @@ package glue
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validateSchemaDefinition checks a schema definition string against its DataFormat.
@@ -611,7 +613,7 @@ type schemaVersionNumberInput struct {
 
 func (s *schemaVersionNumberInput) UnmarshalJSON(data []byte) error {
 	var n int64
-	if err := json.Unmarshal(data, &n); err == nil {
+	if err := json.Unmarshal(data, &n, jsonx.V1()); err == nil {
 		s.Number = n
 
 		return nil
@@ -621,7 +623,7 @@ func (s *schemaVersionNumberInput) UnmarshalJSON(data []byte) error {
 		VersionNumber int64 `json:"VersionNumber"`
 	}
 
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := json.Unmarshal(data, &v, jsonx.V1()); err != nil {
 		return err
 	}
 

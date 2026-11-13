@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 
@@ -11,6 +11,8 @@ import (
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const cfnAsyncTopicTemplate = `{"Resources":{"Topic":{"Type":"AWS::SNS::Topic"}}}`
@@ -162,7 +164,7 @@ func TestIntegration_CloudFormation_NestedStackWindow(t *testing.T) {
 		_, _ = client.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(name)})
 	})
 
-	child, err := json.Marshal(cfnAsyncTopicTemplate)
+	child, err := json.Marshal(cfnAsyncTopicTemplate, jsonx.V1())
 	require.NoError(t, err)
 
 	out, err := client.CreateStack(ctx, &cloudformationsdk.CreateStackInput{

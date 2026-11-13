@@ -2,9 +2,12 @@ package azureeventgrid
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -18,9 +21,9 @@ const (
 type Event struct {
 	Fields map[string]any
 	ID     string
-	Raw    json.RawMessage
+	Raw    jsontext.Value
 	// Original is the published payload of a custom-schema event (Raw is its Event Grid form).
-	Original json.RawMessage
+	Original jsontext.Value
 }
 
 func invalidEvent(format string, args ...any) error {
@@ -49,20 +52,20 @@ func ParseEvents(body []byte, schema string) ([]Event, error) {
 	return out, nil
 }
 
-func splitEvents(body []byte) ([]json.RawMessage, error) {
+func splitEvents(body []byte) ([]jsontext.Value, error) {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
 		return nil, invalidEvent("the request body is empty")
 	}
 
-	var raws []json.RawMessage
+	var raws []jsontext.Value
 
 	if trimmed[0] == '[' {
-		if err := json.Unmarshal(trimmed, &raws); err != nil {
+		if err := json.Unmarshal(trimmed, &raws, jsonx.V1()); err != nil {
 			return nil, invalidEvent("the request body is not valid JSON")
 		}
 	} else {
-		raws = []json.RawMessage{trimmed}
+		raws = []jsontext.Value{trimmed}
 	}
 
 	if len(raws) == 0 {
@@ -76,9 +79,9 @@ func splitEvents(body []byte) ([]json.RawMessage, error) {
 	return raws, nil
 }
 
-func parseEvent(raw json.RawMessage, schema string) (Event, error) {
+func parseEvent(raw jsontext.Value, schema string) (Event, error) {
 	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+	if err := json.Unmarshal(raw, &fields, jsonx.V1()); err != nil || fields == nil {
 		return Event{}, invalidEvent("the event is not a JSON object")
 	}
 
@@ -110,7 +113,7 @@ func (e *Event) stamp(topicRID, schema string) error {
 		e.Fields["topic"], e.Fields["metadataVersion"] = topicRID, "1"
 	}
 
-	raw, err := json.Marshal(e.Fields)
+	raw, err := json.Marshal(e.Fields, jsonx.V1())
 	if err != nil {
 		return invalidEvent("the event cannot be encoded")
 	}

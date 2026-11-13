@@ -68,6 +68,7 @@ func TestCodePipelineDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -102,6 +103,7 @@ func TestCodePipelineDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -137,6 +139,7 @@ func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/codepipeline")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

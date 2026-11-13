@@ -1,7 +1,7 @@
 package ocifunctions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	oci "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
 
@@ -148,7 +149,7 @@ func TestDocker_FDKImage(t *testing.T) {
 
 		got := map[string]string{}
 		if ierr == nil && out != "" && resp.RawResponse.StatusCode == http.StatusOK {
-			require.NoError(t, json.Unmarshal([]byte(out), &got), out)
+			require.NoError(t, json.Unmarshal([]byte(out), &got, jsonx.V1()), out)
 		}
 
 		return resp.RawResponse, got, ierr

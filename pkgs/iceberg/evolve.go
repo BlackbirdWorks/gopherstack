@@ -1,11 +1,13 @@
 package iceberg
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Schema evolution errors.
@@ -33,7 +35,7 @@ func (m *TableMetadata) WithColumn(s Schema, name, hiveType, doc string) (Schema
 		return s, 0, fmt.Errorf("%w: %w", errNestedAddColumn, err)
 	}
 
-	raw, _ := json.Marshal(t)
+	raw, _ := json.Marshal(t, jsonx.V1())
 	id := m.LastColumnID + 1
 	out := s
 	out.Fields = append(slices.Clone(s.Fields), Field{ID: id, Name: name, Doc: doc, Type: raw})
@@ -93,7 +95,7 @@ func (m *TableMetadata) WithRenamedColumn(s Schema, from, to, hiveType string) (
 				return s, fmt.Errorf("%w: %s to %s", ErrBadPromotion, old, nt)
 			}
 
-			f.Type, _ = json.Marshal(nt)
+			f.Type, _ = json.Marshal(nt, jsonx.V1())
 		}
 	}
 

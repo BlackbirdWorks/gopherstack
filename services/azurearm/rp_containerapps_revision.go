@@ -3,7 +3,7 @@ package azurearm
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/http"
@@ -91,7 +91,7 @@ func acaVolumeWires(t map[string]any, env *storedACAEnv, secrets map[string]stri
 
 		switch strings.ToLower(strOf(v, "storageType")) {
 		case "", "emptydir":
-			raw := json.RawMessage("{}")
+			raw := jsontext.Value("{}")
 			w.EmptyDir = &raw
 		case "secret":
 			w.Secret = acaSecretVolume(acaList(v[fieldSecrets]), secrets)

@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -20,7 +21,7 @@ func ramRequest(t *testing.T, method, path string, body any) *http.Response {
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -91,7 +92,7 @@ func TestIntegration_RAM_UpdateResourceShare(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "create body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 
 	shareARN := createResult["resourceShare"].(map[string]any)["resourceShareArn"].(string)
 
@@ -116,7 +117,7 @@ func TestIntegration_RAM_DeleteResourceShare(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "create body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 
 	shareARN := createResult["resourceShare"].(map[string]any)["resourceShareArn"].(string)
 
@@ -139,7 +140,7 @@ func TestIntegration_RAM_AssociateResourceShare(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 
 	shareARN := createResult["resourceShare"].(map[string]any)["resourceShareArn"].(string)
 
@@ -164,7 +165,7 @@ func TestIntegration_RAM_TagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 
 	shareARN := createResult["resourceShare"].(map[string]any)["resourceShareArn"].(string)
 

@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
@@ -168,7 +169,7 @@ func srchGet(t *testing.T, h *dashboard.DashboardHandler, path string) map[strin
 	require.Equal(t, http.StatusOK, rec.Code, "%s: %s", path, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -273,7 +274,7 @@ func TestAzureSearchKeysAreMaskedUntilRevealed(t *testing.T) {
 		Query []masked `json:"query"`
 	}
 
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &shown))
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &shown, jsonx.V1()))
 	assert.True(t, strings.HasSuffix(keys.Primary, strings.TrimPrefix(shown.Admin.Primary, "••••••••")))
 	assert.NotEqual(t, keys.Primary, shown.Admin.Primary)
 	require.NotEmpty(t, shown.Query)
@@ -302,7 +303,7 @@ func TestAzureSearchQueryKeyLifecycle(t *testing.T) {
 		Fp   string `json:"fp"`
 	}
 
-	require.NoError(t, json.Unmarshal(made.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(made.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, "web front", created.Name)
 
 	all, err := f.b.ListQueryKeys("hotels")
@@ -424,7 +425,7 @@ func TestAzureSearchExplorerFilterAndFacets(t *testing.T) {
 		Count  int                `json:"@odata.count"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, 2, out.Count)
 	require.Len(t, out.Value, 2)
 	assert.Equal(t, "Royal Hotel", out.Value[0]["name"], "ordered by rating descending")

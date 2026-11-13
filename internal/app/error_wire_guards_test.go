@@ -1,7 +1,8 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -41,7 +43,7 @@ func probeJSONBody() string {
 	for _, k := range keys {
 		m[k] = "gs-probe-missing"
 	}
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(m, jsonx.V1())
 
 	return string(b)
 }
@@ -172,8 +174,8 @@ func parseErrorBody(p errorProbe) (parsedError, bool) {
 }
 
 func parseJSONError(p errorProbe, body string) (parsedError, bool) {
-	var m map[string]json.RawMessage
-	if json.Unmarshal([]byte(body), &m) != nil {
+	var m map[string]jsontext.Value
+	if json.Unmarshal([]byte(body), &m, jsonx.V1()) != nil {
 		return parsedError{}, false
 	}
 
@@ -184,7 +186,7 @@ func parseJSONError(p errorProbe, body string) (parsedError, bool) {
 		}
 
 		var s string
-		_ = json.Unmarshal(raw, &s)
+		_ = json.Unmarshal(raw, &s, jsonx.V1())
 
 		return s, true
 	}

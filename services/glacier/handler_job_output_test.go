@@ -2,7 +2,7 @@ package glacier_test
 
 import (
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -50,7 +51,7 @@ func TestGetJobOutput_ArchiveDescriptionHeader(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var initResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"].(string)
 
 			rec = doRequest(t, h, http.MethodGet,
@@ -203,7 +204,7 @@ func TestInventoryCSV_RFC4180QuotedDescriptions(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, jobRec.Code)
 
 	var jobResp map[string]string
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp, jsonx.V1()))
 	jobID := jobResp["jobId"]
 	require.NotEmpty(t, jobID)
 
@@ -242,7 +243,7 @@ func TestInventoryCSV_DescriptionWithDoubleQuote(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, jobRec.Code)
 
 	var jobResp map[string]string
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp, jsonx.V1()))
 	jobID := jobResp["jobId"]
 
 	outRec := doRequest(t, h, http.MethodGet,
@@ -278,7 +279,7 @@ func TestGetJobOutput_CompletedFilter_Integration(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, jobRec.Code)
 
 	var jr map[string]string
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr, jsonx.V1()))
 	jobID := jr["jobId"]
 	require.NotEmpty(t, jobID)
 
@@ -340,7 +341,7 @@ func TestGetJobOutput_SHA256Header(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var initResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			jobID := initResp["jobId"].(string)
 
 			rec = doRequest(t, h, http.MethodGet,
@@ -361,7 +362,7 @@ func uploadArchiveData(t *testing.T, h *glacier.Handler, vaultName string, data 
 	require.NoError(t, h.Handler()(c))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	id := resp["archiveId"]
 	require.NotEmpty(t, id)
 
@@ -375,7 +376,7 @@ func initiateJobWithBody(t *testing.T, h *glacier.Handler, vaultName, body strin
 	rec := doRequestWithHeaders(t, h, http.MethodPost, "/"+testAccountID+"/vaults/"+vaultName+"/jobs", body, nil)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	id := resp["jobId"]
 	require.NotEmpty(t, id)
 
@@ -413,7 +414,7 @@ func TestArchiveRetrieval_FullLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/arch-lifecycle/jobs/"+jobID, "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var desc map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 			assert.Equal(t, "Succeeded", desc["StatusCode"])
 			assert.Equal(t, true, desc["Completed"])
 
@@ -551,7 +552,7 @@ func TestInventoryRetrieval_JSONLifecycle(t *testing.T) {
 			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 			var inv map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inv))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inv, jsonx.V1()))
 			archList, ok := inv["ArchiveList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, archList, tt.archiveCount)
@@ -634,7 +635,7 @@ func TestInventoryRetrieval_InventorySizeInBytes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var desc map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &desc))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &desc, jsonx.V1()))
 			raw, present := desc["InventorySizeInBytes"]
 			assert.True(t, present, "InventorySizeInBytes must be present after GetJobOutput")
 			got := int64(raw.(float64))
@@ -663,7 +664,7 @@ func TestInventoryRetrieval_LastInventoryDateUpdated(t *testing.T) {
 			rec := doRequestWithHeaders(t, h, http.MethodGet, "/"+testAccountID+"/vaults/lastinv-vault", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var vaultDesc map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vaultDesc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vaultDesc, jsonx.V1()))
 			assert.Empty(t, vaultDesc["LastInventoryDate"])
 
 			initiateJobWithBody(t, h, "lastinv-vault", `{"Type":"inventory-retrieval"}`)
@@ -671,7 +672,7 @@ func TestInventoryRetrieval_LastInventoryDateUpdated(t *testing.T) {
 			// After job: LastInventoryDate set.
 			rec = doRequestWithHeaders(t, h, http.MethodGet, "/"+testAccountID+"/vaults/lastinv-vault", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vaultDesc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vaultDesc, jsonx.V1()))
 			assert.NotEmpty(t, vaultDesc["LastInventoryDate"], tt.name)
 		})
 	}

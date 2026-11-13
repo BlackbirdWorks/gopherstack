@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -156,7 +157,7 @@ func parseVoskWords(stdout string) ([]Word, error) {
 		Conf  float64 `json:"conf"`
 	}
 
-	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &raw); err != nil {
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &raw, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: unparsable output: %w", errVoskExec, err)
 	}
 

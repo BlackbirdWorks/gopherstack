@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // storageTierPolicyWireShape maps a StorageTierPolicy to the real
@@ -42,7 +44,7 @@ func (h *Handler) handlePutStorageTierPolicy(
 	body []byte,
 ) (any, error) {
 	var in putStorageTierPolicyInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

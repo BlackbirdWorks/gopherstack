@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestADAssessments(t *testing.T) {
@@ -28,7 +30,7 @@ func TestADAssessments(t *testing.T) {
 			rec1 := doRequest(t, h, "StartADAssessment", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			assessID, _ := r1["AssessmentId"].(string)
 			assert.NotEmpty(t, assessID)
 
@@ -36,7 +38,7 @@ func TestADAssessments(t *testing.T) {
 			rec2 := doRequest(t, h, "ListADAssessments", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			assessments, _ := r2["Assessments"].([]any)
 			assert.Len(t, assessments, 1)
 
@@ -47,7 +49,7 @@ func TestADAssessments(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 			assessment, _ := r3["Assessment"].(map[string]any)
 			assert.Equal(t, assessID, assessment["AssessmentId"])
 
@@ -69,7 +71,7 @@ func TestADAssessments(t *testing.T) {
 			rec5 := doRequest(t, h, "ListADAssessments", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec5.Code)
 			var r5 map[string]any
-			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5))
+			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5, jsonx.V1()))
 			assessments2, _ := r5["Assessments"].([]any)
 			assert.Empty(t, assessments2)
 
@@ -138,7 +140,7 @@ func TestStartADAssessment_ConfigurationValidation(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errBody map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", errBody["__type"])
 		})
 	}
@@ -179,7 +181,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			assessID, _ := startResp["AssessmentId"].(string)
 			require.NotEmpty(t, assessID)
 
@@ -188,7 +190,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			descRec := doRequest(t, h, "DescribeADAssessment", map[string]any{"AssessmentId": assessID})
 			require.Equal(t, http.StatusOK, descRec.Code)
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			assessment, _ := descResp["Assessment"].(map[string]any)
 			assert.NotContains(t, assessment, "DirectoryId")
 
@@ -214,7 +216,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			listRec := doRequest(t, h, "ListADAssessments", map[string]any{})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			summaries, _ := listResp["Assessments"].([]any)
 			require.Len(t, summaries, 1)
 			summary, _ := summaries[0].(map[string]any)

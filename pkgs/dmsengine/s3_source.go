@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Errors reported by the S3 source.
@@ -36,7 +38,7 @@ type jsonScalar string
 
 func (s *jsonScalar) UnmarshalJSON(b []byte) error {
 	var v any
-	if err := json.Unmarshal(b, &v); err != nil {
+	if err := json.Unmarshal(b, &v, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -109,7 +111,7 @@ func newS3Source(ep EndpointConfig, store ObjectStore) (Source, error) {
 
 	var o s3SourceOptions
 	if ep.S3Settings != "" {
-		if err := json.Unmarshal([]byte(ep.S3Settings), &o); err != nil {
+		if err := json.Unmarshal([]byte(ep.S3Settings), &o, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: S3Settings: %w", ErrS3Source, err)
 		}
 	}
@@ -159,7 +161,7 @@ func (s *s3Source) loadDefinition(def string) error {
 		Tables []s3TableDef `json:"Tables"`
 	}
 
-	if err := json.Unmarshal([]byte(def), &doc); err != nil {
+	if err := json.Unmarshal([]byte(def), &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: ExternalTableDefinition: %w", ErrS3Source, err)
 	}
 

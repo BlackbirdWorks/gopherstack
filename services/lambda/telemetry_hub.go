@@ -3,7 +3,7 @@ package lambda
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -97,7 +98,7 @@ func (s *subscriber) lineRecord(line string) any {
 	if s.jsonLogs && s.sub.api == apiTelemetry && s.sub.schema >= schemaTelemetry20221213 &&
 		strings.HasPrefix(strings.TrimSpace(line), jsonObjectPrefix) {
 		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) == nil {
+		if json.Unmarshal([]byte(line), &obj, jsonx.V1()) == nil {
 			return obj
 		}
 	}
@@ -112,7 +113,7 @@ func (s *subscriber) offer(ev hubEvent) {
 		return
 	}
 
-	raw, err := json.Marshal(we)
+	raw, err := json.Marshal(we, jsonx.V1())
 	if err != nil {
 		return
 	}
@@ -144,7 +145,7 @@ func (s *subscriber) droppedEvent() ([]byte, bool) {
 	}
 
 	we.Time = eventTime(time.Now())
-	raw, _ := json.Marshal(we)
+	raw, _ := json.Marshal(we, jsonx.V1())
 
 	return raw, true
 }

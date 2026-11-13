@@ -2,10 +2,12 @@ package resourcegroups
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // arnSplitParts is the number of colon-separated segments in a well-formed AWS ARN.
@@ -126,7 +128,7 @@ var arnServiceTypeMap = map[string]string{ //nolint:gochecknoglobals,gosec // st
 // The special value "AWS::AllSupported" means match all types and returns nil.
 func parseResourceTypeFilters(queryJSON string) map[string]bool {
 	var tfq tagFilterQuery
-	if err := json.Unmarshal([]byte(queryJSON), &tfq); err != nil {
+	if err := json.Unmarshal([]byte(queryJSON), &tfq, jsonx.V1()); err != nil {
 		return nil
 	}
 

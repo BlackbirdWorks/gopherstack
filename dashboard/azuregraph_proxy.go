@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -244,13 +246,13 @@ func graphProxyBody(method string, segs []string, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }
 
 func graphDecode(in []byte, into any) bool {
-	return json.Unmarshal(in, into) == nil
+	return json.Unmarshal(in, into, jsonx.V1()) == nil
 }
 
 func graphText(v string) (string, bool) {
@@ -404,10 +406,10 @@ func graphProxyRelay(c *echo.Context, rec *httptest.ResponseRecorder, keepSecret
 
 	if len(body) > 0 && !keepSecret || !ok {
 		var doc any
-		if json.Unmarshal(body, &doc) == nil {
+		if json.Unmarshal(body, &doc, jsonx.V1()) == nil {
 			graphScrub(doc)
 
-			if out, err := json.Marshal(doc); err == nil {
+			if out, err := json.Marshal(doc, jsonx.V1()); err == nil {
 				body = out
 			}
 		}

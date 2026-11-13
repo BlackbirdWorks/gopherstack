@@ -1,13 +1,14 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -62,7 +63,7 @@ func TestHandler_GetApplicationPolicy(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				stmts, ok := resp["statements"].([]any)
 				require.True(t, ok)
 				assert.Len(t, stmts, tt.wantLen)
@@ -82,7 +83,7 @@ func TestGetApplicationPolicy_EmptyForNewApp(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stmts, ok := resp["statements"].([]any)
 	require.True(t, ok, "statements must be an array")
 	assert.Empty(t, stmts, "new app should have empty policy statements")
@@ -99,7 +100,7 @@ func TestGetApplicationPolicy_EmptyPolicy_ReturnsEmptyStatements(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stmts := resp["statements"].([]any)
 	assert.Empty(t, stmts)
 }
@@ -125,7 +126,7 @@ func TestGetApplicationPolicy_ARNForm_Routing(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stmts, ok := resp["statements"].([]any)
 	require.True(t, ok)
 	assert.Len(t, stmts, 1)
@@ -198,7 +199,7 @@ func TestHandler_PutApplicationPolicy(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				stmts, ok := resp["statements"].([]any)
 				require.True(t, ok)
 				assert.Len(t, stmts, tt.wantLen)
@@ -334,7 +335,7 @@ func TestErrValidation_MapsTo400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BadRequestException", resp["__type"])
 }
 
@@ -357,7 +358,7 @@ func TestPutApplicationPolicy_AutoGeneratesStatementID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stmts, ok := resp["statements"].([]any)
 	require.True(t, ok)
 	require.Len(t, stmts, 1)
@@ -382,7 +383,7 @@ func TestPolicyResponse_NonNilSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts, ok := resp["statements"].([]any)
 	require.True(t, ok)
@@ -419,7 +420,7 @@ func TestPutApplicationPolicy_PrincipalOrgIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 	stmts := putResp["statements"].([]any)
 	stmt := stmts[0].(map[string]any)
 	orgIDs := stmt["principalOrgIDs"].([]any)
@@ -431,7 +432,7 @@ func TestPutApplicationPolicy_PrincipalOrgIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 	stmts2 := getResp["statements"].([]any)
 	stmt2 := stmts2[0].(map[string]any)
 	orgIDs2 := stmt2["principalOrgIDs"].([]any)
@@ -466,7 +467,7 @@ func TestPutApplicationPolicy_ReplacesExistingStatements(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stmts := resp["statements"].([]any)
 	require.Len(t, stmts, 1, "policy should have exactly 1 statement after replacement")
 	assert.Equal(t, "s3", stmts[0].(map[string]any)["statementId"])

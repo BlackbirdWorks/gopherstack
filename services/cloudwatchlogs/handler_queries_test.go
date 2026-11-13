@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -45,7 +46,7 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut, jsonx.V1()))
 	queryID := startOut["queryId"]
 	require.NotEmpty(t, queryID)
 
@@ -54,7 +55,7 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resultsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut, jsonx.V1()))
 	assert.Equal(t, "Complete", resultsOut["status"])
 	rows, ok := resultsOut["results"].([]any)
 	require.True(t, ok)
@@ -65,7 +66,7 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &descOut, jsonx.V1()))
 	queries, ok := descOut["queries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, queries, 1)
@@ -83,7 +84,7 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var stopOut map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &stopOut))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &stopOut, jsonx.V1()))
 	assert.Equal(t, true, stopOut["success"])
 
 	// GetQueryResults now shows Cancelled.
@@ -91,7 +92,7 @@ func TestHandler_InsightsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec5.Code)
 
 	var resultsOut2 map[string]any
-	require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &resultsOut2))
+	require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &resultsOut2, jsonx.V1()))
 	assert.Equal(t, "Cancelled", resultsOut2["status"])
 }
 
@@ -163,21 +164,21 @@ func TestHandler_InsightsQueryLanguage(t *testing.T) {
 				"queryString":  tt.query,
 				"startTime":    0,
 				"endTime":      0,
-			})
+			}, jsonx.V1())
 			require.NoError(t, merr)
 
 			rec := doLogsRequest(t, h, e, "StartQuery", string(bodyJSON))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startOut map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut, jsonx.V1()))
 			queryID := startOut["queryId"]
 
 			rec2 := doLogsRequest(t, h, e, "GetQueryResults", `{"queryId":"`+queryID+`"}`)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var resultsOut map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut, jsonx.V1()))
 			rows, ok := resultsOut["results"].([]any)
 			require.True(t, ok, "results should be an array")
 			assert.Len(t, rows, tt.wantResults)
@@ -232,14 +233,14 @@ func TestHandler_InsightsARNIdentifier(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, "StartQuery", string(bodyBytes))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startOut map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut, jsonx.V1()))
 			queryID := startOut["queryId"]
 			require.NotEmpty(t, queryID)
 
@@ -247,7 +248,7 @@ func TestHandler_InsightsARNIdentifier(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var resultsOut map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut, jsonx.V1()))
 			rows, ok := resultsOut["results"].([]any)
 			require.True(t, ok)
 			assert.Len(t, rows, tt.wantResults)
@@ -271,7 +272,7 @@ func TestHandler_DescribeQueries_Pagination(t *testing.T) {
 			"queryString":  "fields @message",
 			"startTime":    i,
 			"endTime":      0,
-		})
+		}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doLogsRequest(t, h, e, "StartQuery", string(bodyBytes))
@@ -283,7 +284,7 @@ func TestHandler_DescribeQueries_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	page1Queries, ok := page1["queries"].([]any)
 	require.True(t, ok, "page1 queries should be an array")
 	assert.Len(t, page1Queries, 2)
@@ -295,14 +296,14 @@ func TestHandler_DescribeQueries_Pagination(t *testing.T) {
 		"logGroupName": "/pg",
 		"maxResults":   2,
 		"nextToken":    nextToken,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec2 := doLogsRequest(t, h, e, "DescribeQueries", string(bodyBytes))
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	page2Queries, ok := page2["queries"].([]any)
 	require.True(t, ok, "page2 queries should be an array")
 	assert.Len(t, page2Queries, 1)
@@ -416,7 +417,7 @@ func TestHandler_QueryOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -424,13 +425,13 @@ func TestHandler_QueryOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})

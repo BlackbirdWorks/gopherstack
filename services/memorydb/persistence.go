@@ -2,8 +2,10 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -32,7 +34,7 @@ const memorydbSnapshotVersion = 1
 // [store.Table.Snapshot] slice.
 type backendSnapshot struct {
 	ParameterGroups map[string][]*ParameterGroup      `json:"parameterGroups"`
-	Tables          map[string]json.RawMessage        `json:"tables"`
+	Tables          map[string]jsontext.Value         `json:"tables"`
 	Clusters        map[string][]*Cluster             `json:"clusters"`
 	ACLs            map[string][]*ACL                 `json:"acls"`
 	SubnetGroups    map[string][]*SubnetGroup         `json:"subnetGroups"`
@@ -89,7 +91,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DefaultRegion:   b.defaultRegion,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "memorydb: failed to marshal snapshot", "error", err)
 

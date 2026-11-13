@@ -2,7 +2,7 @@ package service
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // minCredentialParts is the minimum number of slash-delimited fields in an AWS
@@ -275,7 +276,7 @@ func extractErrorInfo(status int, body []byte) (string, string) {
 
 func extractJSONErrorInfo(body []byte) (string, string) {
 	var env jsonErrorEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
+	if err := json.Unmarshal(body, &env, jsonx.V1()); err != nil {
 		return "", ""
 	}
 

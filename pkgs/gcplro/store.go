@@ -4,7 +4,7 @@ package gcplro
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"strings"
@@ -103,11 +103,11 @@ func (s *Store) Reset() {
 }
 
 // Snapshot serialises every operation as protojson.
-func (s *Store) Snapshot() map[string]json.RawMessage {
+func (s *Store) Snapshot() map[string]jsontext.Value {
 	s.mu.RLock("Snapshot")
 	defer s.mu.RUnlock()
 
-	out := make(map[string]json.RawMessage, len(s.ops))
+	out := make(map[string]jsontext.Value, len(s.ops))
 
 	for name, op := range s.ops {
 		if raw, err := protojson.Marshal(op); err == nil {
@@ -119,7 +119,7 @@ func (s *Store) Snapshot() map[string]json.RawMessage {
 }
 
 // Restore replaces the stored operations with a Snapshot result.
-func (s *Store) Restore(snap map[string]json.RawMessage) error {
+func (s *Store) Restore(snap map[string]jsontext.Value) error {
 	ops := make(map[string]*longrunningpb.Operation, len(snap))
 
 	for name, raw := range snap {

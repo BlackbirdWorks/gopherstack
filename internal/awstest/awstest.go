@@ -8,13 +8,15 @@ package awstest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // NewContext builds an echo context and response recorder for an httptest
@@ -38,7 +40,7 @@ func NewJSONContext(
 
 	var body io.Reader
 	if payload != nil {
-		raw, err := json.Marshal(payload)
+		raw, err := json.Marshal(payload, jsonx.V1())
 		require.NoError(t, err)
 		body = bytes.NewReader(raw)
 	}
@@ -53,5 +55,5 @@ func NewJSONContext(
 func DecodeJSON(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1()))
 }

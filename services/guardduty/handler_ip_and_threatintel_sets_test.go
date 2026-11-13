@@ -1,12 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGuardDuty_CreateIPSet_FormatValidation(t *testing.T) {
@@ -44,7 +46,7 @@ func TestGuardDuty_CreateIPSet_FormatValidation(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 				var errOut map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 				assert.Equal(t, "BadRequestException", errOut["__type"])
 
 				return
@@ -90,7 +92,7 @@ func TestGuardDuty_CreateThreatIntelSet_FormatValidation(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 				var errOut map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 				assert.Equal(t, "BadRequestException", errOut["__type"])
 
 				return

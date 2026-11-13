@@ -2,7 +2,7 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -112,7 +113,7 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &event); err == nil && event.ResponseURL != "" {
+			if err := json.Unmarshal(payload, &event, jsonx.V1()); err == nil && event.ResponseURL != "" {
 				select {
 				case capturedURL <- event.ResponseURL:
 				default:
@@ -160,7 +161,7 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 			"Data":               map[string]any{"BucketName": "my-bucket"},
 		}
 
-		body, _ := json.Marshal(resp)
+		body, _ := json.Marshal(resp, jsonx.V1())
 		client := &http.Client{}
 		putReq, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url,
 			newBytesReader(body))
@@ -319,7 +320,7 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &event); err == nil {
+			if err := json.Unmarshal(payload, &event, jsonx.V1()); err == nil {
 				select {
 				case capturedURL <- event.ResponseURL:
 				default:
@@ -363,7 +364,7 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 			"Reason":             "Validation error: bad-data is not allowed",
 			"PhysicalResourceId": "failing-resource-001",
 		}
-		body, _ := json.Marshal(resp)
+		body, _ := json.Marshal(resp, jsonx.V1())
 		client := &http.Client{}
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))
@@ -395,7 +396,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &event); err == nil {
+			if err := json.Unmarshal(payload, &event, jsonx.V1()); err == nil {
 				select {
 				case capturedURL <- event.ResponseURL:
 				default:
@@ -459,7 +460,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 				"BucketArn":  "arn:aws:s3:::my-prefix-generated-bucket",
 			},
 		}
-		body, _ := json.Marshal(resp)
+		body, _ := json.Marshal(resp, jsonx.V1())
 		client := &http.Client{}
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))

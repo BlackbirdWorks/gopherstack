@@ -1,12 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PutGetRepositoryTriggers(t *testing.T) {
@@ -33,7 +35,7 @@ func TestHandler_PutGetRepositoryTriggers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	triggers := resp["triggers"].([]any)
 	assert.Len(t, triggers, 1)
 }
@@ -76,7 +78,7 @@ func TestHandler_TestRepositoryTriggers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	succeeded := resp["successfulExecutions"].([]any)
 	require.Len(t, succeeded, 1)
 	assert.Equal(t, "ad-hoc-trigger", succeeded[0])
@@ -89,7 +91,7 @@ func TestHandler_TestRepositoryTriggers(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	succeeded = resp["successfulExecutions"].([]any)
 	assert.Empty(t, succeeded)
 }
@@ -123,7 +125,7 @@ func TestHandler_TriggerLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	got := resp["triggers"].([]any)
 	assert.Len(t, got, 2)
 
@@ -134,7 +136,7 @@ func TestHandler_TriggerLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	succeeded := resp["successfulExecutions"].([]any)
 	assert.Len(t, succeeded, 2)
 
@@ -148,7 +150,7 @@ func TestHandler_TriggerLifecycle(t *testing.T) {
 	rec = doRequest(t, h, "GetRepositoryTriggers", map[string]any{"repositoryName": "repo"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	got = resp["triggers"].([]any)
 	assert.Empty(t, got)
 }

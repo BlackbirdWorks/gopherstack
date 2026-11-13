@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -34,7 +36,7 @@ type createEdgePackagingJobRequest struct {
 func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createEdgePackagingJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -81,7 +83,7 @@ func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyEdgePackagingJobArn: j.EdgePackagingJobArn})
+	return json.Marshal(map[string]string{keyEdgePackagingJobArn: j.EdgePackagingJobArn}, jsonx.V1())
 }
 
 type describeEdgePackagingJobRequest struct {
@@ -91,7 +93,7 @@ type describeEdgePackagingJobRequest struct {
 func (h *Handler) handleDescribeEdgePackagingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeEdgePackagingJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -137,7 +139,7 @@ func (h *Handler) handleDescribeEdgePackagingJob(ctx context.Context, body []byt
 		resp["ModelArtifact"] = j.ModelArtifact
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type stopEdgePackagingJobRequest struct {
@@ -147,7 +149,7 @@ type stopEdgePackagingJobRequest struct {
 func (h *Handler) handleStopEdgePackagingJob(ctx context.Context, body []byte) error {
 	var req stopEdgePackagingJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -186,7 +188,7 @@ type listEdgePackagingJobsRequest struct {
 func (h *Handler) handleListEdgePackagingJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listEdgePackagingJobsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -222,5 +224,5 @@ func (h *Handler) handleListEdgePackagingJobs(ctx context.Context, body []byte) 
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

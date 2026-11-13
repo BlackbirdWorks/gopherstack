@@ -2,7 +2,7 @@ package app
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -109,7 +110,7 @@ func decodeConfirm(t *testing.T, hit iotHTTPHit) confirmBody {
 	t.Helper()
 
 	var b confirmBody
-	require.NoError(t, json.Unmarshal(hit.body, &b))
+	require.NoError(t, json.Unmarshal(hit.body, &b, jsonx.V1()))
 
 	return b
 }
@@ -119,7 +120,7 @@ func (f *iotRuleFixture) confirmViaSDK(t *testing.T) func(hit iotHTTPHit) {
 
 	return func(hit iotHTTPHit) {
 		var b confirmBody
-		if json.Unmarshal(hit.body, &b) != nil {
+		if json.Unmarshal(hit.body, &b, jsonx.V1()) != nil {
 			return
 		}
 
@@ -185,7 +186,7 @@ func TestIoTTopicRuleDestinationConfirmation(t *testing.T) {
 
 				return func(hit iotHTTPHit) {
 					var b confirmBody
-					if json.Unmarshal(hit.body, &b) != nil {
+					if json.Unmarshal(hit.body, &b, jsonx.V1()) != nil {
 						return
 					}
 
@@ -427,7 +428,7 @@ func runIoTHTTPCase(t *testing.T, tt iotHTTPCase) {
 
 	if tt.wantReason != "" {
 		var env map[string]string
-		require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env))
+		require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env, jsonx.V1()))
 		assert.Equal(t, "HttpAction", env["failedAction"])
 		assert.Contains(t, env["failedActionReason"], tt.wantReason)
 	}
@@ -555,7 +556,7 @@ func TestIoTRuleHTTPActionSigV4Enforcement(t *testing.T) {
 
 			if !tt.wantHit {
 				var env map[string]string
-				require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env))
+				require.NoError(t, json.Unmarshal([]byte(f.bodies(t, errURL, 1)[0]), &env, jsonx.V1()))
 				assert.Equal(t, "HttpAction", env["failedAction"])
 				assert.Empty(t, ep.deliveries())
 

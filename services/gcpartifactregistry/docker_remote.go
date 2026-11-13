@@ -3,7 +3,7 @@ package gcpartifactregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -181,7 +183,7 @@ func (b *InMemoryBackend) pullManifest(ctx context.Context, base, name, repo, re
 	}
 
 	var m dockerManifest
-	if err = json.Unmarshal(body, &m); err != nil {
+	if err = json.Unmarshal(body, &m, jsonx.V1()); err != nil {
 		return fmt.Errorf("upstream manifest: %w", err)
 	}
 
@@ -340,7 +342,7 @@ func (b *InMemoryBackend) anonymousToken(ctx context.Context, challenge string) 
 		AccessToken string `json:"access_token"`
 	}
 
-	if err = json.Unmarshal(data, &tok); err != nil {
+	if err = json.Unmarshal(data, &tok, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("token response: %w", err)
 	}
 

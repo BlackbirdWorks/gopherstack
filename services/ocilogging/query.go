@@ -2,7 +2,7 @@ package ocilogging
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -624,7 +625,7 @@ func scalarString(v any) string {
 		return ""
 	}
 
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return string(b)
 }

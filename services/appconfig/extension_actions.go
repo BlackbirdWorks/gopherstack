@@ -5,7 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -185,7 +187,7 @@ func (b *InMemoryBackend) runPreActions(
 		ev["Parameters"] = params
 		ev["Content"] = base64.StdEncoding.EncodeToString(content)
 
-		payload, err := json.Marshal(ev)
+		payload, err := json.Marshal(ev, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("%w: encoding extension event: %w", ErrBadRequest, err)
 		}
@@ -209,12 +211,12 @@ func applyActionResponse(uri string, raw, content []byte) ([]byte, error) {
 		return content, nil
 	}
 
-	if !json.Valid(raw) {
+	if !jsontext.Value(raw).IsValid(jsonx.V1()) {
 		return content, nil
 	}
 
 	var resp actionResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: extension action %s returned an unreadable response: %w", ErrBadRequest, uri, err)
 	}
 

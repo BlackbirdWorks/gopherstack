@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDescribeJobFlows(t *testing.T) {
@@ -19,7 +21,7 @@ func TestDescribeJobFlows(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "DescribeJobFlows", map[string]any{
 		"JobFlowIds": []string{create.JobFlowID},
@@ -32,7 +34,7 @@ func TestDescribeJobFlows(t *testing.T) {
 			Name      string `json:"Name"`
 		} `json:"JobFlows"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.JobFlows, 1)
 	assert.Equal(t, create.JobFlowID, out.JobFlows[0].JobFlowID)
 	assert.Equal(t, "jf-cluster", out.JobFlows[0].Name)
@@ -65,7 +67,7 @@ func TestDescribeJobFlows_EmptyNotNull(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			flows, hasKey := raw["JobFlows"]
 			assert.True(t, hasKey, "DescribeJobFlows must include 'JobFlows' key")

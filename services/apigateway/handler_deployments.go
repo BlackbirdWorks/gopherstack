@@ -1,9 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createDeploymentInput struct {
@@ -53,7 +55,7 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 // createDeploymentAction handles CreateDeployment incl. inline stage update.
 func (h *Handler) createDeploymentAction(b []byte) (int, any, error) {
 	var input createDeploymentInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	depl, err := h.Backend.CreateDeploymentWithCanary(
@@ -104,7 +106,7 @@ func (h *Handler) deploymentCRUDActions() map[string]actionFn {
 
 func (h *Handler) getDeploymentAction(b []byte) (int, any, error) {
 	var input getDeploymentInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	depl, err := h.Backend.GetDeployment(input.RestAPIID, input.DeploymentID)
@@ -121,7 +123,7 @@ func (h *Handler) getDeploymentAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDeploymentsAction(b []byte) (int, any, error) {
 	var input getDeploymentsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	depls, err := h.Backend.GetDeployments(input.RestAPIID)
@@ -146,7 +148,7 @@ func (h *Handler) getDeploymentsAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteDeploymentAction(b []byte) (int, any, error) {
 	var input deleteDeploymentInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteDeployment(input.RestAPIID, input.DeploymentID); err != nil {
@@ -163,7 +165,7 @@ func (h *Handler) deleteDeploymentAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateDeploymentAction(b []byte) (int, any, error) {
 	var input updateDeploymentHandlerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	depl, err := h.Backend.UpdateDeployment(input.RestAPIID, input.DeploymentID, input.UpdateDeploymentInput)

@@ -1,7 +1,7 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -167,11 +167,11 @@ type User struct {
 	RoutingProfileID            string            `json:"RoutingProfileId"`
 	Username                    string            `json:"Username"`
 	SecurityProfileIDs          []string          `json:"SecurityProfileIds"`
-	AfterContactWorkConfigs     json.RawMessage   `json:"AfterContactWorkConfigs,omitempty"`
-	AutoAcceptConfigs           json.RawMessage   `json:"AutoAcceptConfigs,omitempty"`
-	PersistentConnectionConfigs json.RawMessage   `json:"PersistentConnectionConfigs,omitempty"`
-	PhoneNumberConfigs          json.RawMessage   `json:"PhoneNumberConfigs,omitempty"`
-	VoiceEnhancementConfigs     json.RawMessage   `json:"VoiceEnhancementConfigs,omitempty"`
+	AfterContactWorkConfigs     jsontext.Value    `json:"AfterContactWorkConfigs,omitempty"`
+	AutoAcceptConfigs           jsontext.Value    `json:"AutoAcceptConfigs,omitempty"`
+	PersistentConnectionConfigs jsontext.Value    `json:"PersistentConnectionConfigs,omitempty"`
+	PhoneNumberConfigs          jsontext.Value    `json:"PhoneNumberConfigs,omitempty"`
+	VoiceEnhancementConfigs     jsontext.Value    `json:"VoiceEnhancementConfigs,omitempty"`
 }
 
 // Summary is the list shape shared by most resources.
@@ -192,10 +192,10 @@ type UserSummary struct {
 
 // MediaConcurrency limits concurrent contacts of one channel.
 type MediaConcurrency struct {
-	Channel                   string          `json:"Channel"`
-	CrossChannelBehavior      json.RawMessage `json:"CrossChannelBehavior,omitempty"`
-	WorkloadTypeConcurrencies json.RawMessage `json:"WorkloadTypeConcurrencies,omitempty"`
-	Concurrency               int32           `json:"Concurrency"`
+	Channel                   string         `json:"Channel"`
+	CrossChannelBehavior      jsontext.Value `json:"CrossChannelBehavior,omitempty"`
+	WorkloadTypeConcurrencies jsontext.Value `json:"WorkloadTypeConcurrencies,omitempty"`
+	Concurrency               int32          `json:"Concurrency"`
 }
 
 // QueueReference names a queue and channel in a routing profile.
@@ -246,7 +246,7 @@ type SecurityProfile struct {
 	Stamp
 	AllowedAccessControlTags             map[string]string `json:"AllowedAccessControlTags,omitempty"`
 	Tags                                 map[string]string `json:"Tags,omitempty"`
-	GranularAccessControlConfiguration   json.RawMessage   `json:"GranularAccessControlConfiguration,omitempty"`
+	GranularAccessControlConfiguration   jsontext.Value    `json:"GranularAccessControlConfiguration,omitempty"`
 	AllowedAccessControlHierarchyGroupID string            `json:"AllowedAccessControlHierarchyGroupId,omitempty"`
 	Arn                                  string            `json:"Arn"`
 	Description                          string            `json:"Description,omitempty"`
@@ -385,8 +385,8 @@ type QuickConnectConfig struct {
 		ContactFlowID string `json:"ContactFlowId"`
 		UserID        string `json:"UserId"`
 	} `json:"UserConfig,omitempty"`
-	QuickConnectType string          `json:"QuickConnectType"`
-	FlowConfig       json.RawMessage `json:"FlowConfig,omitempty"`
+	QuickConnectType string         `json:"QuickConnectType"`
+	FlowConfig       jsontext.Value `json:"FlowConfig,omitempty"`
 }
 
 // QuickConnect is a saved transfer destination.
@@ -441,7 +441,7 @@ type ContactFlowModule struct {
 	State                           string            `json:"State"`
 	Status                          string            `json:"Status"`
 	VersionDescription              string            `json:"VersionDescription,omitempty"`
-	ExternalInvocationConfiguration json.RawMessage   `json:"ExternalInvocationConfiguration,omitempty"`
+	ExternalInvocationConfiguration jsontext.Value    `json:"ExternalInvocationConfiguration,omitempty"`
 }
 
 // ContactFlowModuleSummary is the list shape of a ContactFlowModule.
@@ -621,8 +621,8 @@ type Contact struct {
 	Description                 string                     `json:"Description,omitempty"`
 	DisconnectReason            string                     `json:"DisconnectReason,omitempty"`
 	ContactAssociationID        string                     `json:"ContactAssociationId,omitempty"`
-	SegmentAttributes           json.RawMessage            `json:"SegmentAttributes,omitempty"`
-	OutboundStrategy            json.RawMessage            `json:"OutboundStrategy,omitempty"`
+	SegmentAttributes           jsontext.Value             `json:"SegmentAttributes,omitempty"`
+	OutboundStrategy            jsontext.Value             `json:"OutboundStrategy,omitempty"`
 	Recordings                  []RecordingInfo            `json:"Recordings,omitempty"`
 	TotalPauseDurationInSeconds int32                      `json:"TotalPauseDurationInSeconds,omitempty"`
 	TotalPauseCount             int32                      `json:"TotalPauseCount,omitempty"`

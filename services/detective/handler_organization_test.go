@@ -1,12 +1,14 @@
 package detective_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestOrganizationConfiguration covers the DescribeOrganizationConfiguration /
@@ -22,7 +24,7 @@ func TestOrganizationConfiguration(t *testing.T) { //nolint:paralleltest // exis
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	unknownArn := missingGraphARN
@@ -58,7 +60,7 @@ func TestOrganizationConfiguration(t *testing.T) { //nolint:paralleltest // exis
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, false, resp["AutoEnable"])
 			},
 		},
@@ -92,7 +94,7 @@ func TestOrganizationConfiguration(t *testing.T) { //nolint:paralleltest // exis
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, true, resp["AutoEnable"])
 			},
 		},

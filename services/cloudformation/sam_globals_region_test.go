@@ -1,12 +1,13 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -18,7 +19,7 @@ func expandedResources(t *testing.T, template, region string) map[string]map[str
 	var doc struct {
 		Resources map[string]map[string]any `json:"Resources"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	require.NoError(t, json.Unmarshal([]byte(out), &doc, jsonx.V1()))
 
 	return doc.Resources
 }

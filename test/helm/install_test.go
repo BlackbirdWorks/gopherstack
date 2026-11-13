@@ -1,6 +1,7 @@
 package helm_test
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
@@ -9,7 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -119,7 +120,7 @@ func (k *k8sAPI) deploymentReady(ctx context.Context) (bool, error) {
 			ObservedGeneration int `json:"observedGeneration"`
 		} `json:"status"`
 	}
-	if err = json.Unmarshal(body, &d); err != nil {
+	if err = json.Unmarshal(body, &d, jsonx.V1()); err != nil {
 		return false, err
 	}
 
@@ -162,7 +163,7 @@ func (k *k8sAPI) podRunsNonRoot(ctx context.Context) error {
 	var l struct {
 		Items []podInfo `json:"items"`
 	}
-	if err = json.Unmarshal(body, &l); err != nil {
+	if err = json.Unmarshal(body, &l, jsonx.V1()); err != nil {
 		return err
 	}
 

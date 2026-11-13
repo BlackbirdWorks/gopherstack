@@ -2,7 +2,7 @@ package emr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"time"
@@ -89,7 +89,7 @@ func regionOnlyDTOKeyFn[V any](d *regionOnlyDTO[V]) string { return d.Region }
 // guards against decoding a snapshot from an incompatible (older or newer)
 // build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	ArnIndex  map[string]map[string]string `json:"arnIndex"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
@@ -321,7 +321,7 @@ func unwrapRegionOnlyDTOs[V any](dtos *store.Table[regionOnlyDTO[V]], setRegion 
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 
 	if err := dtos.registry.RestoreAll(tables); err != nil {

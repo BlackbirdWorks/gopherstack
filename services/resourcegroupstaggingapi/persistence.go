@@ -2,7 +2,7 @@ package resourcegroupstaggingapi
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -98,10 +98,10 @@ func buildPersistenceDTORegistry() (*store.Registry, *store.Table[reportStateSna
 // resource cache is likewise never persisted -- it is a rebuildable TTL
 // cache, not part of durable state.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON.
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // store_setup.go's registerAllTables doc) from tables via the ephemeral DTO
 // registry, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreDirtyTables(ctx context.Context, tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(ctx context.Context, tables map[string]jsontext.Value) error {
 	dtoReg, reportStateDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("resourcegroupstaggingapi: restore snapshot DTO tables: %w", err)

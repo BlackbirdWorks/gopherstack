@@ -1,8 +1,10 @@
 package mq
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -245,7 +247,7 @@ func (l LdapServerMetadata) MarshalJSON() ([]byte, error) {
 	a := alias(l)
 	a.ServiceAccountPassword = ""
 
-	b, err := json.Marshal(a)
+	b, err := json.Marshal(a, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal ldap server metadata: %w", err)
 	}

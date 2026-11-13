@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -54,7 +55,7 @@ func TestHandler_CreateDeployment(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var deployment apigatewayv2.Deployment
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment, jsonx.V1()))
 				assert.NotEmpty(t, deployment.DeploymentID)
 				assert.Equal(t, "DEPLOYED", deployment.DeploymentStatus)
 			}
@@ -95,7 +96,7 @@ func TestHandler_GetDeployment(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var deployment apigatewayv2.Deployment
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment, jsonx.V1()))
 				deploymentID = deployment.DeploymentID
 			}
 
@@ -138,7 +139,7 @@ func TestHandler_DeleteDeployment(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var deployment apigatewayv2.Deployment
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &deployment, jsonx.V1()))
 				deploymentID = deployment.DeploymentID
 			}
 
@@ -213,7 +214,7 @@ func TestHandler_GetDeployments(t *testing.T) {
 				}
 
 				var resp listResp
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.Items, tt.deployCount)
 			}
 		})
@@ -239,7 +240,7 @@ func TestHandler_UpdateDeployment(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var dep apigatewayv2.Deployment
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep, jsonx.V1()))
 
 				return apiID, dep.DeploymentID
 			},
@@ -279,7 +280,7 @@ func TestHandler_UpdateDeployment(t *testing.T) {
 
 			if tt.wantDesc != "" {
 				var dep apigatewayv2.Deployment
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep, jsonx.V1()))
 				assert.Equal(t, tt.wantDesc, dep.Description)
 			}
 		})
@@ -304,7 +305,7 @@ func getStage(t *testing.T, h *apigatewayv2.Handler, apiID, stageName string) ap
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var s apigatewayv2.Stage
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &s, jsonx.V1()))
 
 	return s
 }
@@ -320,7 +321,7 @@ func createIntegrationHelper(t *testing.T, h *apigatewayv2.Handler, apiID string
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	return integ.IntegrationID
 }
@@ -369,7 +370,7 @@ func TestAutoDeploy_RouteAndIntegrationChangesDeploy(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.Deployment `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(drr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(drr.Body.Bytes(), &out, jsonx.V1()))
 				require.NotEmpty(t, out.Items)
 
 				var foundAuto bool
@@ -423,7 +424,7 @@ func TestGetDeployments_Pagination(t *testing.T) {
 			NextToken string           `json:"nextToken"`
 			Items     []map[string]any `json:"items"`
 		}
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 		require.LessOrEqual(t, len(resp.Items), 2)
 
 		for _, d := range resp.Items {
@@ -484,6 +485,6 @@ func TestCreateDeployment_ValidStageName201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rr.Code)
 
 	var dep map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dep, jsonx.V1()))
 	assert.Equal(t, "DEPLOYED", dep["deploymentStatus"])
 }

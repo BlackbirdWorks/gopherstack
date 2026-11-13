@@ -1,13 +1,15 @@
 package lambdaweb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -108,26 +110,26 @@ func boolString(v bool) string {
 // the Principal element.
 func statementsFor(policy string, c caller) string {
 	var doc struct {
-		Version   string          `json:"Version,omitempty"`
-		Statement json.RawMessage `json:"Statement"`
+		Version   string         `json:"Version,omitempty"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if json.Unmarshal([]byte(policy), &doc) != nil {
+	if json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil {
 		return ""
 	}
 
-	var stmts []map[string]json.RawMessage
+	var stmts []map[string]jsontext.Value
 
-	if json.Unmarshal(doc.Statement, &stmts) != nil {
-		var one map[string]json.RawMessage
-		if json.Unmarshal(doc.Statement, &one) != nil {
+	if json.Unmarshal(doc.Statement, &stmts, jsonx.V1()) != nil {
+		var one map[string]jsontext.Value
+		if json.Unmarshal(doc.Statement, &one, jsonx.V1()) != nil {
 			return ""
 		}
 
-		stmts = []map[string]json.RawMessage{one}
+		stmts = []map[string]jsontext.Value{one}
 	}
 
-	kept := make([]map[string]json.RawMessage, 0, len(stmts))
+	kept := make([]map[string]jsontext.Value, 0, len(stmts))
 
 	for _, s := range stmts {
 		if statementCovers(s, c) {
@@ -135,7 +137,7 @@ func statementsFor(policy string, c caller) string {
 		}
 	}
 
-	out, err := json.Marshal(map[string]any{"Version": doc.Version, "Statement": kept})
+	out, err := json.Marshal(map[string]any{"Version": doc.Version, "Statement": kept}, jsonx.V1())
 	if err != nil {
 		return ""
 	}
@@ -143,7 +145,7 @@ func statementsFor(policy string, c caller) string {
 	return string(out)
 }
 
-func statementCovers(s map[string]json.RawMessage, c caller) bool {
+func statementCovers(s map[string]jsontext.Value, c caller) bool {
 	if raw, ok := s["Principal"]; ok {
 		return principalListed(raw, c)
 	}
@@ -155,14 +157,14 @@ func statementCovers(s map[string]json.RawMessage, c caller) bool {
 	return false
 }
 
-func principalListed(raw json.RawMessage, c caller) bool {
+func principalListed(raw jsontext.Value, c caller) bool {
 	var star string
-	if json.Unmarshal(raw, &star) == nil {
+	if json.Unmarshal(raw, &star, jsonx.V1()) == nil {
 		return star == "*"
 	}
 
-	var m map[string]json.RawMessage
-	if json.Unmarshal(raw, &m) != nil {
+	var m map[string]jsontext.Value
+	if json.Unmarshal(raw, &m, jsonx.V1()) != nil {
 		return false
 	}
 
@@ -175,14 +177,14 @@ func principalListed(raw json.RawMessage, c caller) bool {
 	return false
 }
 
-func stringsOf(raw json.RawMessage) []string {
+func stringsOf(raw jsontext.Value) []string {
 	var one string
-	if json.Unmarshal(raw, &one) == nil {
+	if json.Unmarshal(raw, &one, jsonx.V1()) == nil {
 		return []string{one}
 	}
 
 	var many []string
-	_ = json.Unmarshal(raw, &many)
+	_ = json.Unmarshal(raw, &many, jsonx.V1())
 
 	return many
 }

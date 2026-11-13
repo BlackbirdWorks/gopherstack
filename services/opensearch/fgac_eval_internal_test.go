@@ -1,12 +1,14 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestWildcardMatch(t *testing.T) {
@@ -558,10 +560,10 @@ func TestApplyPatchOps(t *testing.T) {
 			t.Parallel()
 
 			var doc any
-			require.NoError(t, json.Unmarshal([]byte(tt.doc), &doc))
+			require.NoError(t, json.Unmarshal([]byte(tt.doc), &doc, jsonx.V1()))
 
 			var ops []patchOp
-			require.NoError(t, json.Unmarshal([]byte(tt.ops), &ops))
+			require.NoError(t, json.Unmarshal([]byte(tt.ops), &ops, jsonx.V1()))
 
 			got, err := applyPatchOps(doc, ops)
 			if tt.wantErr {
@@ -571,7 +573,7 @@ func TestApplyPatchOps(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			b, _ := json.Marshal(got)
+			b, _ := json.Marshal(got, jsonx.V1())
 			assert.JSONEq(t, tt.want, string(b))
 		})
 	}

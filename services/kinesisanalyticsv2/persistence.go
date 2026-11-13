@@ -2,7 +2,7 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -239,7 +239,7 @@ func fromPersistedSnap(p *persistedSnapshot) *Snapshot {
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 	// FlinkStopSaves keeps each application's stop-with-savepoint location for RESTORE_FROM_LATEST_SNAPSHOT.
 	FlinkStopSaves map[string]persistedStopSave `json:"flink_stop_saves,omitempty"`
 	NextID         int64                        `json:"next_id"`

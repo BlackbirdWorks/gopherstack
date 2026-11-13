@@ -1,7 +1,7 @@
 package gcpmonitoring_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func promPolicy(channel string, pc *monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition,
@@ -96,7 +98,7 @@ func TestPromQLAlertFiresAfterDurationAndNotifiesWebhook(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	var alerts alertsReply
-	require.NoError(t, json.Unmarshal(body, &alerts))
+	require.NoError(t, json.Unmarshal(body, &alerts, jsonx.V1()))
 	require.Len(t, alerts.Data.Alerts, 1)
 	assert.Equal(t, "pending", alerts.Data.Alerts[0].State)
 
@@ -124,7 +126,7 @@ func TestPromQLAlertFiresAfterDurationAndNotifiesWebhook(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	var rules rulesReply
-	require.NoError(t, json.Unmarshal(body, &rules))
+	require.NoError(t, json.Unmarshal(body, &rules, jsonx.V1()))
 	require.Len(t, rules.Data.Groups, 1)
 	assert.Equal(t, "queues", rules.Data.Groups[0].Name)
 	assert.InDelta(t, 30, rules.Data.Groups[0].Interval, 0)

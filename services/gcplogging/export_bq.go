@@ -1,12 +1,14 @@
 package gcplogging
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func bqField(name, typ string) map[string]any {
@@ -31,7 +33,7 @@ func bqRow(e *loggingpb.LogEntry) (map[string]any, error) {
 	}
 
 	doc := map[string]any{}
-	if err = json.Unmarshal(raw, &doc); err != nil {
+	if err = json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("decode entry: %w", err)
 	}
 
@@ -46,7 +48,7 @@ func bqRow(e *loggingpb.LogEntry) (map[string]any, error) {
 		}
 
 		if f["type"] == "JSON" {
-			enc, _ := json.Marshal(v)
+			enc, _ := json.Marshal(v, jsonx.V1())
 			v = string(enc)
 		}
 

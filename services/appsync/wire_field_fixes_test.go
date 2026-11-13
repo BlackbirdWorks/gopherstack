@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -126,7 +128,7 @@ func TestGraphqlApi_EnvironmentVariablesNotLeaked(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	graphqlAPI, ok := resp["graphqlApi"].(map[string]any)
 	require.True(t, ok)
 
@@ -138,7 +140,7 @@ func TestGraphqlApi_EnvironmentVariablesNotLeaked(t *testing.T) {
 	require.Equal(t, 200, envRec.Code)
 
 	var envResp map[string]any
-	require.NoError(t, json.NewDecoder(envRec.Body).Decode(&envResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(envRec.Body), &envResp, jsonx.V1()))
 	envVars, ok := envResp["environmentVariables"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "super-secret-value", envVars["DB_PASSWORD"])

@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -27,7 +29,7 @@ func TestAPIGW_UsagePlans(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "expected 2xx")
 
 	var keyResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&keyResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &keyResp, jsonx.V1()))
 	keyID, _ := keyResp["id"].(string)
 	require.NotEmpty(t, keyID)
 
@@ -42,7 +44,7 @@ func TestAPIGW_UsagePlans(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "expected 2xx")
 
 	var planResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&planResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &planResp, jsonx.V1()))
 	planID, _ := planResp["id"].(string)
 	require.NotEmpty(t, planID)
 
@@ -262,7 +264,7 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &apiResp, jsonx.V1()))
 	apiID := apiResp["id"].(string)
 
 	rec = restRequest(t, h, http.MethodPost, "/restapis/"+apiID+"/deployments",
@@ -276,7 +278,7 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var planResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&planResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &planResp, jsonx.V1()))
 	apiStages, ok := planResp["apiStages"].([]any)
 	require.True(t, ok)
 	require.Len(t, apiStages, 1)
@@ -317,7 +319,7 @@ func TestUpdateUsagePlan(t *testing.T) {
 			createRec := postWithHandler(t, handler, e, "CreateUsagePlan", `{"name":"orig-plan"}`)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			planID := createResp["id"].(string)
 
 			lookupID := planID

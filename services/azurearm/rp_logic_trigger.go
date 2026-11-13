@@ -4,7 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"mime"
@@ -13,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -191,7 +194,10 @@ func (p *LogicProvider) ServeDataPlane(rw http.ResponseWriter, r *http.Request) 
 func writeLogicData(rw http.ResponseWriter, status int, code, msg string) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(status)
-	_ = json.NewEncoder(rw).Encode(map[string]any{logicKError: map[string]any{logicKCode: code, fieldMessage: msg}})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(rw, jsonx.V1()),
+		map[string]any{logicKError: map[string]any{logicKCode: code, fieldMessage: msg}},
+	)
 }
 
 func (p *LogicProvider) authorize(rw http.ResponseWriter, r *http.Request, w *logicWorkflow, canonPath string) bool {
@@ -329,7 +335,7 @@ func writeLogicResponse(rw http.ResponseWriter, resp logicResponse) {
 	case string:
 		payload = []byte(b)
 	default:
-		payload, _ = json.Marshal(b)
+		payload, _ = json.Marshal(b, jsonx.V1())
 
 		if rw.Header().Get("Content-Type") == "" {
 			rw.Header().Set("Content-Type", "application/json")
@@ -468,7 +474,7 @@ func readLogicBody(r *http.Request) (any, error) {
 
 	if strings.Contains(mt, "json") {
 		var v any
-		if jerr := json.Unmarshal(raw, &v); jerr != nil {
+		if jerr := json.Unmarshal(raw, &v, jsonx.V1()); jerr != nil {
 			return nil, jerr
 		}
 
@@ -571,7 +577,7 @@ func (p *LogicProvider) serveContent(rw http.ResponseWriter, r *http.Request, se
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(rw).Encode(c.Value)
+	_ = json.MarshalEncode(jsontext.NewEncoder(rw, jsonx.V1()), c.Value)
 }
 
 func requestOutputs(r *http.Request, body any, params map[string]any) map[string]any {

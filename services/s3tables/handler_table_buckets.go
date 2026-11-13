@@ -2,11 +2,12 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -23,7 +24,7 @@ type createTableBucketRequest struct {
 
 func (h *Handler) handleCreateTableBucket(ctx context.Context, _ *http.Request, body []byte) ([]byte, error) {
 	var req createTableBucketRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -45,7 +46,7 @@ func (h *Handler) handleCreateTableBucket(ctx context.Context, _ *http.Request, 
 
 	return json.Marshal(map[string]string{
 		keyArn: tb.ARN,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -71,7 +72,7 @@ func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ [
 		keyCreatedAt:      tb.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyType:           bucketTypeCustomer,
 		keyTableBucketID:  tb.BucketID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTableBucket(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -137,7 +138,7 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 		resp[keyContinuationToken] = pg.Next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableBucketMaintenanceConfiguration(
@@ -167,7 +168,7 @@ func (h *Handler) handleGetTableBucketMaintenanceConfiguration(
 	return json.Marshal(map[string]any{
 		keyTableBucketARN: bucketARN,
 		keyConfiguration:  cfg,
-	})
+	}, jsonx.V1())
 }
 
 // putTableBucketMaintenanceRequest is the request body for PutTableBucketMaintenanceConfiguration.
@@ -189,7 +190,7 @@ func (h *Handler) handlePutTableBucketMaintenanceConfiguration(
 	maintenanceType := segs[3]
 
 	var req putTableBucketMaintenanceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -244,7 +245,7 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 
 	return json.Marshal(map[string]any{
 		"encryptionConfiguration": tb.Encryption,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -292,7 +293,7 @@ func (h *Handler) handleGetTableBucketMetricsConfiguration(
 		resp["id"] = configID
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTableBucketMetricsConfiguration(
@@ -347,7 +348,7 @@ func (h *Handler) handleGetTableBucketStorageClass(ctx context.Context, r *http.
 		"storageClassConfiguration": map[string]any{
 			"storageClass": sc,
 		},
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -370,7 +371,7 @@ func (h *Handler) handleGetTableBucketReplication(ctx context.Context, r *http.R
 			"rules": cfg.Rules,
 		},
 		keyVersionToken: cfg.VersionToken,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTableBucketReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -409,7 +410,7 @@ func (h *Handler) handleGetTableBucketPolicy(ctx context.Context, r *http.Reques
 
 	return json.Marshal(map[string]string{
 		"resourcePolicy": policy,
-	})
+	}, jsonx.V1())
 }
 
 // putTableBucketPolicyRequest is the request body for PutTableBucketPolicy.
@@ -426,7 +427,7 @@ func (h *Handler) handlePutTableBucketPolicy(ctx context.Context, r *http.Reques
 	bucketARN := segs[1]
 
 	var req putTableBucketPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -476,7 +477,7 @@ func (h *Handler) handlePutTableBucketEncryption(ctx context.Context, r *http.Re
 	bucketARN := segs[1]
 
 	var req putTableBucketEncryptionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -530,7 +531,7 @@ func (h *Handler) handlePutTableBucketStorageClass(ctx context.Context, r *http.
 	bucketARN := segs[1]
 
 	var req putTableBucketStorageClassRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -563,7 +564,7 @@ func (h *Handler) handlePutTableBucketReplication(ctx context.Context, r *http.R
 	versionToken := r.URL.Query().Get(keyVersionToken)
 
 	var req putTableBucketReplicationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -580,5 +581,5 @@ func (h *Handler) handlePutTableBucketReplication(ctx context.Context, r *http.R
 	return json.Marshal(map[string]any{
 		keyStatusField:  replicationStatusCompleted,
 		keyVersionToken: cfg.VersionToken,
-	})
+	}, jsonx.V1())
 }

@@ -5,11 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ent "github.com/blackbirdworks/gopherstack/services/marketplaceentitlementservice"
 )
 
@@ -236,7 +237,7 @@ func (b *InMemoryBackend) IssueRegistrationToken(productCode, accountID string) 
 	issued := b.now().Unix()
 	b.mu.RUnlock()
 
-	raw, _ := json.Marshal(tokenClaims{P: productCode, A: accountID, I: issued})
+	raw, _ := json.Marshal(tokenClaims{P: productCode, A: accountID, I: issued}, jsonx.V1())
 	payload := base64.RawURLEncoding.EncodeToString(raw)
 
 	return payload + "." + mac(payload), nil
@@ -257,7 +258,8 @@ func (b *InMemoryBackend) ResolveCustomer(token string) (*ResolvedCustomer, erro
 
 	var claims tokenClaims
 
-	if err != nil || json.Unmarshal(raw, &claims) != nil || !validProductCode(claims.P) || !validAccountID(claims.A) {
+	if err != nil || json.Unmarshal(raw, &claims, jsonx.V1()) != nil || !validProductCode(claims.P) ||
+		!validAccountID(claims.A) {
 		return nil, fail(ErrInvalidToken, "the registration token is not valid")
 	}
 

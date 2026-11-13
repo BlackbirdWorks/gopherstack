@@ -3,7 +3,8 @@ package ociapigateway
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 
 	"gopkg.in/yaml.v3"
@@ -215,7 +217,7 @@ func apiChecks(content string) []apiValidationDetails {
 		out = append(out, apiValidationDetails{Name: "Paths", Result: resultOK})
 	}
 
-	spec, _ := json.Marshal(map[string]any{"routes": apiRoutes(doc)}) //nolint:errchkjson // static shape
+	spec, _ := json.Marshal(map[string]any{"routes": apiRoutes(doc)}, jsonx.V1()) //nolint:errchkjson // static shape
 	if _, cerr := compileSpec(spec); cerr != nil {
 		out = append(out, apiValidationDetails{
 			Name: "Deployment specification", Result: resultError,
@@ -434,7 +436,7 @@ func (b *InMemoryBackend) APIContent(id string) (string, string, string, error) 
 }
 
 // APIDeploymentSpecification generates a deployment specification from the stored OpenAPI paths.
-func (b *InMemoryBackend) APIDeploymentSpecification(id string) (json.RawMessage, string, error) {
+func (b *InMemoryBackend) APIDeploymentSpecification(id string) (jsontext.Value, string, error) {
 	b.mu.RLock("APIDeploymentSpecification")
 	defer b.mu.RUnlock()
 
@@ -448,7 +450,7 @@ func (b *InMemoryBackend) APIDeploymentSpecification(id string) (json.RawMessage
 		return nil, "", errState("api " + id + " has no valid OpenAPI content")
 	}
 
-	spec, merr := json.Marshal(map[string]any{"routes": apiRoutes(doc)})
+	spec, merr := json.Marshal(map[string]any{"routes": apiRoutes(doc)}, jsonx.V1())
 	if merr != nil {
 		return nil, "", merr
 	}

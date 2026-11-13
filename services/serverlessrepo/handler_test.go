@@ -2,7 +2,7 @@ package serverlessrepo_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
@@ -38,7 +39,7 @@ func doServerlessRepoRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -77,7 +78,7 @@ func doServerlessRepoRequestEncoded(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -275,7 +276,7 @@ func TestHandler_UnexpectedError_ReturnsInternalServerErrorException(t *testing.
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// The aws-sdk-go-v2 restjson1 error deserializer only recognizes the exact string
 	// "InternalServerErrorException" (case-insensitively) in the __type field to build a
 	// typed types.InternalServerErrorException; any other spelling (e.g.
@@ -298,7 +299,7 @@ func TestErrorShape_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "NotFoundException", resp["__type"])
 	assert.NotEmpty(t, resp["message"])
 }
@@ -316,7 +317,7 @@ func TestErrorShape_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", resp["__type"])
 }
 
@@ -332,6 +333,6 @@ func TestErrorShape_BadRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BadRequestException", resp["__type"])
 }

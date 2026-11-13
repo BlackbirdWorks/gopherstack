@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
@@ -46,7 +48,7 @@ func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
 				require.Equal(t, http.StatusCreated, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				gwID = createResp["Id"].(string)
 			}
 
@@ -56,7 +58,7 @@ func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.iotCertificateID, resp["IotCertificateId"])
 			}
 		})
@@ -73,7 +75,7 @@ func TestHandler_GatewayCertificateLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	gwID := createResp["Id"].(string)
 
 	// Associate certificate
@@ -86,7 +88,7 @@ func TestHandler_GatewayCertificateLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var certResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &certResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &certResp, jsonx.V1()))
 	assert.Equal(t, "cert-123", certResp["IotCertificateId"])
 
 	// Disassociate certificate
@@ -107,7 +109,7 @@ func TestHandler_ListDevicesForWirelessDeviceImportTask_ByID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id, _ := createResp["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -115,7 +117,7 @@ func TestHandler_ListDevicesForWirelessDeviceImportTask_ByID(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Equal(t, "dest-import", listResp["DestinationName"])
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless_device_import_task?id=does-not-exist", "")
@@ -159,7 +161,7 @@ func TestHandler_StartWirelessDeviceImportTask(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arn, _ := resp["Arn"].(string)
 			id, _ := resp["Id"].(string)
@@ -207,7 +209,7 @@ func TestHandler_GetWirelessDeviceImportTask(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				taskID = createResp["Id"].(string)
 			}
 
@@ -216,7 +218,7 @@ func TestHandler_GetWirelessDeviceImportTask(t *testing.T) {
 
 			if tt.wantFound {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.setupDest, resp["DestinationName"])
 				assert.Equal(t, "Initialized", resp["Status"])
 			}
@@ -256,7 +258,7 @@ func TestHandler_DeleteWirelessDeviceImportTask(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				taskID = createResp["Id"].(string)
 			}
 
@@ -310,7 +312,7 @@ func TestHandler_UpdateWirelessDeviceImportTask(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			taskID := createResp["Id"].(string)
 
 			rec = doIoTWRequest(t, h, http.MethodPatch, "/wireless_device_import_task/"+taskID, tt.updateBody)
@@ -321,7 +323,7 @@ func TestHandler_UpdateWirelessDeviceImportTask(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, "dest-old", getResp["DestinationName"])
 
 			if tt.wantFileList == nil {
@@ -363,7 +365,7 @@ func TestHandler_ListWirelessDeviceImportTasks(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			list, ok := resp["WirelessDeviceImportTaskList"].([]any)
 			require.True(t, ok, "WirelessDeviceImportTaskList should be array")
@@ -401,7 +403,7 @@ func TestHandler_StartSingleWirelessDeviceImportTask(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arn, _ := resp["Arn"].(string)
 			devID, _ := resp["WirelessDeviceId"].(string)
@@ -420,7 +422,7 @@ func TestHandler_ListDevicesForWirelessDeviceImportTask_NoIDReturnsEmpty(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["ImportedWirelessDeviceList"].([]any)
 	require.True(t, ok, "ImportedWirelessDeviceList should be array")

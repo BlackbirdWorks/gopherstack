@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -52,7 +53,7 @@ func TestHandler_DescribeAlgorithm(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-algo", resp["AlgorithmName"])
 	assert.Equal(t, "a description", resp["AlgorithmDescription"])
 	assert.Equal(t, "Completed", resp["AlgorithmStatus"])
@@ -114,7 +115,7 @@ func TestHandler_ListAlgorithms(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["AlgorithmSummaryList"])
 
 	doSageMakerRequest(t, h, "CreateAlgorithm", map[string]any{
@@ -129,7 +130,7 @@ func TestHandler_ListAlgorithms(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "ListAlgorithms", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	list, ok := resp["AlgorithmSummaryList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, list, 2)
@@ -196,7 +197,7 @@ func TestCreateAlgorithm_TagsPresent(t *testing.T) {
 
 			if tt.wantTags {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				arnStr := resp["AlgorithmArn"]
 				require.NotEmpty(t, arnStr)
@@ -272,7 +273,7 @@ func TestHandler_CreateAlgorithm(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["AlgorithmArn"], "arn:aws:sagemaker")
 				assert.Contains(t, resp["AlgorithmArn"], "algorithm/")
 			}
@@ -303,7 +304,7 @@ func TestHandler_ListAlgorithms_FilterSort(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["AlgorithmSummaryList"].([]any)
 	require.True(t, ok)
@@ -357,6 +358,6 @@ func TestHandler_ListAlgorithms_CreationTimeAfterExclusive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["AlgorithmSummaryList"])
 }

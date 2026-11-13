@@ -11,7 +11,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 )
 
@@ -44,7 +45,7 @@ func doREST(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -94,7 +95,7 @@ func TestHandler_Reset(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["trustAnchors"].([]any)
 	assert.Empty(t, items)
 }
@@ -458,7 +459,7 @@ func TestHandler_CreateTrustAnchor_EnabledFalse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			ta := resp["trustAnchor"].(map[string]any)
 			assert.Equal(t, tt.wantEnabled, ta["enabled"])
 		})
@@ -476,14 +477,14 @@ func TestHandler_DeleteTrustAnchor_ReturnsResource(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recCreate.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["trustAnchor"].(map[string]any)["trustAnchorId"].(string)
 
 	recDelete := doREST(t, h, http.MethodDelete, "/trustanchor/"+id, nil)
 	require.Equal(t, http.StatusOK, recDelete.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &deleteResp, jsonx.V1()))
 	ta, ok := deleteResp["trustAnchor"].(map[string]any)
 	require.True(t, ok,
 		"DeleteTrustAnchor response must carry the deleted trustAnchor, got: %s", recDelete.Body.String())
@@ -501,14 +502,14 @@ func TestHandler_DeleteProfile_ReturnsResource(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recCreate.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["profile"].(map[string]any)["profileId"].(string)
 
 	recDelete := doREST(t, h, http.MethodDelete, "/profile/"+id, nil)
 	require.Equal(t, http.StatusOK, recDelete.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &deleteResp, jsonx.V1()))
 	p, ok := deleteResp["profile"].(map[string]any)
 	require.True(t, ok, "DeleteProfile response must carry the deleted profile, got: %s", recDelete.Body.String())
 	assert.Equal(t, id, p["profileId"])
@@ -538,7 +539,7 @@ func TestHandler_GetTrustAnchor_ShowsNotificationSettings(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recCreate.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["trustAnchor"].(map[string]any)["trustAnchorId"].(string)
 
 	recPut := doREST(t, h, http.MethodPatch, "/put-notifications-settings", map[string]any{
@@ -556,7 +557,7 @@ func TestHandler_GetTrustAnchor_ShowsNotificationSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp, jsonx.V1()))
 	ta := getResp["trustAnchor"].(map[string]any)
 	settings, ok := ta["notificationSettings"].([]any)
 	require.True(t, ok, "GetTrustAnchor response must carry notificationSettings, got: %s", recGet.Body.String())
@@ -567,7 +568,7 @@ func TestHandler_GetTrustAnchor_ShowsNotificationSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp, jsonx.V1()))
 	items := listResp["trustAnchors"].([]any)
 	require.Len(t, items, 1)
 	listedTA := items[0].(map[string]any)
@@ -585,7 +586,7 @@ func TestHandler_GetProfile_ShowsAttributeMappings(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recCreate.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["profile"].(map[string]any)["profileId"].(string)
 
 	recPut := doREST(t, h, http.MethodPut, "/profiles/"+id+"/mappings", map[string]any{
@@ -601,7 +602,7 @@ func TestHandler_GetProfile_ShowsAttributeMappings(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp, jsonx.V1()))
 	p := getResp["profile"].(map[string]any)
 	mappings, ok := p["attributeMappings"].([]any)
 	require.True(t, ok, "GetProfile response must carry attributeMappings, got: %s", recGet.Body.String())
@@ -612,7 +613,7 @@ func TestHandler_GetProfile_ShowsAttributeMappings(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp, jsonx.V1()))
 	items := listResp["profiles"].([]any)
 	require.Len(t, items, 1)
 	listedProfile := items[0].(map[string]any)

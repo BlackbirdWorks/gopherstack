@@ -1,12 +1,14 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -109,10 +111,10 @@ func fieldByName(fields []testField, name string) *testField {
 
 func decodeIntrospection(t *testing.T, raw []byte) testIntrospectionResponse {
 	t.Helper()
-	require.True(t, json.Valid(raw))
+	require.True(t, jsontext.Value(raw).IsValid(jsonx.V1()))
 
 	var doc testIntrospectionResponse
-	require.NoError(t, json.Unmarshal(raw, &doc))
+	require.NoError(t, json.Unmarshal(raw, &doc, jsonx.V1()))
 
 	return doc
 }

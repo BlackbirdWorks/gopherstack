@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateScript verifies that CreateScript generates non-empty ETL code from DagNodes/DagEdges.
@@ -97,7 +99,7 @@ func TestCreateScript(t *testing.T) {
 				PythonScript string `json:"PythonScript"`
 				ScalaCode    string `json:"ScalaCode"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tc.wantPythonNonEmpty {
 				assert.NotEmpty(t, out.PythonScript)
@@ -170,7 +172,7 @@ func TestGetDataflowGraph(t *testing.T) {
 				DagNodes []any `json:"DagNodes"`
 				DagEdges []any `json:"DagEdges"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.DagNodes, tc.wantNodeCount)
 			assert.Len(t, out.DagEdges, tc.wantEdgeCount)
 		})
@@ -213,7 +215,7 @@ func TestGetDataflowGraph_RoundTrip(t *testing.T) {
 	var scriptOut struct {
 		PythonScript string `json:"PythonScript"`
 	}
-	require.NoError(t, json.Unmarshal(scriptRec.Body.Bytes(), &scriptOut))
+	require.NoError(t, json.Unmarshal(scriptRec.Body.Bytes(), &scriptOut, jsonx.V1()))
 	require.NotEmpty(t, scriptOut.PythonScript)
 
 	// Parse the script back to a DAG.
@@ -226,7 +228,7 @@ func TestGetDataflowGraph_RoundTrip(t *testing.T) {
 		DagNodes []any `json:"DagNodes"`
 		DagEdges []any `json:"DagEdges"`
 	}
-	require.NoError(t, json.Unmarshal(graphRec.Body.Bytes(), &graphOut))
+	require.NoError(t, json.Unmarshal(graphRec.Body.Bytes(), &graphOut, jsonx.V1()))
 
 	// Should have recovered 2 nodes (DataSource + DataSink) and 1 edge.
 	assert.Len(t, graphOut.DagNodes, 2)
@@ -312,7 +314,7 @@ func TestGetMapping_DerivesFromRealSchema(t *testing.T) {
 			var out struct {
 				Mapping []map[string]any `json:"Mapping"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Mapping, tc.wantLen)
 			assert.Equal(t, "id", out.Mapping[0]["SourcePath"])
 		})
@@ -365,7 +367,7 @@ func TestGetPlan_Languages(t *testing.T) {
 				PythonScript string `json:"PythonScript"`
 				ScalaCode    string `json:"ScalaCode"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tc.wantPython {
 				assert.NotEmpty(t, out.PythonScript)
@@ -430,7 +432,7 @@ func TestGetPlan(t *testing.T) {
 				PythonScript string `json:"PythonScript"`
 				ScalaCode    string `json:"ScalaCode"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tc.wantPython {
 				assert.NotEmpty(t, out.PythonScript)

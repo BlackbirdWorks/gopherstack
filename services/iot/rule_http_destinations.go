@@ -3,7 +3,7 @@ package iot
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -93,7 +94,7 @@ func sendConfirmation(c confirmation) error {
 
 	body, err := json.Marshal(map[string]string{
 		keyArn: c.destARN, "confirmationToken": c.token, "enableUrl": c.enableURL, "messageType": msgTypeConfirmation,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func httpActionsOf(actions []RuleAction, errAction *RuleAction) ([]httpWire, err
 		}
 
 		var w httpWire
-		if err := json.Unmarshal(raw, &w); err != nil {
+		if err := json.Unmarshal(raw, &w, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: http action: %w", ErrValidation, err)
 		}
 

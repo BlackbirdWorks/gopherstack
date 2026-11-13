@@ -1,12 +1,14 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -91,7 +93,7 @@ func ociMonitoringListBody(c *echo.Context) ([]byte, bool) {
 
 	b, err := json.Marshal(map[string]any{
 		ociNamespaceKey: in.Namespace, "name": in.Name, "resourceGroup": in.ResourceGroup,
-	})
+	}, jsonx.V1())
 
 	return b, err == nil
 }
@@ -110,7 +112,7 @@ func ociMonitoringSummarizeBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(in)
+	b, err := json.Marshal(in, jsonx.V1())
 
 	return b, err == nil
 }

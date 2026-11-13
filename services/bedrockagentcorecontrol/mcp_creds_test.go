@@ -5,7 +5,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"math/big"
 	"net/http"
@@ -22,6 +23,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func openAPISpecTarget(server string) types.TargetConfiguration {
@@ -176,7 +179,7 @@ func TestGatewayMCPLambdaToolSchemaFromS3(t *testing.T) {
 	m := newMCPFixture(t)
 	schema, _ := json.Marshal([]map[string]any{{
 		"name": "s3tool", "description": "from s3", "inputSchema": map[string]any{"type": "object"},
-	}})
+	}}, jsonx.V1())
 
 	m.backend.SetReferences(fakeInvoker{
 		functions: map[string]bool{lambdaARN: true},
@@ -224,9 +227,12 @@ func TestGatewayMCPJWTDiscoveryOverHTTP(t *testing.T) {
 	idp = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": idp.URL, "jwks_uri": idp.URL + "/jwks"})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				map[string]string{"issuer": idp.URL, "jwks_uri": idp.URL + "/jwks"},
+			)
 		case "/jwks":
-			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"keys": []map[string]string{{
 				"kty": "RSA", "kid": "k1", "alg": "RS256", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
 				"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),

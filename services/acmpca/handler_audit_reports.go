@@ -2,7 +2,9 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createCertificateAuthorityAuditReportInput struct {
@@ -30,7 +32,7 @@ type describeCertificateAuthorityAuditReportOutput struct {
 
 func (h *Handler) jsonCreateAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input createCertificateAuthorityAuditReportInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgs
 	}
 
@@ -52,7 +54,7 @@ func (h *Handler) jsonCreateAuditReport(ctx context.Context, body []byte) (any, 
 
 func (h *Handler) jsonDescribeAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateAuthorityAuditReportInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgs
 	}
 

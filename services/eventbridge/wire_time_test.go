@@ -1,13 +1,14 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -55,7 +56,7 @@ func TestEventEntry_UnmarshalJSON_TimeIsEpochSeconds(t *testing.T) {
 			t.Parallel()
 
 			var entry eventbridge.EventEntry
-			err := json.Unmarshal([]byte(tt.body), &entry)
+			err := json.Unmarshal([]byte(tt.body), &entry, jsonx.V1())
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -97,7 +98,7 @@ func TestStartReplayInput_UnmarshalJSON_TimesAreEpochSeconds(t *testing.T) {
 	}`
 
 	var input eventbridge.StartReplayInput
-	require.NoError(t, json.Unmarshal([]byte(body), &input))
+	require.NoError(t, json.Unmarshal([]byte(body), &input, jsonx.V1()))
 
 	assert.True(t, time.Unix(1_700_000_000, 0).UTC().Equal(input.EventStartTime))
 	assert.True(t, time.Unix(1_700_003_600, 0).UTC().Equal(input.EventEndTime))

@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestStopMaterializedViewRefreshTaskRun_NotFound verifies that
@@ -53,7 +55,7 @@ func TestStopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
 				var out struct {
 					RunID string `json:"MaterializedViewRefreshTaskRunId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotEmpty(t, out.RunID, "expected MaterializedViewRefreshTaskRunId in response")
 			}
 
@@ -99,7 +101,7 @@ func TestMaterializedViewRefreshTaskRun(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startRefreshRec1.Code)
 	var startRefreshOut1 map[string]any
-	require.NoError(t, json.Unmarshal(startRefreshRec1.Body.Bytes(), &startRefreshOut1))
+	require.NoError(t, json.Unmarshal(startRefreshRec1.Body.Bytes(), &startRefreshOut1, jsonx.V1()))
 	assert.NotEmpty(t, startRefreshOut1["MaterializedViewRefreshTaskRunId"])
 
 	startRec := doGlueRequest(t, h, "StartMaterializedViewRefreshTaskRun", map[string]any{
@@ -108,7 +110,7 @@ func TestMaterializedViewRefreshTaskRun(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["MaterializedViewRefreshTaskRunId"].(string)
 
 	getRefreshRec := doGlueRequest(t, h, "GetMaterializedViewRefreshTaskRun", map[string]any{
@@ -145,7 +147,7 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 		var startOut struct {
 			RunID string `json:"MaterializedViewRefreshTaskRunId"`
 		}
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 		assert.NotEmpty(t, startOut.RunID)
 
 		getRec := doGlueRequest(t, h, "GetMaterializedViewRefreshTaskRun", map[string]any{
@@ -159,7 +161,7 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 				Status string `json:"Status"`
 			} `json:"MaterializedViewRefreshTaskRun"`
 		}
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 		assert.Equal(t, startOut.RunID, getOut.Run.RunID)
 		assert.Equal(t, "RUNNING", getOut.Run.Status)
 
@@ -179,7 +181,7 @@ func TestMaterializedViewRefresh_Stateful(t *testing.T) {
 				Status string `json:"Status"`
 			} `json:"MaterializedViewRefreshTaskRun"`
 		}
-		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
+		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2, jsonx.V1()))
 		assert.Equal(t, "STOPPED", getOut2.Run.Status)
 	})
 

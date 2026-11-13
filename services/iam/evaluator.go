@@ -1,11 +1,12 @@
 package iam
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
@@ -68,7 +69,7 @@ func parsePolicyDocumentCached(expanded string) (PolicyDocument, bool) {
 
 	var pd PolicyDocument
 
-	err := json.Unmarshal([]byte(expanded), &pd)
+	err := json.Unmarshal([]byte(expanded), &pd, jsonx.V1())
 	entry := &cachedPolicyDoc{doc: pd, ok: err == nil}
 	parsedPolicyCache.Set(expanded, entry)
 

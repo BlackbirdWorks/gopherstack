@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -63,7 +64,7 @@ func TestSearchVectors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 
 		var errBody map[string]string
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 		assert.Contains(t, errBody["__type"], "ResourceNotFoundException")
 		assert.Contains(t, errBody["message"], "table not found")
 	})
@@ -82,7 +83,7 @@ func TestSearchVectors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 
 		var errBody map[string]string
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 		assert.Contains(t, errBody["__type"], "ResourceNotFoundException")
 		assert.Contains(t, errBody["message"], "Index: vec-index not found")
 	})

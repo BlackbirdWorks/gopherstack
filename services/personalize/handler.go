@@ -2,7 +2,7 @@ package personalize
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -230,7 +231,7 @@ func writeRuntimeRESTError(c *echo.Context, status int, errType, message string)
 	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 
-	payload, err := json.Marshal(map[string]string{"message": message})
+	payload, err := json.Marshal(map[string]string{"message": message}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 
 	var input map[string]any
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid JSON", ErrValidation)
 		}
 	}
@@ -280,7 +281,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(output)
+	return json.Marshal(output, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -302,7 +303,10 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	c.Response().Header().Set("Content-Type", personalizeContentType)
 
-	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": errorMessage(errType, err)})
+	payload, marshalErr := json.Marshal(
+		map[string]string{"__type": errType, "message": errorMessage(errType, err)},
+		jsonx.V1(),
+	)
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -497,13 +501,13 @@ func decodeConfig[T any](raw map[string]any) *T {
 		return nil
 	}
 
-	b, marshalErr := json.Marshal(raw)
+	b, marshalErr := json.Marshal(raw, jsonx.V1())
 	if marshalErr != nil {
 		return nil
 	}
 
 	var cfg T
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	if err := json.Unmarshal(b, &cfg, jsonx.V1()); err != nil {
 		return nil
 	}
 

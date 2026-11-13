@@ -2,7 +2,7 @@ package batch_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
 
@@ -259,7 +260,7 @@ func TestBatch_TagsOnNewResourceTypes(t *testing.T) {
 	e := echo.New()
 	tagPath := "/v1/tags/" + crARN
 	tagBody := map[string]any{"tags": map[string]string{"env": "prod"}}
-	tagBytes, err := json.Marshal(tagBody)
+	tagBytes, err := json.Marshal(tagBody, jsonx.V1())
 	require.NoError(t, err)
 
 	tagReq := httptest.NewRequest(http.MethodPost, tagPath, bytes.NewReader(tagBytes))
@@ -277,7 +278,7 @@ func TestBatch_TagsOnNewResourceTypes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]map[string]string
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 	assert.Equal(t, "prod", tagsOut["tags"]["env"])
 }
 

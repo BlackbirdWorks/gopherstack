@@ -1,12 +1,14 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -1048,7 +1050,7 @@ func TestNetworkSDK_FirewallPersistence(t *testing.T) {
 
 	snap := f.handler.Snapshot(ctx)
 
-	raw, err := json.Marshal(snap)
+	raw, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 	require.NotEmpty(t, raw)
 

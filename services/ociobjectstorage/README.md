@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 52 (31 ok, 21 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 10 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -21,10 +21,8 @@
 - Private endpoints (/n/{ns}/pe) are not implemented.
 - The OCI Amazon S3 compatibility API (structural: ociidentity generates customer secret keys but does not store them, so SigV4 cannot be verified) and the Swift API are out of scope.
 - InvalidDigest for a checksum mismatch and the opt-in minimum part size are not verified against the live service (the documented message is Unmatched Content CRC32C/SHA256/SHA384, code not published).
-- CommitMultipartUpload ignores partsToExclude.
 - Several error codes are unverified against the live service (see families.error_envelope).
 - Namespaces are single-tenant: only one namespace is served and no compartment or IAM policy checks apply.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace.
 
 ## More
 

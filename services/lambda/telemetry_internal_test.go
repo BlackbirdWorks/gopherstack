@@ -3,7 +3,7 @@ package lambda
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func sub(t *testing.T, h *extHarness, api, id, body string) (int, map[string]string) {
@@ -36,7 +38,7 @@ func sub(t *testing.T, h *extHarness, api, id, body string) (int, map[string]str
 
 	var out map[string]string
 
-	_ = json.Unmarshal([]byte(raw), &out)
+	_ = json.Unmarshal([]byte(raw), &out, jsonx.V1())
 
 	if status == http.StatusOK {
 		assert.Equal(t, `"OK"`, raw)
@@ -286,7 +288,7 @@ func TestInternalExtensionShutdownRejected(t *testing.T) {
 			h := newExtHarness(t)
 			h.srv.exts.setExternal(tt.external)
 
-			b, _ := json.Marshal(map[string]any{"events": tt.events})
+			b, _ := json.Marshal(map[string]any{"events": tt.events}, jsonx.V1())
 			status, _, body := h.do(t, http.MethodPost, "/2020-01-01/extension/register",
 				map[string]string{headerExtensionName: tt.extName}, string(b))
 			assert.Equal(t, tt.wantStatus, status)
@@ -341,7 +343,7 @@ func TestTelemetryBatching(t *testing.T) {
 					`,"destination":` + goodDest + `}`
 				var parsed subscribeRequest
 
-				require.NoError(t, json.Unmarshal([]byte(req), &parsed))
+				require.NoError(t, json.Unmarshal([]byte(req), &parsed, jsonx.V1()))
 
 				s, err := validateSubscription(apiTelemetry, &parsed)
 				require.NoError(t, err)
@@ -483,7 +485,7 @@ func TestTelemetryEventSchemas(t *testing.T) {
 			t.Parallel()
 
 			at := time.Date(2022, 10, 12, 0, 0, 15, 64*int(time.Millisecond), time.UTC)
-			raw, err := json.Marshal(wireEvent{Time: eventTime(at), Type: tt.typ, Record: tt.rec})
+			raw, err := json.Marshal(wireEvent{Time: eventTime(at), Type: tt.typ, Record: tt.rec}, jsonx.V1())
 			require.NoError(t, err)
 
 			want := fmt.Sprintf(`{"time":"2022-10-12T00:00:15.064Z","type":%q,"record":%s}`, tt.typ, tt.want)
@@ -577,7 +579,7 @@ func newHTTPListener(t *testing.T) *listener {
 		var evs []wireEvent
 
 		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &evs)
+		_ = json.Unmarshal(raw, &evs, jsonx.V1())
 		l.add(evs)
 	}))
 	t.Cleanup(ts.Close)
@@ -609,7 +611,7 @@ func newTCPListener(t *testing.T) *listener {
 				sc := bufio.NewScanner(c)
 				for sc.Scan() {
 					var e wireEvent
-					if json.Unmarshal(sc.Bytes(), &e) == nil {
+					if json.Unmarshal(sc.Bytes(), &e, jsonx.V1()) == nil {
 						l.add([]wireEvent{e})
 					}
 				}
@@ -737,7 +739,7 @@ func TestTelemetryDeliveryLifecycle(t *testing.T) {
 			assert.Equal(t, tt.wantOrder, lis.types())
 
 			if rd, ok := lis.find("platform.runtimeDone"); ok && tt.api == apiTelemetry {
-				raw, _ := json.Marshal(rd.Record)
+				raw, _ := json.Marshal(rd.Record, jsonx.V1())
 				assert.Contains(t, string(raw), `"status":"success"`)
 				assert.Contains(t, string(raw), `"producedBytes":4`)
 			}
@@ -747,7 +749,7 @@ func TestTelemetryDeliveryLifecycle(t *testing.T) {
 			}
 
 			if rep, ok := lis.find("platform.report"); ok {
-				raw, _ := json.Marshal(rep.Record)
+				raw, _ := json.Marshal(rep.Record, jsonx.V1())
 				assert.Contains(t, string(raw), `"memorySizeMB":128`)
 				assert.Contains(t, string(raw), `"billedDurationMs"`)
 				assert.Contains(t, string(raw), `"initDurationMs"`)
@@ -787,7 +789,7 @@ func TestTelemetryTimeoutReport(t *testing.T) {
 	rd, ok := lis.find("platform.runtimeDone")
 	require.True(t, ok)
 
-	raw, _ := json.Marshal(rd.Record)
+	raw, _ := json.Marshal(rd.Record, jsonx.V1())
 	assert.Contains(t, string(raw), `"status":"timeout"`)
 }
 
@@ -822,7 +824,7 @@ func TestLineSplitter(t *testing.T) {
 			var parsed subscribeRequest
 
 			require.NoError(t, json.Unmarshal([]byte(`{"schemaVersion":"2022-07-01","types":["function","extension"],`+
-				`"buffering":{"timeoutMs":25},"destination":`+goodDest+`}`), &parsed))
+				`"buffering":{"timeoutMs":25},"destination":`+goodDest+`}`), &parsed, jsonx.V1()))
 
 			s, err := validateSubscription(apiTelemetry, &parsed)
 			require.NoError(t, err)
@@ -835,7 +837,7 @@ func TestLineSplitter(t *testing.T) {
 
 				for _, raw := range b {
 					var e wireEvent
-					_ = json.Unmarshal(raw, &e)
+					_ = json.Unmarshal(raw, &e, jsonx.V1())
 
 					if r, ok := e.Record.(string); ok && (e.Type == typeFunction || e.Type == typeExtension) {
 						got = append(got, e.Type+":"+r)

@@ -1,10 +1,13 @@
 package glacier
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Vault Lock and vault access policy evaluation is transcribed from AWS's
@@ -24,7 +27,7 @@ type vaultLockPolicyDocument struct {
 
 type vaultLockPolicyStatement struct {
 	Condition map[string]map[string]glacierPolicyStringSet `json:"Condition"`
-	Principal json.RawMessage                              `json:"Principal"`
+	Principal jsontext.Value                               `json:"Principal"`
 	Effect    string                                       `json:"Effect"`
 	Action    glacierPolicyStringSet                       `json:"Action"`
 	Resource  glacierPolicyStringSet                       `json:"Resource"`
@@ -35,23 +38,23 @@ type vaultLockPolicyStatement struct {
 type glacierPolicyStringSet []string
 
 func (s *glacierPolicyStringSet) UnmarshalJSON(data []byte) error {
-	var multi []json.RawMessage
-	if err := json.Unmarshal(data, &multi); err != nil {
-		multi = []json.RawMessage{data}
+	var multi []jsontext.Value
+	if err := json.Unmarshal(data, &multi, jsonx.V1()); err != nil {
+		multi = []jsontext.Value{data}
 	}
 
 	out := make(glacierPolicyStringSet, 0, len(multi))
 
 	for _, raw := range multi {
 		var str string
-		if err := json.Unmarshal(raw, &str); err == nil {
+		if err := json.Unmarshal(raw, &str, jsonx.V1()); err == nil {
 			out = append(out, str)
 
 			continue
 		}
 
-		var num json.Number
-		if err := json.Unmarshal(raw, &num); err != nil {
+		var num jsonx.Number
+		if err := json.Unmarshal(raw, &num, jsonx.V1()); err != nil {
 			return fmt.Errorf("unsupported policy value %s: %w", raw, err)
 		}
 
@@ -78,7 +81,7 @@ const (
 // InitiateVaultLock time rather than silently never enforcing anything.
 func parseVaultLockPolicyDocument(policy string) (*vaultLockPolicyDocument, error) {
 	var doc vaultLockPolicyDocument
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("malformed vault lock policy: %w", err)
 	}
 
@@ -135,7 +138,7 @@ func evaluateVaultPolicyDeny(policy string, req *policyRequest) (bool, error) {
 
 // principalMatches reports whether a statement's Principal covers the caller. A
 // missing Principal is treated as the wildcard.
-func principalMatches(raw json.RawMessage, req *policyRequest) bool {
+func principalMatches(raw jsontext.Value, req *policyRequest) bool {
 	if len(raw) == 0 {
 		return true
 	}
@@ -143,11 +146,11 @@ func principalMatches(raw json.RawMessage, req *policyRequest) bool {
 	var set glacierPolicyStringSet
 
 	var single string
-	if json.Unmarshal(raw, &single) == nil {
+	if json.Unmarshal(raw, &single, jsonx.V1()) == nil {
 		set = glacierPolicyStringSet{single}
 	} else {
 		var obj map[string]glacierPolicyStringSet
-		if json.Unmarshal(raw, &obj) != nil {
+		if json.Unmarshal(raw, &obj, jsonx.V1()) != nil {
 			return false
 		}
 

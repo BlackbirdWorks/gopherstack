@@ -1,13 +1,14 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func errRequired(param string) *APIError {
@@ -121,7 +122,7 @@ func (h *Handler) setIamPolicy(c *echo.Context, rt route) error {
 	}
 
 	var in IAMPolicy
-	if jsonErr := json.Unmarshal(body, &in); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &in, jsonx.V1()); jsonErr != nil {
 		return errInvalid("Invalid JSON payload received.")
 	}
 

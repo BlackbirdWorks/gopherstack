@@ -1,13 +1,15 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDataRepositoryAssociation_S3Configuration(t *testing.T) {
@@ -90,7 +92,7 @@ func TestDataRepositoryAssociation_S3Configuration(t *testing.T) {
 				} `json:"Associations"`
 			}
 
-			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &out, jsonx.V1()))
 			require.Len(t, out.Associations, 1)
 			assert.Equal(t, tt.wantExport, out.Associations[0].S3.AutoExportPolicy.Events)
 			assert.Equal(t, tt.wantImport, out.Associations[0].S3.AutoImportPolicy.Events)
@@ -130,7 +132,7 @@ func TestDeleteDataRepositoryAssociation_DeleteDataInFileSystem(t *testing.T) {
 
 			var out map[string]any
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "DELETING", out["Lifecycle"])
 			assert.Equal(t, tt.flag, out["DeleteDataInFileSystem"])
 		})
@@ -176,7 +178,7 @@ func TestCreateFileCache_AssociationsAndCopyTags(t *testing.T) {
 				} `json:"FileCache"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			require.Len(t, created.FileCache.DRAIDs, 1)
 			require.NotNil(t, created.FileCache.CopyTags)
 			assert.Equal(t, tt.copyTags, *created.FileCache.CopyTags)
@@ -200,7 +202,7 @@ func TestCreateFileCache_AssociationsAndCopyTags(t *testing.T) {
 				} `json:"Associations"`
 			}
 
-			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &assoc))
+			require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &assoc, jsonx.V1()))
 			require.Len(t, assoc.Associations, 1)
 
 			a := assoc.Associations[0]

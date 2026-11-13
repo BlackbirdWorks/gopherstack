@@ -1,7 +1,7 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -32,7 +33,7 @@ func TestPutEmailIdentityConfigurationSetAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "my-cs", out["ConfigurationSetName"])
 }
 
@@ -67,7 +68,7 @@ func TestPutEmailIdentityDkimAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	dkim, ok := out["DkimAttributes"].(map[string]any)
 	require.True(t, ok, "DkimAttributes should be present")
@@ -145,7 +146,7 @@ func TestPutEmailIdentityDkimSigningAttributes(t *testing.T) {
 					DkimStatus string   `json:"DkimStatus"`
 					DkimTokens []string `json:"DkimTokens"`
 				}
-				err := json.Unmarshal(rec.Body.Bytes(), &resp)
+				err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantDkimStat, resp.DkimStatus)
 				if tt.wantTokens {
@@ -177,7 +178,7 @@ func TestPutEmailIdentityFeedbackAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, false, out["FeedbackForwardingStatus"])
 }
 
@@ -214,7 +215,7 @@ func TestPutEmailIdentityMailFromAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	mailFrom, ok := out["MailFromAttributes"].(map[string]any)
 	require.True(t, ok, "MailFromAttributes should be present after setting mail-from domain")
@@ -256,7 +257,7 @@ func TestPutEmailIdentityMailFromClear(t *testing.T) {
 
 	rec := doReq(t, h, http.MethodGet, "/v2/email/identities/mfclear%40example.com", nil)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// MailFromAttributes should be absent when domain is empty.
 	assert.Nil(t, out["MailFromAttributes"])
@@ -277,7 +278,7 @@ func TestGetEmailIdentityDefaults(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.NotContains(t, out, "EmailIdentity")
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
@@ -304,7 +305,7 @@ func TestGetEmailIdentityDomainHasDkimTokens(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "DOMAIN", out["IdentityType"])
 
@@ -335,7 +336,7 @@ func TestGetEmailIdentityEmailAddressNoDkimTokens(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	dkim, ok := out["DkimAttributes"].(map[string]any)
 	require.True(t, ok)
@@ -357,7 +358,7 @@ func TestCreateEmailIdentityWithConfigSet(t *testing.T) {
 
 	rec = doReq(t, h, http.MethodGet, "/v2/email/identities/tagged%40example.com", nil)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "my-cs", out["ConfigurationSetName"])
 }
 
@@ -378,7 +379,7 @@ func TestCreateEmailIdentityWithTags(t *testing.T) {
 
 	rec = doReq(t, h, http.MethodGet, "/v2/email/identities/tagged2%40example.com", nil)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags, ok := out["Tags"].([]any)
 	require.True(t, ok, "Tags should be returned")
@@ -397,7 +398,7 @@ func TestCreateDomainIdentityReturnsDkimAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Domain identities should return DkimAttributes with tokens in create response.
 	dkim, ok := out["DkimAttributes"].(map[string]any)
@@ -420,7 +421,7 @@ func TestCreateEmailAddressDoesNotReturnDkimAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Email addresses should not return DkimAttributes in create response.
 	assert.Nil(t, out["DkimAttributes"], "Email address CreateEmailIdentity should omit DkimAttributes")
@@ -442,7 +443,7 @@ func TestGetEmailIdentityPoliciesIncludedInGet(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	policies, ok := out["Policies"].(map[string]any)
 	require.True(t, ok, "Policies should be returned in GetEmailIdentity")
@@ -943,7 +944,7 @@ func TestCreateEmailIdentity(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["IdentityType"])
 				assert.Equal(t, true, out["VerifiedForSendingStatus"])
 			}
@@ -994,7 +995,7 @@ func TestGetEmailIdentity(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotContains(t, out, "EmailIdentity")
 			}
 		})
@@ -1027,7 +1028,7 @@ func TestListEmailIdentities(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	identities, ok := out["EmailIdentities"].([]any)
 	require.True(t, ok)

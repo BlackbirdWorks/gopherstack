@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -393,7 +394,7 @@ func TestParameterLabels_VersionSpecific(t *testing.T) {
 		"Name":             "/app/key",
 		"Labels":           []string{"stable"},
 		"ParameterVersion": 1,
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "LabelParameterVersion", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ParameterVersion")
@@ -403,7 +404,7 @@ func TestParameterLabels_VersionSpecific(t *testing.T) {
 		"Name":             "/app/key",
 		"Labels":           []string{"latest"},
 		"ParameterVersion": 2,
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "LabelParameterVersion", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -464,7 +465,7 @@ func TestParameterLabels_UnlabelSpecificVersion(t *testing.T) {
 		"Name":             "/app/ver",
 		"Labels":           []string{"prod", "stable"},
 		"ParameterVersion": 1,
-	})
+	}, jsonx.V1())
 	doRequest(t, h, "LabelParameterVersion", string(body))
 
 	// Remove one label.
@@ -472,7 +473,7 @@ func TestParameterLabels_UnlabelSpecificVersion(t *testing.T) {
 		"Name":             "/app/ver",
 		"Labels":           []string{"prod"},
 		"ParameterVersion": 1,
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "UnlabelParameterVersion", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "RemovedLabels")

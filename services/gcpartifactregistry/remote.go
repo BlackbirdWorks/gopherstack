@@ -6,7 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"html"
@@ -21,6 +21,7 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const upstreamTimeout = 60 * time.Second
@@ -302,7 +303,7 @@ func (b *InMemoryBackend) cacheNPMTarball(rc repoCtx, pkg, file string, data []b
 		Version string `json:"version"`
 	}
 
-	if err = json.Unmarshal(doc, &m); err != nil || m.Version == "" {
+	if err = json.Unmarshal(doc, &m, jsonx.V1()); err != nil || m.Version == "" {
 		return fmt.Errorf("package.json has no version: %w", errNoUpstream)
 	}
 
@@ -314,7 +315,7 @@ func (b *InMemoryBackend) cacheNPMTarball(rc repoCtx, pkg, file string, data []b
 // rewritePackument points every version's dist.tarball at the local repository.
 func rewritePackument(data []byte, local, pkg string) ([]byte, error) {
 	var doc map[string]any
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("upstream packument: %w", err)
 	}
 
@@ -328,7 +329,7 @@ func rewritePackument(data []byte, local, pkg string) ([]byte, error) {
 		}
 	}
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("packument: %w", err)
 	}
@@ -510,7 +511,7 @@ func (b *InMemoryBackend) cachePyFile(rc repoCtx, norm, version, filename string
 		return errDigest
 	}
 
-	doc, _ := json.Marshal(pyDoc{Name: norm, RequiresPython: html.UnescapeString(l.requires), SHA256: sum})
+	doc, _ := json.Marshal(pyDoc{Name: norm, RequiresPython: html.UnescapeString(l.requires), SHA256: sum}, jsonx.V1())
 
 	return b.putPackageFile(rc.ref, pkgFile{
 		pkgID: norm, display: norm, version: version, fileID: pyFileID(norm, version, filename), data: data, doc: doc,

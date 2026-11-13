@@ -2,13 +2,15 @@ package azurecontainerregistry
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -49,7 +51,7 @@ type errorEntry struct {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		status, raw = http.StatusInternalServerError, []byte(`{"errors":[{"code":"UNKNOWN","message":"encode"}]}`)
 	}
@@ -330,7 +332,7 @@ func parseForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
 func decodeBody(w http.ResponseWriter, r *http.Request, out any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(r.Body), out, jsonx.V1()); err != nil {
 		writeRegistryError(w, http.StatusBadRequest, "INVALID_REQUEST", "The request body is not valid JSON.")
 
 		return false

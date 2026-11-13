@@ -2,11 +2,13 @@ package iotdataplane
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // payloadFormatIndicatorUnspecifiedBytes and payloadFormatIndicatorUTF8Data
@@ -108,7 +110,7 @@ func parseUserProperties(raw []byte) ([]MQTT5UserProperty, error) {
 	}
 
 	var entries []map[string]string
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	if err := json.Unmarshal(raw, &entries, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf(
 			"%w: userProperties must be a JSON array of single-key objects",
 			ErrValidation,

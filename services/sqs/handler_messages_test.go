@@ -1,7 +1,7 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -28,7 +29,7 @@ func TestHandlerActions_SendMessage(t *testing.T) {
 		MessageID        string `json:"MessageId"`
 		MD5OfMessageBody string `json:"MD5OfMessageBody"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp.MessageID)
 	assert.NotEmpty(t, resp.MD5OfMessageBody)
 }
@@ -59,7 +60,7 @@ func TestHandlerActions_ReceiveMessage(t *testing.T) {
 				Body string `json:"Body"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		require.Len(t, resp.Messages, 1)
 		assert.Equal(t, "hello", resp.Messages[0].Body)
 	})
@@ -86,7 +87,7 @@ func TestHandlerActions_ReceiveMessage(t *testing.T) {
 				Body string `json:"Body"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Messages, 1)
 	})
 }
@@ -153,7 +154,7 @@ func TestHandlerActions_ReceiveMessageAttributeNamesFilter(t *testing.T) {
 					MessageAttributes map[string]map[string]any `json:"MessageAttributes"`
 				} `json:"Messages"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Messages, 1)
 			assert.Len(t, resp.Messages[0].MessageAttributes, tt.wantAttrNamesLen)
 			for _, name := range tt.wantAttrNames {
@@ -181,7 +182,7 @@ func sendForMD5(t *testing.T, h *sqs.Handler, queueURL string, attrs map[string]
 	var resp struct {
 		MD5OfMessageAttributes string `json:"MD5OfMessageAttributes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp.MD5OfMessageAttributes
 }
@@ -261,7 +262,7 @@ func TestHandlerActions_ReceiveMessageMD5OverSubset(t *testing.T) {
 					MD5OfMessageAttributes string                    `json:"MD5OfMessageAttributes"`
 				} `json:"Messages"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Messages, 1)
 
 			if tt.wantEmptyMD5 {
@@ -305,7 +306,7 @@ func TestHandlerActions_DeleteMessage(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 		require.Len(t, recvResp.Messages, 1)
 
 		receipt := recvResp.Messages[0].ReceiptHandle
@@ -354,7 +355,7 @@ func TestHandlerActions_SendMessageBatch(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"Successful"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Successful, 2)
 	})
 
@@ -370,7 +371,7 @@ func TestHandlerActions_SendMessageBatch(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp jsonErr
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 	})
 
@@ -387,7 +388,7 @@ func TestHandlerActions_SendMessageBatch(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp jsonErr
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "com.amazonaws.sqs#EmptyBatchRequest", errResp.Type)
 	})
 
@@ -416,7 +417,7 @@ func TestHandlerActions_SendMessageBatch(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"Successful"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Successful, 10)
 	})
 }
@@ -442,7 +443,7 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 		require.Len(t, recvResp.Messages, 1)
 
 		receipt := recvResp.Messages[0].ReceiptHandle
@@ -458,7 +459,7 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"Successful"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Successful, 1)
 	})
 
@@ -474,7 +475,7 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp jsonErr
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 	})
 
@@ -495,7 +496,7 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"Failed"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Len(t, resp.Failed, 1)
 	})
 
@@ -512,7 +513,7 @@ func TestHandlerActions_DeleteMessageBatch(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp jsonErr
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "com.amazonaws.sqs#EmptyBatchRequest", errResp.Type)
 	})
 }

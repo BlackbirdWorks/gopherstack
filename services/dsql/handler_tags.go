@@ -1,10 +1,12 @@
 package dsql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchTagOps handles the generic ARN-scoped tagging trio.
@@ -23,7 +25,7 @@ func (h *Handler) dispatchTagOps(c *echo.Context, op, resource string, body []by
 
 func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeInvalidBody(c)
 	}
 

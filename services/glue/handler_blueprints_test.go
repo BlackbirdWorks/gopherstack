@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestBlueprint_CRUD(t *testing.T) {
@@ -368,7 +370,7 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startBpRec1.Code)
 	var startBpOut1 map[string]any
-	require.NoError(t, json.Unmarshal(startBpRec1.Body.Bytes(), &startBpOut1))
+	require.NoError(t, json.Unmarshal(startBpRec1.Body.Bytes(), &startBpOut1, jsonx.V1()))
 	assert.NotEmpty(t, startBpOut1["RunId"])
 
 	startRec := doGlueRequest(t, h, "StartBlueprintRun", map[string]any{
@@ -377,7 +379,7 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"].(string)
 
 	getBpRunRec := doGlueRequest(t, h, "GetBlueprintRun", map[string]any{
@@ -390,7 +392,7 @@ func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	getBpRunsRec := doGlueRequest(t, h, "GetBlueprintRuns", map[string]any{"BlueprintName": "bp-run"})
 	require.Equal(t, http.StatusOK, getBpRunsRec.Code)
 	var getBpRunsOut map[string]any
-	require.NoError(t, json.Unmarshal(getBpRunsRec.Body.Bytes(), &getBpRunsOut))
+	require.NoError(t, json.Unmarshal(getBpRunsRec.Body.Bytes(), &getBpRunsOut, jsonx.V1()))
 	bpRuns := getBpRunsOut["BlueprintRuns"].([]any)
 	assert.GreaterOrEqual(t, len(bpRuns), 1)
 }

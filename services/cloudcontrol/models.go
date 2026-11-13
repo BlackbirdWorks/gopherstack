@@ -1,8 +1,10 @@
 package cloudcontrol
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -24,12 +26,12 @@ type unixEpochTime struct {
 }
 
 func (t unixEpochTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Unix())
+	return json.Marshal(t.Unix(), jsonx.V1())
 }
 
 func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
 	var epoch int64
-	if err := json.Unmarshal(b, &epoch); err != nil {
+	if err := json.Unmarshal(b, &epoch, jsonx.V1()); err != nil {
 		return err
 	}
 

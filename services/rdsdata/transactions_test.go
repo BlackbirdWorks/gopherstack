@@ -2,7 +2,7 @@ package rdsdata_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )
 
@@ -81,7 +82,7 @@ func TestHandler_BeginTransaction_ReturnsTransactionID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	txID, ok := resp["transactionId"].(string)
 	require.True(t, ok)
 	assert.NotEmpty(t, txID)
@@ -103,7 +104,7 @@ func TestHandler_BeginTransaction_UniqueIDs(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		txID, ok := resp["transactionId"].(string)
 		require.True(t, ok)
@@ -169,7 +170,7 @@ func TestHandler_CommitTransaction(t *testing.T) {
 				require.Equal(t, http.StatusOK, beginRec.Code)
 
 				var beginResp map[string]any
-				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 				txID := beginResp["transactionId"].(string)
 
 				rec = doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
@@ -247,7 +248,7 @@ func TestHandler_RollbackTransaction(t *testing.T) {
 				require.Equal(t, http.StatusOK, beginRec.Code)
 
 				var beginResp map[string]any
-				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 				txID := beginResp["transactionId"].(string)
 
 				rec = doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
@@ -286,7 +287,7 @@ func TestHandler_TransactionLifecycle(t *testing.T) {
 	assert.Equal(t, 1, rdsdata.TransactionCount(b))
 
 	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 	txID := beginResp["transactionId"].(string)
 
 	// Execute
@@ -308,7 +309,7 @@ func TestHandler_TransactionLifecycle(t *testing.T) {
 	assert.Equal(t, 0, rdsdata.TransactionCount(b))
 
 	var commitResp map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp, jsonx.V1()))
 	assert.Equal(t, "Transaction committed", commitResp["transactionStatus"])
 }
 
@@ -325,7 +326,7 @@ func TestHandler_TransactionRollbackLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, beginRec.Code)
 
 	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 	txID := beginResp["transactionId"].(string)
 
 	rollbackRec := doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
@@ -336,7 +337,7 @@ func TestHandler_TransactionRollbackLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rollbackRec.Code)
 
 	var rollbackResp map[string]any
-	require.NoError(t, json.Unmarshal(rollbackRec.Body.Bytes(), &rollbackResp))
+	require.NoError(t, json.Unmarshal(rollbackRec.Body.Bytes(), &rollbackResp, jsonx.V1()))
 	assert.Equal(t, "Transaction rolled back", rollbackResp["transactionStatus"])
 }
 
@@ -353,7 +354,7 @@ func TestHandler_CommitAfterRollback_Fails(t *testing.T) {
 	require.Equal(t, http.StatusOK, beginRec.Code)
 
 	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 	txID := beginResp["transactionId"].(string)
 
 	// Rollback first
@@ -401,7 +402,7 @@ func TestHandler_CommitThenReuse(t *testing.T) {
 			require.Equal(t, http.StatusOK, beginRec.Code)
 
 			var beginResp map[string]any
-			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 			txID := beginResp["transactionId"].(string)
 
 			commitRec := doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
@@ -421,7 +422,7 @@ func TestHandler_CommitThenReuse(t *testing.T) {
 				"path %s: reusing committed txID must fail", tt.path)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "TransactionNotFoundException", errResp["__type"])
 		})
 	}
@@ -463,7 +464,7 @@ func TestHandler_ExecuteAfterTransactionClose(t *testing.T) {
 			require.Equal(t, http.StatusOK, beginRec.Code)
 
 			var beginResp map[string]any
-			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 			txID := beginResp["transactionId"].(string)
 
 			// Execute within transaction — should succeed.
@@ -508,7 +509,7 @@ func TestHandler_BatchExecuteWithTransaction(t *testing.T) {
 	require.Equal(t, http.StatusOK, beginRec.Code)
 
 	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 	txID := beginResp["transactionId"].(string)
 
 	rec := doRDSDataRequest(t, h, "/BatchExecute", map[string]any{
@@ -558,7 +559,7 @@ func TestHandler_TransactionStatusConstants(t *testing.T) {
 			require.Equal(t, http.StatusOK, beginRec.Code)
 
 			var beginResp map[string]any
-			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
+			require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp, jsonx.V1()))
 			txID := beginResp["transactionId"].(string)
 
 			rec := doRDSDataRequest(t, h, tt.path, map[string]any{
@@ -569,7 +570,7 @@ func TestHandler_TransactionStatusConstants(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, resp["transactionStatus"],
 				"transactionStatus must match exact AWS string")
 		})
@@ -608,7 +609,7 @@ func TestHandler_TransactionNotFoundErrorType(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "TransactionNotFoundException", resp["__type"],
 				"path %s: error type must be TransactionNotFoundException", tt.path)
 		})
@@ -629,7 +630,7 @@ func TestHandler_TransactionNotFoundErrorShape(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "TransactionNotFoundException", errResp["__type"])
 	assert.NotEmpty(t, errResp["message"])
 }

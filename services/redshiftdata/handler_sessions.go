@@ -2,8 +2,10 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleListSessions handles ListSessions. Field names verified against
@@ -22,7 +24,7 @@ func (h *Handler) handleListSessions(ctx context.Context, body []byte) ([]byte, 
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleListSessions(ctx context.Context, body []byte) ([]byte, 
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // sessionToListItem converts a derived SessionData to the SessionData wire shape

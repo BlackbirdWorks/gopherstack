@@ -1,12 +1,13 @@
 package amp
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
@@ -309,7 +310,7 @@ func validatePolicy(doc string) error {
 		Statement any `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &p); err != nil || p.Statement == nil {
+	if err := json.Unmarshal([]byte(doc), &p, jsonx.V1()); err != nil || p.Statement == nil {
 		return cannotParse("policyDocument must be a JSON policy with a Statement")
 	}
 

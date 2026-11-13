@@ -1,12 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGetFindingsStatistics_GroupBy(t *testing.T) {
@@ -67,7 +69,7 @@ func TestGetFindingsStatistics_GroupBy(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			fs, ok := resp["findingStatistics"].(map[string]any)
 			require.True(t, ok)
@@ -109,7 +111,7 @@ func TestGetFindingsStatistics_GroupBy_Unset_ReturnsCountBySeverity(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fs := resp["findingStatistics"].(map[string]any)
 
 	assert.Contains(t, fs, "countBySeverity")
@@ -139,7 +141,7 @@ func TestGetFindingsStatistics_FindingCriteria(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fs := resp["findingStatistics"].(map[string]any)
 
 	groups, ok := fs["groupedByFindingType"].([]any)

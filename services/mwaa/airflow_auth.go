@@ -4,13 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -115,7 +117,7 @@ func (e *airflowEngine) loginV3(ctx context.Context, t airflowTarget) ([]*http.C
 }
 
 func (e *airflowEngine) v3Token(ctx context.Context, t airflowTarget) (string, error) {
-	body, _ := json.Marshal(map[string]string{"username": airflowAdminUser, "password": t.pass})
+	body, _ := json.Marshal(map[string]string{"username": airflowAdminUser, "password": t.pass}, jsonx.V1())
 
 	res, err := e.request(ctx, http.MethodPost, t.base+"/auth/token", body, http.Header{
 		headerContentType: {"application/json"},
@@ -128,7 +130,8 @@ func (e *airflowEngine) v3Token(ctx context.Context, t airflowTarget) (string, e
 		Token string `json:"access_token"`
 	}
 
-	if res.status >= http.StatusMultipleChoices || json.Unmarshal(res.body, &out) != nil || out.Token == "" {
+	if res.status >= http.StatusMultipleChoices || json.Unmarshal(res.body, &out, jsonx.V1()) != nil ||
+		out.Token == "" {
 		return "", fmt.Errorf("%w: status %d", errAirflowLogin, res.status)
 	}
 

@@ -1,13 +1,15 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 )
 
@@ -66,7 +68,7 @@ type appConfigFlagBody struct {
 	ID          string `json:"id"`
 	Description string `json:"description"`
 	Conditions  struct {
-		ClientFilters []json.RawMessage `json:"client_filters"`
+		ClientFilters []jsontext.Value `json:"client_filters"`
 	} `json:"conditions"`
 	Enabled bool `json:"enabled"`
 }
@@ -168,7 +170,7 @@ func (a *azureAppConfigAPI) features(c *echo.Context) error {
 	for _, kv := range kvs {
 		var body appConfigFlagBody
 		if kv.Value != nil {
-			_ = json.Unmarshal([]byte(*kv.Value), &body)
+			_ = json.Unmarshal([]byte(*kv.Value), &body, jsonx.V1())
 		}
 
 		flags = append(flags, appConfigFlagJSON{
@@ -199,16 +201,16 @@ func (a *azureAppConfigAPI) toggleFeature(c *echo.Context) error {
 		return a.fail(c, err)
 	}
 
-	doc := map[string]json.RawMessage{}
+	doc := map[string]jsontext.Value{}
 	if kv.Value != nil {
-		if err = json.Unmarshal([]byte(*kv.Value), &doc); err != nil {
+		if err = json.Unmarshal([]byte(*kv.Value), &doc, jsonx.V1()); err != nil {
 			return cloudJSONFail(c, http.StatusBadRequest, cloudStatusBadArg, "stored feature flag is not valid JSON")
 		}
 	}
 
-	doc["enabled"], _ = json.Marshal(in.Enabled)
+	doc["enabled"], _ = json.Marshal(in.Enabled, jsonx.V1())
 
-	raw, err := json.Marshal(doc)
+	raw, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return a.fail(c, err)
 	}

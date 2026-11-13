@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ type updateMonitoringAlertRequest struct {
 func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateMonitoringAlertRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -51,7 +53,7 @@ func (h *Handler) handleUpdateMonitoringAlert(ctx context.Context, body []byte) 
 	return json.Marshal(map[string]any{
 		keyMonitoringScheduleArn: scheduleArn,
 		keyMonitoringAlertName:   alert.MonitoringAlertName,
-	})
+	}, jsonx.V1())
 }
 
 // listMonitoringAlertsRequest is the request body for ListMonitoringAlerts.
@@ -64,7 +66,7 @@ type listMonitoringAlertsRequest struct {
 func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) ([]byte, error) {
 	var req listMonitoringAlertsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) handleListMonitoringAlerts(ctx context.Context, body []byte) (
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listMonitoringAlertHistoryRequest is the request body for ListMonitoringAlertHistory.
@@ -116,7 +118,7 @@ type listMonitoringAlertHistoryRequest struct {
 func (h *Handler) handleListMonitoringAlertHistory(ctx context.Context, body []byte) ([]byte, error) {
 	var req listMonitoringAlertHistoryRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -148,7 +150,7 @@ func (h *Handler) handleListMonitoringAlertHistory(ctx context.Context, body []b
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listMonitoringExecutionsRequest is the parsed representation of a
@@ -192,13 +194,13 @@ func (r listMonitoringExecutionsRequest) toFilter() MonitoringExecutionFilter {
 
 func (h *Handler) handleListMonitoringExecutions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listMonitoringExecutionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	items, next := h.Backend.ListMonitoringExecutions(ctx, req.NextToken, req.toFilter())
 
-	return json.Marshal(buildMonitoringExecutionListResponse(items, next))
+	return json.Marshal(buildMonitoringExecutionListResponse(items, next), jsonx.V1())
 }
 
 func buildMonitoringExecutionListResponse(items []*MonitoringExecution, next string) map[string]any {

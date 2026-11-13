@@ -2,7 +2,7 @@ package ecr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -345,7 +346,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		RepositoryNames []string `json:"repositoryNames"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.RepositoryName != "" {
 		return req.RepositoryName
@@ -543,7 +544,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // ecrErr builds the error body for an ECR error response.
@@ -611,14 +612,11 @@ func (h *Handler) classifyError(err error) (int, string) {
 		}
 	}
 
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, errUnknownAction):
 		return http.StatusBadRequest, "UnknownOperationException"
 	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, errInvalidRequest),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return http.StatusBadRequest, "InvalidParameterException"
 	default:
 		return http.StatusInternalServerError, "ServerException"

@@ -2,13 +2,16 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestOverWideListResponses asserts on the raw response body that every
@@ -55,14 +58,14 @@ func TestOverWideListResponses(t *testing.T) {
 					"tracingConfiguration":    map[string]any{"enabled": true},
 					"loggingConfiguration":    map[string]any{"level": "ALL"},
 					"encryptionConfiguration": map[string]any{"type": "AWS_OWNED_KEY"},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(createBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				smARN, _ := created["stateMachineArn"].(string)
 				require.NotEmpty(t, smARN)
 
@@ -71,7 +74,7 @@ func TestOverWideListResponses(t *testing.T) {
 					"stateMachineArn": smARN,
 					"definition":      validPassDef,
 					"roleArn":         "arn:aws:iam::123456789012:role/test",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				updRec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(updateBody))
@@ -100,7 +103,7 @@ func TestOverWideListResponses(t *testing.T) {
 						"type":     "CUSTOMER_MANAGED_KMS_KEY",
 						"kmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key",
 					},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := sfnPost(ctx, t, h, e, "CreateActivity", string(createBody))
@@ -128,18 +131,18 @@ func TestOverWideListResponses(t *testing.T) {
 					"stateMachineArn": smARN,
 					"name":            "wide-exec",
 					"input":           `{"secret":"do-not-leak"}`,
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := sfnPost(ctx, t, h, e, "StartExecution", string(execBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var started map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 				execARN, _ := started["executionArn"].(string)
 				require.NotEmpty(t, execARN)
 
-				descBody, err := json.Marshal(map[string]string{"executionArn": execARN})
+				descBody, err := json.Marshal(map[string]string{"executionArn": execARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				require.Eventuallyf(t, func() bool {
@@ -149,14 +152,14 @@ func TestOverWideListResponses(t *testing.T) {
 					}
 
 					var desc map[string]any
-					if unmarshalErr := json.Unmarshal(descRec.Body.Bytes(), &desc); unmarshalErr != nil {
+					if unmarshalErr := json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()); unmarshalErr != nil {
 						return false
 					}
 
 					return desc["status"] != "RUNNING"
 				}, 5*time.Second, 20*time.Millisecond, "execution should finish")
 
-				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				listRec := sfnPost(ctx, t, h, e, "ListExecutions", string(listBody))
@@ -187,14 +190,14 @@ func TestOverWideListResponses(t *testing.T) {
 					"definition": mapIterStateDef,
 					"roleArn":    "arn:aws:iam::123456789012:role/test",
 					"type":       "EXPRESS",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(createBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				smARN, _ := created["stateMachineArn"].(string)
 				require.NotEmpty(t, smARN)
 
@@ -202,25 +205,25 @@ func TestOverWideListResponses(t *testing.T) {
 					"stateMachineArn": smARN,
 					"name":            "wide-maprun-exec",
 					"input":           `[1,2,3]`,
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				syncRec := sfnPost(ctx, t, h, e, "StartSyncExecution", string(syncBody))
 				require.Equal(t, http.StatusOK, syncRec.Code)
 
 				var synced map[string]any
-				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &synced))
+				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &synced, jsonx.V1()))
 				execARN, _ := synced["executionArn"].(string)
 				require.NotEmpty(t, execARN)
 
-				listBody, err := json.Marshal(map[string]any{"executionArn": execARN})
+				listBody, err := json.Marshal(map[string]any{"executionArn": execARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				listRec := sfnPost(ctx, t, h, e, "ListMapRuns", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listed map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listed))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listed, jsonx.V1()))
 				runs, _ := listed["mapRuns"].([]any)
 				require.NotEmpty(t, runs, "expected at least one MapRun")
 				first, _ := runs[0].(map[string]any)
@@ -234,7 +237,7 @@ func TestOverWideListResponses(t *testing.T) {
 					"maxConcurrency":             5,
 					"toleratedFailureCount":      1,
 					"toleratedFailurePercentage": 10.0,
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				updRec := sfnPost(ctx, t, h, e, "UpdateMapRun", string(updateBody))
@@ -261,14 +264,14 @@ func TestOverWideListResponses(t *testing.T) {
 				h, e := newSFNHandler(t)
 				smARN := createSM(ctx, t, h, e, "wide-alias-sm")
 
-				pubBody, err := json.Marshal(map[string]any{"stateMachineArn": smARN})
+				pubBody, err := json.Marshal(map[string]any{"stateMachineArn": smARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				pubRec := sfnPost(ctx, t, h, e, "PublishStateMachineVersion", string(pubBody))
 				require.Equal(t, http.StatusOK, pubRec.Code)
 
 				var published map[string]any
-				require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &published))
+				require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &published, jsonx.V1()))
 				versionARN, _ := published["stateMachineVersionArn"].(string)
 				require.NotEmpty(t, versionARN)
 
@@ -279,14 +282,14 @@ func TestOverWideListResponses(t *testing.T) {
 					"routingConfiguration": []map[string]any{
 						{"stateMachineVersionArn": versionARN, "weight": 100},
 					},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				aliasRec := sfnPost(ctx, t, h, e, "CreateStateMachineAlias", string(createBody))
 				require.Equal(t, http.StatusOK, aliasRec.Code)
 
 				var alias map[string]any
-				require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &alias))
+				require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &alias, jsonx.V1()))
 				aliasARN, _ := alias["stateMachineAliasArn"].(string)
 				require.NotEmpty(t, aliasARN)
 
@@ -294,13 +297,13 @@ func TestOverWideListResponses(t *testing.T) {
 				updateBody, err := json.Marshal(map[string]any{
 					"stateMachineAliasArn": aliasARN,
 					"description":          "updated",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				updRec := sfnPost(ctx, t, h, e, "UpdateStateMachineAlias", string(updateBody))
 				require.Equal(t, http.StatusOK, updRec.Code)
 
-				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				listRec := sfnPost(ctx, t, h, e, "ListStateMachineAliases", string(listBody))
@@ -331,13 +334,13 @@ func TestOverWideListResponses(t *testing.T) {
 					"stateMachineArn": smARN,
 					"description":     "leaks if present",
 					"revisionId":      "leaks-if-present",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				pubRec := sfnPost(ctx, t, h, e, "PublishStateMachineVersion", string(pubBody))
 				require.Equal(t, http.StatusOK, pubRec.Code)
 
-				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+				listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 				require.NoError(t, err)
 
 				listRec := sfnPost(ctx, t, h, e, "ListStateMachineVersions", string(listBody))
@@ -354,14 +357,14 @@ func TestOverWideListResponses(t *testing.T) {
 
 			body := tt.raw(t)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(body, &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 			itemsRaw, ok := resp[tt.itemsKey]
 			require.True(t, ok, "response missing %q key", tt.itemsKey)
 
-			var items []map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(itemsRaw, &items))
+			var items []map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(itemsRaw, &items, jsonx.V1()))
 			require.NotEmpty(t, items, "expected at least one item in %q", tt.itemsKey)
 
 			for _, item := range items {

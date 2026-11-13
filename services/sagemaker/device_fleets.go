@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -76,7 +77,7 @@ func (f *DeviceFleet) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(f),
 		CreationTime:     epochSeconds(f.CreationTime),
 		LastModifiedTime: epochSeconds(f.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [DeviceFleet.MarshalJSON], read by
@@ -90,7 +91,7 @@ func (f *DeviceFleet) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(f)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -379,7 +380,7 @@ func (d *Device) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(d),
 		RegistrationTime: epochSeconds(d.RegistrationTime),
 		LastModifiedTime: epochSeconds(d.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [Device.MarshalJSON], read by
@@ -393,7 +394,7 @@ func (d *Device) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(d)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

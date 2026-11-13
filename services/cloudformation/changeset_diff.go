@@ -1,12 +1,13 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Replacement / recreation constants used by change-set previews.
@@ -431,8 +432,8 @@ func unionMapKeys(a, b map[string]any) []string {
 }
 
 func jsonEqual(a, b any) bool {
-	ab, err1 := json.Marshal(a)
-	bb, err2 := json.Marshal(b)
+	ab, err1 := json.Marshal(a, jsonx.V1())
+	bb, err2 := json.Marshal(b, jsonx.V1())
 	if err1 != nil || err2 != nil {
 		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 	}
@@ -447,7 +448,7 @@ func toJSONString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprintf("%v", v)
 	}

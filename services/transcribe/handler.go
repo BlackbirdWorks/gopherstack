@@ -2,7 +2,7 @@ package transcribe
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -111,7 +112,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req extractResourceRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return ""
 	}
 
@@ -220,20 +221,17 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorBody("NotFoundException", errMessage(err)))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errorBody("ConflictException", errMessage(err)))
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, errorBody("BadRequestException", errMessage(err)))
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, errorBody("UnknownOperationException", errMessage(err)))

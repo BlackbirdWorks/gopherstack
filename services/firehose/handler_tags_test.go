@@ -1,13 +1,14 @@
 package firehose_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -148,7 +149,7 @@ func TestUntagDeliveryStream_RemovesSpecificKeys(t *testing.T) {
 	var out struct {
 		Tags []map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Tags, 1)
 	assert.Equal(t, "team", out.Tags[0]["Key"])
 }
@@ -280,7 +281,7 @@ func TestListTagsForDeliveryStream_Limit(t *testing.T) {
 		Tags        []map[string]string `json:"Tags"`
 		HasMoreTags bool                `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Tags, 3)
 	assert.True(t, out.HasMoreTags)
 }
@@ -313,7 +314,7 @@ func TestListTagsForDeliveryStream_ExclusiveStart(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Tags, 2)
 	assert.Equal(t, "b-key", out.Tags[0].Key)
 	assert.Equal(t, "c-key", out.Tags[1].Key)
@@ -409,7 +410,7 @@ func TestTagsLifecycle(t *testing.T) {
 		Tags        []map[string]string `json:"Tags"`
 		HasMoreTags bool                `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Tags, 4)
 	assert.False(t, listOut.HasMoreTags)
 	// Keys must be sorted: env, region, team, version.
@@ -425,7 +426,7 @@ func TestTagsLifecycle(t *testing.T) {
 		Tags        []map[string]string `json:"Tags"`
 		HasMoreTags bool                `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Tags, 2)
 	assert.True(t, page1.HasMoreTags)
 	assert.Equal(t, "env", page1.Tags[0]["Key"])
@@ -441,7 +442,7 @@ func TestTagsLifecycle(t *testing.T) {
 		Tags        []map[string]string `json:"Tags"`
 		HasMoreTags bool                `json:"HasMoreTags"`
 	}
-	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.Tags, 2)
 	assert.False(t, page2.HasMoreTags)
 	assert.Equal(t, "team", page2.Tags[0]["Key"])
@@ -459,7 +460,7 @@ func TestTagsLifecycle(t *testing.T) {
 	var finalOut struct {
 		Tags []map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(finalRec.Body.Bytes(), &finalOut))
+	require.NoError(t, json.Unmarshal(finalRec.Body.Bytes(), &finalOut, jsonx.V1()))
 	require.Len(t, finalOut.Tags, 2)
 
 	keys := map[string]bool{}

@@ -3,7 +3,7 @@ package cloudwatch_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -69,7 +70,7 @@ func TestJSONTarget_RoundTrip(t *testing.T) {
 						MetricName string `json:"MetricName"`
 					} `json:"Metrics"`
 				}
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				require.Len(t, out.Metrics, 1)
 				assert.Equal(t, "M", out.Metrics[0].MetricName)
 			},
@@ -90,7 +91,7 @@ func TestJSONTarget_RoundTrip(t *testing.T) {
 						Values     []float64 `json:"Values"`
 					} `json:"MetricDataResults"`
 				}
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				require.Len(t, out.MetricDataResults, 1)
 				assert.Equal(t, []float64{-2.5}, out.MetricDataResults[0].Values)
 				assert.Equal(t, []float64{float64(ts)}, out.MetricDataResults[0].Timestamps)
@@ -119,7 +120,7 @@ func TestJSONTarget_RoundTrip(t *testing.T) {
 }
 
 func epochStr(n int64) string {
-	b, _ := json.Marshal(n)
+	b, _ := json.Marshal(n, jsonx.V1())
 
 	return string(b)
 }

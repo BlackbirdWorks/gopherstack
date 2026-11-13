@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"regexp"
 	"slices"
@@ -88,7 +88,7 @@ func (b *Backend) ficUnique(appID string, f *FederatedCredential) error {
 // CreateFederatedCredential adds a federated identity credential to an application.
 func (b *Backend) CreateFederatedCredential(
 	appID string,
-	body map[string]json.RawMessage,
+	body map[string]jsontext.Value,
 ) (FederatedCredential, error) {
 	b.mu.Lock("CreateFederatedCredential")
 	defer b.mu.Unlock()
@@ -169,7 +169,7 @@ func (b *Backend) GetFederatedCredential(appID, key string) (FederatedCredential
 }
 
 // UpdateFederatedCredential patches a credential; its name is immutable.
-func (b *Backend) UpdateFederatedCredential(appID, key string, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateFederatedCredential(appID, key string, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateFederatedCredential")
 	defer b.mu.Unlock()
 

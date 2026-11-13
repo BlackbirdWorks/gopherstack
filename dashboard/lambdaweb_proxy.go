@@ -3,7 +3,8 @@ package dashboard
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -177,7 +179,7 @@ func (lw lambdaWebAccess) list(child, op string) echo.HandlerFunc {
 			in["nextToken"] = token
 		}
 
-		body, err := json.Marshal(in)
+		body, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return lambdaWebBad(c)
 		}
@@ -278,10 +280,9 @@ type lambdaWebReply struct {
 func (lw lambdaWebAccess) invoke(c *echo.Context) error {
 	var in lambdaWebInvokeIn
 
-	dec := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, lambdaWebMaxInvoke))
-	dec.DisallowUnknownFields()
+	dec := jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, lambdaWebMaxInvoke))
 
-	if dec.Decode(&in) != nil || !in.valid() {
+	if json.UnmarshalDecode(dec, &in, jsonx.V1(), json.RejectUnknownMembers(true)) != nil || !in.valid() {
 		return azureACIFail(c, http.StatusBadRequest, "InvalidRequestContent", "the invoke request is invalid")
 	}
 
@@ -295,7 +296,7 @@ func (lw lambdaWebAccess) invoke(c *echo.Context) error {
 	var info struct {
 		Domain string `json:"domainName"`
 	}
-	if json.Unmarshal(ep.Body.Bytes(), &info) != nil || !lambdaweb.IsEndpointHost(info.Domain) {
+	if json.Unmarshal(ep.Body.Bytes(), &info, jsonx.V1()) != nil || !lambdaweb.IsEndpointHost(info.Domain) {
 		return azureACIFail(c, http.StatusBadGateway, "EndpointUnavailable", "the endpoint has no domain")
 	}
 

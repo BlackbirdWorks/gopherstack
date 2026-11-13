@@ -2,9 +2,11 @@ package sparql
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ResultFormat is a query-result serialization.
@@ -72,7 +74,7 @@ func writeAsk(v bool, f ResultFormat) ([]byte, error) {
 	case ResultBoolean:
 		return []byte(boolStr(v)), nil
 	default:
-		return json.Marshal(map[string]any{"head": map[string]any{}, "boolean": v})
+		return json.Marshal(map[string]any{"head": map[string]any{}, "boolean": v}, jsonx.V1())
 	}
 }
 
@@ -107,7 +109,7 @@ func writeSelectJSON(r *Result) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"head":    map[string]any{"vars": vars},
 		"results": map[string]any{"bindings": bindings},
-	})
+	}, jsonx.V1())
 }
 
 func writeSelectXML(r *Result) ([]byte, error) {

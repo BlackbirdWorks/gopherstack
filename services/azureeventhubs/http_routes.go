@@ -1,7 +1,7 @@
 package azureeventhubs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/amqp1"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -151,7 +152,7 @@ func (h *Handler) authorized(r *http.Request, right, hub string) bool {
 }
 
 func writeError(c *echo.Context, status int, msg string) error {
-	body, err := json.Marshal(map[string]string{"Code": http.StatusText(status), "Message": msg})
+	body, err := json.Marshal(map[string]string{"Code": http.StatusText(status), "Message": msg}, jsonx.V1())
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal error")
 	}
@@ -219,7 +220,7 @@ func restEvents(r *http.Request, body []byte) ([]NewEvent, error) {
 
 	if bp := r.Header.Get("Brokerproperties"); bp != "" {
 		var props brokerProperties
-		if err := json.Unmarshal([]byte(bp), &props); err != nil {
+		if err := json.Unmarshal([]byte(bp), &props, jsonx.V1()); err != nil {
 			return nil, err
 		}
 
@@ -233,9 +234,9 @@ func restEvents(r *http.Request, body []byte) ([]NewEvent, error) {
 
 func batchEvents(body []byte) ([]NewEvent, error) {
 	var items []jsonEvent
-	if err := json.Unmarshal(body, &items); err != nil {
+	if err := json.Unmarshal(body, &items, jsonx.V1()); err != nil {
 		var one jsonEvent
-		if err2 := json.Unmarshal(body, &one); err2 != nil {
+		if err2 := json.Unmarshal(body, &one, jsonx.V1()); err2 != nil {
 			return nil, err
 		}
 

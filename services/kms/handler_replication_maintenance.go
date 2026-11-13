@@ -2,8 +2,10 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // replicateKeyAction handles ReplicateKey dispatch, including tag validation and
@@ -13,7 +15,7 @@ import (
 // leaving a real, untagged replica key behind.
 func (h *Handler) replicateKeyAction(ctx context.Context, b []byte) (any, error) {
 	var input ReplicateKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -66,7 +68,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 	return map[string]kmsActionFn{
 		"GetParametersForImport": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParametersForImportInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -74,7 +76,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		},
 		"ListKeyPolicies": func(ctx context.Context, b []byte) (any, error) {
 			var input ListKeyPoliciesInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -82,7 +84,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		},
 		"ListKeyRotations": func(ctx context.Context, b []byte) (any, error) {
 			var input ListKeyRotationsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -91,7 +93,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		"ReplicateKey": h.replicateKeyAction,
 		"RotateKeyOnDemand": func(ctx context.Context, b []byte) (any, error) {
 			var input RotateKeyOnDemandInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -99,7 +101,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		},
 		"UpdateCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateCustomKeyStoreInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -107,7 +109,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		},
 		"UpdateKeyDescription": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateKeyDescriptionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -115,7 +117,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 		},
 		"UpdatePrimaryRegion": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdatePrimaryRegionInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

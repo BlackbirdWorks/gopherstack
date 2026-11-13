@@ -1,12 +1,14 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestIoT_ThingTypes_SearchableAttributes validates that searchableAttributes
@@ -65,7 +67,7 @@ func TestIoT_ThingTypes_SearchableAttributes(t *testing.T) {
 				} `json:"thingTypeProperties"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantSearchable, resp.ThingTypeProperties.SearchableAttributes)
 		})
 	}

@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -32,7 +33,7 @@ func doSageMakerRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -246,7 +247,7 @@ func TestHandler_SageMakerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut["Models"])
 
 	// Reset.
@@ -257,7 +258,7 @@ func TestHandler_SageMakerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList2.Code)
 
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2["Models"])
 
 	// Feature groups gone.
@@ -265,7 +266,7 @@ func TestHandler_SageMakerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, recFG.Code)
 
 	var fgOut map[string]any
-	require.NoError(t, json.Unmarshal(recFG.Body.Bytes(), &fgOut))
+	require.NoError(t, json.Unmarshal(recFG.Body.Bytes(), &fgOut, jsonx.V1()))
 	assert.Empty(t, fgOut["FeatureGroupSummaries"])
 }
 

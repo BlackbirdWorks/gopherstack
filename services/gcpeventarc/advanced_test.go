@@ -1,7 +1,7 @@
 package gcpeventarc_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -12,6 +12,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -83,7 +85,7 @@ func httpPipeline(uri, transform, binding string) *eventarcpb.Pipeline {
 func (e *env) publishJSON(t *testing.T, bus string, event map[string]any) error {
 	t.Helper()
 
-	raw, err := json.Marshal(event)
+	raw, err := json.Marshal(event, jsonx.V1())
 	require.NoError(t, err)
 
 	_, err = publishingpb.NewPublisherClient(e.conn).Publish(t.Context(), &publishingpb.PublishRequest{

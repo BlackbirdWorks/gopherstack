@@ -2,7 +2,8 @@ package elasticsearch_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elasticsearch"
 )
 
@@ -27,7 +29,7 @@ func doRequest(t *testing.T, h *elasticsearch.Handler, method, path string, body
 	var reqBody io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		reqBody = bytes.NewReader(b)
@@ -53,7 +55,7 @@ func createDomainAndGetARN(t *testing.T, h *elasticsearch.Handler, domainName st
 	})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	status := createOut["DomainStatus"].(map[string]any)
@@ -78,7 +80,7 @@ func readJSONBody(t *testing.T, resp *http.Response) map[string]any {
 	require.NoError(t, err)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(b, &m))
+	require.NoError(t, json.Unmarshal(b, &m, jsonx.V1()))
 
 	return m
 }

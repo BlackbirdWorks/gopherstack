@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handlePutAccountVdmAttributes(c *echo.Context) (any, error) {
@@ -12,7 +15,7 @@ func (h *Handler) handlePutAccountVdmAttributes(c *echo.Context) (any, error) {
 		VdmAttributes map[string]any `json:"VdmAttributes"`
 	}
 
-	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1())
 
 	if err := h.Backend.PutAccountVdmAttributes(in.VdmAttributes); err != nil {
 		return nil, err
@@ -32,7 +35,7 @@ func (h *Handler) handlePutConfigurationSetVdmOptions(
 		} `json:"VdmOptions"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

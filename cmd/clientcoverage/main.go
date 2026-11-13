@@ -36,7 +36,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -49,6 +50,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -650,7 +653,7 @@ func loadOpcensus(path string) ([]opService, error) {
 	}
 
 	var services []opService
-	if unmarshalErr := json.Unmarshal(data, &services); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &services, jsonx.V1()); unmarshalErr != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, unmarshalErr)
 	}
 
@@ -692,7 +695,7 @@ func main() {
 	rpt := buildReport(services, result)
 
 	if *jsonPath != "" {
-		data, marshalErr := json.MarshalIndent(rpt, "", "  ")
+		data, marshalErr := json.Marshal(rpt, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 		if marshalErr != nil {
 			fmt.Fprintln(os.Stderr, "marshal report:", marshalErr)
 			os.Exit(1)

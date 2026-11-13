@@ -2,10 +2,12 @@ package timestreamwrite
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -52,7 +54,7 @@ const timestreamwriteSnapshotVersion = 1
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables     map[string]json.RawMessage          `json:"tables"`
+	Tables     map[string]jsontext.Value           `json:"tables"`
 	Records    map[string]map[string][]Record      `json:"records"`
 	Shapes     map[string]map[string][]RecordShape `json:"shapes,omitempty"`
 	Tags       map[string]map[string]string        `json:"tags"`
@@ -119,7 +121,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 
 	// Marshal failure is returned to the caller (the Persistable wrapper logs it
 	// via the context-aware logger); do not log through slog.Default() here.
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("timestreamwrite: marshal snapshot: %w", err)
 	}

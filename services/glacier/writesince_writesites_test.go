@@ -1,7 +1,7 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -107,7 +108,7 @@ func TestDeleteVault_WriteSinceLastInventory_CompleteMultipartUpload(t *testing.
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var completeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &completeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &completeResp, jsonx.V1()))
 	archiveID, _ := completeResp["archiveId"].(string)
 	require.NotEmpty(t, archiveID)
 

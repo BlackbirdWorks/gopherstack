@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -26,7 +27,7 @@ func TestInput_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/inputs/"+inputID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-input", descResp["name"])
 	assert.Equal(t, "DETACHED", descResp["state"])
 	assert.Contains(t, descResp["arn"], "arn:aws:medialive:us-east-1:000000000000:input:")
@@ -37,7 +38,7 @@ func TestInput_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	inp := updateResp["input"].(map[string]any)
 	assert.Equal(t, "updated-input", inp["name"])
 
@@ -45,7 +46,7 @@ func TestInput_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputs", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["inputs"], 1)
 
 	// Delete: real terraform-provider-aws's waitInputDeleted polls
@@ -60,7 +61,7 @@ func TestInput_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputs/"+inputID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var deletedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deletedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deletedResp, jsonx.V1()))
 	assert.Equal(t, "DELETED", deletedResp["state"])
 }
 
@@ -196,7 +197,7 @@ func TestListInputs_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["inputs"])
 }
 

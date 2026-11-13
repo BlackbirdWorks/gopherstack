@@ -7,7 +7,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -82,7 +84,7 @@ type action struct {
 type addAction struct {
 	PartitionValues map[string]*string `json:"partitionValues"`
 	Path            string             `json:"path"`
-	DeletionVector  json.RawMessage    `json:"deletionVector"`
+	DeletionVector  jsontext.Value     `json:"deletionVector"`
 	Size            int64              `json:"size"`
 }
 
@@ -210,7 +212,7 @@ func (s *state) loadCheckpoint(ctx context.Context, st Storage, cps map[int64][]
 			Version int64 `json:"version"`
 		}
 
-		if json.Unmarshal(raw, &lc) == nil {
+		if json.Unmarshal(raw, &lc, jsonx.V1()) == nil {
 			if _, ok := cps[lc.Version]; ok {
 				best = lc.Version
 			}
@@ -260,13 +262,13 @@ func (s *state) applyCheckpoint(body []byte) error {
 				continue
 			}
 
-			raw, merr := json.Marshal(v)
+			raw, merr := json.Marshal(v, jsonx.V1())
 			if merr != nil {
 				return merr
 			}
 
 			part := map[int]string{0: "add", 1: "metaData", 2: "protocol", 3: "remove"}[i]
-			if uerr := json.Unmarshal([]byte(`{"`+part+`":`+string(raw)+`}`), &a); uerr != nil {
+			if uerr := json.Unmarshal([]byte(`{"`+part+`":`+string(raw)+`}`), &a, jsonx.V1()); uerr != nil {
 				return fmt.Errorf("%w: %w", ErrBadLog, uerr)
 			}
 		}
@@ -291,7 +293,7 @@ func (s *state) applyCommit(body []byte) error {
 		}
 
 		var a action
-		if err := json.Unmarshal(line, &a); err != nil {
+		if err := json.Unmarshal(line, &a, jsonx.V1()); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadLog, err)
 		}
 
@@ -362,9 +364,9 @@ func (s *state) snapshot() (*Snapshot, error) {
 }
 
 type schemaField struct {
-	Metadata map[string]any  `json:"metadata"`
-	Name     string          `json:"name"`
-	Type     json.RawMessage `json:"type"`
+	Metadata map[string]any `json:"metadata"`
+	Name     string         `json:"name"`
+	Type     jsontext.Value `json:"type"`
 }
 
 func parseSchema(s, mode string) ([]Column, error) {
@@ -372,7 +374,7 @@ func parseSchema(s, mode string) ([]Column, error) {
 		Fields []schemaField `json:"fields"`
 	}
 
-	if err := json.Unmarshal([]byte(s), &st); err != nil {
+	if err := json.Unmarshal([]byte(s), &st, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: schemaString: %w", ErrBadLog, err)
 	}
 
@@ -402,21 +404,21 @@ func parseSchema(s, mode string) ([]Column, error) {
 	return cols, nil
 }
 
-func hiveType(raw json.RawMessage) (string, error) {
+func hiveType(raw jsontext.Value) (string, error) {
 	var prim string
-	if err := json.Unmarshal(raw, &prim); err == nil {
+	if err := json.Unmarshal(raw, &prim, jsonx.V1()); err == nil {
 		return hivePrimitive(prim)
 	}
 
 	var n struct {
-		Type        string          `json:"type"`
-		ElementType json.RawMessage `json:"elementType"`
-		KeyType     json.RawMessage `json:"keyType"`
-		ValueType   json.RawMessage `json:"valueType"`
-		Fields      []schemaField   `json:"fields"`
+		Type        string         `json:"type"`
+		ElementType jsontext.Value `json:"elementType"`
+		KeyType     jsontext.Value `json:"keyType"`
+		ValueType   jsontext.Value `json:"valueType"`
+		Fields      []schemaField  `json:"fields"`
 	}
 
-	if err := json.Unmarshal(raw, &n); err != nil {
+	if err := json.Unmarshal(raw, &n, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("%w: type %s", ErrBadLog, raw)
 	}
 

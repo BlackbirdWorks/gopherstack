@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createRequestValidatorInput struct {
@@ -47,7 +49,7 @@ func (h *Handler) requestValidatorActions() map[string]actionFn {
 
 func (h *Handler) createRequestValidatorAction(b []byte) (int, any, error) {
 	var input createRequestValidatorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	rv, err := h.Backend.CreateRequestValidator(input.RestAPIID, CreateRequestValidatorInput{
@@ -64,7 +66,7 @@ func (h *Handler) createRequestValidatorAction(b []byte) (int, any, error) {
 
 func (h *Handler) getRequestValidatorAction(b []byte) (int, any, error) {
 	var input getRequestValidatorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	rv, err := h.Backend.GetRequestValidator(input.RestAPIID, input.ValidatorID)
@@ -75,9 +77,10 @@ func (h *Handler) getRequestValidatorAction(b []byte) (int, any, error) {
 	return http.StatusOK, rv, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getRequestValidatorsAction(b []byte) (int, any, error) {
 	var input getRequestValidatorsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	rvs, err := h.Backend.GetRequestValidators(input.RestAPIID)
@@ -98,7 +101,7 @@ func (h *Handler) getRequestValidatorsAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateRequestValidatorAction(b []byte) (int, any, error) {
 	var input updateRequestValidatorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	rv, err := h.Backend.UpdateRequestValidator(
@@ -115,7 +118,7 @@ func (h *Handler) updateRequestValidatorAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteRequestValidatorAction(b []byte) (int, any, error) {
 	var input deleteRequestValidatorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteRequestValidator(input.RestAPIID, input.ValidatorID); err != nil {

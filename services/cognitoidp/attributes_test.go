@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -50,7 +51,7 @@ func TestVerifyUserAttribute_RealCodeValidation(t *testing.T) {
 					ID string `json:"Id"`
 				} `json:"UserPool"`
 			}
-			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 			poolID := poolResp.UserPool.ID
 
 			clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -63,7 +64,7 @@ func TestVerifyUserAttribute_RealCodeValidation(t *testing.T) {
 					ClientID string `json:"ClientId"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 			clientID := clientResp.UserPoolClient.ClientID
 
 			// Sign up and confirm a user with email attribute.
@@ -117,7 +118,7 @@ func TestVerifyUserAttribute_RealCodeValidation(t *testing.T) {
 				var errResp struct {
 					Type string `json:"__type"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})
@@ -279,7 +280,7 @@ func TestAttrVerification_Handler_GetAndVerify(t *testing.T) {
 		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 		UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp, jsonx.V1()))
 
 	if !signUpResp.UserConfirmed {
 		confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
@@ -302,7 +303,7 @@ func TestAttrVerification_Handler_GetAndVerify(t *testing.T) {
 	var codeOut struct {
 		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &codeOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &codeOut, jsonx.V1()))
 	assert.Equal(t, "EMAIL", codeOut.CodeDeliveryDetails["DeliveryMedium"])
 	assert.NotEmpty(t, codeOut.CodeDeliveryDetails["Destination"])
 
@@ -449,7 +450,7 @@ func TestHandler_VerifyUserAttribute(t *testing.T) {
 			CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 			UserConfirmed       bool              `json:"UserConfirmed,omitempty"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signUpResp, jsonx.V1()))
 
 		if !signUpResp.UserConfirmed {
 			confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{

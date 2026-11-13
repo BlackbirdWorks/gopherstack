@@ -1,13 +1,14 @@
 package dms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
@@ -65,7 +66,7 @@ func TestCreateEventSubscription_Duplicate(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec2.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ResourceAlreadyExistsFault", errBody["__type"])
 }
 

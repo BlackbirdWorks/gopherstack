@@ -3,7 +3,7 @@ package dashboard
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	idbackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
@@ -445,13 +446,13 @@ func ociCIScrubJSON(raw []byte) []byte {
 	}
 
 	var doc any
-	if json.Unmarshal(raw, &doc) != nil {
+	if json.Unmarshal(raw, &doc, jsonx.V1()) != nil {
 		return []byte("{}")
 	}
 
 	ociCIScrub(doc)
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}
@@ -610,7 +611,7 @@ func (h *DashboardHandler) ociCISubnets(c *echo.Context) error {
 	}
 
 	var subnets []map[string]any
-	if json.Unmarshal(rec.Body.Bytes(), &subnets) != nil {
+	if json.Unmarshal(rec.Body.Bytes(), &subnets, jsonx.V1()) != nil {
 		return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: []any{}})
 	}
 

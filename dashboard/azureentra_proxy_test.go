@@ -2,7 +2,7 @@ package dashboard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -92,7 +93,7 @@ func (e *entraEnv) create(t *testing.T, path, body string) map[string]any {
 	require.Less(t, code, http.StatusBadRequest, out)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out), &m))
+	require.NoError(t, json.Unmarshal([]byte(out), &m, jsonx.V1()))
 
 	return m
 }

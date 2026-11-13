@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Trust Anchor HTTP CRUD ----
@@ -45,7 +47,7 @@ func TestHandler_TrustAnchor_CRUD(t *testing.T) {
 			assert.Equal(t, tt.wantCreate, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			ta := createResp["trustAnchor"].(map[string]any)
 			id := ta["trustAnchorId"].(string)
 			assert.NotEmpty(t, id)
@@ -220,8 +222,8 @@ func TestHandler_TrustAnchor_DuplicateNameAllowed(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 
 			var resp1, resp2 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 			ta1 := resp1["trustAnchor"].(map[string]any)
 			ta2 := resp2["trustAnchor"].(map[string]any)
@@ -246,7 +248,7 @@ func TestHandler_TrustAnchor_NoTagsFieldOnResponse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ta := resp["trustAnchor"].(map[string]any)
 	assert.NotContains(t, ta, "tags")
 
@@ -256,7 +258,7 @@ func TestHandler_TrustAnchor_NoTagsFieldOnResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTags.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["tags"].([]any)
 	require.Len(t, tags, 1)
 	tag := tags[0].(map[string]any)
@@ -282,7 +284,7 @@ func TestHandler_CreateTrustAnchor_NotificationSettings(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ta := resp["trustAnchor"].(map[string]any)
 
 	settings, ok := ta["notificationSettings"].([]any)
@@ -323,7 +325,7 @@ func TestHandler_ListTrustAnchors_Pagination(t *testing.T) {
 			rec := doREST(t, h, http.MethodGet, "/trustanchors"+tt.query, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items := resp["trustAnchors"].([]any)
 			assert.Len(t, items, tt.wantCount)
 		})

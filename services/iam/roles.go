@@ -1,7 +1,8 @@
 package iam
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -31,7 +33,7 @@ func (b *InMemoryBackend) CreateRole(
 		return nil, quotaExceeded("RolesPerAccount", limit)
 	}
 
-	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
+	if assumeRolePolicyDocument != "" && !jsontext.Value([]byte(assumeRolePolicyDocument)).IsValid(jsonx.V1()) {
 		return nil, fmt.Errorf(
 			"%w: invalid JSON in AssumeRolePolicyDocument",
 			ErrMalformedPolicyDocument,
@@ -403,7 +405,7 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+	if policyDocument != "" && !jsontext.Value([]byte(policyDocument)).IsValid(jsonx.V1()) {
 		return fmt.Errorf(
 			"%w: invalid JSON in AssumeRolePolicyDocument",
 			ErrMalformedPolicyDocument,
@@ -451,7 +453,7 @@ func (b *InMemoryBackend) UpdateRole(roleName, description string) error {
 
 // parseJSON is a thin wrapper around json.Unmarshal for readability.
 func parseJSON(s string, v any) error {
-	return json.Unmarshal([]byte(s), v) //nolint:wrapcheck // thin delegation; callers handle the error
+	return json.Unmarshal([]byte(s), v, jsonx.V1()) //nolint:wrapcheck // thin delegation; callers handle the error
 }
 
 // TagRole merges the given key-value pairs into the role's Tags field.
@@ -522,7 +524,7 @@ type trustPrincipal struct {
 func (p *trustPrincipal) UnmarshalJSON(data []byte) error {
 	// Try string first.
 	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
+	if err := json.Unmarshal(data, &s, jsonx.V1()); err == nil {
 		if s == "*" {
 			p.AllowAll = true
 		} else {
@@ -533,8 +535,8 @@ func (p *trustPrincipal) UnmarshalJSON(data []byte) error {
 	}
 
 	// Try typed map.
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return err //nolint:wrapcheck // UnmarshalJSON interface; wrapping changes the type
 	}
 
@@ -543,10 +545,10 @@ func (p *trustPrincipal) UnmarshalJSON(data []byte) error {
 
 		// Value can be a string or []string.
 		var single string
-		if err := json.Unmarshal(v, &single); err == nil {
+		if err := json.Unmarshal(v, &single, jsonx.V1()); err == nil {
 			vals = []string{single}
 		} else {
-			if err2 := json.Unmarshal(v, &vals); err2 != nil {
+			if err2 := json.Unmarshal(v, &vals, jsonx.V1()); err2 != nil {
 				continue
 			}
 		}
@@ -685,11 +687,11 @@ func (b *InMemoryBackend) validateTrustPolicyPrincipal(policyJSON string) error 
 
 	var doc struct {
 		Statement []struct {
-			Principal json.RawMessage `json:"Principal"`
+			Principal jsontext.Value `json:"Principal"`
 		} `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return nil //nolint:nilerr // JSON validity confirmed upstream; this path handles schema mismatch
 	}
 
@@ -699,7 +701,7 @@ func (b *InMemoryBackend) validateTrustPolicyPrincipal(policyJSON string) error 
 		}
 
 		var p trustPrincipal
-		if err := json.Unmarshal(stmt.Principal, &p); err != nil {
+		if err := json.Unmarshal(stmt.Principal, &p, jsonx.V1()); err != nil {
 			return fmt.Errorf(
 				"%w: statement[%d] Principal has unsupported shape",
 				ErrMalformedPolicyDocument, i,

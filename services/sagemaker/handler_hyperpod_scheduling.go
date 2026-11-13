@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ type createClusterSchedulerConfigInput struct {
 func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req createClusterSchedulerConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -39,7 +41,7 @@ func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body [
 	return json.Marshal(map[string]any{
 		keyClusterSchedulerConfigArn: c.ClusterSchedulerConfigArn,
 		keyClusterSchedulerConfigID:  c.ClusterSchedulerConfigID,
-	})
+	}, jsonx.V1())
 }
 
 type describeClusterSchedulerConfigInput struct {
@@ -50,7 +52,7 @@ type describeClusterSchedulerConfigInput struct {
 func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeClusterSchedulerConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -61,7 +63,7 @@ func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body
 		return nil, err
 	}
 
-	return json.Marshal(c)
+	return json.Marshal(c, jsonx.V1())
 }
 
 type listClusterSchedulerConfigsInput struct {
@@ -79,7 +81,7 @@ type listClusterSchedulerConfigsInput struct {
 func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listClusterSchedulerConfigsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -122,7 +124,7 @@ type updateClusterSchedulerConfigInput struct {
 func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateClusterSchedulerConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -142,7 +144,7 @@ func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body [
 	return json.Marshal(map[string]any{
 		keyClusterSchedulerConfigArn:     c.ClusterSchedulerConfigArn,
 		keyClusterSchedulerConfigVersion: c.ClusterSchedulerConfigVersion,
-	})
+	}, jsonx.V1())
 }
 
 type deleteClusterSchedulerConfigInput struct {
@@ -152,7 +154,7 @@ type deleteClusterSchedulerConfigInput struct {
 func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteClusterSchedulerConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -160,7 +162,7 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body [
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ type createComputeQuotaInput struct {
 func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req createComputeQuotaInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -200,7 +202,7 @@ func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{
 		keyComputeQuotaArn: q.ComputeQuotaArn,
 		keyComputeQuotaID:  q.ComputeQuotaID,
-	})
+	}, jsonx.V1())
 }
 
 type describeComputeQuotaInput struct {
@@ -211,7 +213,7 @@ type describeComputeQuotaInput struct {
 func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeComputeQuotaInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -220,7 +222,7 @@ func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(q)
+	return json.Marshal(q, jsonx.V1())
 }
 
 type listComputeQuotasInput struct {
@@ -238,7 +240,7 @@ type listComputeQuotasInput struct {
 func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]byte, error) {
 	var req listComputeQuotasInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -286,7 +288,7 @@ type updateComputeQuotaInput struct {
 func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateComputeQuotaInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -307,7 +309,7 @@ func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]any{
 		keyComputeQuotaArn:     q.ComputeQuotaArn,
 		keyComputeQuotaVersion: q.ComputeQuotaVersion,
-	})
+	}, jsonx.V1())
 }
 
 type deleteComputeQuotaInput struct {
@@ -317,7 +319,7 @@ type deleteComputeQuotaInput struct {
 func (h *Handler) handleDeleteComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteComputeQuotaInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -325,5 +327,5 @@ func (h *Handler) handleDeleteComputeQuota(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

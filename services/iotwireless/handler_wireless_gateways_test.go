@@ -1,12 +1,15 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateGetListDeleteWirelessGateway(t *testing.T) {
@@ -45,7 +48,7 @@ func TestHandler_CreateGetListDeleteWirelessGateway(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id, ok := createResp["Id"].(string)
 			require.True(t, ok)
 			assert.NotEmpty(t, id)
@@ -55,7 +58,7 @@ func TestHandler_CreateGetListDeleteWirelessGateway(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.gatewayName, getResp["Name"])
 
 			// List
@@ -63,7 +66,7 @@ func TestHandler_CreateGetListDeleteWirelessGateway(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			gateways, ok := listResp["WirelessGatewayList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, gateways, 1)
@@ -116,7 +119,7 @@ func TestHandler_AssociateWirelessGatewayWithThing(t *testing.T) {
 				require.Equal(t, http.StatusCreated, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				gwID = createResp["Id"].(string)
 			}
 
@@ -143,7 +146,7 @@ func TestHandler_UpdateWirelessGateway(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Update
@@ -161,7 +164,7 @@ func TestHandler_UpdateWirelessGateway(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "gw1-updated", getResp["Name"])
 }
 
@@ -175,7 +178,7 @@ func TestHandler_DisassociateWirelessGatewayFromThing(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	gwID := createResp["Id"].(string)
 
 	// Associate with thing
@@ -198,7 +201,7 @@ func TestHandler_GetWirelessGatewayStatistics(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	gwID := createResp["Id"].(string)
 
 	// Get statistics
@@ -206,7 +209,7 @@ func TestHandler_GetWirelessGatewayStatistics(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var statsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statsResp, jsonx.V1()))
 	assert.Equal(t, "Connected", statsResp["ConnectionStatus"])
 	assert.Equal(t, gwID, statsResp["WirelessGatewayId"])
 }
@@ -229,14 +232,14 @@ func TestHandler_GetWirelessGatewayFirmwareInformation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 	gwID := created["Id"].(string)
 
 	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/"+gwID+"/firmware-information", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var info map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &info))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &info, jsonx.V1()))
 	loRaWAN, ok := info["LoRaWAN"].(map[string]any)
 	require.True(t, ok)
 	currentVersion, ok := loRaWAN["CurrentVersion"].(map[string]any)
@@ -264,7 +267,7 @@ func TestHandler_GatewayFirmwareInformation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, gwRec.Code)
 
 	var gwResp map[string]any
-	require.NoError(t, json.Unmarshal(gwRec.Body.Bytes(), &gwResp))
+	require.NoError(t, json.Unmarshal(gwRec.Body.Bytes(), &gwResp, jsonx.V1()))
 	gwID, ok := gwResp["Id"].(string)
 	require.True(t, ok)
 
@@ -274,7 +277,7 @@ func TestHandler_GatewayFirmwareInformation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	loRaWAN, ok := resp["LoRaWAN"].(map[string]any)
 	require.True(t, ok, "response must have LoRaWAN field")
 	_, ok = loRaWAN["CurrentVersion"]
@@ -292,7 +295,7 @@ func Test_GetWirelessGateway_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["Id"].(string)
 
 	thingArn := "arn:aws:iot:us-east-1:000000000000:thing/gw-thing"
@@ -304,7 +307,7 @@ func Test_GetWirelessGateway_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var after map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &after, jsonx.V1()))
 	assert.Equal(t, thingArn, after["ThingArn"])
 	assert.Equal(t, "gw-thing", after["ThingName"])
 }
@@ -321,7 +324,7 @@ func TestHandler_WirelessGatewayAndDestinationUpdates(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	gwID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, gwID, "CreateWirelessGateway must return an Id")
 

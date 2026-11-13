@@ -1,8 +1,10 @@
 package batch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- ComputeResources sub-types ---
@@ -320,7 +322,7 @@ func (n *NodeRangeProperty) UnmarshalJSON(data []byte) error {
 		Legacy *ContainerProperties `json:"containerProperties"`
 	}{plain: (*plain)(n)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

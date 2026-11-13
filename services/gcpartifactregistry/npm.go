@@ -5,13 +5,16 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -28,10 +31,10 @@ type npmAttachment struct {
 }
 
 type npmPublishDoc struct {
-	DistTags    map[string]string          `json:"dist-tags"`
-	Versions    map[string]json.RawMessage `json:"versions"`
-	Attachments map[string]npmAttachment   `json:"_attachments"`
-	Name        string                     `json:"name"`
+	DistTags    map[string]string         `json:"dist-tags"`
+	Versions    map[string]jsontext.Value `json:"versions"`
+	Attachments map[string]npmAttachment  `json:"_attachments"`
+	Name        string                    `json:"name"`
 }
 
 func writeNPMError(w http.ResponseWriter, code int, msg string) {
@@ -123,7 +126,7 @@ func readNPMDoc(w http.ResponseWriter, r *http.Request) (npmPublishDoc, bool) {
 	var doc npmPublishDoc
 
 	body := http.MaxBytesReader(w, r.Body, maxNPMDocBytes)
-	if err := json.NewDecoder(body).Decode(&doc); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(body), &doc, jsonx.V1()); err != nil {
 		writeNPMError(w, http.StatusBadRequest, "Invalid package document: "+err.Error())
 
 		return doc, false
@@ -201,7 +204,7 @@ func (b *InMemoryBackend) publishNPM(w http.ResponseWriter, r *http.Request, rc 
 }
 
 func npmVersionFile(
-	pkg, version string, manifest json.RawMessage, atts map[string]npmAttachment,
+	pkg, version string, manifest jsontext.Value, atts map[string]npmAttachment,
 ) (pkgFile, int, string) {
 	if !npmVersionRe.MatchString(version) {
 		return pkgFile{}, http.StatusBadRequest, "Invalid semver version " + version + "."
@@ -275,7 +278,7 @@ func (b *InMemoryBackend) serveNPMPackument(w http.ResponseWriter, r *http.Reque
 	}
 
 	base := baseURL(r, npmRoute, rc)
-	docs := map[string]json.RawMessage{}
+	docs := map[string]jsontext.Value{}
 	times := map[string]string{}
 	rev := sha1.New() //nolint:gosec // opaque revision token
 
@@ -302,10 +305,10 @@ func (b *InMemoryBackend) serveNPMPackument(w http.ResponseWriter, r *http.Reque
 }
 
 // withDist adds the dist block npm clients install from to a stored version manifest.
-func withDist(f *genFile, manifest []byte, tarballURL string) json.RawMessage {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(manifest, &m) != nil {
-		m = map[string]json.RawMessage{}
+func withDist(f *genFile, manifest []byte, tarballURL string) jsontext.Value {
+	var m map[string]jsontext.Value
+	if json.Unmarshal(manifest, &m, jsonx.V1()) != nil {
+		m = map[string]jsontext.Value{}
 	}
 
 	s1 := sha1.Sum(f.Data) //nolint:gosec // npm dist.shasum is SHA-1 by protocol
@@ -313,10 +316,10 @@ func withDist(f *genFile, manifest []byte, tarballURL string) json.RawMessage {
 	dist, _ := json.Marshal(map[string]any{
 		"tarball": tarballURL, "shasum": hex.EncodeToString(s1[:]),
 		"integrity": "sha512-" + base64.StdEncoding.EncodeToString(s512[:]),
-	})
+	}, jsonx.V1())
 	m["dist"] = dist
 
-	out, _ := json.Marshal(m)
+	out, _ := json.Marshal(m, jsonx.V1())
 
 	return out
 }
@@ -411,7 +414,11 @@ func (b *InMemoryBackend) putNPMTag(
 	w http.ResponseWriter, r *http.Request, rc repoCtx, pkg, tag string, existing map[string]bool,
 ) {
 	var version string
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxTagBody)).Decode(&version); err != nil {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(r.Body, maxTagBody)),
+		&version,
+		jsonx.V1(),
+	); err != nil {
 		writeNPMError(w, http.StatusBadRequest, "The body must be a JSON string holding a version.")
 
 		return

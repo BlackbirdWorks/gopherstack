@@ -1,7 +1,8 @@
 package elasticsearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestElasticsearchHandler_Tags(t *testing.T) {
@@ -63,7 +66,7 @@ func TestElasticsearchHandler_Tags(t *testing.T) {
 			assert.Equal(t, http.StatusOK, listResp.StatusCode)
 
 			var listOut map[string]any
-			require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 
 			tagList, ok := listOut["TagList"].([]any)
 			require.True(t, ok)
@@ -300,7 +303,7 @@ func TestElasticsearchHandler_SortedListTagsResponse(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"TagList"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	require.Len(t, out.TagList, 3)
 	assert.Equal(t, "aaa", out.TagList[0].Key)
 	assert.Equal(t, "mmm", out.TagList[1].Key)
@@ -365,7 +368,7 @@ func TestElasticsearchHandler_AddTags_DuplicateKeyRejected(t *testing.T) {
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 			if tt.wantCode == http.StatusBadRequest {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				assert.Contains(t, out["message"], "Duplicate tag key")
 			}
 		})
@@ -421,7 +424,7 @@ func TestElasticsearchHandler_AddRemoveTags_UnknownARN(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			assert.Contains(t, out["message"], "domain not found")
 		})
 	}

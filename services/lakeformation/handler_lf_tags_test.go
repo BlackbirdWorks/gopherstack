@@ -1,7 +1,7 @@
 package lakeformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -49,7 +50,7 @@ func TestHandler_LFTagLifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.tagKey, getResp["TagKey"])
 
 			// Update
@@ -64,7 +65,7 @@ func TestHandler_LFTagLifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			tags, _ := listResp["LFTags"].([]any)
 			assert.Len(t, tags, 1)
 
@@ -142,7 +143,7 @@ func TestHandler_AddLFTagsToResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				failures, _ := resp["Failures"].([]any)
 				assert.Len(t, failures, tt.wantFails)
 			}
@@ -234,7 +235,7 @@ func TestCreateLFTag_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "team", out["TagKey"])
 }
 
@@ -279,7 +280,7 @@ func TestListLFTags_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags := out["LFTags"].([]any)
 	require.Len(t, tags, 3)
@@ -306,7 +307,7 @@ func TestAddLFTagsToResource_PartialFailure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	failures := out["Failures"].([]any)
 	assert.Len(t, failures, 1, "only nonexistent tag should fail")
 	assert.Equal(t, "nonexistent", failures[0].(map[string]any)["LFTag"].(map[string]any)["TagKey"])
@@ -335,7 +336,7 @@ func TestUpdateLFTag_AddAndRemove(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 	vals := out["TagValues"].([]any)
 	strs := make([]string, len(vals))
@@ -368,7 +369,7 @@ func TestAddLFTagsToResource_TableResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["Failures"])
 }
 

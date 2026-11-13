@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -76,7 +77,7 @@ func TestExtensionRoutingAndHooks(t *testing.T) {
 		"hooks": map[string]any{"request": []map[string]any{
 			{"services": []string{"Dash"}, "pre": "/hook/pre", "post": "/hook/post"},
 		}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(regFile, reg, 0o600))
 
@@ -87,7 +88,7 @@ func TestExtensionRoutingAndHooks(t *testing.T) {
 	cfgFile := filepath.Join(dir, "ext.json")
 	cfg, err := json.Marshal(map[string]any{"extensions": []map[string]any{
 		{"name": "t", "command": []string{"sh", "-c", script}, "health_interval": "1h"},
-	}})
+	}}, jsonx.V1())
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(cfgFile, cfg, 0o600))
 

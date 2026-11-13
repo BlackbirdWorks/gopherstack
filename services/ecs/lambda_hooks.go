@@ -2,10 +2,12 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -43,7 +45,7 @@ func parseHookResponse(resp []byte, invokeErr error) (string, time.Duration, map
 	}
 
 	var r hookResponse
-	if json.Unmarshal(resp, &r) != nil {
+	if json.Unmarshal(resp, &r, jsonx.V1()) != nil {
 		return hookStatusFailed, 0, nil
 	}
 
@@ -146,7 +148,7 @@ func (inv *hookInvocation) payload() []byte {
 		event["hookDetails"] = inv.hookDetails
 	}
 
-	raw, _ := json.Marshal(event)
+	raw, _ := json.Marshal(event, jsonx.V1())
 
 	return raw
 }

@@ -1,12 +1,14 @@
 package redshiftdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListTables(t *testing.T) {
@@ -17,7 +19,7 @@ func TestHandler_ListTables(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Tables"])
 }
 
@@ -38,7 +40,7 @@ func TestHandler_DescribeTable(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["ColumnList"])
 }
 
@@ -59,7 +61,7 @@ func TestHandler_ListTables_ReturnsNonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)
@@ -77,7 +79,7 @@ func TestHandler_ListTables_SchemaPattern_WildcardMatchesAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)
@@ -95,7 +97,7 @@ func TestHandler_ListTables_TablePattern_WildcardMatchesAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)
@@ -113,7 +115,7 @@ func TestHandler_ListTables_TablePattern_PrefixMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, _ := resp["Tables"].([]any)
 	require.NotEmpty(t, tables, "user% should match 'users'")
@@ -141,7 +143,7 @@ func TestHandler_ListTables_MaxResults1_Paginates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)
@@ -166,7 +168,7 @@ func TestDescribeTable_ReturnsDemoColumns(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cols, ok := resp["ColumnList"].([]any)
 	require.True(t, ok, "ColumnList should be a slice")
@@ -192,7 +194,7 @@ func TestListTables_ReturnsDemoData(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tables, ok := resp["Tables"].([]any)
 	require.True(t, ok)

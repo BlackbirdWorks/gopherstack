@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -367,11 +368,11 @@ func TestInMemoryBackend_Restore_VersionMismatch(t *testing.T) {
 	// Corrupt the version field so Restore hits the mismatch branch, without
 	// hardcoding the rest of the snapshot's shape.
 	var generic map[string]any
-	require.NoError(t, json.Unmarshal(snap, &generic))
+	require.NoError(t, json.Unmarshal(snap, &generic, jsonx.V1()))
 	require.Contains(t, generic, "version")
 	generic["version"] = 999
 
-	mutated, err := json.Marshal(generic)
+	mutated, err := json.Marshal(generic, jsonx.V1())
 	require.NoError(t, err)
 
 	restored := glue.NewInMemoryBackend("123456789012", "us-east-1")

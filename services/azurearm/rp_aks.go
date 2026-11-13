@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -122,7 +123,7 @@ func aksResourceID(sub, rg string, types, names []string) ResourceID {
 func aksEtag(t time.Time) string { return acaEtag(t) }
 
 func aksJSON(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return ""
 	}

@@ -2,7 +2,7 @@ package gcpdatastore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -18,20 +18,20 @@ import (
 const snapshotVersion = 1
 
 type entitySnap struct {
-	Created time.Time       `json:"created"`
-	Updated time.Time       `json:"updated"`
-	Entity  json.RawMessage `json:"entity"`
-	Version int64           `json:"version"`
+	Created time.Time      `json:"created"`
+	Updated time.Time      `json:"updated"`
+	Entity  jsontext.Value `json:"entity"`
+	Version int64          `json:"version"`
 }
 
 type backendSnapshot struct {
-	LastCommit time.Time                  `json:"lastCommit"`
-	Entities   map[string]entitySnap      `json:"entities"`
-	UsedIDs    map[string][]int64         `json:"usedIds"`
-	Indexes    map[string]json.RawMessage `json:"indexes"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	NextIndex  int64                      `json:"nextIndex"`
-	Version    int                        `json:"version"`
+	LastCommit time.Time                 `json:"lastCommit"`
+	Entities   map[string]entitySnap     `json:"entities"`
+	UsedIDs    map[string][]int64        `json:"usedIds"`
+	Indexes    map[string]jsontext.Value `json:"indexes"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	NextIndex  int64                     `json:"nextIndex"`
+	Version    int                       `json:"version"`
 }
 
 // Snapshot serialises the current state of every entity, reserved ids, indexes and operations.
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextIndex:  b.nextIndex,
 		Entities:   make(map[string]entitySnap, len(b.ents)),
 		UsedIDs:    make(map[string][]int64, len(b.used)),
-		Indexes:    make(map[string]json.RawMessage, len(b.indexes)),
+		Indexes:    make(map[string]jsontext.Value, len(b.indexes)),
 		Operations: b.ops.Snapshot(),
 	}
 

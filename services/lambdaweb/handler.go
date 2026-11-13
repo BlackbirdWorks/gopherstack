@@ -2,7 +2,7 @@ package lambdaweb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -160,7 +161,7 @@ func decode(body []byte, v any) error {
 		return nil
 	}
 
-	return json.Unmarshal(body, v)
+	return json.Unmarshal(body, v, jsonx.V1())
 }
 
 func (h *Handler) writeInvalidBody(c *echo.Context) error {

@@ -2,7 +2,8 @@ package gcpbigquery
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -176,15 +178,14 @@ func dedupeNames(fs []bqsql.Field) []bqsql.Field {
 }
 
 func detectJSON(lc loadConfig, data []byte) ([]bqsql.Field, error) {
-	dec := json.NewDecoder(bytes.NewReader(decodeText(data, lc.Encoding)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(decodeText(data, lc.Encoding)))
 
 	var fields []bqsql.Field
 
 	for range detectSample {
 		var obj map[string]any
 
-		err := dec.Decode(&obj)
+		err := json.UnmarshalDecode(dec, &obj, jsonx.V1(), jsonx.UseNumber())
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -281,7 +282,7 @@ func inferJSONField(name string, v any) (bqsql.Field, bool) {
 		return f, len(f.Fields) > 0
 	case bool:
 		f.Type = litBoolean
-	case json.Number:
+	case jsonx.Number:
 		f.Type = litInteger
 		if _, err := t.Int64(); err != nil {
 			f.Type = litFloat

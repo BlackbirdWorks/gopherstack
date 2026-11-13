@@ -1,7 +1,7 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
 
@@ -75,7 +76,7 @@ func TestHandler_CreateApprovalRuleTemplate(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				tmpl, ok := resp["approvalRuleTemplate"].(map[string]any)
 				require.True(t, ok)
@@ -125,7 +126,7 @@ func TestHandler_GetApprovalRuleTemplate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tmpl := resp["approvalRuleTemplate"].(map[string]any)
 	assert.Equal(t, "tmpl-get", tmpl["approvalRuleTemplateName"])
 
@@ -153,7 +154,7 @@ func TestHandler_ListApprovalRuleTemplates(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	names := resp["approvalRuleTemplateNames"].([]any)
 	assert.Len(t, names, 2)
@@ -203,7 +204,7 @@ func TestHandler_UpdateApprovalRuleTemplateContent_Reflected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tmpl := resp["approvalRuleTemplate"].(map[string]any)
 	assert.Equal(t, newContent, tmpl["approvalRuleTemplateContent"])
 }
@@ -330,7 +331,7 @@ func TestHandler_ApprovalRuleTemplate_CRUD_TableDriven(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tmpl := resp["approvalRuleTemplate"].(map[string]any)
 				assert.Equal(t, tt.tmplName, tmpl["approvalRuleTemplateName"])
 				assert.Equal(t, tt.content, tmpl["approvalRuleTemplateContent"])

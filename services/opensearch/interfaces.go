@@ -2,7 +2,7 @@ package opensearch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -50,16 +50,16 @@ type StorageBackend interface {
 	DeleteOutboundConnection(connectionID string) (*OutboundConnection, error)
 
 	// Data source operations
-	AddDataSource(domainName, name, description string, dataSourceType json.RawMessage) (string, error)
+	AddDataSource(domainName, name, description string, dataSourceType jsontext.Value) (string, error)
 	GetDataSource(domainName, name string) (*DataSource, error)
 	ListDataSources(domainName string) ([]*DataSource, error)
-	UpdateDataSource(domainName, name, description string, dataSourceType json.RawMessage, status string) error
+	UpdateDataSource(domainName, name, description string, dataSourceType jsontext.Value, status string) error
 	DeleteDataSource(domainName, name string) error
 
 	// Direct-query data source operations
 	AddDirectQueryDataSource(
 		name, description string,
-		dataSourceType json.RawMessage,
+		dataSourceType jsontext.Value,
 		openSearchArns []string,
 		dataSourceAccessPolicy ...string,
 	) (string, error)
@@ -67,7 +67,7 @@ type StorageBackend interface {
 	GetDirectQueryDataSource(name string) (*DirectQueryDataSource, error)
 	UpdateDirectQueryDataSource(
 		name, description string,
-		dataSourceType json.RawMessage,
+		dataSourceType jsontext.Value,
 		openSearchArns []string,
 		dataSourceAccessPolicy string,
 	) (*DirectQueryDataSource, error)

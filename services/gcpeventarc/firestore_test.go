@@ -2,7 +2,7 @@ package gcpeventarc_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const fsParent = "projects/" + project + "/databases/(default)/documents"
@@ -141,7 +143,7 @@ func TestFirestoreDelivery(t *testing.T) {
 				} `json:"updateMask"`
 			}
 
-			require.NoError(t, json.Unmarshal(got.body, &data))
+			require.NoError(t, json.Unmarshal(got.body, &data, jsonx.V1()))
 			assert.Contains(t, data.Value["name"], tt.wantSubject[len("documents/"):])
 
 			if tt.trigType != "created" {

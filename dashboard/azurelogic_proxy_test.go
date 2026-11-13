@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -53,7 +54,7 @@ func logicGet(t *testing.T, h *dashboard.DashboardHandler, path string) map[stri
 	require.Equal(t, http.StatusOK, rec.Code, "%s: %s", path, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -89,7 +90,7 @@ func logicFirstRun(t *testing.T, h *dashboard.DashboardHandler) string {
 		Status int    `json:"status"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &reply))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &reply, jsonx.V1()))
 	require.Equal(t, http.StatusOK, reply.Status, rec.Body.String())
 	require.NotEmpty(t, reply.RunID)
 	assert.JSONEq(t, `{"greeting":"hello bob"}`, reply.Body)
@@ -230,7 +231,7 @@ func TestAzureLogicProxyCallbackIsExplicit(t *testing.T) {
 		Method string `json:"method"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cb))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cb, jsonx.V1()))
 	assert.Equal(t, http.MethodPost, cb.Method)
 	assert.Contains(t, cb.Value, "/_logic/workflows/")
 	assert.Contains(t, cb.Value, "sig=")

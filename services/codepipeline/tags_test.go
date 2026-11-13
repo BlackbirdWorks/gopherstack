@@ -2,13 +2,14 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -173,7 +174,7 @@ func TestHandler_ListTagsForResource_WebhookARN(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["__type"])
 			}
 		})
@@ -201,7 +202,7 @@ func TestSortedListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags, ok := out["tags"].([]any)
 	require.True(t, ok)
@@ -228,7 +229,7 @@ func TestListTagsForResource_EmptySlice(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tags := out["tags"]
 	assert.NotNil(t, tags)
@@ -280,7 +281,7 @@ func TestWebhookTagging(t *testing.T) {
 
 			// Get the webhook ARN.
 			var putOut map[string]any
-			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 			webhookEntry := putOut["webhook"].(map[string]any)
 			arn := webhookEntry["arn"].(string)
 			require.NotEmpty(t, arn)
@@ -308,7 +309,7 @@ func TestWebhookTagging(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listOut map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 			rawTags, _ := listOut["tags"].([]any)
 			gotKeys := make([]string, 0, len(rawTags))
 

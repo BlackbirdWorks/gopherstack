@@ -1,7 +1,8 @@
 package iotdataplane
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -39,12 +41,12 @@ func unwrapPublishPayload(body []byte, contentType string) []byte {
 	}
 
 	var wrapper struct {
-		Payload *json.RawMessage `json:"payload"`
+		Payload *jsontext.Value `json:"payload"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil && wrapper.Payload != nil {
+	if jsonErr := json.Unmarshal(body, &wrapper, jsonx.V1()); jsonErr == nil && wrapper.Payload != nil {
 		var payloadStr string
-		if unmarshalErr := json.Unmarshal(*wrapper.Payload, &payloadStr); unmarshalErr == nil {
+		if unmarshalErr := json.Unmarshal(*wrapper.Payload, &payloadStr, jsonx.V1()); unmarshalErr == nil {
 			return []byte(payloadStr)
 		}
 	}

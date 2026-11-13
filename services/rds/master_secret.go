@@ -3,13 +3,14 @@ package rds
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -86,7 +87,7 @@ func masterSecretBody(user string) (string, error) {
 		return "", fmt.Errorf("generate master password: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]string{"username": user, "password": hex.EncodeToString(raw)})
+	body, err := json.Marshal(map[string]string{"username": user, "password": hex.EncodeToString(raw)}, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("encode master user secret: %w", err)
 	}

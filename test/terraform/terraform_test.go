@@ -5,7 +5,8 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -152,6 +153,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -689,7 +691,7 @@ func downloadTofuBinary(logger *slog.Logger) (string, error) {
 			ID string `json:"id"`
 		} `json:"versions"`
 	}
-	err = json.NewDecoder(resp.Body).Decode(&api)
+	err = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &api, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("decoding OpenTofu version list: %w", err)
 	}
@@ -3558,7 +3560,7 @@ func TestTerraform_SESv2(t *testing.T) {
 					"email identity %q should exist after terraform apply", email)
 
 				var identityOut map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&identityOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &identityOut, jsonx.V1()))
 				assert.Equal(t, "EMAIL_ADDRESS", identityOut["IdentityType"])
 
 				// Verify configuration set was created.
@@ -3574,7 +3576,7 @@ func TestTerraform_SESv2(t *testing.T) {
 					"configuration set %q should exist after terraform apply", cfgName)
 
 				var cfgOut map[string]any
-				require.NoError(t, json.NewDecoder(resp2.Body).Decode(&cfgOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp2.Body), &cfgOut, jsonx.V1()))
 				assert.Equal(t, cfgName, cfgOut["ConfigurationSetName"])
 			},
 		},
@@ -4706,7 +4708,7 @@ func TestTerraform_CloudControl(t *testing.T) {
 				for _, rd := range out.ResourceDescriptions {
 					var props map[string]any
 					propsJSON := []byte(aws.ToString(rd.Properties))
-					if unmarshalErr := json.Unmarshal(propsJSON, &props); unmarshalErr == nil {
+					if unmarshalErr := json.Unmarshal(propsJSON, &props, jsonx.V1()); unmarshalErr == nil {
 						if props["LogGroupName"] == expectedName {
 							foundIdentifier = aws.ToString(rd.Identifier)
 
@@ -6612,7 +6614,7 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
 
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(body, &result))
+				require.NoError(t, json.Unmarshal(body, &result, jsonx.V1()))
 				assert.Equal(t, appName, result["name"])
 			},
 		},
@@ -6668,7 +6670,7 @@ func TestTerraform_Shield(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
 
 				var result map[string]string
-				require.NoError(t, json.Unmarshal(respBody, &result))
+				require.NoError(t, json.Unmarshal(respBody, &result, jsonx.V1()))
 				assert.Equal(t, "ACTIVE", result["SubscriptionState"])
 			},
 		},
@@ -6786,7 +6788,7 @@ func TestTerraform_Textract(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
 
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &result))
+				require.NoError(t, json.Unmarshal(respBody, &result, jsonx.V1()))
 				blocks, ok := result["Blocks"].([]any)
 				assert.True(t, ok, "expected Blocks in response")
 				assert.NotEmpty(t, blocks, "expected non-empty Blocks")
@@ -6848,7 +6850,7 @@ func TestTerraform_TimestreamWrite(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
 
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &result))
+				require.NoError(t, json.Unmarshal(respBody, &result, jsonx.V1()))
 				db, ok := result["Database"].(map[string]any)
 				assert.True(t, ok, "expected Database in response")
 				assert.Equal(t, databaseName, db["DatabaseName"])
@@ -7105,7 +7107,7 @@ func TestTerraform_Wafv2(t *testing.T) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
 
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &result))
+				require.NoError(t, json.Unmarshal(respBody, &result, jsonx.V1()))
 
 				webACLs, ok := result["WebACLs"].([]any)
 				require.True(t, ok)

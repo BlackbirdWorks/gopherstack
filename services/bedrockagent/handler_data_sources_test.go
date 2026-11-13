@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerDataSourceAndIngestion(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandlerDataSourceAndIngestion(t *testing.T) {
 	}
 
 	var kbResp map[string]map[string]any
-	_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp)
+	_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp, jsonx.V1())
 	kbID := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 	dsBody := map[string]any{
@@ -38,7 +40,7 @@ func TestHandlerDataSourceAndIngestion(t *testing.T) {
 	}
 
 	var dsResp map[string]map[string]any
-	_ = json.Unmarshal(dsRec.Body.Bytes(), &dsResp)
+	_ = json.Unmarshal(dsRec.Body.Bytes(), &dsResp, jsonx.V1())
 	dsID := dsResp["dataSource"]["dataSourceId"].(string)
 
 	t.Run("start ingestion job", func(t *testing.T) {

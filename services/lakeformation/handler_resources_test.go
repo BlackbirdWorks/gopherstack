@@ -1,13 +1,14 @@
 package lakeformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -49,7 +50,7 @@ func TestHandler_RegisterDeregisterDescribeResource(t *testing.T) {
 			assert.Equal(t, tt.wantDescStatus, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			ri, ok := descResp["ResourceInfo"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, tt.resourceArn, ri["ResourceArn"])
@@ -123,7 +124,7 @@ func TestHandler_ListResources(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			list, _ := resp["ResourceInfoList"].([]any)
 			assert.Len(t, list, tt.wantCount)
 		})
@@ -157,7 +158,7 @@ func TestListResources_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list := out["ResourceInfoList"].([]any)
 	require.Len(t, list, 3)

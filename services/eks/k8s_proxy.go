@@ -9,7 +9,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -188,7 +190,7 @@ func (p *k8sProxy) close() { _ = p.srv.Close() }
 func writeK8sStatus(w http.ResponseWriter, code int, reason string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{
 		keyKind: "Status", keyAPIVersion: "v1", "status": "Failure",
 		keyMessage: reason, "reason": reason, keyCode: code,
 	})

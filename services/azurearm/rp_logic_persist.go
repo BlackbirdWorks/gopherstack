@@ -1,10 +1,11 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // logicSnapshot is the Microsoft.Logic provider's persisted state: workflows with their versions, run history and
@@ -18,13 +19,13 @@ func (p *LogicProvider) snapshot() *logicSnapshot {
 	p.mu.RLock("snapshot")
 	defer p.mu.RUnlock()
 
-	raw, err := json.Marshal(p.wf)
+	raw, err := json.Marshal(p.wf, jsonx.V1())
 	if err != nil {
 		return &logicSnapshot{}
 	}
 
 	snap := &logicSnapshot{Workflows: map[string]*logicWorkflow{}}
-	if json.Unmarshal(raw, &snap.Workflows) != nil {
+	if json.Unmarshal(raw, &snap.Workflows, jsonx.V1()) != nil {
 		return &logicSnapshot{}
 	}
 

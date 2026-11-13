@@ -1,13 +1,15 @@
 package ocifilestorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -35,13 +37,13 @@ func checkName(v string) *APIError {
 
 // project keeps only keys of v's JSON form, producing a summary or restricted view.
 func project(v any, keys ...string) map[string]any {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return map[string]any{}
 	}
 
 	var all map[string]any
-	if json.Unmarshal(raw, &all) != nil {
+	if json.Unmarshal(raw, &all, jsonx.V1()) != nil {
 		return map[string]any{}
 	}
 

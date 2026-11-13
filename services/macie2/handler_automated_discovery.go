@@ -1,10 +1,12 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseAutomatedDiscoveryPath(method string, parts []string) (string, string) {
@@ -75,7 +77,7 @@ func (h *Handler) handleUpdateAutomatedDiscoveryConfiguration(body []byte) (int,
 		Status                        string `json:"status"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -111,7 +113,7 @@ func (h *Handler) handleBatchUpdateAutomatedDiscoveryAccounts(body []byte) (int,
 		Accounts []AutoDiscoveryAccountUpdate `json:"accounts"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

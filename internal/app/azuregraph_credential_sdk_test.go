@@ -6,7 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
+	"encoding/json/v2"
 	"math/big"
 	"net/http"
 	"testing"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuregraph"
 )
 
@@ -103,7 +104,7 @@ func TestAzureIdentityClientCertificateCredential(t *testing.T) {
 
 	keyBody, err := json.Marshal(map[string]any{"keyCredential": map[string]any{
 		"type": "AsymmetricX509Cert", "usage": "Verify", "key": cert.Raw,
-	}})
+	}}, jsonx.V1())
 	require.NoError(t, err)
 
 	status, added := s.call(t, admin, http.MethodPost, "/v1.0/applications/"+objectID+"/addKey", string(keyBody))

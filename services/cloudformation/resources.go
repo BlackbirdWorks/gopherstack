@@ -2,7 +2,6 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -16,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
@@ -3527,7 +3527,7 @@ func int64Val(v any) int64 {
 		return int64(n)
 	case int64:
 		return n
-	case json.Number:
+	case jsonx.Number:
 		i, err := n.Int64()
 		if err == nil {
 			return i

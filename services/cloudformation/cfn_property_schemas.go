@@ -2,12 +2,14 @@ package cloudformation
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Property kinds in cfn_property_schemas.json, written by cmd/cfnpropgen.
@@ -37,7 +39,7 @@ var (
 
 func embeddedPropertySchemas() propertySchemas {
 	cfnPropertySchemasOnce.Do(func() {
-		if err := json.Unmarshal(cfnPropertySchemasJSON, &cfnPropertySchemas); err != nil {
+		if err := json.Unmarshal(cfnPropertySchemasJSON, &cfnPropertySchemas, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded cfn_property_schemas.json: " + err.Error())
 		}
 	})

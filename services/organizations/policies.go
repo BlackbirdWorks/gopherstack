@@ -2,8 +2,10 @@ package organizations
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const policyStatusEnabled = "ENABLED"
@@ -103,7 +105,7 @@ func policyContentMaxSize(policyType string) (int, bool) {
 // MalformedPolicyDocumentException and documents exceeding the per-type size
 // quota with ConstraintViolationException(POLICY_CONTENT_LIMIT_EXCEEDED).
 func validatePolicyContent(content, policyType string) error {
-	if !json.Valid([]byte(content)) {
+	if !jsontext.Value([]byte(content)).IsValid(jsonx.V1()) {
 		return ErrMalformedPolicyDocument
 	}
 

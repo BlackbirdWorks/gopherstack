@@ -1,7 +1,7 @@
 package lambdaweb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"os/exec"
 	"sync"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -107,7 +108,7 @@ func TestDockerEngine_ServesRealApp(t *testing.T) {
 			Type    string `json:"type"`
 		}
 
-		require.NoError(t, json.Unmarshal([]byte(line), &ev), "every shipped line is a JSON log event")
+		require.NoError(t, json.Unmarshal([]byte(line), &ev, jsonx.V1()), "every shipped line is a JSON log event")
 
 		sawApp = sawApp || (ev.Message == "listening" && ev.Level == "INFO")
 	}

@@ -2,10 +2,11 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -27,7 +28,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, r *http.Request
 
 	return json.Marshal(map[string]any{
 		"tags": tags,
-	})
+	}, jsonx.V1())
 }
 
 // tagResourceRequest is the request body for TagResource.
@@ -44,7 +45,7 @@ func (h *Handler) handleTagResource(ctx context.Context, r *http.Request, body [
 	resourceArn := segs[1]
 
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

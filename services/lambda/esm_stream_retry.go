@@ -3,13 +3,15 @@ package lambda
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -18,7 +20,7 @@ type streamEvent struct {
 	arrival time.Time
 	seq     string
 	key     string
-	raw     json.RawMessage
+	raw     jsontext.Value
 }
 
 // streamBatch is a batch awaiting a successful invocation.
@@ -39,14 +41,14 @@ type streamShardRef struct {
 }
 
 func streamEventPayload(events []streamEvent) ([]byte, error) {
-	raws := make([]json.RawMessage, len(events))
+	raws := make([]jsontext.Value, len(events))
 	for i, e := range events {
 		raws[i] = e.raw
 	}
 
 	return json.Marshal(struct {
-		Records []json.RawMessage `json:"Records"`
-	}{Records: raws})
+		Records []jsontext.Value `json:"Records"`
+	}{Records: raws}, jsonx.V1())
 }
 
 func (p *EventSourcePoller) frontStreamBatch(key string) *streamBatch {

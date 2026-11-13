@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -280,7 +281,7 @@ func TestListSecretVersionIds_HTTPDispatchTable(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.ListSecretVersionIDsOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "lsvi-secret", out.Name)
 				assert.NotEmpty(t, out.Versions)
 			},
@@ -481,7 +482,7 @@ func TestListSecretVersionIds_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ListSecretVersionIDsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "handler-lsv", out.Name)
 	assert.NotEmpty(t, out.Versions)
 }

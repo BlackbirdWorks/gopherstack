@@ -1,13 +1,14 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -61,7 +62,7 @@ func (h *Handler) handleCreateCodeSecurityIntegration(c *echo.Context) error {
 		Type    string            `json:"type"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -91,7 +92,7 @@ func (h *Handler) handleDeleteCodeSecurityIntegration(c *echo.Context) error {
 		IntegrationArn string `json:"integrationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -115,7 +116,7 @@ func (h *Handler) handleGetCodeSecurityIntegration(c *echo.Context) error {
 		IntegrationArn string `json:"integrationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -164,7 +165,7 @@ func (h *Handler) handleUpdateCodeSecurityIntegration(c *echo.Context) error {
 		IntegrationArn string         `json:"integrationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -226,7 +227,7 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 		} `json:"configuration"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -252,7 +253,7 @@ func (h *Handler) handleDeleteCodeSecurityScanConfiguration(c *echo.Context) err
 		ScanConfigurationArn string `json:"scanConfigurationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -277,7 +278,7 @@ func (h *Handler) handleGetCodeSecurityScanConfiguration(c *echo.Context) error 
 		ScanConfigurationArn string `json:"scanConfigurationArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -354,7 +355,7 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 		} `json:"configuration"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -483,7 +484,7 @@ func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration(
 		AssociateConfigurationRequests []codeSecurityBatchItemRequest `json:"associateConfigurationRequests"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -554,7 +555,7 @@ func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration(
 		DisassociateConfigurationRequests []codeSecurityBatchItemRequest `json:"disassociateConfigurationRequests"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -594,7 +595,7 @@ func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Co
 		MaxResults           int32  `json:"maxResults"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -637,7 +638,7 @@ func (h *Handler) handleStartCodeSecurityScan(c *echo.Context) error {
 		} `json:"resource"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -667,7 +668,7 @@ func (h *Handler) handleGetCodeSecurityScan(c *echo.Context) error {
 		ScanID string `json:"scanId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

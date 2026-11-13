@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -23,7 +24,7 @@ func TestWAF_XssMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	xmsMap := createResp["XssMatchSet"].(map[string]any)
 	id := xmsMap["XssMatchSetId"].(string)
 	require.NotEmpty(t, id)
@@ -48,7 +49,7 @@ func TestWAF_XssMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "GetXssMatchSet", map[string]any{"XssMatchSetId": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	xms := resp["XssMatchSet"].(map[string]any)
 	tuples := xms["XssMatchTuples"].([]any)
 	require.Len(t, tuples, 1)
@@ -57,7 +58,7 @@ func TestWAF_XssMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	// List
 	rec = wafDo(t, h, "ListXssMatchSets", map[string]any{"Limit": 100})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	sets := listResp["XssMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
@@ -104,7 +105,7 @@ func wafCreateXSSMatchSet(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["XssMatchSet"].(map[string]any)
 	id := m["XssMatchSetId"].(string)
 	require.NotEmpty(t, id)

@@ -1,7 +1,8 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -91,7 +93,7 @@ func TestHandler_EnablePolicyType(t *testing.T) {
 
 			rootsRec := doRequest(t, h, "ListRoots", map[string]any{})
 			var rootsResp map[string]any
-			require.NoError(t, json.NewDecoder(rootsRec.Body).Decode(&rootsResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rootsRec.Body), &rootsResp, jsonx.V1()))
 			roots := rootsResp["Roots"].([]any)
 			rootID := roots[0].(map[string]any)["Id"].(string)
 
@@ -545,7 +547,7 @@ func TestDeletePolicy_Attached_ViaHandler(t *testing.T) {
 
 	roots := doRequest(t, h, "ListRoots", nil)
 	var rootsResp map[string]any
-	require.NoError(t, json.Unmarshal(roots.Body.Bytes(), &rootsResp))
+	require.NoError(t, json.Unmarshal(roots.Body.Bytes(), &rootsResp, jsonx.V1()))
 	rootID := rootsResp["Roots"].([]any)[0].(map[string]any)["Id"].(string)
 
 	doRequest(t, h, "EnablePolicyType", map[string]any{"RootId": rootID, "PolicyType": "SERVICE_CONTROL_POLICY"})
@@ -559,7 +561,7 @@ func TestDeletePolicy_Attached_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, cp.Code)
 
 	var cpResp map[string]any
-	require.NoError(t, json.Unmarshal(cp.Body.Bytes(), &cpResp))
+	require.NoError(t, json.Unmarshal(cp.Body.Bytes(), &cpResp, jsonx.V1()))
 	policyID := cpResp["Policy"].(map[string]any)["PolicySummary"].(map[string]any)["Id"].(string)
 
 	doRequest(t, h, "AttachPolicy", map[string]any{"PolicyId": policyID, "TargetId": rootID})
@@ -568,7 +570,7 @@ func TestDeletePolicy_Attached_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "PolicyInUseException", errResp["__type"])
 }
 
@@ -689,7 +691,7 @@ func TestDisablePolicyType_WithAttached_ViaHandler(t *testing.T) {
 
 	roots := doRequest(t, h, "ListRoots", nil)
 	var rootsResp map[string]any
-	require.NoError(t, json.Unmarshal(roots.Body.Bytes(), &rootsResp))
+	require.NoError(t, json.Unmarshal(roots.Body.Bytes(), &rootsResp, jsonx.V1()))
 	rootID := rootsResp["Roots"].([]any)[0].(map[string]any)["Id"].(string)
 
 	doRequest(t, h, "EnablePolicyType", map[string]any{"RootId": rootID, "PolicyType": "TAG_POLICY"})
@@ -703,7 +705,7 @@ func TestDisablePolicyType_WithAttached_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, cp.Code)
 
 	var cpResp map[string]any
-	require.NoError(t, json.Unmarshal(cp.Body.Bytes(), &cpResp))
+	require.NoError(t, json.Unmarshal(cp.Body.Bytes(), &cpResp, jsonx.V1()))
 	policyID := cpResp["Policy"].(map[string]any)["PolicySummary"].(map[string]any)["Id"].(string)
 
 	doRequest(t, h, "AttachPolicy", map[string]any{"PolicyId": policyID, "TargetId": rootID})
@@ -712,7 +714,7 @@ func TestDisablePolicyType_WithAttached_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConstraintViolationException", errResp["__type"])
 }
 
@@ -989,7 +991,7 @@ func TestCreatePolicy_MalformedContent_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "MalformedPolicyDocumentException", errResp["__type"])
 }
 

@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
@@ -36,7 +37,7 @@ func TestChannel_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				ch := resp["channel"].(map[string]any)
 				assert.Contains(t, ch["arn"], "arn:aws:medialive:us-east-1:000000000000:channel:")
 				assert.Equal(t, "CREATING", ch["state"])
@@ -76,7 +77,7 @@ func TestChannel_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-channel", descResp["name"])
 	assert.Equal(t, "IDLE", descResp["state"])
 
@@ -86,7 +87,7 @@ func TestChannel_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	ch := updateResp["channel"].(map[string]any)
 	assert.Equal(t, "updated-channel", ch["name"])
 
@@ -94,7 +95,7 @@ func TestChannel_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["channels"], 1)
 
 	// Delete
@@ -117,7 +118,7 @@ func TestChannel_StartStop(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/start", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.Equal(t, "STARTING", startResp["state"])
 
 	// Start again returns conflict
@@ -128,7 +129,7 @@ func TestChannel_StartStop(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/stop", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.Equal(t, "STOPPING", stopResp["state"])
 }
 
@@ -144,19 +145,19 @@ func TestChannel_PipelinesRunningCount(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.InDelta(t, 0, descResp["pipelinesRunningCount"], 0, "IDLE channel reports 0 running pipelines")
 
 	rec = doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/start", nil)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.InDelta(t, 0, startResp["pipelinesRunningCount"], 0, "STARTING channel reports 0 running pipelines")
 
 	// The backend advances internal state to RUNNING immediately (see
 	// StartChannel's doc comment), so an immediate Describe should already
 	// report the class's full pipeline count.
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "RUNNING", descResp["state"])
 	assert.InDelta(t, 2, descResp["pipelinesRunningCount"], 0, "RUNNING STANDARD channel reports 2 running pipelines")
 }
@@ -227,7 +228,7 @@ func TestListChannels_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["channels"])
 }
 

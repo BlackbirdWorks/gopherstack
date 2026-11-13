@@ -2,9 +2,11 @@ package cloudwatch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -21,7 +23,7 @@ import (
 const cloudwatchSnapshotVersion = 1
 
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage          `json:"tables"`
+	Tables       map[string]jsontext.Value           `json:"tables"`
 	Metrics      map[string]map[string]*metricRecord `json:"metrics"`
 	AlarmHistory map[string][]AlarmHistoryItem       `json:"alarmHistory"`
 	AccountID    string                              `json:"accountID"`
@@ -171,7 +173,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	}
 	h.tagsMu.RUnlock()
 
-	data, err := json.Marshal(handlerSnapshot{Backend: backendData, Tags: tagsCopy})
+	data, err := json.Marshal(handlerSnapshot{Backend: backendData, Tags: tagsCopy}, jsonx.V1())
 	if err != nil {
 		return backendData
 	}
@@ -196,7 +198,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 func (h *Handler) restoreHome(ctx context.Context, data []byte) error {
 	// Attempt to unmarshal as a handlerSnapshot first.
 	var hs handlerSnapshot
-	if unmarshalErr := json.Unmarshal(data, &hs); unmarshalErr == nil && hs.Backend != nil {
+	if unmarshalErr := json.Unmarshal(data, &hs, jsonx.V1()); unmarshalErr == nil && hs.Backend != nil {
 		type restorer interface {
 			Restore(context.Context, []byte) error
 		}

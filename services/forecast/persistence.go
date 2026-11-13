@@ -2,7 +2,7 @@ package forecast
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -41,7 +41,7 @@ const forecastSnapshotVersion = 1
 // restored tables instead of trusting a persisted copy that could otherwise
 // drift out of sync with the tables.
 type backendSnapshot struct {
-	Tables      map[string]json.RawMessage     `json:"tables"`
+	Tables      map[string]jsontext.Value      `json:"tables"`
 	Evaluations map[string][]MonitorEvaluation `json:"evaluations"`
 	Tags        map[string]map[string]string   `json:"tags"`
 	AccountID   string                         `json:"accountID"`

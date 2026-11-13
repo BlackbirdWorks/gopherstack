@@ -2,7 +2,7 @@ package ocicontainerengine
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"math"
 	"net/netip"
 	"regexp"
@@ -48,10 +48,10 @@ type CreateNodePoolIn struct {
 	Quantity       *int              `json:"quantityPerSubnet"`
 	NodeConfig     *NodeConfigIn     `json:"nodeConfigDetails"`
 	NodeMetadata   map[string]string `json:"nodeMetadata"`
-	Eviction       json.RawMessage   `json:"nodeEvictionNodePoolSettings"`
-	Cycling        json.RawMessage   `json:"nodePoolCyclingDetails"`
-	SecondaryVnics json.RawMessage   `json:"secondaryVnics"`
-	PrimaryVnic    json.RawMessage   `json:"primaryVnic"`
+	Eviction       jsontext.Value    `json:"nodeEvictionNodePoolSettings"`
+	Cycling        jsontext.Value    `json:"nodePoolCyclingDetails"`
+	SecondaryVnics jsontext.Value    `json:"secondaryVnics"`
+	PrimaryVnic    jsontext.Value    `json:"primaryVnic"`
 	Compartment    string            `json:"compartmentId"`
 	ClusterID      string            `json:"clusterId"`
 	Name           string            `json:"name"`
@@ -73,10 +73,10 @@ type UpdateNodePoolIn struct {
 	SSHKey         *string           `json:"sshPublicKey"`
 	Shape          *string           `json:"nodeShape"`
 	NodeMetadata   map[string]string `json:"nodeMetadata"`
-	Eviction       json.RawMessage   `json:"nodeEvictionNodePoolSettings"`
-	Cycling        json.RawMessage   `json:"nodePoolCyclingDetails"`
-	SecondaryVnics json.RawMessage   `json:"secondaryVnics"`
-	PrimaryVnic    json.RawMessage   `json:"primaryVnic"`
+	Eviction       jsontext.Value    `json:"nodeEvictionNodePoolSettings"`
+	Cycling        jsontext.Value    `json:"nodePoolCyclingDetails"`
+	SecondaryVnics jsontext.Value    `json:"secondaryVnics"`
+	PrimaryVnic    jsontext.Value    `json:"primaryVnic"`
 	LaunchType     string            `json:"networkLaunchType"`
 	Labels         []KeyValue        `json:"initialNodeLabels"`
 	SubnetIDs      []string          `json:"subnetIds"`
@@ -107,8 +107,8 @@ type NodePoolWire struct {
 	NodeSourceDetails *NodeSource               `json:"nodeSourceDetails,omitempty"`
 	QuantityPerSubnet *int                      `json:"quantityPerSubnet,omitempty"`
 	NodeConfigDetails *NodeConfig               `json:"nodeConfigDetails,omitempty"`
-	Eviction          json.RawMessage           `json:"nodeEvictionNodePoolSettings,omitempty"`
-	Cycling           json.RawMessage           `json:"nodePoolCyclingDetails,omitempty"`
+	Eviction          jsontext.Value            `json:"nodeEvictionNodePoolSettings,omitempty"`
+	Cycling           jsontext.Value            `json:"nodePoolCyclingDetails,omitempty"`
 	Nodes             []NodeWire                `json:"nodes,omitempty"`
 	ID                string                    `json:"id"`
 	ClusterID         string                    `json:"clusterId"`
@@ -173,7 +173,7 @@ func nodePoolView(np *NodePool, summary bool) NodePoolWire {
 	return w
 }
 
-func rejectUnsupported(secondary, primary json.RawMessage, launch string) *APIError {
+func rejectUnsupported(secondary, primary jsontext.Value, launch string) *APIError {
 	if len(secondary) > 0 && string(secondary) != "null" && string(secondary) != "[]" {
 		return errParam("secondaryVnics are not supported by this emulator")
 	}

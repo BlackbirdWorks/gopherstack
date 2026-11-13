@@ -2,7 +2,7 @@ package gcpartifactregistry
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -17,6 +17,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -48,7 +50,7 @@ func uploadKinds() []uploadKind {
 func storeGeneric(b *InMemoryBackend, parent string, meta, data []byte) (*longrunningpb.Operation, error) {
 	var req uploadReq
 	if len(meta) > 0 {
-		if err := json.Unmarshal(meta, &req); err != nil {
+		if err := json.Unmarshal(meta, &req, jsonx.V1()); err != nil {
 			return nil, errInvalid("The upload metadata is not valid JSON: %v", err)
 		}
 	}

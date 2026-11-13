@@ -1,12 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDelegatedAdminAccountLifecycle(t *testing.T) {
@@ -36,7 +38,7 @@ func TestDelegatedAdminAccountLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						assert.Equal(t, "333333333333", resp["delegatedAdminAccountId"])
 						assert.Equal(t, "ENABLED", resp["status"])
 					},
@@ -50,7 +52,7 @@ func TestDelegatedAdminAccountLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						d, _ := resp["delegatedAdmin"].(map[string]any)
 						assert.Equal(t, "333333333333", d["accountId"])
 					},
@@ -64,7 +66,7 @@ func TestDelegatedAdminAccountLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						admins, _ := resp["delegatedAdminAccounts"].([]any)
 						assert.Len(t, admins, 1)
 					},
@@ -150,7 +152,7 @@ func TestOrganizationConfiguration(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				_, ok := resp["autoEnable"]
 				assert.True(t, ok)
 			},

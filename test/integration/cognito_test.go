@@ -3,7 +3,7 @@ package integration_test
 import (
 	"crypto/rsa"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"math/big"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -122,7 +123,7 @@ func TestIntegration_CognitoIDP_FullFlow(t *testing.T) {
 			Alg string `json:"alg"`
 		} `json:"keys"`
 	}
-	require.NoError(t, json.Unmarshal(jwksBody, &jwks), "JWKS should be valid JSON")
+	require.NoError(t, json.Unmarshal(jwksBody, &jwks, jsonx.V1()), "JWKS should be valid JSON")
 	require.Len(t, jwks.Keys, 1, "JWKS should have exactly one key")
 	assert.Equal(t, "RSA", jwks.Keys[0].Kty)
 	assert.Equal(t, "sig", jwks.Keys[0].Use)

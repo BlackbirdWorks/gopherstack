@@ -1,7 +1,7 @@
 package opsworks
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"reflect"
 	"slices"
@@ -185,7 +185,7 @@ func overlayBool(dst **bool, src *bool) {
 	}
 }
 
-func overlayRaw(cur, in json.RawMessage) json.RawMessage {
+func overlayRaw(cur, in jsontext.Value) jsontext.Value {
 	if len(in) > 0 {
 		return in
 	}

@@ -1,13 +1,15 @@
 package ociapigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/apigateway"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const apiBase = "/20190501"
@@ -19,7 +21,7 @@ func idOf(t *testing.T, body string) string {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &out), body)
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()), body)
 	require.NotEmpty(t, out.ID, body)
 
 	return out.ID

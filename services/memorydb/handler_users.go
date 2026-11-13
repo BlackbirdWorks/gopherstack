@@ -2,18 +2,20 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"slices"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createUserRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -36,7 +38,7 @@ func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []
 func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeUserRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -92,7 +94,7 @@ func filterUsersByName(users []*User, filters []userFilterReq) []*User {
 func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteUserRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -111,7 +113,7 @@ func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []
 func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateUserRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

@@ -2,7 +2,7 @@ package resourcegroups
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -108,7 +108,7 @@ func buildPersistenceDTORegistry() (*store.Registry, *store.Table[groupSnapshot]
 // strings, or status records), so there is nothing for store.Table to key on,
 // and each is persisted here directly instead.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage                     `json:"tables"`
+	Tables              map[string]jsontext.Value                      `json:"tables"`
 	GroupConfigurations map[string]map[string][]GroupConfigurationItem `json:"groupConfigurations"`
 	GroupResources      map[string]map[string][]string                 `json:"groupResources"`
 	GroupingStatuses    map[string]map[string][]GroupingStatusItem     `json:"groupingStatuses"`
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreGroups rebuilds the "dirty" groups store.Table from snap's DTO
 // table, factored out of Restore to keep Restore's own cognitive complexity
 // low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreGroups(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreGroups(tables map[string]jsontext.Value) error {
 	dtoReg, groupDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("resourcegroups: restore snapshot groups table: %w", err)

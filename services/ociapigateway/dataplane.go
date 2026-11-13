@@ -2,7 +2,7 @@ package ociapigateway
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -29,7 +30,10 @@ func writeGWError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	out, _ := json.Marshal(map[string]any{"code": status, "message": msg}) //nolint:errchkjson // static shape
+	out, _ := json.Marshal(
+		map[string]any{"code": status, "message": msg},
+		jsonx.V1(),
+	) //nolint:errchkjson // static shape
 	_, _ = w.Write(out)
 }
 

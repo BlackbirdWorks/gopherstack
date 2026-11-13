@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -74,7 +75,7 @@ func (t JobSecondaryStatusTransition) MarshalJSON() ([]byte, error) {
 		alias:     (*alias)(&t),
 		StartTime: epochSeconds(t.StartTime),
 		EndTime:   epochSecondsPtr(t.EndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [JobSecondaryStatusTransition.MarshalJSON],
@@ -88,7 +89,7 @@ func (t *JobSecondaryStatusTransition) UnmarshalJSON(data []byte) error {
 		StartTime float64  `json:"StartTime"`
 	}{alias: (*alias)(t)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -135,7 +136,7 @@ func (j *Job) MarshalJSON() ([]byte, error) {
 		CreationTime:     epochSeconds(j.CreationTime),
 		LastModifiedTime: epochSeconds(j.LastModifiedTime),
 		EndTime:          epochSecondsPtr(j.EndTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [Job.MarshalJSON], used by persistence.go's
@@ -150,7 +151,7 @@ func (j *Job) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64  `json:"LastModifiedTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

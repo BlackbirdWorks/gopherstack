@@ -2,7 +2,7 @@ package iotdataplane_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -209,7 +210,7 @@ func Test_ListConnections_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	conns := resp["connections"].([]any)
 	assert.Empty(t, conns)
 }
@@ -257,7 +258,7 @@ func Test_ListConnections_ShowsRegistered(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	conns := resp["connections"].([]any)
 	assert.Len(t, conns, 2)
 }
@@ -323,7 +324,7 @@ func Test_AdminConnectionsPath_BasicFlow(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/_admin/connections", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp["connections"].([]any), 1)
 
 	// Delete.
@@ -393,7 +394,7 @@ func Test_Connection_Register_DuplicateShape(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", resp["error"])
 }
 func Test_Connection_EmptyClientID_Rejected(t *testing.T) {
@@ -414,7 +415,7 @@ func Test_Connection_DollarPrefix_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", resp["error"])
 }
 func Test_Connection_DeleteUnknown_NotFound_DollarStillRejected(t *testing.T) {
@@ -457,7 +458,7 @@ func Test_DeleteConnection_UnknownClient_HTTPShape(t *testing.T) {
 			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", resp["error"])
 		})
 	}
@@ -568,7 +569,7 @@ func TestHandler_GetConnection_WireShape(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.clientID, resp["clientId"])
 			assert.Equal(t, true, resp["connected"])
 			assert.NotZero(t, resp["connectedSince"])
@@ -661,7 +662,7 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			subs, ok := resp["subscriptions"].([]any)
 			require.True(t, ok)
 			assert.Len(t, subs, len(tt.brokerSubs))
@@ -753,7 +754,7 @@ func TestHandler_ListSubscriptions_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			subs, ok := resp["subscriptions"].([]any)
 			require.True(t, ok)
@@ -985,7 +986,7 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "OK", resp["message"])
 			assert.NotEmpty(t, resp["traceId"])
 
@@ -1081,7 +1082,7 @@ func Test_GetConnection_AfterDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, false, resp["connected"])
 	assert.Equal(t, "SERVER_INITIATED_DISCONNECT", resp["disconnectReason"])
 	assert.NotZero(t, resp["disconnectedSince"])

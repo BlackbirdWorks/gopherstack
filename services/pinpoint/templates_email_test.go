@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -25,7 +27,7 @@ func TestListTemplates_EmailListed(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Item"].([]any)
 	require.NotEmpty(t, items)
 
@@ -140,7 +142,7 @@ func TestEmailTemplate_BodyPersistence(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code, "get status")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantSubject != "" {
 				assert.Equal(t, tc.wantSubject, resp["Subject"], "Subject")
@@ -219,7 +221,7 @@ func TestEmailTemplate_VersionBumpsOnUpdate(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantVersion, resp["Version"], "Version after updates")
 		})
 	}
@@ -281,7 +283,7 @@ func TestEmailTemplate_DefaultSubstitutions(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantSubs, resp["DefaultSubstitutions"], "DefaultSubstitutions")
 		})
@@ -377,7 +379,7 @@ func TestInAppTemplate_BodyPersistence(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code, "get status")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantLayout != "" {
 				assert.Equal(t, tc.wantLayout, resp["Layout"])
@@ -508,7 +510,7 @@ func TestInAppTemplate_ContentStructure(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	assert.Equal(t, "BOTTOM_BANNER", tmpl["Layout"])
 	assert.Equal(t, "Upgrade promo", tmpl["TemplateDescription"])
@@ -564,7 +566,7 @@ func TestInAppTemplate_MultipleContentItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	gotContent := tmpl["Content"].([]any)
 	require.Len(t, gotContent, 3)
@@ -609,7 +611,7 @@ func TestInAppTemplate_UpdateContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	assert.Equal(t, "TOP_BANNER", tmpl["Layout"])
 	content := tmpl["Content"].([]any)
@@ -730,7 +732,7 @@ func TestHandler_CreateEmailTemplate(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, "Created", resp["Message"])
 			}
@@ -765,7 +767,7 @@ func TestHandler_CreateInAppTemplate(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, "Created", resp["Message"])
 			}
@@ -790,7 +792,7 @@ func TestEmailTemplate_TemplateType(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "EMAIL", resp["TemplateType"])
 }
 
@@ -811,7 +813,7 @@ func TestInAppTemplate_TemplateTypeAndCustomConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "INAPP", resp["TemplateType"])
 
 	customConfig, _ := resp["CustomConfig"].(map[string]any)

@@ -1,13 +1,14 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
@@ -106,7 +107,7 @@ func (s logEntrySource) LogEntries(project, filter string, notBefore time.Time) 
 			}
 
 			fields := map[string]any{}
-			if json.Unmarshal(raw, &fields) != nil {
+			if json.Unmarshal(raw, &fields, jsonx.V1()) != nil {
 				continue
 			}
 

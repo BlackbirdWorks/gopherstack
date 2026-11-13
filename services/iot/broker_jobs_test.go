@@ -2,7 +2,7 @@ package iot_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -113,7 +114,7 @@ func (e *jobsMQTTEnv) expect(t *testing.T, suffix string) map[string]any {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(m.Payload(), &out))
+			require.NoError(t, json.Unmarshal(m.Payload(), &out, jsonx.V1()))
 
 			return out
 		case <-timer.C:

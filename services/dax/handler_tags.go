@@ -1,10 +1,12 @@
 package dax
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type tagResourceRequest struct {
@@ -24,7 +26,7 @@ type listTagsRequest struct {
 
 func (h *Handler) handleTagResource(body []byte) (any, error) {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -60,7 +62,7 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 
 func (h *Handler) handleUntagResource(body []byte) (any, error) {
 	var req untagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -87,7 +89,7 @@ func (h *Handler) handleUntagResource(body []byte) (any, error) {
 
 func (h *Handler) handleListTags(body []byte) (any, error) {
 	var req listTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

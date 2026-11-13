@@ -6,7 +6,8 @@ package ocidns
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	pkgdns "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
@@ -124,7 +126,7 @@ type errorBody struct {
 func (q *req) header(k, v string) { q.w.Header().Set(k, v) }
 
 func (q *req) write(status int, v any, t tag) error {
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("ocidns: encode response: %w", err)
 	}
@@ -179,7 +181,7 @@ func (q *req) decode(v any) error {
 		return errMissing("A request body is required")
 	}
 
-	if err := json.NewDecoder(bytes.NewReader(q.body)).Decode(v); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(bytes.NewReader(q.body)), v, jsonx.V1()); err != nil {
 		return newErr(http.StatusBadRequest, "CannotParseRequest",
 			"The request body is not valid JSON for this operation")
 	}
@@ -198,7 +200,10 @@ func (h *Handler) fail(q *req, err error) {
 	q.header("Content-Type", "application/json")
 	q.w.WriteHeader(ae.Status)
 
-	out, _ := json.Marshal(errorBody{Code: ae.Code, Message: ae.Message}) //nolint:errchkjson // static shape
+	out, _ := json.Marshal(
+		errorBody{Code: ae.Code, Message: ae.Message},
+		jsonx.V1(),
+	) //nolint:errchkjson // static shape
 	_, _ = q.w.Write(out)
 }
 
@@ -264,7 +269,7 @@ func (h *Handler) admin(q *req) {
 		var in adminKeyReq
 
 		body, _ := io.ReadAll(io.LimitReader(q.r.Body, adminBodyLimit))
-		if err := json.Unmarshal(body, &in); err != nil || in.Tenancy == "" || in.User == "" {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil || in.Tenancy == "" || in.User == "" {
 			h.fail(q, errParam("tenancy, user and publicKey are required"))
 
 			return

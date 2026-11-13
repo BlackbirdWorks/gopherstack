@@ -2,7 +2,7 @@ package iam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -230,7 +231,7 @@ func extractJSONTargetResourceARN(r *http.Request, target, accountID, region str
 	}
 
 	var payload jsonTargetResourcePayload
-	if jsonErr := json.Unmarshal(body, &payload); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &payload, jsonx.V1()); jsonErr != nil {
 		return ""
 	}
 

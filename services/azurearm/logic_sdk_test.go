@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,6 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/logic/armlogic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func greetingDef() map[string]any {
@@ -192,7 +194,7 @@ func TestLogicSDK_Invocation(t *testing.T) {
 					} `json:"error"`
 				}
 
-				require.NoError(t, json.Unmarshal(raw, &e))
+				require.NoError(t, json.Unmarshal(raw, &e, jsonx.V1()))
 				assert.Equal(t, tc.wantCode, e.Error.Code)
 			}
 		})

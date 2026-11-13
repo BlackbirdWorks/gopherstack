@@ -1,10 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -18,25 +20,25 @@ const (
 )
 
 type rcpStatement struct {
-	Effect       string          `json:"Effect"`
-	Principal    json.RawMessage `json:"Principal"`
-	NotPrincipal json.RawMessage `json:"NotPrincipal"`
-	Action       json.RawMessage `json:"Action"`
-	NotAction    json.RawMessage `json:"NotAction"`
-	Resource     json.RawMessage `json:"Resource"`
-	NotResource  json.RawMessage `json:"NotResource"`
+	Effect       string         `json:"Effect"`
+	Principal    jsontext.Value `json:"Principal"`
+	NotPrincipal jsontext.Value `json:"NotPrincipal"`
+	Action       jsontext.Value `json:"Action"`
+	NotAction    jsontext.Value `json:"NotAction"`
+	Resource     jsontext.Value `json:"Resource"`
+	NotResource  jsontext.Value `json:"NotResource"`
 }
 
 type rcpDocument struct {
-	Version   string          `json:"Version"`
-	Statement json.RawMessage `json:"Statement"`
+	Version   string         `json:"Version"`
+	Statement jsontext.Value `json:"Statement"`
 }
 
 // validateRCPContent applies the RCP syntax rules (User Guide, "RCP syntax"): Effect
 // must be Deny, Principal only "*", no NotPrincipal/NotAction, Action names a supported service.
 func validateRCPContent(content string) error {
 	var doc rcpDocument
-	if err := json.Unmarshal([]byte(content), &doc); err != nil || doc.Version != policyVersion {
+	if err := json.Unmarshal([]byte(content), &doc, jsonx.V1()); err != nil || doc.Version != policyVersion {
 		return ErrMalformedPolicyDocument
 	}
 
@@ -54,14 +56,14 @@ func validateRCPContent(content string) error {
 	return nil
 }
 
-func decodeRCPStatements(raw json.RawMessage) ([]rcpStatement, bool) {
+func decodeRCPStatements(raw jsontext.Value) ([]rcpStatement, bool) {
 	var many []rcpStatement
-	if err := json.Unmarshal(raw, &many); err == nil {
+	if err := json.Unmarshal(raw, &many, jsonx.V1()); err == nil {
 		return many, true
 	}
 
 	var one rcpStatement
-	if err := json.Unmarshal(raw, &one); err != nil {
+	if err := json.Unmarshal(raw, &one, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -88,11 +90,11 @@ func validateRCPStatement(s rcpStatement) error {
 	return validateRCPActions(s.Action)
 }
 
-func validateRCPActions(raw json.RawMessage) error {
+func validateRCPActions(raw jsontext.Value) error {
 	var actions []string
-	if json.Unmarshal(raw, &actions) != nil {
+	if json.Unmarshal(raw, &actions, jsonx.V1()) != nil {
 		var one string
-		if json.Unmarshal(raw, &one) != nil {
+		if json.Unmarshal(raw, &one, jsonx.V1()) != nil {
 			return ErrMalformedPolicyDocument
 		}
 

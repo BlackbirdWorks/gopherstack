@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -48,7 +49,7 @@ func TestHandler_Authorizers(t *testing.T) {
 			require.Equal(t, tt.wantCreateCode, rr.Code)
 
 			var auth apigatewayv2.Authorizer
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth, jsonx.V1()))
 			assert.Equal(t, tt.authorizerName, auth.Name)
 
 			// GetAuthorizers
@@ -245,7 +246,7 @@ func TestGetAuthorizers_Pagination(t *testing.T) {
 					NextToken string           `json:"nextToken"`
 					Items     []map[string]any `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Items), tc.maxResults)
 
 				for _, a := range resp.Items {
@@ -311,7 +312,7 @@ func setupRequestAuthAPI(
 	authCalls := &atomic.Int64{}
 	integrationCalls := &atomic.Int64{}
 
-	respBytes, _ := json.Marshal(sc.authResponse)
+	respBytes, _ := json.Marshal(sc.authResponse, jsonx.V1())
 
 	h.SetLambdaInvoker(&mockLambdaInvoker{
 		fn: func(_ context.Context, name, _ string, _ []byte) ([]byte, int, error) {
@@ -324,7 +325,7 @@ func setupRequestAuthAPI(
 			// Integration backend function.
 			integrationCalls.Add(1)
 
-			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 			return b, 200, nil
 		},
@@ -341,7 +342,7 @@ func setupRequestAuthAPI(
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	// Authorizer.
 	identity := sc.identitySource
@@ -365,7 +366,7 @@ func setupRequestAuthAPI(
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var auth apigatewayv2.Authorizer
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth, jsonx.V1()))
 
 	authorizerID := auth.AuthorizerID
 	if sc.authorizerMissing {
@@ -619,7 +620,7 @@ func TestRouteAuth_AWSIAM(t *testing.T) {
 				fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
 					integrationCalls.Add(1)
 
-					b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+					b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 					return b, 200, nil
 				},
@@ -635,7 +636,7 @@ func TestRouteAuth_AWSIAM(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integ apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/routes", map[string]any{
 				"routeKey":          "GET /iam",

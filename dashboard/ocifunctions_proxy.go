@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	fnbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
@@ -72,13 +73,13 @@ func (h *DashboardHandler) registerOCIFunctionsRoutes() {
 
 // maskedConfig renders a wire value as JSON with secret-looking config values replaced.
 func maskedConfig(v any) (map[string]any, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string]any{}
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,13 +1,15 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func networkBody(mutate func(body, member, fabric map[string]any)) map[string]any {
@@ -108,7 +110,7 @@ func TestCreateNetwork_InputValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", resp["Code"])
 			assert.NotContains(t, resp["message"], "InvalidRequestException")
 		})
@@ -122,7 +124,7 @@ func TestCreateNetwork_RealisticIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Regexp(t, `^n-[A-Z2-7]{26}$`, resp["NetworkId"])
 	assert.Regexp(t, `^m-[A-Z2-7]{26}$`, resp["MemberId"])
 }
@@ -134,7 +136,7 @@ func TestErrorMessages_NoCodePrefix(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["Code"])
 	assert.NotContains(t, resp["message"], "ResourceNotFoundException")
 }

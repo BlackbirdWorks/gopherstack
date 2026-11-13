@@ -1,7 +1,7 @@
 package gcpartifactregistry_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
@@ -369,7 +370,7 @@ func TestCleanupKeepsImagesReferencedByParentManifest(t *testing.T) {
 
 	index, err := json.Marshal(map[string]any{
 		"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": manifests,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	put := c.Do(http.MethodPut, "/v2/"+project+"/multi/app/manifests/multi", index,

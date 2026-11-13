@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -64,7 +66,7 @@ func TestHandler_CreateChannelNamespace(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				ns, ok := resp["channelNamespace"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, ns["name"])
@@ -83,7 +85,7 @@ func TestHandler_ChannelNamespace_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &apiResp, jsonx.V1()))
 	apiID := apiResp["api"].(map[string]any)["apiId"].(string)
 
 	// Create namespace.
@@ -96,7 +98,7 @@ func TestHandler_ChannelNamespace_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec3.Body), &listResp, jsonx.V1()))
 	items := listResp["channelNamespaces"].([]any)
 	assert.Len(t, items, 1)
 
@@ -105,7 +107,7 @@ func TestHandler_ChannelNamespace_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec4.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec4.Body), &getResp, jsonx.V1()))
 	ns := getResp["channelNamespace"].(map[string]any)
 	assert.Equal(t, "ns1", ns["name"])
 

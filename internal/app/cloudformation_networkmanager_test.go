@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/networkmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudFormationProvisionsNetworkManager(t *testing.T) {
@@ -55,7 +57,7 @@ func TestCloudFormationProvisionsNetworkManager(t *testing.T) {
 			"SiteArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Site", "SiteArn"}}},
 			"GNArn":   map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"GN", "Arn"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

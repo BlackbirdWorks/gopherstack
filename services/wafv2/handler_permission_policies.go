@@ -2,9 +2,10 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -15,7 +16,7 @@ type deletePermissionPolicyRequest struct {
 
 func (h *Handler) handleDeletePermissionPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req deletePermissionPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -41,7 +42,7 @@ type putPermissionPolicyRequest struct {
 
 func (h *Handler) handlePutPermissionPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req putPermissionPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -66,7 +67,7 @@ type getPermissionPolicyRequest struct {
 
 func (h *Handler) handleGetPermissionPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req getPermissionPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -79,7 +80,7 @@ func (h *Handler) handleGetPermissionPolicy(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"Policy": policy})
+	return json.Marshal(map[string]string{"Policy": policy}, jsonx.V1())
 }
 
 // permissionPolicyDispatchOps returns the permission-policy-family operation dispatch

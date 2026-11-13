@@ -2,13 +2,14 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -43,14 +44,14 @@ func TestListMapRuns_ReturnsEmptyList(t *testing.T) {
 	smARN := createSM(ctx, t, h, e, "no-maprun-sm")
 	execARN := startExec(ctx, t, h, e, smARN, "no-maprun-exec")
 
-	listBody, err := json.Marshal(map[string]any{"executionArn": execARN})
+	listBody, err := json.Marshal(map[string]any{"executionArn": execARN}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "ListMapRuns", string(listBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	mapRuns, _ := out["mapRuns"].([]any)
 	assert.Empty(t, mapRuns)
@@ -118,24 +119,24 @@ func TestMapRunStorage(t *testing.T) {
 					"definition": mapIterStateDef,
 					"roleArn":    "arn:aws:iam::123456789012:role/test",
 					"type":       "EXPRESS",
-				})
+				}, jsonx.V1())
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(createBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var smResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp, jsonx.V1()))
 				smARN := smResp["stateMachineArn"].(string)
 
 				syncBody, _ := json.Marshal(map[string]any{
 					"stateMachineArn": smARN,
 					"name":            "sync-exec-1",
 					"input":           `[1,2,3]`,
-				})
+				}, jsonx.V1())
 				syncRec := sfnPost(ctx, t, h, e, "StartSyncExecution", string(syncBody))
 				require.Equal(t, http.StatusOK, syncRec.Code)
 
 				var syncResp map[string]any
-				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp))
+				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp, jsonx.V1()))
 				execARN := syncResp["executionArn"].(string)
 
 				assert.GreaterOrEqual(t, bk.MapRunCountForTest(execARN), 1,
@@ -156,35 +157,35 @@ func TestMapRunStorage(t *testing.T) {
 					"definition": mapIterStateDef,
 					"roleArn":    "arn:aws:iam::123456789012:role/test",
 					"type":       "EXPRESS",
-				})
+				}, jsonx.V1())
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(createBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var smResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp, jsonx.V1()))
 				smARN := smResp["stateMachineArn"].(string)
 
 				syncBody, _ := json.Marshal(map[string]any{
 					"stateMachineArn": smARN,
 					"name":            "sync-exec-2",
 					"input":           `[1,2]`,
-				})
+				}, jsonx.V1())
 				syncRec := sfnPost(ctx, t, h, e, "StartSyncExecution", string(syncBody))
 				require.Equal(t, http.StatusOK, syncRec.Code)
 
 				var syncResp map[string]any
-				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp))
+				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp, jsonx.V1()))
 				execARN := syncResp["executionArn"].(string)
 
 				require.GreaterOrEqual(t, bk.MapRunCountForTest(execARN), 1)
 
 				// ListMapRuns via handler.
-				listBody, _ := json.Marshal(map[string]any{"executionArn": execARN})
+				listBody, _ := json.Marshal(map[string]any{"executionArn": execARN}, jsonx.V1())
 				listRec := sfnPost(ctx, t, h, e, "ListMapRuns", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				mapRuns, _ := listResp["mapRuns"].([]any)
 				require.NotEmpty(t, mapRuns, "expected non-empty mapRuns list")
 
@@ -192,12 +193,12 @@ func TestMapRunStorage(t *testing.T) {
 				mapRunARN, _ := firstRun["mapRunArn"].(string)
 				require.NotEmpty(t, mapRunARN)
 
-				descBody, _ := json.Marshal(map[string]any{"mapRunArn": mapRunARN})
+				descBody, _ := json.Marshal(map[string]any{"mapRunArn": mapRunARN}, jsonx.V1())
 				descRec := sfnPost(ctx, t, h, e, "DescribeMapRun", string(descBody))
 				require.Equal(t, http.StatusOK, descRec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, mapRunARN, descResp["mapRunArn"])
 				assert.Equal(t, execARN, descResp["executionArn"])
 				assert.Equal(t, "SUCCEEDED", descResp["status"])
@@ -217,34 +218,34 @@ func TestMapRunStorage(t *testing.T) {
 					"definition": mapIterStateDef,
 					"roleArn":    "arn:aws:iam::123456789012:role/test",
 					"type":       "EXPRESS",
-				})
+				}, jsonx.V1())
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(createBody))
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var smResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp, jsonx.V1()))
 				smARN := smResp["stateMachineArn"].(string)
 
 				syncBody, _ := json.Marshal(map[string]any{
 					"stateMachineArn": smARN,
 					"name":            "sync-exec-3b",
 					"input":           `[1]`,
-				})
+				}, jsonx.V1())
 				syncRec := sfnPost(ctx, t, h, e, "StartSyncExecution", string(syncBody))
 				require.Equal(t, http.StatusOK, syncRec.Code)
 
 				var syncResp map[string]any
-				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp))
+				require.NoError(t, json.Unmarshal(syncRec.Body.Bytes(), &syncResp, jsonx.V1()))
 				execARN := syncResp["executionArn"].(string)
 
 				require.GreaterOrEqual(t, bk.MapRunCountForTest(execARN), 1)
 
-				listBody, _ := json.Marshal(map[string]any{"executionArn": execARN})
+				listBody, _ := json.Marshal(map[string]any{"executionArn": execARN}, jsonx.V1())
 				listRec := sfnPost(ctx, t, h, e, "ListMapRuns", string(listBody))
 				require.Equal(t, http.StatusOK, listRec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 				mapRuns, _ := listResp["mapRuns"].([]any)
 				require.NotEmpty(t, mapRuns)
 
@@ -254,12 +255,12 @@ func TestMapRunStorage(t *testing.T) {
 				updateBody, _ := json.Marshal(map[string]any{
 					"mapRunArn":      mapRunARN,
 					"maxConcurrency": 10,
-				})
+				}, jsonx.V1())
 				updateRec := sfnPost(ctx, t, h, e, "UpdateMapRun", string(updateBody))
 				require.Equal(t, http.StatusOK, updateRec.Code)
 
 				var updateResp map[string]any
-				require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+				require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 				maxConc, _ := updateResp["maxConcurrency"].(float64)
 				assert.InEpsilon(t, float64(10), maxConc, 1e-9)
 			},

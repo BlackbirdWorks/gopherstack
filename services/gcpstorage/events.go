@@ -1,8 +1,11 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ObjectEventType names a change to an object, matching the suffix of the google.cloud.storage.object.v1 event types.
@@ -30,8 +33,8 @@ type ObjectEvent struct {
 }
 
 // Data is the event payload: the object resource, as the Cloud Storage JSON API renders it.
-func (e ObjectEvent) Data() json.RawMessage {
-	raw, err := json.Marshal(objectResource("", e.Object))
+func (e ObjectEvent) Data() jsontext.Value {
+	raw, err := json.Marshal(objectResource("", e.Object), jsonx.V1())
 	if err != nil {
 		return nil
 	}

@@ -1,7 +1,9 @@
 package stepfunctions
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createStateMachineAliasInput has no StateMachineArn member: the real
@@ -95,7 +97,7 @@ func (h *Handler) aliasActions() map[string]actionFn {
 
 func (h *Handler) handleCreateStateMachineAlias(b []byte) (any, error) {
 	var input createStateMachineAliasInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -111,7 +113,7 @@ func (h *Handler) handleCreateStateMachineAlias(b []byte) (any, error) {
 
 func (h *Handler) handleUpdateStateMachineAlias(b []byte) (any, error) {
 	var input updateStateMachineAliasInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -127,7 +129,7 @@ func (h *Handler) handleUpdateStateMachineAlias(b []byte) (any, error) {
 
 func (h *Handler) handleDeleteStateMachineAlias(b []byte) (any, error) {
 	var input deleteStateMachineAliasInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -140,7 +142,7 @@ func (h *Handler) handleDeleteStateMachineAlias(b []byte) (any, error) {
 
 func (h *Handler) handleDescribeStateMachineAlias(b []byte) (any, error) {
 	var input describeStateMachineAliasInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -154,7 +156,7 @@ func (h *Handler) handleDescribeStateMachineAlias(b []byte) (any, error) {
 
 func (h *Handler) handleListStateMachineAliases(b []byte) (any, error) {
 	var input listStateMachineAliasesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

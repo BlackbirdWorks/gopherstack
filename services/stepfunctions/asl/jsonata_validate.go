@@ -1,12 +1,15 @@
 package asl
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -144,20 +147,20 @@ func walkNested(name string, st *State, lang string, inner map[string]struct{}) 
 	return nil
 }
 
-func decodeAssign(raw json.RawMessage) (map[string]any, error) {
+func decodeAssign(raw jsontext.Value) (map[string]any, error) {
 	if len(raw) == 0 {
 		return nil, nil //nolint:nilnil // field absent
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+	if err := json.Unmarshal(raw, &m, jsonx.V1()); err != nil || m == nil {
 		return nil, fmt.Errorf("%w: Assign must be a JSON object", ErrParseError)
 	}
 
 	return m, nil
 }
 
-func assignNames(raw json.RawMessage, into map[string]struct{}) error {
+func assignNames(raw jsontext.Value, into map[string]struct{}) error {
 	m, err := decodeAssign(raw)
 	if err != nil {
 		return err
@@ -373,9 +376,9 @@ func rejectJSONPathFields(name string, st *State) error {
 	return nil
 }
 
-func decodeRaw(name, field string, raw json.RawMessage) (any, error) {
+func decodeRaw(name, field string, raw jsontext.Value) (any, error) {
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(raw, &v, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: state %q: invalid %s: %w", ErrParseError, name, field, err)
 	}
 
@@ -487,7 +490,7 @@ func (j *jxState) prepareFields(name string, st *State) error {
 		dst   *any
 		set   *bool
 		field string
-		raw   json.RawMessage
+		raw   jsontext.Value
 		ctx   exprCtx
 	}{
 		{&j.args, &j.hasArgs, "Arguments", st.Arguments, plain},
@@ -519,7 +522,7 @@ func (j *jxState) prepareFields(name string, st *State) error {
 	return j.prepareRest(name, st, exprCtx{result: hasResult})
 }
 
-func readerArguments(st *State) json.RawMessage {
+func readerArguments(st *State) jsontext.Value {
 	if st.ItemReader == nil {
 		return nil
 	}
@@ -527,7 +530,7 @@ func readerArguments(st *State) json.RawMessage {
 	return st.ItemReader.Arguments
 }
 
-func writerArguments(st *State) json.RawMessage {
+func writerArguments(st *State) jsontext.Value {
 	if st.ResultWriter == nil {
 		return nil
 	}
@@ -535,7 +538,7 @@ func writerArguments(st *State) json.RawMessage {
 	return st.ResultWriter.Arguments
 }
 
-func batchInputRaw(st *State) json.RawMessage {
+func batchInputRaw(st *State) jsontext.Value {
 	if st.ItemBatcher == nil {
 		return nil
 	}

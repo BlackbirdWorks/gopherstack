@@ -1,7 +1,7 @@
 package ocicontainerengine
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"slices"
 	"strings"
@@ -62,58 +62,58 @@ type VirtualNode struct {
 
 // VirtualNodePool is a stored virtual node pool.
 type VirtualNodePool struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeUpdated   *time.Time      `json:"timeUpdated,omitempty"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	PodConfig     *PodConfig      `json:"podConfiguration"`
-	NodeTags      *Tags           `json:"virtualNodeTags,omitempty"`
-	Cycling       json.RawMessage `json:"cycling,omitempty"`
-	Tags          Tags            `json:"tags"`
-	ID            string          `json:"id"`
-	ClusterID     string          `json:"clusterId"`
-	CompartmentID string          `json:"compartmentId"`
-	Name          string          `json:"name"`
-	Version       string          `json:"version"`
-	State         string          `json:"state"`
-	Etag          string          `json:"etag"`
-	Placements    []VPlacement    `json:"placementConfigurations"`
-	Labels        []KeyValue      `json:"initialVirtualNodeLabels,omitempty"`
-	Taints        []Taint         `json:"taints,omitempty"`
-	NsgIDs        []string        `json:"nsgIds,omitempty"`
-	Nodes         []*VirtualNode  `json:"nodes"`
-	Seq           int64           `json:"seq"`
-	Size          int             `json:"size"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeUpdated   *time.Time     `json:"timeUpdated,omitempty"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	PodConfig     *PodConfig     `json:"podConfiguration"`
+	NodeTags      *Tags          `json:"virtualNodeTags,omitempty"`
+	Cycling       jsontext.Value `json:"cycling,omitempty"`
+	Tags          Tags           `json:"tags"`
+	ID            string         `json:"id"`
+	ClusterID     string         `json:"clusterId"`
+	CompartmentID string         `json:"compartmentId"`
+	Name          string         `json:"name"`
+	Version       string         `json:"version"`
+	State         string         `json:"state"`
+	Etag          string         `json:"etag"`
+	Placements    []VPlacement   `json:"placementConfigurations"`
+	Labels        []KeyValue     `json:"initialVirtualNodeLabels,omitempty"`
+	Taints        []Taint        `json:"taints,omitempty"`
+	NsgIDs        []string       `json:"nsgIds,omitempty"`
+	Nodes         []*VirtualNode `json:"nodes"`
+	Seq           int64          `json:"seq"`
+	Size          int            `json:"size"`
 }
 
 // CreateVNPIn is the CreateVirtualNodePool request body.
 type CreateVNPIn struct {
 	Tags
-	Size        *int            `json:"size"`
-	PodConfig   *PodConfig      `json:"podConfiguration"`
-	NodeTags    *Tags           `json:"virtualNodeTags"`
-	Cycling     json.RawMessage `json:"virtualNodePoolCyclingDetails"`
-	RetryToken  string          `json:"-"`
-	Compartment string          `json:"compartmentId"`
-	ClusterID   string          `json:"clusterId"`
-	Name        string          `json:"displayName"`
-	Placements  []VPlacement    `json:"placementConfigurations"`
-	Labels      []KeyValue      `json:"initialVirtualNodeLabels"`
-	Taints      []Taint         `json:"taints"`
-	NsgIDs      []string        `json:"nsgIds"`
+	Size        *int           `json:"size"`
+	PodConfig   *PodConfig     `json:"podConfiguration"`
+	NodeTags    *Tags          `json:"virtualNodeTags"`
+	Cycling     jsontext.Value `json:"virtualNodePoolCyclingDetails"`
+	RetryToken  string         `json:"-"`
+	Compartment string         `json:"compartmentId"`
+	ClusterID   string         `json:"clusterId"`
+	Name        string         `json:"displayName"`
+	Placements  []VPlacement   `json:"placementConfigurations"`
+	Labels      []KeyValue     `json:"initialVirtualNodeLabels"`
+	Taints      []Taint        `json:"taints"`
+	NsgIDs      []string       `json:"nsgIds"`
 }
 
 // UpdateVNPIn is the UpdateVirtualNodePool request body.
 type UpdateVNPIn struct {
 	Tags
-	Name       *string         `json:"displayName"`
-	Size       *int            `json:"size"`
-	PodConfig  *PodConfig      `json:"podConfiguration"`
-	NodeTags   *Tags           `json:"virtualNodeTags"`
-	Cycling    json.RawMessage `json:"virtualNodePoolCyclingDetails"`
-	Placements []VPlacement    `json:"placementConfigurations"`
-	Labels     []KeyValue      `json:"initialVirtualNodeLabels"`
-	Taints     []Taint         `json:"taints"`
-	NsgIDs     []string        `json:"nsgIds"`
+	Name       *string        `json:"displayName"`
+	Size       *int           `json:"size"`
+	PodConfig  *PodConfig     `json:"podConfiguration"`
+	NodeTags   *Tags          `json:"virtualNodeTags"`
+	Cycling    jsontext.Value `json:"virtualNodePoolCyclingDetails"`
+	Placements []VPlacement   `json:"placementConfigurations"`
+	Labels     []KeyValue     `json:"initialVirtualNodeLabels"`
+	Taints     []Taint        `json:"taints"`
+	NsgIDs     []string       `json:"nsgIds"`
 }
 
 // VNPWire is the VirtualNodePool and VirtualNodePoolSummary body.
@@ -122,7 +122,7 @@ type VNPWire struct {
 	TimeUpdated    *time.Time                `json:"timeUpdated,omitempty"`
 	PodConfig      *PodConfig                `json:"podConfiguration,omitempty"`
 	NodeTags       *Tags                     `json:"virtualNodeTags,omitempty"`
-	Cycling        json.RawMessage           `json:"virtualNodePoolCyclingDetails,omitempty"`
+	Cycling        jsontext.Value            `json:"virtualNodePoolCyclingDetails,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	ID             string                    `json:"id"`

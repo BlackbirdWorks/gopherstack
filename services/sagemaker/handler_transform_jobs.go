@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -32,7 +33,7 @@ type createTransformJobRequest struct {
 func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createTransformJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -94,7 +95,7 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created transform job", "name", tj.TransformJobName)
 
-	return json.Marshal(map[string]string{"TransformJobArn": tj.TransformJobArn})
+	return json.Marshal(map[string]string{"TransformJobArn": tj.TransformJobArn}, jsonx.V1())
 }
 
 type describeTransformJobRequest struct {
@@ -104,7 +105,7 @@ type describeTransformJobRequest struct {
 func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTransformJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -156,7 +157,7 @@ func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) (
 		resp["ModelClientConfig"] = tj.ModelClientConfig
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type stopTransformJobRequest struct {
@@ -166,7 +167,7 @@ type stopTransformJobRequest struct {
 func (h *Handler) handleStopTransformJob(ctx context.Context, body []byte) error {
 	var req stopTransformJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -212,7 +213,7 @@ type listTransformJobsRequest struct {
 func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTransformJobsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -252,5 +253,5 @@ func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]b
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

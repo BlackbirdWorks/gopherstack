@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -104,7 +105,7 @@ func TestECS_ListServices(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				arns := resp["serviceArns"].([]any)
 				assert.Len(t, arns, tt.wantLen)
@@ -195,7 +196,7 @@ func TestDescribeServices_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		services, _ := resp["services"].([]any)
 		assert.Empty(t, services)
@@ -225,7 +226,7 @@ func TestDescribeServices_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		services, _ := resp["services"].([]any)
 		assert.Len(t, services, 1)
@@ -273,7 +274,7 @@ func TestDescribeServices_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		services, _ := resp["services"].([]any)
 		assert.Len(t, services, 2)
@@ -302,7 +303,7 @@ func TestHandler_CreateService_PropagateTags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	assert.Equal(t, "SERVICE", svc["propagateTags"])
 }
@@ -325,7 +326,7 @@ func TestHandler_CreateService_PropagateTags_DefaultNone(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	assert.Equal(t, "NONE", svc["propagateTags"])
 }
@@ -342,7 +343,7 @@ func TestCreateService_DeploymentsField_Populated(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	// Create cluster + service.
@@ -357,7 +358,7 @@ func TestCreateService_DeploymentsField_Populated(t *testing.T) {
 	require.Equal(t, http.StatusOK, svcRec.Code, svcRec.Body.String())
 
 	var svcOut map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut, jsonx.V1()))
 	svc := svcOut["service"].(map[string]any)
 
 	require.Contains(t, svc, "deployments", "service response must include deployments")
@@ -383,7 +384,7 @@ func TestUpdateService_DeploymentRotation_OnTaskDefChange(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec1.Code)
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(tdRec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(tdRec1.Body.Bytes(), &out1, jsonx.V1()))
 	tdArn1 := out1["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	tdRec2 := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
@@ -392,7 +393,7 @@ func TestUpdateService_DeploymentRotation_OnTaskDefChange(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec2.Code)
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(tdRec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(tdRec2.Body.Bytes(), &out2, jsonx.V1()))
 	tdArn2 := out2["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "staging"})
@@ -414,7 +415,7 @@ func TestUpdateService_DeploymentRotation_OnTaskDefChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
 
 	var updOut map[string]any
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updOut))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updOut, jsonx.V1()))
 	svc := updOut["service"].(map[string]any)
 
 	deployments := svc["deployments"].([]any)
@@ -442,7 +443,7 @@ func TestDescribeServices_DeploymentsField(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tdRec.Code)
 	var tdOut map[string]any
-	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut))
+	require.NoError(t, json.Unmarshal(tdRec.Body.Bytes(), &tdOut, jsonx.V1()))
 	tdArn := tdOut["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ds-cluster"})
@@ -461,7 +462,7 @@ func TestDescribeServices_DeploymentsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	services := descOut["services"].([]any)
 	require.Len(t, services, 1)
@@ -528,7 +529,7 @@ func TestECS_CreateService_Tags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	svc, ok := resp["service"].(map[string]any)
 	require.True(t, ok)
@@ -623,7 +624,7 @@ func TestDeploymentRolloutState_CompletedWhenDesiredMet(t *testing.T) {
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out, jsonx.V1()))
 
 	svcs, ok := out["services"].([]any)
 	require.True(t, ok)

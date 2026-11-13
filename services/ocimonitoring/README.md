@@ -7,15 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (8 ok, 3 partial) |
+| PARITY entries audited | 18 (14 ok, 4 partial) |
 | Feature families | 8 (6 ok, 2 partial) |
-| Known gaps | 7 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Alarm suppressions (CreateAlarmSuppression, GetAlarmSuppression, ListAlarmSuppressions, DeleteAlarmSuppression, RemoveAlarmSuppression, SummarizeAlarmSuppressionHistory) and RetrieveDimensionStates are not routed, so CreateAlarmSuppression's opc-retry-token is not applicable; only the suppression property on the alarm itself is honoured.
+- Alarm suppression limits are not enforced: the console documents start and end times within 90 days of now and dimension suppressions only for alarms with split messages (isNotificationsPerMetricDimensionEnabled); the API reference states neither (docs.oracle.com/en-us/iaas/Content/Monitoring/Tasks/create-alarm-suppression.htm). Dimensions on an ALARM-level suppression are stored and ignored, and the per-alarm suppression count limit is unknown.
+- Suppressions silence the notification of the covered metric streams (ALARM level or a dimension subset of the firing streams, and the clearing notice when every previously firing stream is covered); the alarm state, history and RetrieveDimensionStates still change. The recurrence start default (00:00:00 UTC) and a WEEKLY rule without BYDAY (weekday of timeSuppressFrom, per RFC 5545) follow the SDK comment and the RFC.
 - Alarm evaluation is per alarm, not per metric stream: isNotificationsPerMetricDimensionEnabled is stored but notifications are always grouped, and alarm overrides, ruleName rules and evaluationSlackDuration are stored but not evaluated.
 - MQL lacks grouping(), joins, arithmetic and nested queries; see families.mql. Metrics emitted by other OCI services (oci_computeagent and so on) do not exist, only posted custom metrics.
 - The notification JSON layout follows the documented alarm message format only approximately; the SDK does not document its fields.

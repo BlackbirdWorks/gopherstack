@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -32,7 +33,7 @@ func TestUserImportJob_CRUD(t *testing.T) {
 			Status  string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobID := createResp.UserImportJob.JobID
 	require.NotEmpty(t, jobID)
 	assert.Equal(t, "my-import", createResp.UserImportJob.JobName)
@@ -55,7 +56,7 @@ func TestUserImportJob_CRUD(t *testing.T) {
 			JobID string `json:"JobId,omitempty"`
 		} `json:"UserImportJobs"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.UserImportJobs, 1)
 
 	// GetCSVHeader
@@ -73,7 +74,7 @@ func TestUserImportJob_CRUD(t *testing.T) {
 			Status string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.Equal(t, "InProgress", startResp.UserImportJob.Status)
 
 	// Stop
@@ -87,7 +88,7 @@ func TestUserImportJob_CRUD(t *testing.T) {
 			Status string `json:"Status,omitempty"`
 		} `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.Equal(t, "Stopped", stopResp.UserImportJob.Status)
 
 	// Start again on stopped job — error
@@ -125,7 +126,7 @@ func TestUserImportJob_SelfCompletesToSucceeded(t *testing.T) {
 			JobID string `json:"JobId,omitempty"`
 		} `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobID := createResp.UserImportJob.JobID
 	require.NotEmpty(t, jobID)
 
@@ -153,7 +154,7 @@ func TestUserImportJob_SelfCompletesToSucceeded(t *testing.T) {
 				Status string `json:"Status,omitempty"`
 			} `json:"UserImportJob"`
 		}
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 
 		return desc.UserImportJob.Status == "Succeeded"
 	}, 2*time.Second, 10*time.Millisecond,
@@ -193,7 +194,7 @@ func TestUserImportJob_EchoesCloudWatchLogsRoleArnAndPasswordHashingAlgorithm(t 
 	var createResp struct {
 		UserImportJob userImportJobWire `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	assert.Equal(t,
 		"arn:aws:iam::000000000000:role/CognitoImportRole", createResp.UserImportJob.CloudWatchLogsRoleArn,
@@ -213,7 +214,7 @@ func TestUserImportJob_EchoesCloudWatchLogsRoleArnAndPasswordHashingAlgorithm(t 
 	var startResp struct {
 		UserImportJob userImportJobWire `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.NotZero(t, startResp.UserImportJob.StartDate)
 	assert.Zero(t, startResp.UserImportJob.CompletionDate)
 
@@ -223,7 +224,7 @@ func TestUserImportJob_EchoesCloudWatchLogsRoleArnAndPasswordHashingAlgorithm(t 
 	var stopResp struct {
 		UserImportJob userImportJobWire `json:"UserImportJob"`
 	}
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.NotZero(t, stopResp.UserImportJob.CompletionDate)
 }
 
@@ -257,7 +258,7 @@ func TestListUserImportJobs_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body)
 
 	var page1 listOut
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.UserImportJobs, 2)
 	require.NotEmpty(t, page1.PaginationToken, "first page must return a cursor when more import jobs remain")
 
@@ -269,7 +270,7 @@ func TestListUserImportJobs_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body)
 
 	var page2 listOut
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.UserImportJobs, 1)
 	require.Empty(t, page2.PaginationToken)
 

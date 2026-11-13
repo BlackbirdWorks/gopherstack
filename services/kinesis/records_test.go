@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -73,7 +74,7 @@ func TestPutRecord_ByARN(t *testing.T) {
 				ShardID        string `json:"ShardId"`
 				SequenceNumber string `json:"SequenceNumber"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.ShardID)
 			assert.NotEmpty(t, resp.SequenceNumber)
 		})
@@ -133,7 +134,7 @@ func TestPutRecords_ByARN(t *testing.T) {
 				} `json:"Records"`
 				FailedRecordCount int `json:"FailedRecordCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, 0, resp.FailedRecordCount)
 			assert.Len(t, resp.Records, 2)
 		})
@@ -257,7 +258,7 @@ func TestPutRecordsNotFound(t *testing.T) {
 	var resp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
@@ -288,7 +289,7 @@ func TestMultipleShardRouting(t *testing.T) {
 			var putResp struct {
 				ShardID string `json:"ShardId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			shardIDs[putResp.ShardID] = true
 		}
 
@@ -343,7 +344,7 @@ func TestPutRecords_OversizeRecordReturnsValidationException(t *testing.T) {
 			} `json:"Records"`
 			FailedRecordCount int `json:"FailedRecordCount"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		assert.Equal(t, 1, resp.FailedRecordCount)
 		require.Len(t, resp.Records, 2)
@@ -386,7 +387,7 @@ func TestPutRecords_ThrottledRecordReturnsProvisionedThroughputException(t *test
 		} `json:"Records"`
 		FailedRecordCount int `json:"FailedRecordCount"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, 1, resp.FailedRecordCount)
 	assert.Equal(t, "ProvisionedThroughputExceededException", resp.Records[0].ErrorCode)
@@ -422,7 +423,7 @@ func TestPutRecords_AllValidRecordsSucceed(t *testing.T) {
 			} `json:"Records"`
 			FailedRecordCount int `json:"FailedRecordCount"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, 0, resp.FailedRecordCount)
 		for _, r := range resp.Records {
 			assert.Empty(t, r.ErrorCode)

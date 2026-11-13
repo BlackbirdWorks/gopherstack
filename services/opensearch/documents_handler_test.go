@@ -1,7 +1,7 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -23,7 +24,7 @@ func decodeBody(t *testing.T, resp *http.Response) map[string]any {
 
 	var out map[string]any
 	if len(raw) > 0 {
-		require.NoError(t, json.Unmarshal(raw, &out))
+		require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 	}
 
 	return out

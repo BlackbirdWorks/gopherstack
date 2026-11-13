@@ -1,12 +1,14 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCollaborationWireShape verifies a Collaboration response uses only the
@@ -27,7 +29,7 @@ func TestCollaborationWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collab := resp["collaboration"].(map[string]any)
 
 	id, hasID := collab["id"]
@@ -58,7 +60,7 @@ func TestCollaborationARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collab := resp["collaboration"].(map[string]any)
 
 	arn, ok := collab["arn"].(string)
@@ -80,7 +82,7 @@ func TestCollaborationQueryLogStatusRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collab := resp["collaboration"].(map[string]any)
 	assert.Equal(t, "ENABLED", collab["queryLogStatus"])
 }
@@ -101,12 +103,12 @@ func TestCollaborationCreatorMemberAbilities(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collabID := resp["collaboration"].(map[string]any)["id"].(string)
 	listRec := doRequest(t, e, "GET", "/collaborations/"+collabID+"/members", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	members, ok := listResp["memberSummaries"].([]any)
 	require.True(t, ok, "ListMembers must return memberSummaries")
 	require.Len(t, members, 1)
@@ -137,7 +139,7 @@ func TestDeleteMember_MarksRemoved(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collabID := resp["collaboration"].(map[string]any)["id"].(string)
 
 	del := doRequest(t, e, "DELETE", "/collaborations/"+collabID+"/member/222222222222", nil)
@@ -146,7 +148,7 @@ func TestDeleteMember_MarksRemoved(t *testing.T) {
 	listRec := doRequest(t, e, "GET", "/collaborations/"+collabID+"/members", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	members := listResp["memberSummaries"].([]any)
 	require.Len(t, members, 2, "removed member must still appear in the member list")
 
@@ -178,7 +180,7 @@ func TestDeleteCollaboration_CascadesMembershipToCollaborationDeleted(t *testing
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collab := resp["collaboration"].(map[string]any)
 	collabID := collab["id"].(string)
 	membershipID := collab["membershipId"].(string)
@@ -189,7 +191,7 @@ func TestDeleteCollaboration_CascadesMembershipToCollaborationDeleted(t *testing
 	getRec := doRequest(t, e, "GET", "/memberships/"+membershipID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code, "membership must still be retrievable after collaboration delete")
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &memResp, jsonx.V1()))
 	assert.Equal(t, "COLLABORATION_DELETED", memResp["membership"].(map[string]any)["status"])
 }
 
@@ -210,7 +212,7 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	collabID := resp["collaboration"].(map[string]any)["id"].(string)
 
 	createRec := doRequest(t, e, "POST", "/collaborations/"+collabID+"/changeRequests", map[string]any{
@@ -227,7 +229,7 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	cr := createResp["collaborationChangeRequest"].(map[string]any)
 	assert.Equal(t, "PENDING", cr["status"])
 	assert.NotEmpty(t, cr["changes"])
@@ -239,7 +241,7 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, approveRec.Code, approveRec.Body.String())
 	var approveResp map[string]any
-	require.NoError(t, json.Unmarshal(approveRec.Body.Bytes(), &approveResp))
+	require.NoError(t, json.Unmarshal(approveRec.Body.Bytes(), &approveResp, jsonx.V1()))
 	assert.Equal(t, "APPROVED", approveResp["collaborationChangeRequest"].(map[string]any)["status"])
 
 	commitRec := doRequest(
@@ -248,7 +250,7 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, commitRec.Code, commitRec.Body.String())
 	var commitResp map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp, jsonx.V1()))
 	assert.Equal(t, "COMMITTED", commitResp["collaborationChangeRequest"].(map[string]any)["status"])
 
 	// COMMIT applies the change's real semantic effect: the ADD_MEMBER change
@@ -256,7 +258,7 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	getRec := doRequest(t, e, "GET", "/collaborations/"+collabID+"/members", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	members, _ := getResp["memberSummaries"].([]any)
 	var found bool
 	for _, m := range members {

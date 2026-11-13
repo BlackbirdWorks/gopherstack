@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleCreateUserProfile handles CreateUserProfile requests.
@@ -15,7 +17,7 @@ func (h *Handler) handleCreateUserProfile(_ context.Context, body []byte) (any, 
 		AllowSelfManagement bool   `json:"AllowSelfManagement"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -38,7 +40,7 @@ func (h *Handler) handleDeleteUserProfile(_ context.Context, body []byte) (any, 
 		IamUserArn string `json:"IamUserArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -56,7 +58,7 @@ func (h *Handler) handleDescribeUserProfiles(_ context.Context, body []byte) (an
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -77,7 +79,7 @@ func (h *Handler) handleUpdateUserProfile(_ context.Context, body []byte) (any, 
 		SSHPublicKey string `json:"SshPublicKey"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -112,7 +114,7 @@ func (h *Handler) handleUpdateMyUserProfile(_ context.Context, body []byte) (any
 		SSHPublicKey string `json:"SshPublicKey"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -152,7 +154,7 @@ func (h *Handler) handleSetPermission(_ context.Context, body []byte) (any, erro
 		AllowSudo  bool   `json:"AllowSudo"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -171,7 +173,7 @@ func (h *Handler) handleDescribePermissions(_ context.Context, body []byte) (any
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -206,7 +208,7 @@ func (h *Handler) handleGrantAccess(_ context.Context, body []byte) (any, error)
 		ValidForInMinutes int32  `json:"ValidForInMinutes"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

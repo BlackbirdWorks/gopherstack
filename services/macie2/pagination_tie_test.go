@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -54,7 +55,7 @@ func TestDescribeBuckets_TiedObjectCount_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			buckets, _ := resp["buckets"].([]any)
 			for _, item := range buckets {
@@ -105,7 +106,7 @@ func TestListClassificationJobs_TiedName_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			created[resp["jobId"]] = true
 		}
 
@@ -120,7 +121,7 @@ func TestListClassificationJobs_TiedName_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["items"].([]any)
 			for _, item := range items {
@@ -168,7 +169,7 @@ func TestListCustomDataIdentifiers_TiedName_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			created[resp["customDataIdentifierId"]] = true
 		}
 
@@ -180,7 +181,7 @@ func TestListCustomDataIdentifiers_TiedName_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["items"].([]any)
 			for _, item := range items {
@@ -228,7 +229,7 @@ func TestListAllowLists_TiedName_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			created[resp["id"]] = true
 		}
 
@@ -240,7 +241,7 @@ func TestListAllowLists_TiedName_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["allowLists"].([]any)
 			for _, item := range items {
@@ -286,7 +287,7 @@ func TestListFindingsFilters_TiedPosition_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			created[resp["id"]] = true
 		}
 
@@ -298,7 +299,7 @@ func TestListFindingsFilters_TiedPosition_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["findingsFilterListItems"].([]any)
 			for _, item := range items {
@@ -348,7 +349,7 @@ func TestListFindings_TiedType_NoDropOrDupAcrossPages(t *testing.T) {
 		require.Equal(t, http.StatusOK, truthRec.Code)
 
 		var truthResp map[string]any
-		require.NoError(t, json.Unmarshal(truthRec.Body.Bytes(), &truthResp))
+		require.NoError(t, json.Unmarshal(truthRec.Body.Bytes(), &truthResp, jsonx.V1()))
 
 		truthIDs, _ := truthResp["findingIds"].([]any)
 		require.Len(t, truthIDs, dupCount)
@@ -369,7 +370,7 @@ func TestListFindings_TiedType_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			ids, _ := resp["findingIds"].([]any)
 			for _, id := range ids {

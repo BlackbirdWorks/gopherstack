@@ -1,12 +1,14 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errPatch = errors.New("invalid JSON patch")
@@ -179,13 +181,13 @@ func storedDoc(cfg *SecurityConfig, kind securityKind, name string) (map[string]
 		v = t
 	}
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, false
 	}
 
 	var out map[string]any
-	if json.Unmarshal(raw, &out) != nil {
+	if json.Unmarshal(raw, &out, jsonx.V1()) != nil {
 		return nil, false
 	}
 
@@ -197,7 +199,7 @@ func storedDoc(cfg *SecurityConfig, kind securityKind, name string) (map[string]
 }
 
 func docToBody(doc map[string]any) []byte {
-	b, _ := json.Marshal(doc)
+	b, _ := json.Marshal(doc, jsonx.V1())
 
 	return b
 }
@@ -256,7 +258,11 @@ func patchCollection(cfg *SecurityConfig, kind securityKind, ops []patchOp) *sec
 
 	var working any
 
-	if raw, merr := json.Marshal(collection); merr != nil || json.Unmarshal(raw, &working) != nil {
+	if raw, merr := json.Marshal(
+		collection,
+		jsonx.V1(),
+	); merr != nil ||
+		json.Unmarshal(raw, &working, jsonx.V1()) != nil {
 		return secBadRequest("Could not read the current resources.")
 	}
 
@@ -317,8 +323,8 @@ func upsertChanged(cfg *SecurityConfig, kind securityKind, before, after map[str
 }
 
 func jsonEqual(a, b any) bool {
-	x, _ := json.Marshal(a)
-	y, _ := json.Marshal(b)
+	x, _ := json.Marshal(a, jsonx.V1())
+	y, _ := json.Marshal(b, jsonx.V1())
 
 	return string(x) == string(y)
 }

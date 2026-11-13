@@ -2,10 +2,12 @@ package ocilogging
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -30,7 +32,7 @@ type CreateAgentConfigIn struct {
 	GroupAssoc    *groupAssociationWire `json:"groupAssociation"`
 	Name          string                `json:"displayName"`
 	Compartment   string                `json:"compartmentId"`
-	ServiceConfig json.RawMessage       `json:"serviceConfiguration"`
+	ServiceConfig jsontext.Value        `json:"serviceConfiguration"`
 }
 
 // UpdateAgentConfigIn is the UpdateUnifiedAgentConfiguration request body.
@@ -40,7 +42,7 @@ type UpdateAgentConfigIn struct {
 	Description   *string               `json:"description"`
 	Name          *string               `json:"displayName"`
 	GroupAssoc    *groupAssociationWire `json:"groupAssociation"`
-	ServiceConfig json.RawMessage       `json:"serviceConfiguration"`
+	ServiceConfig jsontext.Value        `json:"serviceConfiguration"`
 }
 
 // AgentConfigWire is the GetUnifiedAgentConfiguration response.
@@ -56,7 +58,7 @@ type AgentConfigWire struct {
 	LifecycleState     string                    `json:"lifecycleState"`
 	ConfigurationState string                    `json:"configurationState"`
 	GroupAssociation   groupAssociationWire      `json:"groupAssociation"`
-	ServiceConfig      json.RawMessage           `json:"serviceConfiguration"`
+	ServiceConfig      jsontext.Value            `json:"serviceConfiguration"`
 	Enabled            bool                      `json:"isEnabled"`
 }
 
@@ -90,7 +92,7 @@ func agentView(a *AgentConfig) AgentConfigWire {
 }
 
 // validateServiceConfig checks the polymorphic serviceConfiguration and returns its configurationType.
-func (b *InMemoryBackend) validateServiceConfig(raw json.RawMessage) (string, *APIError) {
+func (b *InMemoryBackend) validateServiceConfig(raw jsontext.Value) (string, *APIError) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return "", errMissing("serviceConfiguration is required")
 	}
@@ -106,7 +108,7 @@ func (b *InMemoryBackend) validateServiceConfig(raw json.RawMessage) (string, *A
 		} `json:"sources"`
 	}
 
-	if err := json.Unmarshal(raw, &c); err != nil {
+	if err := json.Unmarshal(raw, &c, jsonx.V1()); err != nil {
 		return "", errParam("serviceConfiguration is not a valid configuration object")
 	}
 

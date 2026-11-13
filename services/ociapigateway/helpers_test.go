@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -19,6 +19,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
@@ -199,7 +200,7 @@ func specFromJSON(t *testing.T, s string) *apigateway.ApiSpecification {
 	t.Helper()
 
 	var spec apigateway.ApiSpecification
-	require.NoError(t, json.Unmarshal([]byte(s), &spec))
+	require.NoError(t, json.Unmarshal([]byte(s), &spec, jsonx.V1()))
 
 	return &spec
 }

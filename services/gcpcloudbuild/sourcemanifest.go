@@ -2,7 +2,7 @@ package gcpcloudbuild
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -117,7 +119,7 @@ func (r *runner) fetchManifest(ctx context.Context, m *cloudbuildpb.StorageSourc
 	}
 
 	var entries map[string]manifestEntry
-	if err = json.Unmarshal(raw, &entries); err != nil {
+	if err = json.Unmarshal(raw, &entries, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errManifest, err)
 	}
 

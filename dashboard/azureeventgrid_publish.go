@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	eventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -47,7 +48,7 @@ func (e eventGridTestEvent) validate(needTopic bool) string {
 
 func (e eventGridTestEvent) dataValue() any {
 	var v any
-	if json.Unmarshal([]byte(e.Data), &v) == nil && e.Data != "" {
+	if json.Unmarshal([]byte(e.Data), &v, jsonx.V1()) == nil && e.Data != "" {
 		return v
 	}
 
@@ -105,7 +106,7 @@ func (e eventGridTestEvent) build(schema, domainTopic string, now time.Time) []b
 		}
 	}
 
-	raw, _ := json.Marshal(ev)
+	raw, _ := json.Marshal(ev, jsonx.V1())
 
 	return raw
 }

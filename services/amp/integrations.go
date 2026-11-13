@@ -2,7 +2,7 @@ package amp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"regexp"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
@@ -177,7 +178,7 @@ func (b *InMemoryBackend) flushLogs(ctx context.Context) {
 		}
 		maps.Copy(line, ev.fields)
 
-		raw, _ := json.Marshal(line)
+		raw, _ := json.Marshal(line, jsonx.V1())
 
 		if err := sink.PutLogLine(ctx, ref.region, ref.group, ev.stream, string(raw), ev.at); err != nil {
 			logger.Load(ctx).WarnContext(ctx, "amp: log delivery failed", "logGroup", ref.group, "error", err)

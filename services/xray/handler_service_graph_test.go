@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestGetServiceGraph_NonEmpty(t *testing.T) {
@@ -33,7 +35,7 @@ func TestGetServiceGraph_NonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -63,7 +65,7 @@ func TestGetTimeSeriesServiceStatistics_BucketedData(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stats, ok := resp["TimeSeriesServiceStatistics"].([]any)
 	require.True(t, ok)
@@ -99,7 +101,7 @@ func TestGetTraceGraph_ReturnsNodes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -117,7 +119,7 @@ func TestGetTraceGraph_EmptyForUnknownTraces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -177,7 +179,7 @@ func TestGetServiceGraph_ContainsOldGroupVersions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["ContainsOldGroupVersions"]
 	assert.True(t, ok, "ContainsOldGroupVersions must be present in GetServiceGraph response")
@@ -231,7 +233,7 @@ func TestHandler_GetServiceGraph_Pagination(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "NextToken")
 				assert.Contains(t, resp, "Services")
 				assert.Contains(t, resp, "StartTime")
@@ -279,7 +281,7 @@ func TestHandler_GetTraceGraph_Pagination(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "NextToken")
 				assert.Contains(t, resp, "Services")
 			}
@@ -339,7 +341,7 @@ func TestHandler_GetTimeSeriesServiceStatistics_Pagination(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "NextToken")
 				assert.Contains(t, resp, "TimeSeriesServiceStatistics")
 			}
@@ -369,7 +371,7 @@ func TestGetServiceGraph_NodesAfterSegments(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -394,7 +396,7 @@ func TestGetServiceGraph_NodeFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, _ := resp["Services"].([]any)
 	require.NotEmpty(t, services)
@@ -459,7 +461,7 @@ func TestGetServiceGraph_EmptyOutsideTimeWindow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, _ := resp["Services"].([]any)
 	assert.Empty(t, services, "service graph must be empty when no segments fall in the time window")
@@ -510,7 +512,7 @@ func TestGetTimeSeriesServiceStatistics_ReturnsContainsOldGroupVersions(t *testi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["ContainsOldGroupVersions"]
 	assert.True(t, ok, "ContainsOldGroupVersions must be present in response")
@@ -542,7 +544,7 @@ func TestGetTimeSeriesServiceStatistics_BucketedStatsAfterSegments(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stats, ok := resp["TimeSeriesServiceStatistics"].([]any)
 	require.True(t, ok)
@@ -575,7 +577,7 @@ func TestGetTraceGraph_ReturnsNodesForTraceIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -601,7 +603,7 @@ func TestGetTraceGraph_EmptyForUnknownTrace(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, _ := resp["Services"].([]any)
 	assert.Empty(t, services)
@@ -634,7 +636,7 @@ func TestGetServiceGraph_EdgeStatisticsAndDirection(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)

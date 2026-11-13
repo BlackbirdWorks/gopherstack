@@ -1,7 +1,7 @@
 package route53resolver_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -23,7 +24,7 @@ func TestResolverQueryLogConfigAssociation_Fields(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	cfgID := createResp["ResolverQueryLogConfig"].(map[string]any)["Id"].(string)
 
 	assocRec := doRequest(t, h, "AssociateResolverQueryLogConfig", map[string]any{
@@ -33,7 +34,7 @@ func TestResolverQueryLogConfigAssociation_Fields(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	assoc := assocResp["ResolverQueryLogConfigAssociation"].(map[string]any)
 
 	assert.NotEmpty(t, assoc["Id"])
@@ -163,7 +164,7 @@ func TestAssociateResolverQueryLogConfig(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ResolverQueryLogConfig"].(map[string]any)["Id"].(string)
 			},
@@ -214,7 +215,7 @@ func TestAssociateResolverQueryLogConfig(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assoc, ok := resp["ResolverQueryLogConfigAssociation"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantStatus, assoc["Status"])
@@ -286,7 +287,7 @@ func TestListResolverQueryLogConfigAssociations_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, cfgRec.Code)
 	var cfgOut map[string]any
-	require.NoError(t, json.Unmarshal(cfgRec.Body.Bytes(), &cfgOut))
+	require.NoError(t, json.Unmarshal(cfgRec.Body.Bytes(), &cfgOut, jsonx.V1()))
 	cfgID := cfgOut["ResolverQueryLogConfig"].(map[string]any)["Id"].(string)
 
 	for i := range 3 {
@@ -323,7 +324,7 @@ func TestListResolverQueryLogConfigAssociations_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListResolverQueryLogConfigAssociations", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			assocs, _ := out["ResolverQueryLogConfigAssociations"].([]any)
 			assert.Len(t, assocs, tt.wantLen)
 			if tt.wantNextToken {
@@ -348,7 +349,7 @@ func TestListResolverQueryLogConfigAssociations_Filters(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			return out["ResolverQueryLogConfig"].(map[string]any)["Id"].(string)
 		}
@@ -413,7 +414,7 @@ func TestListResolverQueryLogConfigAssociations_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assocs, _ := resp["ResolverQueryLogConfigAssociations"].([]any)
 			gotResIDs := make([]string, len(assocs))
 			for i, a := range assocs {
@@ -567,6 +568,6 @@ func TestListResolverQueryLogConfigAssociations_UnknownFilterNameRejected(t *tes
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }

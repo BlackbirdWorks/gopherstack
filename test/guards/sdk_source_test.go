@@ -2,7 +2,8 @@ package guards_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -80,16 +83,16 @@ func downloadSDKDirs(mods []sdkModule) (map[string]string, error) {
 	out, runErr := cmd.Output()
 
 	dirs := map[string]string{}
-	dec := json.NewDecoder(bytes.NewReader(out))
+	dec := jsontext.NewDecoder(bytes.NewReader(out))
 
-	for dec.More() {
+	for dec.PeekKind() != 0 {
 		var r struct {
 			Path    string `json:"Path"`
 			Version string `json:"Version"`
 			Dir     string `json:"Dir"`
 			Error   string `json:"Error"`
 		}
-		if err := dec.Decode(&r); err != nil {
+		if err := json.UnmarshalDecode(dec, &r, jsonx.V1()); err != nil {
 			return nil, err
 		}
 

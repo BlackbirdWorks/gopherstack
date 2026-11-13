@@ -1,7 +1,8 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -42,7 +44,7 @@ func TestGetCostCategoriesFilterAndSortNarrow(t *testing.T) {
 	var unfiltered struct {
 		CostCategoryValues []string `json:"CostCategoryValues"`
 	}
-	require.NoError(t, json.NewDecoder(unfilteredRec.Body).Decode(&unfiltered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(unfilteredRec.Body), &unfiltered, jsonx.V1()))
 	require.Equal(t, []string{"Alpha", "Bravo", "Charlie"}, unfiltered.CostCategoryValues)
 
 	filteredBody := map[string]any{
@@ -63,7 +65,7 @@ func TestGetCostCategoriesFilterAndSortNarrow(t *testing.T) {
 		ReturnSize         int      `json:"ReturnSize"`
 		TotalSize          int      `json:"TotalSize"`
 	}
-	require.NoError(t, json.NewDecoder(filteredRec.Body).Decode(&filtered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(filteredRec.Body), &filtered, jsonx.V1()))
 	assert.Equal(t, []string{"Alpha", "Charlie"}, filtered.CostCategoryValues)
 	assert.Equal(t, 2, filtered.ReturnSize)
 	assert.Equal(t, 2, filtered.TotalSize)
@@ -79,7 +81,7 @@ func TestGetCostCategoriesFilterAndSortNarrow(t *testing.T) {
 	var sorted struct {
 		CostCategoryValues []string `json:"CostCategoryValues"`
 	}
-	require.NoError(t, json.NewDecoder(sortedRec.Body).Decode(&sorted))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(sortedRec.Body), &sorted, jsonx.V1()))
 	assert.Equal(t, []string{"Charlie", "Bravo", "Alpha"}, sorted.CostCategoryValues)
 }
 
@@ -102,7 +104,7 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"DimensionValues"`
 	}
-	require.NoError(t, json.NewDecoder(unfilteredRec.Body).Decode(&unfiltered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(unfilteredRec.Body), &unfiltered, jsonx.V1()))
 	require.Len(t, unfiltered.DimensionValues, 12, "synthetic catalog has 12 services")
 
 	// AWS Lambda is the only service seeded with usage type Lambda-GB-Second,
@@ -125,7 +127,7 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 		} `json:"DimensionValues"`
 		ReturnSize int `json:"ReturnSize"`
 	}
-	require.NoError(t, json.NewDecoder(filteredRec.Body).Decode(&filtered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(filteredRec.Body), &filtered, jsonx.V1()))
 	require.Len(t, filtered.DimensionValues, 1)
 	assert.Equal(t, "AWS Lambda", filtered.DimensionValues[0].Value)
 	assert.Equal(t, 1, filtered.ReturnSize)
@@ -144,7 +146,7 @@ func TestGetDimensionValuesFilterAndSortNarrow(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"DimensionValues"`
 	}
-	require.NoError(t, json.NewDecoder(sortedRec.Body).Decode(&sorted))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(sortedRec.Body), &sorted, jsonx.V1()))
 	require.NotEmpty(t, sorted.DimensionValues)
 	assert.Equal(t, "Amazon Elastic Compute Cloud - Compute", sorted.DimensionValues[0].Value)
 }
@@ -174,7 +176,7 @@ func TestGetTagsFilterAndSortAccepted(t *testing.T) {
 	var out struct {
 		Tags []string `json:"Tags"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Empty(t, out.Tags, "no ledger entry is ever tagged in this emulator")
 }
 
@@ -198,7 +200,7 @@ func TestGetSavingsPlansCoverageRegionFilterNarrows(t *testing.T) {
 	var matched struct {
 		SavingsPlansCoverages []any `json:"SavingsPlansCoverages"`
 	}
-	require.NoError(t, json.NewDecoder(matchRec.Body).Decode(&matched))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(matchRec.Body), &matched, jsonx.V1()))
 	assert.Len(t, matched.SavingsPlansCoverages, 1)
 
 	missRec := doRequest(t, h, "GetSavingsPlansCoverage", map[string]any{
@@ -212,7 +214,7 @@ func TestGetSavingsPlansCoverageRegionFilterNarrows(t *testing.T) {
 	var missed struct {
 		SavingsPlansCoverages []any `json:"SavingsPlansCoverages"`
 	}
-	require.NoError(t, json.NewDecoder(missRec.Body).Decode(&missed))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(missRec.Body), &missed, jsonx.V1()))
 	assert.Empty(t, missed.SavingsPlansCoverages)
 }
 
@@ -232,7 +234,7 @@ func TestGetSavingsPlansPurchaseRecommendationAccountFilterNarrows(t *testing.T)
 	require.Equal(t, http.StatusOK, matchRec.Code)
 
 	var matched map[string]any
-	require.NoError(t, json.NewDecoder(matchRec.Body).Decode(&matched))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(matchRec.Body), &matched, jsonx.V1()))
 	assert.NotNil(t, matched["SavingsPlansPurchaseRecommendation"])
 
 	missRec := doRequest(t, h, "GetSavingsPlansPurchaseRecommendation", map[string]any{
@@ -243,7 +245,7 @@ func TestGetSavingsPlansPurchaseRecommendationAccountFilterNarrows(t *testing.T)
 	require.Equal(t, http.StatusOK, missRec.Code)
 
 	var missed map[string]any
-	require.NoError(t, json.NewDecoder(missRec.Body).Decode(&missed))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(missRec.Body), &missed, jsonx.V1()))
 	assert.Nil(t, missed["SavingsPlansPurchaseRecommendation"])
 }
 
@@ -266,7 +268,7 @@ func TestGetReservationPurchaseRecommendationAccountFilterNarrows(t *testing.T) 
 	var matched struct {
 		Recommendations []any `json:"Recommendations"`
 	}
-	require.NoError(t, json.NewDecoder(matchRec.Body).Decode(&matched))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(matchRec.Body), &matched, jsonx.V1()))
 	assert.NotEmpty(t, matched.Recommendations)
 
 	missRec := doRequest(t, h, "GetReservationPurchaseRecommendation", map[string]any{
@@ -280,7 +282,7 @@ func TestGetReservationPurchaseRecommendationAccountFilterNarrows(t *testing.T) 
 	var missed struct {
 		Recommendations []any `json:"Recommendations"`
 	}
-	require.NoError(t, json.NewDecoder(missRec.Body).Decode(&missed))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(missRec.Body), &missed, jsonx.V1()))
 	assert.Empty(t, missed.Recommendations)
 }
 
@@ -304,7 +306,7 @@ func TestGetReservationCoverageSortByTimeReorders(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"CoveragesByTime"`
 	}
-	require.NoError(t, json.NewDecoder(ascRec.Body).Decode(&asc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ascRec.Body), &asc, jsonx.V1()))
 	require.Len(t, asc.CoveragesByTime, 3)
 	assert.Equal(t, "2024-01-01", asc.CoveragesByTime[0].TimePeriod["Start"])
 	assert.Equal(t, "2024-01-03", asc.CoveragesByTime[2].TimePeriod["Start"])
@@ -322,7 +324,7 @@ func TestGetReservationCoverageSortByTimeReorders(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"CoveragesByTime"`
 	}
-	require.NoError(t, json.NewDecoder(descRec.Body).Decode(&desc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descRec.Body), &desc, jsonx.V1()))
 	require.Len(t, desc.CoveragesByTime, 3)
 	assert.Equal(t, "2024-01-03", desc.CoveragesByTime[0].TimePeriod["Start"])
 	assert.Equal(t, "2024-01-01", desc.CoveragesByTime[2].TimePeriod["Start"])
@@ -353,7 +355,7 @@ func TestGetReservationCoverageServiceFilterZeroesCost(t *testing.T) {
 			} `json:"CoverageCost"`
 		} `json:"Total"`
 	}
-	require.NoError(t, json.NewDecoder(unfilteredRec.Body).Decode(&unfiltered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(unfilteredRec.Body), &unfiltered, jsonx.V1()))
 	require.NotEqual(t, "0.0000", unfiltered.Total.CoverageCost.OnDemandCost)
 
 	filteredRec := doRequest(t, h, "GetReservationCoverage", map[string]any{
@@ -372,7 +374,7 @@ func TestGetReservationCoverageServiceFilterZeroesCost(t *testing.T) {
 			} `json:"CoverageCost"`
 		} `json:"Total"`
 	}
-	require.NoError(t, json.NewDecoder(filteredRec.Body).Decode(&filtered))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(filteredRec.Body), &filtered, jsonx.V1()))
 	assert.Equal(t, "0.0000", filtered.Total.CoverageCost.OnDemandCost)
 }
 
@@ -396,7 +398,7 @@ func TestGetReservationUtilizationSortByTimeReorders(t *testing.T) {
 			TimePeriod map[string]string `json:"TimePeriod"`
 		} `json:"UtilizationsByTime"`
 	}
-	require.NoError(t, json.NewDecoder(descRec.Body).Decode(&desc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(descRec.Body), &desc, jsonx.V1()))
 	require.Len(t, desc.UtilizationsByTime, 3)
 	assert.Equal(t, "2024-01-03", desc.UtilizationsByTime[0].TimePeriod["Start"])
 	assert.Equal(t, "2024-01-01", desc.UtilizationsByTime[2].TimePeriod["Start"])
@@ -424,6 +426,6 @@ func TestGetCostComparisonDriversFilterAccepted(t *testing.T) {
 	var out struct {
 		CostComparisonDrivers []any `json:"CostComparisonDrivers"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Empty(t, out.CostComparisonDrivers)
 }

@@ -1,13 +1,15 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PutScheduledAction(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_PutScheduledAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ScheduledActionARN"], "arn:aws:autoscaling:")
 	assert.Contains(t, resp["ScheduledActionARN"], "scheduledAction:")
 }
@@ -54,7 +56,7 @@ func TestHandler_PutScheduledAction_Upsert(t *testing.T) {
 	descRec := doRequest(t, h, "DescribeScheduledActions", map[string]any{"ServiceNamespace": "ecs"})
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	actions := descResp["ScheduledActions"].([]any)
 	assert.Len(t, actions, 1)
 }
@@ -141,7 +143,7 @@ func TestHandler_PutScheduledAction_WithScalableTargetAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	actions, ok := resp["ScheduledActions"].([]any)
 	require.True(t, ok)
 	require.Len(t, actions, 1)
@@ -176,7 +178,7 @@ func TestHandler_PutScheduledAction_StartEndTimeTimezone(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	actions, ok := resp["ScheduledActions"].([]any)
 	require.True(t, ok)
 	require.Len(t, actions, 1)
@@ -318,7 +320,7 @@ func TestHandler_DescribeScheduledActions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			actions, ok := resp["ScheduledActions"].([]any)
 			require.True(t, ok)
 			assert.Len(t, actions, tt.wantCount)
@@ -377,7 +379,7 @@ func TestHandler_DescribeScheduledActions_RicherFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			actions, ok := resp["ScheduledActions"].([]any)
 			require.True(t, ok)
 			assert.Len(t, actions, tt.wantCount)
@@ -407,7 +409,7 @@ func TestHandler_MaxResults_DescribeScheduledActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	actions, ok := resp["ScheduledActions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, actions, 2)
@@ -439,7 +441,7 @@ func TestScheduledActionCRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, putRec.Code)
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	actionARN := putOut["ScheduledActionARN"].(string)
 	assert.NotEmpty(t, actionARN)
 
@@ -447,7 +449,7 @@ func TestScheduledActionCRUD(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	actions := descOut["ScheduledActions"].([]any)
 	require.Len(t, actions, 1)
 	a0 := actions[0].(map[string]any)
@@ -467,7 +469,7 @@ func TestScheduledActionCRUD(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var afterOut map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut, jsonx.V1()))
 	assert.Empty(t, afterOut["ScheduledActions"])
 }
 
@@ -507,7 +509,7 @@ func TestHandler_PutScheduledAction_UpdateClearsOmittedStartEndTime(t *testing.T
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	actions, ok := resp["ScheduledActions"].([]any)
 	require.True(t, ok)
 	require.Len(t, actions, 1)
@@ -554,7 +556,7 @@ func TestHandler_PutScheduledAction_UpdateWithoutScheduleKeepsOld(t *testing.T) 
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	actions, ok := resp["ScheduledActions"].([]any)
 	require.True(t, ok)
 	require.Len(t, actions, 1)

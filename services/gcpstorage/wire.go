@@ -2,11 +2,13 @@ package gcpstorage
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type objectJSON struct {
@@ -231,7 +233,7 @@ func decodePatch(body []byte) (Patch, *APIError) {
 		return p, nil
 	}
 
-	if err := json.Unmarshal(body, &p); err != nil || p == nil {
+	if err := json.Unmarshal(body, &p, jsonx.V1()); err != nil || p == nil {
 		return nil, errInvalid("Invalid JSON payload received.")
 	}
 

@@ -2,7 +2,7 @@ package networkmonitor
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -25,9 +25,9 @@ const networkmonitorSnapshotVersion = 1
 // backend. Tables holds one JSON-encoded array per registered store.Table
 // (just "monitors"), produced by [store.Registry.SnapshotAll].
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage `json:"tables"`
-	NextProbeSeq int64                      `json:"next_probe_seq"`
-	Version      int                        `json:"version"`
+	Tables       map[string]jsontext.Value `json:"tables"`
+	NextProbeSeq int64                     `json:"next_probe_seq"`
+	Version      int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

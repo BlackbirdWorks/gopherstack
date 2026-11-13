@@ -1,7 +1,7 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -38,41 +38,41 @@ func (t *Tags) merge(in Tags) {
 
 // Gateway is an API gateway.
 type Gateway struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeUpdated   time.Time       `json:"timeUpdated"`
-	Tags          Tags            `json:"tags"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	Locks         []Lock          `json:"locks,omitempty"`
-	CaBundles     json.RawMessage `json:"caBundles,omitempty"`
-	ResponseCache json.RawMessage `json:"responseCache,omitempty"`
-	ID            string          `json:"id"`
-	CompartmentID string          `json:"compartmentId"`
-	EndpointType  string          `json:"endpointType"`
-	DisplayName   string          `json:"displayName"`
-	SubnetID      string          `json:"subnetId"`
-	Hostname      string          `json:"hostname"`
-	CertificateID string          `json:"certificateId,omitempty"`
-	IPMode        string          `json:"ipMode,omitempty"`
-	State         string          `json:"state"`
-	Etag          string          `json:"etag"`
-	NSGs          []string        `json:"networkSecurityGroupIds,omitempty"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeUpdated   time.Time      `json:"timeUpdated"`
+	Tags          Tags           `json:"tags"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	Locks         []Lock         `json:"locks,omitempty"`
+	CaBundles     jsontext.Value `json:"caBundles,omitempty"`
+	ResponseCache jsontext.Value `json:"responseCache,omitempty"`
+	ID            string         `json:"id"`
+	CompartmentID string         `json:"compartmentId"`
+	EndpointType  string         `json:"endpointType"`
+	DisplayName   string         `json:"displayName"`
+	SubnetID      string         `json:"subnetId"`
+	Hostname      string         `json:"hostname"`
+	CertificateID string         `json:"certificateId,omitempty"`
+	IPMode        string         `json:"ipMode,omitempty"`
+	State         string         `json:"state"`
+	Etag          string         `json:"etag"`
+	NSGs          []string       `json:"networkSecurityGroupIds,omitempty"`
 }
 
 // Deployment is an API deployment on a gateway.
 type Deployment struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeUpdated   time.Time       `json:"timeUpdated"`
-	Tags          Tags            `json:"tags"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	ID            string          `json:"id"`
-	GatewayID     string          `json:"gatewayId"`
-	CompartmentID string          `json:"compartmentId"`
-	PathPrefix    string          `json:"pathPrefix"`
-	DisplayName   string          `json:"displayName"`
-	State         string          `json:"state"`
-	Etag          string          `json:"etag"`
-	Locks         []Lock          `json:"locks,omitempty"`
-	Spec          json.RawMessage `json:"specification"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeUpdated   time.Time      `json:"timeUpdated"`
+	Tags          Tags           `json:"tags"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	ID            string         `json:"id"`
+	GatewayID     string         `json:"gatewayId"`
+	CompartmentID string         `json:"compartmentId"`
+	PathPrefix    string         `json:"pathPrefix"`
+	DisplayName   string         `json:"displayName"`
+	State         string         `json:"state"`
+	Etag          string         `json:"etag"`
+	Locks         []Lock         `json:"locks,omitempty"`
+	Spec          jsontext.Value `json:"specification"`
 }
 
 // Certificate is a TLS certificate usable by a gateway.

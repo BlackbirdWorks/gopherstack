@@ -3,7 +3,7 @@ package gcpmonitoring
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,6 +15,7 @@ import (
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -113,7 +114,7 @@ func (b *InMemoryBackend) record(d Delivery) {
 
 // deliver sends the notification to every target; failures are logged and recorded, never fatal.
 func (b *InMemoryBackend) deliver(ctx context.Context, n notification) {
-	payload, err := json.Marshal(incidentPayload(n))
+	payload, err := json.Marshal(incidentPayload(n), jsonx.V1())
 	if err != nil {
 		return
 	}

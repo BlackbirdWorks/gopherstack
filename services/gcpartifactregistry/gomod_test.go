@@ -2,7 +2,7 @@ package gcpartifactregistry_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,6 +15,8 @@ import (
 	"golang.org/x/mod/module"
 	modzip "golang.org/x/mod/zip"
 	arapi "google.golang.org/api/artifactregistry/v1"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func makeModuleZip(t *testing.T, path, version string) []byte {
@@ -129,7 +131,7 @@ func TestGoModuleDownloadWithGoCommand(t *testing.T) {
 	var dl struct {
 		Dir string `json:"Dir"`
 	}
-	require.NoError(t, json.Unmarshal(out, &dl))
+	require.NoError(t, json.Unmarshal(out, &dl, jsonx.V1()))
 
 	extracted, rerr := os.ReadFile(filepath.Join(dl.Dir, "lib.go"))
 	require.NoError(t, rerr)

@@ -2,7 +2,8 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type deliveredMsg struct {
@@ -130,10 +133,10 @@ func newFailureHarness(
 		defer mu.Unlock()
 
 		var ev struct {
-			Records []json.RawMessage `json:"Records"`
+			Records []jsontext.Value `json:"Records"`
 		}
 
-		require.NoError(t, json.Unmarshal(payload, &ev))
+		require.NoError(t, json.Unmarshal(payload, &ev, jsonx.V1()))
 		*h.calls = append(*h.calls, len(ev.Records))
 
 		if failOn(string(payload)) {
@@ -321,7 +324,7 @@ func TestStreamRetryAndOnFailureDestination(t *testing.T) {
 				} `json:"requestContext"`
 			}
 
-			require.NoError(t, json.Unmarshal(body, &rec))
+			require.NoError(t, json.Unmarshal(body, &rec, jsonx.V1()))
 			assert.Equal(t, "RetryAttemptsExhausted", rec.RequestContext.Condition)
 			assert.Equal(t, testFnARN, rec.RequestContext.FunctionArn)
 			assert.Equal(t, tt.wantInvokeCnt, rec.RequestContext.Count)
@@ -470,7 +473,7 @@ func TestKafkaRetryExhaustionDestinations(t *testing.T) {
 					} `json:"KafkaBatchInfo"`
 				}
 
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.Equal(t, "RetryAttemptsExhausted", out.RequestContext.Condition)
 				assert.Equal(t, "0", out.KafkaBatchInfo.RecordInfo.Offset)
 				assert.Equal(t, 1, out.KafkaBatchInfo.BatchSize)
@@ -642,7 +645,7 @@ func TestESMSystemLogLevels(t *testing.T) {
 					Processor string `json:"eventProcessorId"`
 				}
 
-				require.NoError(t, json.Unmarshal([]byte(line), &rec))
+				require.NoError(t, json.Unmarshal([]byte(line), &rec, jsonx.V1()))
 				assert.Equal(t, "u-3/0", rec.Processor)
 				got = append(got, rec.EventType)
 
@@ -781,7 +784,7 @@ func TestDynamoDBStreamOnFailureDestination(t *testing.T) {
 		} `json:"requestContext"`
 	}
 
-	require.NoError(t, json.Unmarshal(del.msgs[0].body, &out))
+	require.NoError(t, json.Unmarshal(del.msgs[0].body, &out, jsonx.V1()))
 	assert.Equal(t, "800000000003126276362", out.Info.Start)
 	assert.Equal(t, "2019-11-14T00:13:19Z", out.Info.First)
 	assert.Equal(t, streamARN, out.Info.StreamArn)
@@ -807,7 +810,7 @@ func TestESMMaximumRetryAttemptsWire(t *testing.T) {
 			t.Parallel()
 
 			m := &EventSourceMapping{FunctionARN: testFnARN, MaximumRetryAttempts: tt.in}
-			body, err := json.Marshal(toJSONESMResponse(m))
+			body, err := json.Marshal(toJSONESMResponse(m), jsonx.V1())
 			require.NoError(t, err)
 
 			if tt.want == "" {

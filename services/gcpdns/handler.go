@@ -2,7 +2,7 @@ package gcpdns
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +16,7 @@ import (
 
 	pkgdns "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -186,11 +187,11 @@ func decode[T any](c *echo.Context) (*T, map[string]any, error) {
 		return v, raw, nil
 	}
 
-	if err = json.Unmarshal(data, v); err != nil {
+	if err = json.Unmarshal(data, v, jsonx.V1()); err != nil {
 		return nil, nil, errInvalid("Invalid JSON payload received. %v", err)
 	}
 
-	if err = json.Unmarshal(data, &raw); err != nil {
+	if err = json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return nil, nil, errInvalid("Invalid JSON payload received. %v", err)
 	}
 

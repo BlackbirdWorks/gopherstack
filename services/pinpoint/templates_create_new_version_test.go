@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestUpdateTemplate_CreateNewVersion(t *testing.T) {
@@ -79,14 +81,14 @@ func TestUpdateTemplate_CreateNewVersion(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tt.wantVersion, got["Version"])
 
 			rec = doPinpointRequest(t, h, http.MethodGet, path+"/versions", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var vers map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vers))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vers, jsonx.V1()))
 			assert.Len(t, vers["Item"], tt.wantVersions)
 		})
 	}

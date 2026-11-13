@@ -1,13 +1,15 @@
 package bqsql_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
@@ -28,7 +30,7 @@ func fieldsJSON(t *testing.T, s string) []bqsql.Field {
 
 	var fs []bqsql.Field
 
-	require.NoError(t, json.Unmarshal([]byte(s), &fs))
+	require.NoError(t, json.Unmarshal([]byte(s), &fs, jsonx.V1()))
 	require.NoError(t, bqsql.NormalizeSchema(fs))
 
 	return fs
@@ -37,12 +39,11 @@ func fieldsJSON(t *testing.T, s string) []bqsql.Field {
 func rowsJSON(t *testing.T, fs []bqsql.Field, s string) [][]any {
 	t.Helper()
 
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(s))
 
 	var raw []map[string]any
 
-	require.NoError(t, dec.Decode(&raw))
+	require.NoError(t, json.UnmarshalDecode(dec, &raw, jsonx.V1(), jsonx.UseNumber()))
 
 	out := make([][]any, len(raw))
 
@@ -222,7 +223,7 @@ func TestSelectQueries(t *testing.T) {
 				return
 			}
 
-			got, merr := json.Marshal(wireRows(res))
+			got, merr := json.Marshal(wireRows(res), jsonx.V1())
 			require.NoError(t, merr)
 			assert.JSONEq(t, tt.want, string(got))
 		})

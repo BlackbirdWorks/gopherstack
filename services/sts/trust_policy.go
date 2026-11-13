@@ -2,7 +2,8 @@ package sts
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/condeval"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -126,10 +128,10 @@ func (e trustEval) conditionValue(key string) (string, bool) {
 
 // trustStatementDoc is a single parsed trust-policy statement.
 type trustStatementDoc struct {
-	Condition map[string]map[string]json.RawMessage `json:"Condition"`
-	Effect    string                                `json:"Effect"`
-	Principal json.RawMessage                       `json:"Principal"`
-	Action    json.RawMessage                       `json:"Action"`
+	Condition map[string]map[string]jsontext.Value `json:"Condition"`
+	Effect    string                               `json:"Effect"`
+	Principal jsontext.Value                       `json:"Principal"`
+	Action    jsontext.Value                       `json:"Action"`
 }
 
 // principalSet is the parsed Principal element of a statement.
@@ -147,7 +149,7 @@ type trustPolicy struct {
 
 // trustStatement is a single statement in a trust policy.
 type trustStatement struct {
-	Condition map[string]map[string]json.RawMessage `json:"Condition"`
+	Condition map[string]map[string]jsontext.Value `json:"Condition"`
 }
 
 // evaluateAssumeRoleTrust evaluates a role's trust policy against the caller
@@ -213,10 +215,10 @@ func parseTrustStatements(policyJSON string) ([]trustStatementDoc, bool) {
 	}
 
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -227,7 +229,7 @@ func parseTrustStatements(policyJSON string) ([]trustStatementDoc, bool) {
 
 	if raw[0] == '[' {
 		var arr []trustStatementDoc
-		if err := json.Unmarshal(raw, &arr); err != nil {
+		if err := json.Unmarshal(raw, &arr, jsonx.V1()); err != nil {
 			return nil, false
 		}
 
@@ -235,7 +237,7 @@ func parseTrustStatements(policyJSON string) ([]trustStatementDoc, bool) {
 	}
 
 	var single trustStatementDoc
-	if err := json.Unmarshal(raw, &single); err != nil {
+	if err := json.Unmarshal(raw, &single, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -244,7 +246,7 @@ func parseTrustStatements(policyJSON string) ([]trustStatementDoc, bool) {
 
 // trimLeadingSpace drops leading ASCII whitespace from a raw JSON message so the
 // first significant byte can be inspected without importing bytes helpers.
-func trimLeadingSpace(raw json.RawMessage) json.RawMessage {
+func trimLeadingSpace(raw jsontext.Value) jsontext.Value {
 	i := 0
 	for i < len(raw) {
 		switch raw[i] {
@@ -260,7 +262,7 @@ func trimLeadingSpace(raw json.RawMessage) json.RawMessage {
 
 // actionMatches reports whether the requested action is granted by the
 // statement Action element (a string or array; wildcards supported).
-func actionMatches(raw json.RawMessage, requested string) bool {
+func actionMatches(raw jsontext.Value, requested string) bool {
 	if len(raw) == 0 {
 		// A statement without an explicit Action is treated as matching so that
 		// condition-only test policies (which omit Action) keep working.
@@ -282,7 +284,7 @@ func actionMatches(raw json.RawMessage, requested string) bool {
 }
 
 // principalMatches reports whether the caller satisfies the statement Principal.
-func principalMatches(raw json.RawMessage, ev trustEval) bool {
+func principalMatches(raw jsontext.Value, ev trustEval) bool {
 	if len(raw) == 0 {
 		// No Principal specified. Real trust policies always name a principal,
 		// but ExternalId-only test fixtures omit it; treat as matching so those
@@ -320,11 +322,11 @@ func principalMatches(raw json.RawMessage, ev trustEval) bool {
 
 // parsePrincipal parses the Principal element, which may be the string "*" or an
 // object keyed by AWS / Federated / Service / CanonicalUser.
-func parsePrincipal(raw json.RawMessage) principalSet {
+func parsePrincipal(raw jsontext.Value) principalSet {
 	var out principalSet
 
 	var asString string
-	if err := json.Unmarshal(raw, &asString); err == nil {
+	if err := json.Unmarshal(raw, &asString, jsonx.V1()); err == nil {
 		if asString == "*" {
 			out.wildcard = true
 		} else {
@@ -334,8 +336,8 @@ func parsePrincipal(raw json.RawMessage) principalSet {
 		return out
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &obj, jsonx.V1()); err != nil {
 		return out
 	}
 
@@ -476,7 +478,7 @@ func assumedRoleArnMatches(callerArn, account, roleName string) bool {
 
 // conditionsSatisfied reports whether every condition in a statement holds for
 // the caller context. Unmodelled keys and operators are treated as satisfied.
-func conditionsSatisfied(cond map[string]map[string]json.RawMessage, ev trustEval) bool {
+func conditionsSatisfied(cond map[string]map[string]jsontext.Value, ev trustEval) bool {
 	for op, kv := range cond {
 		for key, raw := range kv {
 			if !conditionOperatorHolds(op, key, raw, ev) {
@@ -497,7 +499,7 @@ func conditionsSatisfied(cond map[string]map[string]json.RawMessage, ev trustEva
 // cannot evaluate does not silently break existing callers. Both fallback
 // paths log loudly at WARN so the gap is discoverable at runtime instead of
 // silent -- that is the fix for gopherstack-yg95, not a change of default.
-func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) bool {
+func conditionOperatorHolds(op, key string, raw jsontext.Value, ev trustEval) bool {
 	// AWS docs: IfExists may suffix any operator except Null (which already
 	// tests presence), so "NullIfExists" is left as an unrecognized operator.
 	//nolint:lll // AWS doc URL, cannot be split
@@ -615,7 +617,7 @@ func dateOperatorHolds(normOp string, want []string, actual string) bool {
 // be present. Unlike every other operator, Null tests key existence, not the
 // key's value, so it is driven by conditionValue's known result rather than a
 // string/bool comparison against actual.
-func nullConditionHolds(raw json.RawMessage, known bool) bool {
+func nullConditionHolds(raw jsontext.Value, known bool) bool {
 	for _, v := range extractStringValues(raw) {
 		wantAbsent, err := strconv.ParseBool(v)
 		if err == nil && wantAbsent == !known {
@@ -728,7 +730,7 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 	// policy leaves tp with a zero value (empty Statements), so no ExternalId
 	// condition will be found and the call proceeds without validation — the
 	// permissive behaviour is intentional for a mock implementation.
-	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp, jsonx.V1())
 
 	var hasExternalIDCondition bool
 
@@ -757,7 +759,7 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 
 // requiredExternalIDs extracts all sts:ExternalId values from a trust-statement Condition map.
 // Returns nil when no ExternalId condition is present.
-func requiredExternalIDs(condition map[string]map[string]json.RawMessage) []string {
+func requiredExternalIDs(condition map[string]map[string]jsontext.Value) []string {
 	for condOp, condMap := range condition {
 		if !strings.EqualFold(condOp, "StringEquals") && !strings.EqualFold(condOp, "StringLike") {
 			continue
@@ -791,7 +793,7 @@ func validateMFACondition(trustPolicyJSON string, mfaPresent bool) error {
 
 	// Unmarshal errors leave tp with a zero value (empty Statements): a malformed
 	// trust policy is treated permissively, same as validateExternalID.
-	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp, jsonx.V1())
 
 	var hasMFACondition bool
 
@@ -821,7 +823,7 @@ func validateMFACondition(trustPolicyJSON string, mfaPresent bool) error {
 // requiredMFAPresent extracts the required aws:MultiFactorAuthPresent Bool value
 // from a trust-statement Condition map. The second result reports whether the
 // condition is present at all.
-func requiredMFAPresent(condition map[string]map[string]json.RawMessage) (bool, bool) {
+func requiredMFAPresent(condition map[string]map[string]jsontext.Value) (bool, bool) {
 	for condOp, condMap := range condition {
 		if normalizeConditionOp(condOp) != condOperatorBool {
 			continue
@@ -845,14 +847,14 @@ func requiredMFAPresent(condition map[string]map[string]json.RawMessage) (bool, 
 
 // extractStringValues unmarshals a JSON RawMessage that may be either a string
 // or an array of strings and returns the values as a Go string slice.
-func extractStringValues(raw json.RawMessage) []string {
+func extractStringValues(raw jsontext.Value) []string {
 	var single string
-	if err := json.Unmarshal(raw, &single); err == nil {
+	if err := json.Unmarshal(raw, &single, jsonx.V1()); err == nil {
 		return []string{single}
 	}
 
 	var many []string
-	if err := json.Unmarshal(raw, &many); err == nil {
+	if err := json.Unmarshal(raw, &many, jsonx.V1()); err == nil {
 		return many
 	}
 

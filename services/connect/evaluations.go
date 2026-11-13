@@ -2,12 +2,14 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -196,8 +198,8 @@ type evalNumRange struct {
 }
 
 type evalSection struct {
-	RefID string            `json:"RefId"`
-	Items []json.RawMessage `json:"Items"`
+	RefID string           `json:"RefId"`
+	Items []jsontext.Value `json:"Items"`
 }
 
 // evalTally accumulates points over answered questions.
@@ -230,14 +232,14 @@ func (t evalTally) score() EvaluationScore {
 }
 
 // formQuestions flattens the questions of the form items, calling visit for each with the enclosing section refs.
-func formQuestions(items []json.RawMessage, sections []string, visit func(q evalQuestion, sections []string)) {
+func formQuestions(items []jsontext.Value, sections []string, visit func(q evalQuestion, sections []string)) {
 	for _, raw := range items {
 		var u struct {
 			Question *evalQuestion `json:"Question"`
 			Section  *evalSection  `json:"Section"`
 		}
 
-		if json.Unmarshal(raw, &u) != nil {
+		if json.Unmarshal(raw, &u, jsonx.V1()) != nil {
 			continue
 		}
 
@@ -292,7 +294,7 @@ func scoreEvaluation(
 		Status string `json:"Status"`
 	}
 
-	if len(c.ScoringStrategy) == 0 || json.Unmarshal(c.ScoringStrategy, &strategy) != nil ||
+	if len(c.ScoringStrategy) == 0 || json.Unmarshal(c.ScoringStrategy, &strategy, jsonx.V1()) != nil ||
 		strategy.Status != "ENABLED" {
 		return nil, nil
 	}

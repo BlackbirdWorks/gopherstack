@@ -1,12 +1,14 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const opGetExport = "GetExport"
@@ -39,7 +41,7 @@ func (h *Handler) exportActions() map[string]actionFn {
 	return map[string]actionFn{
 		opGetExport: func(b []byte) (int, any, error) {
 			var input getExportInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -82,5 +84,5 @@ func encodeExport(export map[string]any, contentType string) ([]byte, error) {
 		return yaml.Marshal(export)
 	}
 
-	return json.Marshal(export)
+	return json.Marshal(export, jsonx.V1())
 }

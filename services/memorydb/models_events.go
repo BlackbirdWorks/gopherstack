@@ -1,8 +1,9 @@
 package memorydb
 
 import (
-	"encoding/json"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Event represents a MemoryDB event.
@@ -19,13 +20,13 @@ type Event struct {
 // requires a quoted RFC3339 string -- decoding a real client's request would
 // fail with a SerializationException. See parseEpochRequestTime (backend.go).
 type describeEventsRequest struct {
-	MaxResults *int32      `json:"MaxResults,omitempty"`
-	Duration   *int32      `json:"Duration,omitempty"`
-	StartTime  json.Number `json:"StartTime,omitempty"`
-	EndTime    json.Number `json:"EndTime,omitempty"`
-	SourceName string      `json:"SourceName,omitempty"`
-	SourceType string      `json:"SourceType,omitempty"`
-	NextToken  string      `json:"NextToken,omitempty"`
+	MaxResults *int32       `json:"MaxResults,omitempty"`
+	Duration   *int32       `json:"Duration,omitempty"`
+	StartTime  jsonx.Number `json:"StartTime,omitempty"`
+	EndTime    jsonx.Number `json:"EndTime,omitempty"`
+	SourceName string       `json:"SourceName,omitempty"`
+	SourceType string       `json:"SourceType,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
 }
 
 // eventObject.Date is epoch seconds (float64), matching the real

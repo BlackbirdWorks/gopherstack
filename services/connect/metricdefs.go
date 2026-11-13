@@ -2,7 +2,7 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"slices"
 	"strings"
@@ -30,10 +30,10 @@ var (
 
 // CalculationComponent is one metric a custom calculation refers to by alias.
 type CalculationComponent struct {
-	Alias         string          `json:"Alias"`
-	MetricID      string          `json:"MetricId,omitempty"`
-	MetricName    string          `json:"MetricName,omitempty"`
-	MetricFilters json.RawMessage `json:"MetricFilters,omitempty"`
+	Alias         string         `json:"Alias"`
+	MetricID      string         `json:"MetricId,omitempty"`
+	MetricName    string         `json:"MetricName,omitempty"`
+	MetricFilters jsontext.Value `json:"MetricFilters,omitempty"`
 }
 
 // MetricCalculation is the formula of a custom metric.

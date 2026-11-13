@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func minimalInferenceExperimentBody(name string) map[string]any {
@@ -35,7 +37,7 @@ func TestHandler_CreateInferenceExperiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["InferenceExperimentArn"], "my-exp")
 }
 
@@ -80,7 +82,7 @@ func TestHandler_DescribeInferenceExperiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "exp-1", resp["Name"])
 	assert.Contains(t, resp, "EndpointMetadata")
 	assert.Contains(t, resp, "ModelVariants")
@@ -99,7 +101,7 @@ func TestHandler_StopInferenceExperiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["InferenceExperimentArn"], "exp-stop")
 }
 
@@ -113,7 +115,7 @@ func TestHandler_DeleteInferenceExperiment(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["InferenceExperimentArn"], "exp-del")
 
 	rec = doSageMakerRequest(t, h, "DescribeInferenceExperiment", map[string]any{"Name": "exp-del"})
@@ -141,7 +143,7 @@ func TestHandler_InferenceExperiment_StartAndUpdate(t *testing.T) {
 
 	recDescribe := doSageMakerRequest(t, h, "DescribeInferenceExperiment", map[string]any{"Name": "inf-exp"})
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "Running", out["Status"])
 	assert.Equal(t, "updated", out["Description"])
 }
@@ -174,7 +176,7 @@ func TestHandler_ListInferenceExperiments(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["InferenceExperiments"])
 
 	body := minimalInferenceExperimentBody("my-exp")
@@ -182,7 +184,7 @@ func TestHandler_ListInferenceExperiments(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateInferenceExperiment", body)
 
 	rec = doSageMakerRequest(t, h, "ListInferenceExperiments", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	exps := resp["InferenceExperiments"].([]any)
 	assert.Len(t, exps, 1)
 	e := exps[0].(map[string]any)

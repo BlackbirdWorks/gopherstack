@@ -1,7 +1,7 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -22,7 +23,7 @@ func TestHandler_ShadowCRUD(t *testing.T) {
 			"desired": map[string]any{"color": "red"},
 		},
 	}
-	docBytes, err := json.Marshal(shadowDoc)
+	docBytes, err := json.Marshal(shadowDoc, jsonx.V1())
 	require.NoError(t, err)
 
 	// Step 1: shadow does not exist yet.
@@ -133,7 +134,7 @@ func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "version")
 	assert.Contains(t, resp, "timestamp")
 
@@ -142,7 +143,7 @@ func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Contains(t, getResp, "version")
 	assert.Contains(t, getResp, "timestamp")
 }
@@ -174,7 +175,7 @@ func updateShadow(t *testing.T, h *iotdataplane.Handler, thingName, shadowName s
 	require.Equal(t, http.StatusOK, rec.Code, "UpdateThingShadow: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -194,7 +195,7 @@ func getShadow(t *testing.T, h *iotdataplane.Handler, thingName, shadowName stri
 
 	var resp map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 	}
 
 	return resp, rec.Code
@@ -315,7 +316,7 @@ func Test_DeleteThingShadow_ResponseOmitsState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasState := resp["state"]
 	assert.False(t, hasState, "delete response must NOT include state (empty response state document)")
@@ -428,7 +429,7 @@ func Test_DeleteThingShadow_ReturnsPayload(t *testing.T) {
 
 	// Response must be a JSON object with version and timestamp (AWS contract).
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "version")
 	assert.Contains(t, resp, "timestamp")
 }
@@ -608,7 +609,7 @@ func Test_CrossThing_ShadowIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
 	assert.Equal(t, "blue", desired["color"])
@@ -631,7 +632,7 @@ func Test_ClassicVsNamedShadow_Isolation(t *testing.T) {
 	resp, err := b.GetThingShadow("dev", "named-one")
 	require.NoError(t, err)
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
 	assert.Equal(t, "yes", desired["named"])
@@ -659,8 +660,8 @@ func Test_NamedShadow_IndependentVersions(t *testing.T) {
 	require.NoError(t, err)
 
 	var alpha, beta map[string]any
-	require.NoError(t, json.Unmarshal(alphaResp, &alpha))
-	require.NoError(t, json.Unmarshal(betaResp, &beta))
+	require.NoError(t, json.Unmarshal(alphaResp, &alpha, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(betaResp, &beta, jsonx.V1()))
 
 	assert.InDelta(t, float64(3), alpha["version"], 0, "alpha must be at version 3")
 	assert.InDelta(t, float64(1), beta["version"], 0, "beta must be at version 1")

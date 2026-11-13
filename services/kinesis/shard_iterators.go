@@ -3,13 +3,15 @@ package kinesis
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // iteratorToken encodes a shard iterator as a base64 JSON token.
 func encodeIterator(it *ShardIterator) (string, error) {
-	data, err := json.Marshal(it)
+	data, err := json.Marshal(it, jsonx.V1())
 	if err != nil {
 		return "", err
 	}
@@ -25,7 +27,7 @@ func decodeIterator(token string, now time.Time) (*ShardIterator, error) {
 	}
 
 	var it ShardIterator
-	if err = json.Unmarshal(data, &it); err != nil {
+	if err = json.Unmarshal(data, &it, jsonx.V1()); err != nil {
 		return nil, ErrShardIteratorExpired
 	}
 

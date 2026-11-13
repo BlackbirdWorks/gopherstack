@@ -1,12 +1,14 @@
 package kms
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var keyIDShapeRe = regexp.MustCompile(
@@ -21,7 +23,7 @@ func validateListMarker(action string, body []byte) error {
 		Marker string `json:"Marker"`
 	}
 
-	if json.Unmarshal(body, &in) == nil && in.Marker != "" {
+	if json.Unmarshal(body, &in, jsonx.V1()) == nil && in.Marker != "" {
 		if n, err := strconv.Atoi(in.Marker); err != nil || n < 0 {
 			return fmt.Errorf("%w: invalid marker", ErrInvalidMarker)
 		}

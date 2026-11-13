@@ -2,7 +2,7 @@ package azureappconfig
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var apiVersions = map[string]bool{ //nolint:gochecknoglobals // supported api-version set, read-only
@@ -156,7 +158,7 @@ func (h *Handler) fail(req *request, err error) error {
 }
 
 func mustJSON(v any) []byte {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}
@@ -270,7 +272,7 @@ func decodeBody(body []byte, out any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(body, out); err != nil {
+	if err := json.Unmarshal(body, out, jsonx.V1()); err != nil {
 		return ErrInvalidArgument
 	}
 

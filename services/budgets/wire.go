@@ -1,10 +1,11 @@
 package budgets
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Wire shapes follow the pinned aws-sdk-go-v2/service/budgets v1.53.1 awsjson1.1 schemas;
@@ -14,12 +15,14 @@ import (
 type Timestamp struct{ time.Time }
 
 // MarshalJSON renders the epoch-seconds number the SDK expects.
-func (t Timestamp) MarshalJSON() ([]byte, error) { return json.Marshal(awstime.Epoch(t.Time)) }
+func (t Timestamp) MarshalJSON() ([]byte, error) {
+	return json.Marshal(awstime.Epoch(t.Time), jsonx.V1())
+}
 
 // UnmarshalJSON reads an epoch-seconds number.
 func (t *Timestamp) UnmarshalJSON(data []byte) error {
 	var f float64
-	if err := json.Unmarshal(data, &f); err != nil {
+	if err := json.Unmarshal(data, &f, jsonx.V1()); err != nil {
 		return err
 	}
 

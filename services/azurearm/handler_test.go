@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"net"
@@ -23,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -74,7 +75,7 @@ func doRequest(t *testing.T, h *azurearm.Handler, method, path string, body []by
 
 	var decoded map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+		_ = json.Unmarshal(rec.Body.Bytes(), &decoded, jsonx.V1())
 	}
 
 	return rec.Code, decoded
@@ -96,7 +97,7 @@ func TestHandler_MetadataEndpoints(t *testing.T) {
 
 	var doc map[string]any
 
-	require.NoError(t, json.Unmarshal(body, &doc))
+	require.NoError(t, json.Unmarshal(body, &doc, jsonx.V1()))
 	assert.Equal(t, "gopherstack", doc["name"])
 }
 
@@ -150,7 +151,7 @@ func TestHandler_TokenEndpoint(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "Bearer", resp["token_type"])
 			assert.NotEmpty(t, resp["access_token"])
 		})
@@ -512,7 +513,7 @@ func TestHandler_MetadataEndpoints_HonorsRequestHostPort(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc, jsonx.V1()))
 
 	assert.Equal(t, "https://localhost:18006/", doc["resourceManagerEndpoint"])
 }

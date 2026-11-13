@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -295,7 +298,7 @@ func (t *imdsTree) addIdentityDocument(v *imdsView) {
 	}
 
 	t.leaves["dynamic/instance-identity/document"] = func() (string, error) {
-		out, err := json.MarshalIndent(doc, "", imdsDocumentIndex)
+		out, err := json.Marshal(doc, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(imdsDocumentIndex))
 
 		return string(out), err
 	}
@@ -353,9 +356,9 @@ func (h *Handler) addIAMLeaves(t *imdsTree, v *imdsView) {
 	updated := v.Instance.LaunchTime.UTC().Format(imdsTimeLayout)
 
 	t.leaves["meta-data/iam/info"] = func() (string, error) {
-		out, mErr := json.MarshalIndent(imdsInfoDocument{
+		out, mErr := json.Marshal(imdsInfoDocument{
 			Code: imdsCodeSuccess, LastUpdated: updated, InstanceProfileArn: prof.ARN, InstanceProfileID: prof.ID,
-		}, "", imdsDocumentIndex)
+		}, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(imdsDocumentIndex))
 
 		return string(out), mErr
 	}
@@ -366,11 +369,11 @@ func (h *Handler) addIAMLeaves(t *imdsTree, v *imdsView) {
 			return "", cErr
 		}
 
-		out, mErr := json.MarshalIndent(imdsCredentialDocument{
+		out, mErr := json.Marshal(imdsCredentialDocument{
 			Code: imdsCodeSuccess, LastUpdated: updated, Type: imdsCredType,
 			AccessKeyID: creds.AccessKeyID, SecretAccessKey: creds.SecretAccessKey, Token: creds.SessionToken,
 			Expiration: creds.Expires.UTC().Format(imdsTimeLayout),
-		}, "", imdsDocumentIndex)
+		}, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(imdsDocumentIndex))
 
 		return string(out), mErr
 	}

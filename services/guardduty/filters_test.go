@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -31,14 +32,14 @@ func TestFilter_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				assert.Equal(t, "my-filter", cr["name"])
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/filter/my-filter", nil)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "ARCHIVE", gr["action"])
 				assert.InDelta(t, 1.0, gr["rank"], 0.01)
 				assert.Equal(t, "test filter", gr["description"])
@@ -62,7 +63,7 @@ func TestFilter_CRUD(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/filter/upd-filter", nil)
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "ARCHIVE", gr["action"])
 				assert.InDelta(t, 2.0, gr["rank"], 0.01)
 			},
@@ -96,7 +97,7 @@ func TestFilter_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				names, ok := resp["filterNames"].([]any)
 				require.True(t, ok)
 				assert.Len(t, names, 3)
@@ -132,7 +133,7 @@ func TestListFilters_Empty_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["filterNames"]
 	require.True(t, exists, "ListFilters must include 'filterNames' key")
@@ -160,7 +161,7 @@ func TestFilter_Tags_EmptyMap_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["tags"]
 	require.True(t, exists, "GetFilter response must include 'tags' key")

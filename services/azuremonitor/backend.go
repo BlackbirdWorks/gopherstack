@@ -3,13 +3,14 @@ package azuremonitor
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -97,14 +98,14 @@ func cloneJSON(m map[string]any) map[string]any {
 		return nil
 	}
 
-	raw, err := json.Marshal(m)
+	raw, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var out map[string]any
 
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return out
 }

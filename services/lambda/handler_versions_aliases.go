@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -83,7 +84,7 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 	var input publishVersionInput
 
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}
@@ -160,7 +161,7 @@ func (h *Handler) handleCreateAlias(c *echo.Context, name string) error {
 	}
 
 	var input CreateAliasInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 
@@ -264,7 +265,7 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 	}
 
 	var input UpdateAliasInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 

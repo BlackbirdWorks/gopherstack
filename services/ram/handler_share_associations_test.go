@@ -1,13 +1,15 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -271,9 +273,9 @@ func TestGetResourceShareAssociations_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				ResourceShareAssociations []json.RawMessage `json:"resourceShareAssociations"`
+				ResourceShareAssociations []jsontext.Value `json:"resourceShareAssociations"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ResourceShareAssociations, tt.wantCount)
 		})
 	}
@@ -315,15 +317,15 @@ func TestAssociationStatusMessage_InResponse(t *testing.T) {
 			StatusMessage string `json:"statusMessage"`
 		} `json:"resourceShareAssociations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp.ResourceShareAssociations)
 
 	// statusMessage is optional; verify the field exists in JSON (can be empty).
 	// We check by re-parsing as raw map.
 	var raw struct {
-		ResourceShareAssociations []map[string]json.RawMessage `json:"resourceShareAssociations"`
+		ResourceShareAssociations []map[string]jsontext.Value `json:"resourceShareAssociations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	require.NotEmpty(t, raw.ResourceShareAssociations)
 	// statusMessage should NOT appear when empty (omitempty).
 	_, present := raw.ResourceShareAssociations[0]["statusMessage"]
@@ -358,7 +360,7 @@ func TestAssociateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
 			Arn string `json:"arn"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Permissions, 1)
 	assert.Equal(t, "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet", listResp.Permissions[0].Arn)
 
@@ -372,7 +374,7 @@ func TestAssociateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
 	listRec = doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
 		"resourceShareArn": rs.ARN,
 	})
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp.Permissions, 1, "adding a second resource of an already-covered type must not duplicate")
 }
 
@@ -446,7 +448,7 @@ func TestGetResourceShareAssociations_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -455,7 +457,7 @@ func TestGetResourceShareAssociations_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				totalSeen += len(resp.ResourceShareAssociations)
 				nextToken = resp.NextToken

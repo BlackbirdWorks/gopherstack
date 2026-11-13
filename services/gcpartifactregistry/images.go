@@ -3,7 +3,7 @@ package gcpartifactregistry
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strconv"
 
@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -147,7 +148,7 @@ func (b *InMemoryBackend) indexChildren(ctx context.Context, ref repoRef, s imag
 			Manifests []ociregistry.Descriptor `json:"manifests"`
 		}
 
-		if json.Unmarshal(m.Body, &doc) != nil {
+		if json.Unmarshal(m.Body, &doc, jsonx.V1()) != nil {
 			continue
 		}
 

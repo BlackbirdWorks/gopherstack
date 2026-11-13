@@ -2,7 +2,7 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +11,8 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const queryProgressComplete = 100.0
@@ -398,7 +400,7 @@ type pageOut struct {
 }
 
 func wireSize(v any) int {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return 0
 	}

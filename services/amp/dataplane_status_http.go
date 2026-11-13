@@ -2,7 +2,7 @@ package amp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -168,7 +169,7 @@ func (h *Handler) postAlerts(c *echo.Context, wsID string) error {
 	}
 
 	var in []postableAlert
-	if jerr := json.Unmarshal(body, &in); jerr != nil || len(in) > maxPostedAlerts {
+	if jerr := json.Unmarshal(body, &in, jsonx.V1()); jerr != nil || len(in) > maxPostedAlerts {
 		return promError(c, http.StatusBadRequest, "bad_data", "body must be a JSON array of alerts")
 	}
 

@@ -3,12 +3,15 @@ package opencypher
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Result is the table produced by RETURN; a query with no RETURN has no columns.
@@ -36,8 +39,8 @@ func (r *Result) MarshalJSON() ([]byte, error) {
 				buf.WriteByte(',')
 			}
 
-			k, _ := json.Marshal(col)
-			v, err := json.Marshal(jsonValue(row[j]))
+			k, _ := json.Marshal(col, jsonx.V1())
+			v, err := json.Marshal(jsonValue(row[j]), jsonx.V1())
 			if err != nil {
 				return nil, fmt.Errorf("encode %s: %w", col, err)
 			}
@@ -112,11 +115,10 @@ func ParseParameters(raw string) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
 
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(raw))
 
 	var m map[string]any
-	if err := dec.Decode(&m); err != nil {
+	if err := json.UnmarshalDecode(dec, &m, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, &Error{Code: CodeInvalidParameter, Detail: "parameters must be a JSON object: " + err.Error()}
 	}
 
@@ -129,7 +131,7 @@ func ParseParameters(raw string) (map[string]any, error) {
 
 func normalize(v any) any {
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
 		}

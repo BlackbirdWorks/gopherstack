@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createConfigurationSetInput struct {
@@ -203,7 +206,7 @@ type listConfigurationSetsOutput struct {
 func (h *Handler) handleCreateConfigurationSet(c *echo.Context) (any, error) {
 	var in createConfigurationSetInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
@@ -313,7 +316,7 @@ func (h *Handler) handlePutConfigurationSetArchivingOptions(
 		ArchiveARN string `json:"ArchiveArn"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -332,7 +335,7 @@ func (h *Handler) handlePutConfigurationSetDeliveryOptions(
 		TLSPolicy       string `json:"TlsPolicy"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -351,7 +354,7 @@ func (h *Handler) handlePutConfigurationSetReputationOptions(
 		ReputationMetricsEnabled bool `json:"ReputationMetricsEnabled"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -369,7 +372,7 @@ func (h *Handler) handlePutConfigurationSetSendingOptions(
 		SendingEnabled bool `json:"SendingEnabled"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -382,7 +385,7 @@ func (h *Handler) handlePutConfigurationSetSuppressionOptions(
 ) (any, error) {
 	var in suppressionOptionsInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -403,7 +406,7 @@ func (h *Handler) handlePutConfigurationSetTrackingOptions(
 		HTTPSPolicy          string `json:"HttpsPolicy"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

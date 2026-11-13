@@ -2,13 +2,14 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -49,7 +50,7 @@ func TestTagsForNonParameterResources(t *testing.T) {
 				"ResourceType": tt.resourceType,
 				"ResourceId":   tt.resourceID,
 				"Tags":         tt.tags,
-			})
+			}, jsonx.V1())
 
 			addRec := doRequest(t, h, "AddTagsToResource", string(addBody))
 			require.Equal(t, http.StatusOK, addRec.Code)
@@ -57,13 +58,13 @@ func TestTagsForNonParameterResources(t *testing.T) {
 			listBody, _ := json.Marshal(map[string]any{
 				"ResourceType": tt.resourceType,
 				"ResourceId":   tt.resourceID,
-			})
+			}, jsonx.V1())
 
 			listRec := doRequest(t, h, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp ssm.ListTagsForResourceOutput
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.TagList, tt.wantTagCount)
 		})
 	}
@@ -109,25 +110,25 @@ func TestRemoveTagsForNonParameter(t *testing.T) {
 				"ResourceType": tt.resourceType,
 				"ResourceId":   tt.resourceID,
 				"Tags":         tt.addTags,
-			})
+			}, jsonx.V1())
 			require.Equal(t, http.StatusOK, doRequest(t, h, "AddTagsToResource", string(addBody)).Code)
 
 			removeBody, _ := json.Marshal(map[string]any{
 				"ResourceType": tt.resourceType,
 				"ResourceId":   tt.resourceID,
 				"TagKeys":      tt.removeKeys,
-			})
+			}, jsonx.V1())
 			require.Equal(t, http.StatusOK, doRequest(t, h, "RemoveTagsFromResource", string(removeBody)).Code)
 
 			listBody, _ := json.Marshal(map[string]any{
 				"ResourceType": tt.resourceType,
 				"ResourceId":   tt.resourceID,
-			})
+			}, jsonx.V1())
 			listRec := doRequest(t, h, "ListTagsForResource", string(listBody))
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp ssm.ListTagsForResourceOutput
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.TagList, tt.wantRemain)
 		})
 	}

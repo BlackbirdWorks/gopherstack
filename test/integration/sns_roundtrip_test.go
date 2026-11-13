@@ -1,7 +1,7 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // snsEnvelope is the JSON body SNS delivers to a subscribed SQS queue
@@ -64,7 +66,7 @@ func TestIntegration_SNS_AddRemovePermissionRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var policy snsPolicyDocument
-	require.NoError(t, json.Unmarshal([]byte(attrsOut.Attributes["Policy"]), &policy))
+	require.NoError(t, json.Unmarshal([]byte(attrsOut.Attributes["Policy"]), &policy, jsonx.V1()))
 
 	var granted *snsPolicyStatement
 
@@ -90,7 +92,7 @@ func TestIntegration_SNS_AddRemovePermissionRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var policyAfter snsPolicyDocument
-	require.NoError(t, json.Unmarshal([]byte(attrsOut2.Attributes["Policy"]), &policyAfter))
+	require.NoError(t, json.Unmarshal([]byte(attrsOut2.Attributes["Policy"]), &policyAfter, jsonx.V1()))
 
 	for _, stmt := range policyAfter.Statement {
 		assert.NotEqual(t, label, stmt.Sid, "RemovePermission should drop the statement from Policy")
@@ -244,7 +246,7 @@ func TestIntegration_SNS_PublishBatchRoundTrip(t *testing.T) {
 
 		for _, msg := range recvOut.Messages {
 			var env snsEnvelope
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(msg.Body)), &env))
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(msg.Body)), &env, jsonx.V1()))
 			assert.Equal(t, topicARN, env.TopicArn)
 
 			priority := ""

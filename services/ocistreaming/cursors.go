@@ -2,7 +2,7 @@ package ocistreaming
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strconv"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -39,7 +41,7 @@ type cursorTok struct {
 }
 
 func (c cursorTok) encode() string {
-	raw, _ := json.Marshal(c) //nolint:errchkjson // static shape
+	raw, _ := json.Marshal(c, jsonx.V1()) //nolint:errchkjson // static shape
 
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
@@ -48,7 +50,7 @@ func decodeCursor(streamID, v string) (cursorTok, error) {
 	var c cursorTok
 
 	raw, err := base64.RawURLEncoding.DecodeString(v)
-	if err != nil || json.Unmarshal(raw, &c) != nil || c.Stream != streamID {
+	if err != nil || json.Unmarshal(raw, &c, jsonx.V1()) != nil || c.Stream != streamID {
 		return c, errParam("The cursor is invalid or does not belong to this stream")
 	}
 

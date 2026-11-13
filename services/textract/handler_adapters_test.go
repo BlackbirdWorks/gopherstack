@@ -1,7 +1,7 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -55,7 +56,7 @@ func TestHandler_AdapterLifecycle(t *testing.T) {
 			}
 
 			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			adapterID := createResp["AdapterId"]
 			assert.NotEmpty(t, adapterID)
 
@@ -65,7 +66,7 @@ func TestHandler_AdapterLifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.adapterName, getResp["AdapterName"])
 			assert.Equal(t, tt.description, getResp["Description"])
 
@@ -114,7 +115,7 @@ func TestHandler_GetAdapter_IncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	getRec := doTextractRequest(t, h, "GetAdapter", map[string]any{
 		"AdapterId": createResp["AdapterId"],
@@ -122,7 +123,7 @@ func TestHandler_GetAdapter_IncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	tags, hasTags := getResp["Tags"].(map[string]any)
 	assert.True(t, hasTags, "GetAdapter must include Tags")
@@ -151,7 +152,7 @@ func TestHandler_DeleteAdapter_CascadesVersions(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var cr map[string]string
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &cr, jsonx.V1()))
 	adapterID := cr["AdapterId"]
 
 	// Create a version
@@ -170,7 +171,7 @@ func TestHandler_DeleteAdapter_CascadesVersions(t *testing.T) {
 	require.Equal(t, http.StatusOK, versionResp.Code)
 
 	var vr map[string]string
-	require.NoError(t, json.Unmarshal(versionResp.Body.Bytes(), &vr))
+	require.NoError(t, json.Unmarshal(versionResp.Body.Bytes(), &vr, jsonx.V1()))
 	adapterVersion := vr["AdapterVersion"]
 
 	// Delete adapter should cascade to versions
@@ -217,13 +218,13 @@ func TestHandler_CreateAdapter_ClientRequestTokenDedup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	rec2 := doTextractRequest(t, h, "CreateAdapter", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	assert.Equal(t, resp1["AdapterId"], resp2["AdapterId"], "same token should return same AdapterId")
 }
@@ -246,7 +247,7 @@ func TestHandler_UpdateAdapter_PreservesNameAndFeatureTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 	require.NotEmpty(t, adapterID)
 
@@ -258,7 +259,7 @@ func TestHandler_UpdateAdapter_PreservesNameAndFeatureTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 
 	assert.Equal(t, "immutable-name", updateResp["AdapterName"],
 		"AdapterName must be unchanged after UpdateAdapter")
@@ -375,7 +376,7 @@ func TestHandler_UpdateAdapter_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 
 	updateRec := doTextractRequest(t, h, "UpdateAdapter", map[string]any{
@@ -386,7 +387,7 @@ func TestHandler_UpdateAdapter_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated description", updateResp["Description"])
 	assert.Equal(t, "ENABLED", updateResp["AutoUpdate"])
 
@@ -406,7 +407,7 @@ func TestHandler_UpdateAdapter_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -468,7 +469,7 @@ func TestHandler_UpdateAdapter_PartialUpdateSemantics(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			adapterID := createResp["AdapterId"]
 
 			body := map[string]any{"AdapterId": adapterID}
@@ -482,7 +483,7 @@ func TestHandler_UpdateAdapter_PartialUpdateSemantics(t *testing.T) {
 			}
 
 			var updateResp map[string]any
-			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 			assert.Equal(t, tt.wantName, updateResp["AdapterName"])
 			assert.Equal(t, tt.wantDesc, updateResp["Description"])
 		})
@@ -507,7 +508,7 @@ func TestHandler_ListAdapters_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	adapters, ok := resp["Adapters"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, adapters, 3)
@@ -533,7 +534,7 @@ func TestHandler_ListAdapters_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	adapters, ok := resp["Adapters"].([]any)
 	require.True(t, ok)
@@ -569,14 +570,14 @@ func TestHandler_Adapter_CreationTimeIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 
 	getRec := doTextractRequest(t, h, "GetAdapter", map[string]any{"AdapterId": adapterID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	ct, ok := getResp["CreationTime"].(float64)
 	assert.True(t, ok, "GetAdapter CreationTime must be a JSON number")
 	assert.Positive(t, ct)
@@ -588,7 +589,7 @@ func TestHandler_Adapter_CreationTimeIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	uct, ok := updateResp["CreationTime"].(float64)
 	assert.True(t, ok, "UpdateAdapter CreationTime must be a JSON number")
 	assert.Positive(t, uct)
@@ -597,7 +598,7 @@ func TestHandler_Adapter_CreationTimeIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	adapters, ok := listResp["Adapters"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, adapters)
@@ -633,7 +634,7 @@ func TestHandler_ListAdapters_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Adapters  []map[string]any `json:"Adapters"`
 	}
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	assert.Len(t, resp1.Adapters, 2)
 	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
 
@@ -644,7 +645,7 @@ func TestHandler_ListAdapters_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Adapters  []map[string]any `json:"Adapters"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2.Adapters, 1, "remaining 1 adapter on the second page")
 	assert.Empty(t, resp2.NextToken, "no more pages")
 }

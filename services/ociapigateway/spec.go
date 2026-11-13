@@ -2,13 +2,16 @@ package ociapigateway
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Backend, authentication and policy discriminators.
@@ -235,7 +238,7 @@ type routeDoc struct {
 
 type specDoc struct {
 	RequestPolicies *requestPolicies `json:"requestPolicies"`
-	LoggingPolicies json.RawMessage  `json:"loggingPolicies"`
+	LoggingPolicies jsontext.Value   `json:"loggingPolicies"`
 	Routes          []routeDoc       `json:"routes"`
 }
 
@@ -245,7 +248,7 @@ var (
 	prefixCharRe = regexp.MustCompile(`^[A-Za-z0-9$\-_.+!*'(),%;:@&=]+$`)
 )
 
-func isPresent(raw json.RawMessage) bool {
+func isPresent(raw jsontext.Value) bool {
 	return len(raw) > 0 && !bytes.Equal(raw, []byte(jsonNull))
 }
 
@@ -279,13 +282,13 @@ func validatePathPrefix(p string) *APIError {
 }
 
 // compileSpec decodes and validates a deployment specification.
-func compileSpec(raw json.RawMessage) (*compiledSpec, *APIError) {
+func compileSpec(raw jsontext.Value) (*compiledSpec, *APIError) {
 	if !isPresent(raw) {
 		return nil, errMissing("specification is required")
 	}
 
 	var doc specDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc, jsonx.V1()); err != nil {
 		return nil, errParam("specification is not valid: " + err.Error())
 	}
 

@@ -1,13 +1,14 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- AddPermission handler ---
@@ -25,7 +26,7 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 	}
 
 	var input AddPermissionInput
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 

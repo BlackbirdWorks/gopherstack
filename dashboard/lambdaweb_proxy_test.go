@@ -2,7 +2,8 @@ package dashboard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 )
 
@@ -68,7 +70,7 @@ func (lwLauncher) Launch(context.Context, lambdaweb.LaunchSpec) (lambdaweb.Envir
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{
 			"method": r.Method, "path": r.URL.RequestURI(), "body": string(body), "accept": r.Header.Get("Accept"),
 		})
 	}))
@@ -133,7 +135,7 @@ func lwGet(t *testing.T, f lwFixture, path string) map[string]any {
 
 		out = map[string]any{}
 
-		return json.Unmarshal(rec.Body.Bytes(), &out) == nil
+		return json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()) == nil
 	}, 5*time.Second, 5*time.Millisecond, path)
 
 	return out
@@ -181,7 +183,7 @@ func TestLambdaWebProxyReads(t *testing.T) {
 func jsonText(t *testing.T, v any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)
@@ -268,7 +270,7 @@ func TestLambdaWebInvokeReachesTheApp(t *testing.T) {
 		Status   int                 `json:"status"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, http.StatusOK, out.Status)
 	assert.Equal(t, "text", out.Encoding)
 	assert.Contains(t, out.Domain, ".lambda-web.")

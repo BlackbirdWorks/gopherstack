@@ -2,7 +2,7 @@ package iotdataplane_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -609,7 +610,7 @@ func Test_ErrorShapes_AllTypes(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code, "unexpected status for %s %s", tt.method, tt.path)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantError, resp["error"],
 				"unexpected error type for %s %s", tt.method, tt.path)
 			_, hasMsg := resp["message"]
@@ -629,7 +630,7 @@ func Test_VersionConflict_ErrorShape(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", resp["error"])
 	assert.NotContains(t, resp, "code", "a numeric code breaks the SDK's string-typed body decode")
 }

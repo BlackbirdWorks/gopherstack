@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // batchDeleteImageInput is the request body for BatchDeleteImage.
@@ -195,7 +197,7 @@ type manifestArtifactFields struct {
 func parseManifestArtifactFields(manifest string) (string, string) {
 	var parsed manifestArtifactFields
 
-	if err := json.Unmarshal([]byte(manifest), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(manifest), &parsed, jsonx.V1()); err != nil {
 		return "", ""
 	}
 
@@ -212,7 +214,7 @@ func parseManifestAnnotations(manifest string) map[string]string {
 		Annotations map[string]string `json:"annotations"`
 	}
 
-	if err := json.Unmarshal([]byte(manifest), &parsed); err != nil || len(parsed.Annotations) == 0 {
+	if err := json.Unmarshal([]byte(manifest), &parsed, jsonx.V1()); err != nil || len(parsed.Annotations) == 0 {
 		return nil
 	}
 

@@ -748,7 +748,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [RDS Data](services/rdsdata/README.md) | A | 7 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 4 gaps; 5 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 4 structural gaps; 1 deferred |
-| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 7 gaps; 1 structural gap |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 6 gaps; 1 structural gap |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 structural gap |
 
 ### Networking & Content Delivery
@@ -825,7 +825,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 1 structural gap; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 120 | 4 gaps; 4 structural gaps |
 | [Shield](services/shield/README.md) | A | 36 | 1 structural gap; 1 deferred |
-| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 2 gaps |
+| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 1 gap |
 | [WAF](services/waf/README.md) | A | 4 | 3 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 2 gaps; 2 structural gaps |
 
@@ -935,7 +935,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure AI Search](services/azuresearch/README.md) | B | 19 | 8 gaps |
-| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 12 gaps |
+| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 10 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 10 gaps |
 | [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 9 gaps |
@@ -990,10 +990,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 13 gaps |
+| [OCI API Gateway](services/ociapigateway/README.md) | B | 52 | 12 gaps |
 | [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 7 gaps |
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
-| [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 20 | 9 gaps |
+| [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 49 | 11 gaps |
 | [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 7 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 227 | 11 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
@@ -1003,14 +1003,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Identity](services/ociidentity/README.md) | B | 70 | 8 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 8 gaps |
 | [OCI Logging](services/ocilogging/README.md) | B | 26 | 8 gaps |
-| [OCI Monitoring](services/ocimonitoring/README.md) | B | 11 | 7 gaps |
+| [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 8 gaps |
 | [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 33 | 9 gaps |
-| [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 21 | 8 gaps |
+| [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 10 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 7 gaps |
-| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 52 | 10 gaps |
+| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 52 | 8 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 7 gaps |
 | [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 6 gaps |
-| [OCI Vault](services/ocivault/README.md) | B | 57 | 11 gaps |
+| [OCI Vault](services/ocivault/README.md) | B | 57 | 10 gaps |
 
 ### Other
 
@@ -1028,7 +1028,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 7 gaps; 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
-| [Connect](services/connect/README.md) | B | 386 | 19 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 387 | 17 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 8 gaps; 2 structural gaps |
@@ -1044,7 +1044,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |
 | [Marketplacemetering](services/marketplacemetering/README.md) | B | 4 | 5 gaps; 2 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
-| [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
+| [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 2 gaps; 4 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Oam](services/oam/README.md) | B | 15 | 3 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |

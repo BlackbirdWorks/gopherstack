@@ -3,11 +3,14 @@
 package regionpeers
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"slices"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -113,7 +116,7 @@ func (s *Set[T]) Snapshot(base []byte, snap func(*T) []byte) []byte {
 	}
 
 	s.mu.Lock()
-	regions := make(map[string]json.RawMessage, len(s.peers))
+	regions := make(map[string]jsontext.Value, len(s.peers))
 
 	for r, p := range s.peers {
 		if data := snap(p); data != nil {
@@ -126,19 +129,19 @@ func (s *Set[T]) Snapshot(base []byte, snap func(*T) []byte) []byte {
 		return base
 	}
 
-	doc := make(map[string]json.RawMessage)
-	if err := json.Unmarshal(base, &doc); err != nil {
+	doc := make(map[string]jsontext.Value)
+	if err := json.Unmarshal(base, &doc, jsonx.V1()); err != nil {
 		return base
 	}
 
-	enc, err := json.Marshal(regions)
+	enc, err := json.Marshal(regions, jsonx.V1())
 	if err != nil {
 		return base
 	}
 
 	doc[snapshotKey] = enc
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return base
 	}
@@ -158,10 +161,10 @@ func (s *Set[T]) Restore(data []byte, restore func(*T, []byte) error, closeFn fu
 	}
 
 	var doc struct {
-		Regions map[string]json.RawMessage `json:"regions"`
+		Regions map[string]jsontext.Value `json:"regions"`
 	}
 
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -2,7 +2,7 @@ package gcpfirestore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -17,9 +17,9 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	LastCommit time.Time                  `json:"lastCommit"`
-	Docs       map[string]json.RawMessage `json:"docs"`
-	Version    int                        `json:"version"`
+	LastCommit time.Time                 `json:"lastCommit"`
+	Docs       map[string]jsontext.Value `json:"docs"`
+	Version    int                       `json:"version"`
 }
 
 // Snapshot serialises the current state of every document; version history and transactions are not persisted.
@@ -30,7 +30,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:    snapshotVersion,
 		LastCommit: b.lastCommit,
-		Docs:       make(map[string]json.RawMessage, len(b.docs)),
+		Docs:       make(map[string]jsontext.Value, len(b.docs)),
 	}
 
 	for name, rec := range b.docs {

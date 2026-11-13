@@ -2,13 +2,15 @@ package cloudformation
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // sam_connector_profiles.json is the SAM translator's own connector profile table
@@ -36,7 +38,7 @@ type samConnResourceProps struct {
 //nolint:gochecknoglobals // lazily decoded embedded table
 var samConnectorProfiles = sync.OnceValue(func() samConnProfile {
 	var out samConnProfile
-	if err := json.Unmarshal(samConnectorProfilesJSON, &out); err != nil {
+	if err := json.Unmarshal(samConnectorProfilesJSON, &out, jsonx.V1()); err != nil {
 		panic("cloudformation: invalid embedded sam_connector_profiles.json: " + err.Error())
 	}
 
@@ -131,7 +133,7 @@ func profileReplaceString(s string, repl []samReplacement) (any, error) {
 }
 
 func verifyProfileVarsReplaced(obj any) error {
-	raw, err := json.Marshal(obj)
+	raw, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 package ocivault_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	oci "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
@@ -652,7 +653,7 @@ func TestSecretIfMatchAndCompartmentMove(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ocid1.compartment.oc1..moved", *moved.CompartmentId)
 
-	raw, err := json.Marshal(moved.Secret)
+	raw, err := json.Marshal(moved.Secret, jsonx.V1())
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), "currentVersionNumber")
 }

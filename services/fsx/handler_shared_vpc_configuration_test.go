@@ -1,12 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestFSx_SharedVpcConfiguration(t *testing.T) {
@@ -47,7 +49,7 @@ func TestFSx_SharedVpcConfiguration(t *testing.T) {
 			rec := doFSxRequest(t, h, "DescribeSharedVpcConfiguration", map[string]any{})
 			require.Equal(t, tc.wantCode, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tc.wantEnabled, out["EnableFsxRouteTableUpdatesFromParticipantAccounts"])
 		})
 	}

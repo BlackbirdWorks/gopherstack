@@ -1,7 +1,7 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -75,7 +76,7 @@ func TestAssociateBuiltInPermission(t *testing.T) {
 					PermissionType string `json:"permissionType"`
 				} `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Permissions, 1)
 			assert.Equal(t, tt.permARN, resp.Permissions[0].Arn)
 			assert.Equal(t, "AWS_MANAGED", resp.Permissions[0].PermissionType)
@@ -145,7 +146,7 @@ func TestReplacePermissionAssociations(t *testing.T) {
 					ID     string `json:"id"`
 				} `json:"replacePermissionAssociationsWork"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.ReplacePermissionAssociationsWork.ID)
 			// This mock performs the association swap synchronously (no async worker),
 			// so the work item is already COMPLETED by the time the call returns.
@@ -181,7 +182,7 @@ func TestListReplacePermissionAssociationsWork(t *testing.T) {
 			ID string `json:"id"`
 		} `json:"replacePermissionAssociationsWork"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	workID := createResp.ReplacePermissionAssociationsWork.ID
 	require.NotEmpty(t, workID)
 
@@ -203,7 +204,7 @@ func TestListReplacePermissionAssociationsWork(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 		require.Len(t, resp.ReplacePermissionAssociationsWorks, 1)
 
 		w := resp.ReplacePermissionAssociationsWorks[0]
@@ -224,7 +225,7 @@ func TestListReplacePermissionAssociationsWork(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Empty(t, resp.ReplacePermissionAssociationsWorks)
 	})
 
@@ -237,7 +238,7 @@ func TestListReplacePermissionAssociationsWork(t *testing.T) {
 		require.Equal(t, http.StatusOK, listRec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Empty(t, resp.ReplacePermissionAssociationsWorks)
 	})
 }
@@ -415,7 +416,7 @@ func TestDisassociateResourceSharePermission_BlockedWhileResourceOfTypeAttached(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "OperationNotPermittedException", errResp["__type"])
 
 	// The permission must still be associated -- the disassociation was refused, not
@@ -516,7 +517,7 @@ func TestListResourceSharePermissions_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -525,7 +526,7 @@ func TestListResourceSharePermissions_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				nextToken = resp.NextToken
@@ -580,7 +581,7 @@ func TestListPermissionAssociations_PermissionVersionFilter(t *testing.T) {
 			PermissionVersion string `json:"permissionVersion"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(
 		t, resp.Permissions, 1,
 		"permissionVersion must scope results to shares pinned to that version",
@@ -670,7 +671,7 @@ func TestListPermissionAssociations_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -679,7 +680,7 @@ func TestListPermissionAssociations_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.Permissions)
@@ -712,7 +713,7 @@ func TestListResourceSharePermissions_RealData(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp))
+	require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp, jsonx.V1()))
 	shareARN := shareResp.ResourceShare.ResourceShareArn
 
 	permRec := doRAMRequest(t, h, "/createpermission", map[string]any{
@@ -727,7 +728,7 @@ func TestListResourceSharePermissions_RealData(t *testing.T) {
 			Arn string `json:"arn"`
 		} `json:"permission"`
 	}
-	require.NoError(t, json.Unmarshal(permRec.Body.Bytes(), &permResp))
+	require.NoError(t, json.Unmarshal(permRec.Body.Bytes(), &permResp, jsonx.V1()))
 	permARN := permResp.Permission.Arn
 
 	// Associate permission with share.
@@ -748,7 +749,7 @@ func TestListResourceSharePermissions_RealData(t *testing.T) {
 			Arn string `json:"arn"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Permissions, 1)
 	assert.Equal(t, permARN, listResp.Permissions[0].Arn)
 }
@@ -781,7 +782,7 @@ func TestListResourceSharePermissions_ReportsAssociatedVersion(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp))
+	require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp, jsonx.V1()))
 	shareARN := shareResp.ResourceShare.ResourceShareArn
 
 	permRec := doRAMRequest(t, h, "/createpermission", map[string]any{
@@ -796,7 +797,7 @@ func TestListResourceSharePermissions_ReportsAssociatedVersion(t *testing.T) {
 			Arn string `json:"arn"`
 		} `json:"permission"`
 	}
-	require.NoError(t, json.Unmarshal(permRec.Body.Bytes(), &permResp))
+	require.NoError(t, json.Unmarshal(permRec.Body.Bytes(), &permResp, jsonx.V1()))
 	permARN := permResp.Permission.Arn
 
 	// Create a second version and make it the default, then pin the share to
@@ -833,7 +834,7 @@ func TestListResourceSharePermissions_ReportsAssociatedVersion(t *testing.T) {
 			DefaultVersion bool   `json:"defaultVersion"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Permissions, 1)
 	assert.Equal(
 		t, "1", listResp.Permissions[0].Version,

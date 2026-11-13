@@ -3,7 +3,7 @@ package cloudformation
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -29,7 +30,7 @@ var (
 // against real backends; Cloud Control serves the same set.
 func ProvisionableTypes() []string {
 	cfnProvisionableTypesOnce.Do(func() {
-		if err := json.Unmarshal(cfnProvisionableTypesJSON, &cfnProvisionableTypes); err != nil {
+		if err := json.Unmarshal(cfnProvisionableTypesJSON, &cfnProvisionableTypes, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded cfn_provisionable_types.json: " + err.Error())
 		}
 	})

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -100,7 +102,11 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var env pushedEnvelope
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPushBytes)).Decode(&env); err != nil {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(w, r.Body, maxPushBytes)),
+		&env,
+		jsonx.V1(),
+	); err != nil {
 		http.Error(w, "invalid push envelope: "+err.Error(), http.StatusBadRequest)
 
 		return
@@ -190,18 +196,18 @@ func workflowArgument(ev cloudEvent) ([]byte, error) {
 		out["time"] = ev.time
 	}
 
-	if json.Valid(ev.body) {
-		out["datacontenttype"], out["data"] = contentTypeJSON, json.RawMessage(ev.body)
+	if jsontext.Value(ev.body).IsValid(jsonx.V1()) {
+		out["datacontenttype"], out["data"] = contentTypeJSON, jsontext.Value(ev.body)
 	} else {
 		out["datacontenttype"], out["data_base64"] = contentTypeProto, base64.StdEncoding.EncodeToString(ev.body)
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 func buildEvent(t *eventarcpb.Trigger, env pushedEnvelope) (cloudEvent, bool) {
 	if eventType(t.GetEventFilters()) == typePubsubPublished {
-		body, err := json.Marshal(pushedEnvelope{Subscription: env.Subscription, Message: env.Message})
+		body, err := json.Marshal(pushedEnvelope{Subscription: env.Subscription, Message: env.Message}, jsonx.V1())
 		if err != nil {
 			return cloudEvent{}, false
 		}

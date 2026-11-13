@@ -1,6 +1,10 @@
 package fixture
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type putRuleInput struct {
 	Tags map[string]string `json:"Tags"`
@@ -10,5 +14,5 @@ type putRuleInput struct {
 func decode(body []byte) (*putRuleInput, error) {
 	var in putRuleInput
 
-	return &in, json.Unmarshal(body, &in)
+	return &in, json.Unmarshal(body, &in, jsonx.V1())
 }

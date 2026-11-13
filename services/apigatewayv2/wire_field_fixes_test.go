@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -550,7 +551,7 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var product apigatewayv2.PortalProduct
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product, jsonx.V1()))
 
 	body := map[string]any{
 		"restEndpointIdentifier": map[string]any{
@@ -571,7 +572,7 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var created apigatewayv2.ProductRestEndpointPage
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, wantEndpoint, created.DisplayContent["endpoint"])
 	assert.Equal(t, "custom docs", created.DisplayContent["body"])
 	assert.Equal(t, wantEndpoint, created.Endpoint)
@@ -584,7 +585,7 @@ func TestCreateProductRestEndpointPage_DisplayContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var got apigatewayv2.ProductRestEndpointPage
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, wantEndpoint, got.DisplayContent["endpoint"])
 	assert.Equal(t, "custom docs", got.DisplayContent["body"])
 	assert.Equal(t, wantEndpoint, got.Endpoint)

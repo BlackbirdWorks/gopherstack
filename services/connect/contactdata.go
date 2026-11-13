@@ -2,7 +2,8 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -54,8 +56,8 @@ type CreateContactInput struct {
 	Name                    string
 	PreviousContactID       string `json:"PreviousContactId"`
 	RelatedContactID        string `json:"RelatedContactId"`
-	SegmentAttributes       json.RawMessage
-	References              json.RawMessage
+	SegmentAttributes       jsontext.Value
+	References              jsontext.Value
 }
 
 type createContactOut struct {
@@ -135,24 +137,24 @@ func checkCreateContactText(in *CreateContactInput) error {
 	return validAttributeKeys(in.Attributes)
 }
 
-func expirySegments(raw json.RawMessage, minutes *int32) (json.RawMessage, error) {
+func expirySegments(raw jsontext.Value, minutes *int32) (jsontext.Value, error) {
 	if minutes == nil {
 		return raw, nil
 	}
 
-	segs := map[string]json.RawMessage{}
+	segs := map[string]jsontext.Value{}
 	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &segs); err != nil {
+		if err := json.Unmarshal(raw, &segs, jsonx.V1()); err != nil {
 			return nil, invalidParamErr("SegmentAttributes is not valid")
 		}
 	}
 
 	if _, ok := segs[expiryAttribute]; !ok {
-		segs[expiryAttribute] = json.RawMessage(
+		segs[expiryAttribute] = jsontext.Value(
 			`{"ValueMap":{"ExpiryDuration":{"ValueInteger":` + strconv.FormatInt(int64(*minutes), 10) + `}}}`)
 	}
 
-	return json.Marshal(segs)
+	return json.Marshal(segs, jsonx.V1())
 }
 
 // CreateContact creates a voice, email or task contact.
@@ -216,7 +218,7 @@ type ContactDataRequest struct {
 	Attributes        map[string]string
 	QueueID           string `json:"QueueId"`
 	RequestIdentifier string
-	OutboundStrategy  json.RawMessage
+	OutboundStrategy  jsontext.Value
 }
 
 // BatchPutContactInput is the BatchPutContact request.
@@ -284,7 +286,7 @@ func (b *Backend) checkBatchItem(inst string, req *ContactDataRequest) (string, 
 		var s struct {
 			Type string `json:"Type"`
 		}
-		if json.Unmarshal(req.OutboundStrategy, &s) != nil || s.Type != "AGENT_FIRST" {
+		if json.Unmarshal(req.OutboundStrategy, &s, jsonx.V1()) != nil || s.Type != "AGENT_FIRST" {
 			return failInvalidOutbnd, "OutboundStrategy.Type must be AGENT_FIRST"
 		}
 
@@ -422,7 +424,7 @@ func (b *Backend) resourceContactLocked(instRef, id string) (*contactRec, error)
 type ParticipantDetailsToAdd struct {
 	DisplayName             string
 	ParticipantRole         string
-	ParticipantCapabilities json.RawMessage
+	ParticipantCapabilities jsontext.Value
 }
 
 // CreateParticipantInput is the CreateParticipant request.

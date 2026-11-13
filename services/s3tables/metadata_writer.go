@@ -2,7 +2,7 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -181,7 +182,7 @@ func buildIcebergTableMetadata(t *Table, now time.Time) (*iceberg.TableMetadata,
 		return nil, err
 	}
 
-	orderJSON, err := json.Marshal(order)
+	orderJSON, err := json.Marshal(order, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -203,10 +204,10 @@ func buildIcebergTableMetadata(t *Table, now time.Time) (*iceberg.TableMetadata,
 }
 
 func roundTrip(in map[string]any, out any) error {
-	b, err := json.Marshal(in)
+	b, err := json.Marshal(in, jsonx.V1())
 	if err != nil {
 		return err
 	}
 
-	return json.Unmarshal(b, out)
+	return json.Unmarshal(b, out, jsonx.V1())
 }

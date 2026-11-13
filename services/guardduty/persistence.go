@@ -2,7 +2,7 @@ package guardduty
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -110,7 +110,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // identity of their own -- see store_setup.go) and is persisted here
 // directly, as before. MemberSeq is a scalar counter, also carried directly.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`
@@ -308,7 +308,7 @@ func unwrapByDetectorDTOs[V any](dtos *store.Table[byDetectorDTO[V]], setDetecto
 // restoreDirtyTables rebuilds every "dirty" store.Table on b from tables via
 // the ephemeral DTO registry, factored out of Restore to keep Restore's own
 // cognitive complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 	if err := dtos.registry.RestoreAll(tables); err != nil {
 		return fmt.Errorf("guardduty: restore snapshot DTO tables: %w", err)

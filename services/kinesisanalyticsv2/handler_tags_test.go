@@ -1,12 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestKAV2_TaggingOperations(t *testing.T) {
@@ -24,7 +26,7 @@ func TestKAV2_TaggingOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	detail := createOut["ApplicationDetail"].(map[string]any)
 	appARN := detail["ApplicationARN"].(string)
@@ -36,7 +38,7 @@ func TestKAV2_TaggingOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	tags, ok := listOut["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags, 1)
@@ -62,7 +64,7 @@ func TestKAV2_TaggingOperations(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2, jsonx.V1()))
 	tags2, ok := listOut2["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags2, 1)

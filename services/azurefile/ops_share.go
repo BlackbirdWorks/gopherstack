@@ -1,7 +1,7 @@
 package azurefile
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"math"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -782,7 +783,12 @@ func (h *Handler) createPermission(rc *reqCtx) (*resp, *apiError) {
 	}
 
 	var in permissionJSON
-	if err := json.Unmarshal(data, &in); err != nil || in.Permission == "" || len(in.Permission) > maxSDDLLen {
+	if err := json.Unmarshal(
+		data,
+		&in,
+		jsonx.V1(),
+	); err != nil || in.Permission == "" ||
+		len(in.Permission) > maxSDDLLen {
 		return nil, errInvalidHeader("x-ms-file-permission")
 	}
 
@@ -823,7 +829,7 @@ func (h *Handler) getPermission(rc *reqCtx) (*resp, *apiError) {
 		return nil, errInvalidPermissionKey()
 	}
 
-	body, err := json.Marshal(permissionJSON{Permission: sddl, Format: "Sddl"})
+	body, err := json.Marshal(permissionJSON{Permission: sddl, Format: "Sddl"}, jsonx.V1())
 	if err != nil {
 		return nil, newErr(http.StatusInternalServerError, "InternalError", "Failed to marshal response.")
 	}

@@ -1,11 +1,12 @@
 package ocicontainerinstances
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -23,13 +24,13 @@ const (
 )
 
 func (in *Instance) clone() *Instance {
-	raw, err := json.Marshal(in)
+	raw, err := json.Marshal(in, jsonx.V1())
 	if err != nil {
 		return in
 	}
 
 	out := &Instance{}
-	if json.Unmarshal(raw, out) != nil {
+	if json.Unmarshal(raw, out, jsonx.V1()) != nil {
 		return in
 	}
 
@@ -172,7 +173,7 @@ func (b *InMemoryBackend) resolveCreds(secrets []PullSecret) ([]Credential, erro
 			Password string `json:"password"`
 		}
 
-		if json.Unmarshal([]byte(raw), &auth) != nil || auth.Username == "" || auth.Password == "" {
+		if json.Unmarshal([]byte(raw), &auth, jsonx.V1()) != nil || auth.Username == "" || auth.Password == "" {
 			return nil, errVaultSecretShape
 		}
 

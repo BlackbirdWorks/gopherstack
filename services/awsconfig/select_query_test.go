@@ -1,12 +1,13 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -80,7 +81,7 @@ func TestSelectResourceConfig_SelectsRequestedFields(t *testing.T) {
 	}
 
 	var row map[string]any
-	if unmarshalErr := json.Unmarshal([]byte(results[0]), &row); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal([]byte(results[0]), &row, jsonx.V1()); unmarshalErr != nil {
 		t.Fatalf("unmarshal row: %v", unmarshalErr)
 	}
 
@@ -116,7 +117,7 @@ func extractResourceIDs(t *testing.T, results []string) []string {
 
 	for _, r := range results {
 		var row map[string]any
-		if err := json.Unmarshal([]byte(r), &row); err != nil {
+		if err := json.Unmarshal([]byte(r), &row, jsonx.V1()); err != nil {
 			t.Fatalf("unmarshal row: %v", err)
 		}
 

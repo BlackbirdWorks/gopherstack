@@ -1,7 +1,7 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListAPIKeys_SummaryShape locks that ListAPIKeys' APIKeySummary items
@@ -32,7 +34,7 @@ func TestListAPIKeys_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["APIKeySummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, summaries, 1)
@@ -58,7 +60,7 @@ func TestGetDecryptedAPIKey_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiKey, ok := createResp["APIKey"].(string)
 	require.True(t, ok)
 
@@ -69,7 +71,7 @@ func TestGetDecryptedAPIKey_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotContains(t, resp, "Scope", "GetDecryptedAPIKeyOutput has no Scope member")
 	assert.Contains(t, resp, "TokenDomains")
 	assert.Contains(t, resp, "CreationTimestamp")

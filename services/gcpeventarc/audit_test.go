@@ -1,13 +1,15 @@
 package gcpeventarc_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func auditFilters(service, method string, extra ...*eventarcpb.EventFilter) []*eventarcpb.EventFilter {
@@ -99,7 +101,7 @@ func TestAuditLogDelivery(t *testing.T) {
 				LogName string `json:"logName"`
 			}
 
-			require.NoError(t, json.Unmarshal(got.body, &entry))
+			require.NoError(t, json.Unmarshal(got.body, &entry, jsonx.V1()))
 			assert.Equal(t, "type.googleapis.com/google.cloud.audit.AuditLog", entry.ProtoPayload.Type)
 			assert.Equal(t, tt.method, entry.ProtoPayload.MethodName)
 			assert.Equal(t, "storage.googleapis.com", entry.ProtoPayload.ServiceName)

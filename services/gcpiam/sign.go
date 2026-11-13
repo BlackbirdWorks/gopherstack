@@ -7,12 +7,15 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/iam/admin/apiv1/adminpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -160,7 +163,7 @@ func (b *InMemoryBackend) SignJwt(name, payload string) (string, string, error) 
 		return "", "", err
 	}
 
-	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": keyID})
+	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": keyID}, jsonx.V1())
 	if err != nil {
 		return "", "", errInternal(err)
 	}
@@ -179,17 +182,16 @@ func (b *InMemoryBackend) SignJwt(name, payload string) (string, string, error) 
 func (b *InMemoryBackend) jwtClaims(payload string) ([]byte, error) {
 	var claims map[string]any
 
-	dec := json.NewDecoder(strings.NewReader(payload))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(payload))
 
-	if err := dec.Decode(&claims); err != nil || claims == nil {
+	if err := json.UnmarshalDecode(dec, &claims, jsonx.V1(), jsonx.UseNumber()); err != nil || claims == nil {
 		return nil, errInvalid("The JWT payload must be a serialized JSON object.")
 	}
 
 	now := b.now()
 
 	if raw, ok := claims["exp"]; ok {
-		num, isNum := raw.(json.Number)
+		num, isNum := raw.(jsonx.Number)
 
 		exp, err := num.Int64()
 		if !isNum || err != nil {
@@ -203,7 +205,7 @@ func (b *InMemoryBackend) jwtClaims(payload string) ([]byte, error) {
 		claims["exp"] = now.Add(jwtDefaultTTL).Unix()
 	}
 
-	out, err := json.Marshal(claims)
+	out, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		return nil, errInternal(err)
 	}

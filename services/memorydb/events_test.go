@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -83,7 +84,7 @@ func TestDescribeEvents_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Events    []map[string]any `json:"Events"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first, jsonx.V1()))
 	require.Len(t, first.Events, 1, "first page must truncate to MaxResults")
 	require.NotEmpty(t, first.NextToken, "NextToken must be set when more events remain")
 
@@ -94,7 +95,7 @@ func TestDescribeEvents_Pagination(t *testing.T) {
 		NextToken string           `json:"NextToken"`
 		Events    []map[string]any `json:"Events"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second, jsonx.V1()))
 	require.Len(t, second.Events, 1, "second page must return the next event")
 	assert.NotEqual(t, first.Events[0]["Message"], second.Events[0]["Message"], "no event must repeat across pages")
 }

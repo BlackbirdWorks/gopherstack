@@ -2,9 +2,11 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // multiMeasureAttributeMappingInput mirrors types.MultiMeasureAttributeMapping.
@@ -137,7 +139,7 @@ func convertMultiMeasureAttributeMappings(
 func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req createScheduledQueryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -211,7 +213,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 
 	return json.Marshal(map[string]any{
 		keyArn: sq.Arn,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -219,7 +221,7 @@ func (h *Handler) handleDeleteScheduledQuery(ctx context.Context, body []byte) (
 		ScheduledQueryArn string `json:"ScheduledQueryArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -239,7 +241,7 @@ func (h *Handler) handleDescribeScheduledQuery(ctx context.Context, body []byte)
 		ScheduledQueryArn string `json:"ScheduledQueryArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -254,7 +256,7 @@ func (h *Handler) handleDescribeScheduledQuery(ctx context.Context, body []byte)
 
 	return json.Marshal(map[string]any{
 		"ScheduledQuery": scheduledQueryToView(sq),
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -263,7 +265,7 @@ func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) 
 		InvocationTime    float64 `json:"InvocationTime"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -290,7 +292,7 @@ func (h *Handler) handleListScheduledQueries(ctx context.Context, body []byte) (
 		MaxResults int32  `json:"MaxResults"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if err := validateScheduledQueryPaging(req.NextToken, req.MaxResults); err != nil {
@@ -306,7 +308,7 @@ func (h *Handler) handleListScheduledQueries(ctx context.Context, body []byte) (
 		resp["NextToken"] = result.NextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -315,7 +317,7 @@ func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, body []byte) (
 		State             string `json:"State"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 

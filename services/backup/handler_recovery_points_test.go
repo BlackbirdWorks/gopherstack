@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -111,7 +112,7 @@ func TestRecoveryPointNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var respData map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &respData))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &respData, jsonx.V1()))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

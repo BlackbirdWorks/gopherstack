@@ -1,9 +1,12 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func writeJSON(path string, findings []finding) error {
@@ -13,10 +16,9 @@ func writeJSON(path string, findings []finding) error {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	return enc.Encode(findings)
+	return json.MarshalEncode(enc, findings)
 }
 
 func printReport(findings []finding) {

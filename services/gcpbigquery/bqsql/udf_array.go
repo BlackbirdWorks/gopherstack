@@ -3,16 +3,18 @@ package bqsql
 import (
 	"bytes"
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func decodeJSONArray(v driver.Value) ([]any, error) {
-	dec := json.NewDecoder(strings.NewReader(toStr(v)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(toStr(v)))
 
 	var arr []any
-	if err := dec.Decode(&arr); err != nil {
+	if err := json.UnmarshalDecode(dec, &arr, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, errBQ("expected an ARRAY value")
 	}
 
@@ -22,9 +24,8 @@ func decodeJSONArray(v driver.Value) ([]any, error) {
 func encodeJSON(v any) string {
 	var buf bytes.Buffer
 
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
+	enc := jsontext.NewEncoder(&buf, jsonx.V1(), jsontext.EscapeForHTML(false))
+	_ = json.MarshalEncode(enc, v)
 
 	return strings.TrimSpace(buf.String())
 }
@@ -34,7 +35,7 @@ func jsonToSQL(v any) driver.Value {
 	switch t := v.(type) {
 	case nil:
 		return nil
-	case json.Number:
+	case jsonx.Number:
 		if n, err := t.Int64(); err == nil {
 			return n
 		}

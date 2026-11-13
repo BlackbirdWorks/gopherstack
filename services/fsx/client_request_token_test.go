@@ -1,7 +1,7 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -17,7 +18,7 @@ func responseID(t *testing.T, body []byte, outKey, idKey string) string {
 
 	var out map[string]map[string]any
 
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	id, ok := out[outKey][idKey].(string)
 	require.True(t, ok, string(body))

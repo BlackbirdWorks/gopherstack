@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 	"github.com/blackbirdworks/gopherstack/services/s3"
@@ -66,7 +67,7 @@ func jsonAction(t *testing.T, client *http.Client, baseURL, action, body string,
 	require.NoError(t, err)
 
 	if out != nil && len(respBody) > 0 {
-		require.NoError(t, json.Unmarshal(respBody, out))
+		require.NoError(t, json.Unmarshal(respBody, out, jsonx.V1()))
 	}
 
 	return resp.StatusCode

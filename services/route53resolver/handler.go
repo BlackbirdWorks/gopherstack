@@ -2,7 +2,7 @@ package route53resolver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -121,7 +122,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 	var req extractResolverResourceInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return req.Name
 }
@@ -153,14 +154,11 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	msg := wireMessage(err)
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload := errorPayload("ResourceNotFoundException", msg)
@@ -188,7 +186,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// FirewallRule ops model ValidationException (see ErrBatchValidation) --
 	// left untyped rather than guessing which family reached this path.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: msg})
 	default:
 		// InternalServiceErrorException is modeled on all 72 operations
@@ -309,7 +307,7 @@ func updateSimpleConfig[TConfig, TOutput any](
 // errorPayload carries the message under both casings: schema-driven SDK deserializers
 // (route53resolver v1.53+) only match the modeled member name "Message".
 func errorPayload(errType, msg string) []byte {
-	payload, _ := json.Marshal(map[string]string{"__type": errType, "message": msg, "Message": msg})
+	payload, _ := json.Marshal(map[string]string{"__type": errType, "message": msg, "Message": msg}, jsonx.V1())
 
 	return payload
 }

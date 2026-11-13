@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type apb = artifactregistrypb.RemoteRepositoryConfig
@@ -101,7 +104,7 @@ func TestRemoteNPMRepository(t *testing.T) {
 	up = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/left-pad":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{
 				"name": "left-pad", "dist-tags": map[string]string{"latest": "1.3.0"},
 				"versions": map[string]any{"1.3.0": map[string]any{
 					"name": "left-pad", "version": "1.3.0",
@@ -137,7 +140,7 @@ func TestRemoteNPMRepository(t *testing.T) {
 			} `json:"dist"`
 		} `json:"versions"`
 	}
-	require.NoError(t, json.Unmarshal(body, &doc))
+	require.NoError(t, json.Unmarshal(body, &doc, jsonx.V1()))
 	assert.Equal(t, base+"/left-pad/-/left-pad-1.3.0.tgz", doc.Versions["1.3.0"].Dist.Tarball)
 
 	code, got := getBody(t, doc.Versions["1.3.0"].Dist.Tarball)

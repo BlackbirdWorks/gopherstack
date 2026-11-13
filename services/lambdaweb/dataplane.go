@@ -2,7 +2,8 @@ package lambdaweb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Platform error types carried in the lambda-web-error-type response header.
@@ -296,7 +298,7 @@ func platformError(w http.ResponseWriter, status int, errType, msg string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": msg})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{"message": msg})
 }
 
 // proxy picks a revision by weight and forwards the request to one of its execution environments.

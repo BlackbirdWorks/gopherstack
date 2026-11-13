@@ -1,7 +1,7 @@
 package gcpcompute_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type listDoc struct {
@@ -29,7 +31,7 @@ func getJSON[T any](t *testing.T, e *env, path string, want int) T {
 	require.Equal(t, want, status, body)
 
 	var out T
-	require.NoError(t, json.Unmarshal([]byte(body), &out), body)
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()), body)
 
 	return out
 }
@@ -211,7 +213,7 @@ func TestListQueryErrors(t *testing.T) {
 				} `json:"error"`
 			}
 
-			require.NoError(t, json.Unmarshal([]byte(body), &doc))
+			require.NoError(t, json.Unmarshal([]byte(body), &doc, jsonx.V1()))
 			assert.Equal(t, http.StatusBadRequest, doc.Error.Code)
 			require.NotEmpty(t, doc.Error.Errors)
 			assert.Equal(t, "invalid", doc.Error.Errors[0].Reason)
@@ -475,7 +477,7 @@ func TestErrorBodyShape(t *testing.T) {
 		} `json:"error"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &doc))
+	require.NoError(t, json.Unmarshal([]byte(body), &doc, jsonx.V1()))
 	assert.Equal(t, 404, doc.Error.Code)
 	assert.Equal(t, "The resource 'projects/p/global/networks/ghost' was not found", doc.Error.Message)
 	require.Len(t, doc.Error.Errors, 1)

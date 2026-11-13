@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp.UserPool.ID
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -39,7 +41,7 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 			ClientSecret string `json:"ClientSecret,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp.UserPoolClient.ClientID
 	secret := clientResp.UserPoolClient.ClientSecret
 	require.NotEmpty(t, secret)
@@ -56,7 +58,7 @@ func TestHandler_SecretHash_InitiateAuth_Via_HTTP(t *testing.T) {
 	var signUpResp struct {
 		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(signUpRec.Body.Bytes(), &signUpResp))
+	require.NoError(t, json.Unmarshal(signUpRec.Body.Bytes(), &signUpResp, jsonx.V1()))
 	code := signUpResp.CodeDeliveryDetails["ConfirmationCode"]
 
 	confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
@@ -147,7 +149,7 @@ func TestTokenExpiryFor_Backend(t *testing.T) {
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			assert.Equal(t, tt.validity, createResp.UserPoolClient.AccessTokenValidity)
 			assert.Equal(t, tt.unit, createResp.UserPoolClient.TokenValidityUnits[unitKey])
 		})
@@ -251,12 +253,12 @@ func TestHandler_RevokeToken(t *testing.T) {
 	// Set up pool, client and confirmed user.
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "revoke-pool"})
 	var poolResp map[string]map[string]any
-	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 	poolID := poolRec.Body.String()
 	_ = poolID
 
 	var poolData map[string]map[string]any
-	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData)
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData, jsonx.V1())
 	pID := poolData["UserPool"]["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -264,7 +266,7 @@ func TestHandler_RevokeToken(t *testing.T) {
 		"ClientName": "revoke-client",
 	})
 	var clientData map[string]map[string]any
-	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData)
+	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData, jsonx.V1())
 	clientID := clientData["UserPoolClient"]["ClientId"].(string)
 
 	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -292,7 +294,7 @@ func TestHandler_RevokeToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, authRec.Code)
 
 	var authData map[string]map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authData))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authData, jsonx.V1()))
 	refreshToken := authData["AuthenticationResult"]["RefreshToken"].(string)
 
 	// RevokeToken should succeed (200).

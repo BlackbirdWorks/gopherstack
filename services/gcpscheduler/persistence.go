@@ -2,7 +2,7 @@ package gcpscheduler
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -17,10 +17,10 @@ import (
 const snapshotVersion = 1
 
 type jobSnap struct {
-	RetryAt   time.Time       `json:"retryAt"`
-	ExecStart time.Time       `json:"execStart"`
-	Job       json.RawMessage `json:"job"`
-	Failures  int32           `json:"failures"`
+	RetryAt   time.Time      `json:"retryAt"`
+	ExecStart time.Time      `json:"execStart"`
+	Job       jsontext.Value `json:"job"`
+	Failures  int32          `json:"failures"`
 }
 
 type backendSnapshot struct {

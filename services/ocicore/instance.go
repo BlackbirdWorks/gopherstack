@@ -2,10 +2,13 @@ package ocicore
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -39,7 +42,7 @@ type LaunchInstanceIn struct {
 	ImageID                 string            `json:"imageId"`
 	Shape                   string            `json:"shape"`
 	SubnetID                string            `json:"subnetId"`
-	LaunchVolumeAttachments []json.RawMessage `json:"launchVolumeAttachments"`
+	LaunchVolumeAttachments []jsontext.Value  `json:"launchVolumeAttachments"`
 }
 
 func checkMetadata(md map[string]string, ext map[string]any) *APIError {
@@ -50,7 +53,7 @@ func checkMetadata(md map[string]string, ext map[string]any) *APIError {
 	}
 
 	for k, v := range ext {
-		raw, _ := json.Marshal(v)
+		raw, _ := json.Marshal(v, jsonx.V1())
 		size += len(k) + len(raw)
 	}
 

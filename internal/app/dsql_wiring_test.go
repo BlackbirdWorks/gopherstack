@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dsql"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -80,7 +81,7 @@ func TestWireDSQLAuth(t *testing.T) {
 				Port     int    `json:"port"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, "127.0.0.1", got.Host)
 			assert.Equal(t, 41234, got.Port)
 			assert.Equal(t, c.Endpoint, got.Endpoint)

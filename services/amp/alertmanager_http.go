@@ -1,7 +1,7 @@
 package amp
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
@@ -129,7 +130,7 @@ func (h *Handler) putSilence(c *echo.Context, wsID string) error {
 	}
 
 	var in silenceInput
-	if jerr := json.Unmarshal(body, &in); jerr != nil {
+	if jerr := json.Unmarshal(body, &in, jsonx.V1()); jerr != nil {
 		return promError(c, http.StatusBadRequest, "bad_data", "body must be a JSON silence")
 	}
 

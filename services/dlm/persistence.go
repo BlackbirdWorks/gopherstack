@@ -2,7 +2,7 @@ package dlm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"math"
 	"strconv"
@@ -33,9 +33,9 @@ const dlmSnapshotVersion = 1
 // (older or newer) build of this backend as though it were the current
 // shape; see Restore.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Counter int                        `json:"counter"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Counter int                       `json:"counter"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON.

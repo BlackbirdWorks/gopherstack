@@ -3,7 +3,8 @@ package timestreamquery
 import (
 	"bytes"
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // seriesMark prefixes the JSON text of a timeseries value; arrays carry arrayMark (athena's container mark).
@@ -60,11 +63,10 @@ func decodeSeries(v driver.Value) ([]seriesPoint, error) {
 		return nil, errNotSeries
 	}
 
-	dec := json.NewDecoder(strings.NewReader(strings.TrimPrefix(s, seriesMark)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(strings.TrimPrefix(s, seriesMark)))
 
 	var raw [][]any
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.UnmarshalDecode(dec, &raw, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, errNotSeries
 	}
 
@@ -89,7 +91,7 @@ func decodeSeries(v driver.Value) ([]seriesPoint, error) {
 }
 
 func decodeJSONScalar(v any) any {
-	n, ok := v.(json.Number)
+	n, ok := v.(jsonx.Number)
 	if !ok {
 		return v
 	}
@@ -141,7 +143,7 @@ func encodeJSONScalar(v any) string {
 	case bool:
 		return strconv.FormatBool(x)
 	default:
-		b, _ := json.Marshal(fmt.Sprint(x))
+		b, _ := json.Marshal(fmt.Sprint(x), jsonx.V1())
 
 		return string(b)
 	}
@@ -246,7 +248,7 @@ func targetTimes(v driver.Value) ([]time.Time, bool, error) {
 	}
 
 	var raw []string
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, arrayMark)), &raw); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, arrayMark)), &raw, jsonx.V1()); err != nil {
 		return nil, false, errBadArg
 	}
 
@@ -659,7 +661,7 @@ func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 		vals = append(vals, v)
 	}
 
-	b, _ := json.Marshal(vals)
+	b, _ := json.Marshal(vals, jsonx.V1())
 
 	return arrayMark + string(b), nil
 }
@@ -676,7 +678,7 @@ func sequenceTimes(start, stop time.Time, stepNs int64) (driver.Value, error) {
 		vals = append(vals, formatTS(t))
 	}
 
-	b, _ := json.Marshal(vals)
+	b, _ := json.Marshal(vals, jsonx.V1())
 
 	return arrayMark + string(b), nil
 }

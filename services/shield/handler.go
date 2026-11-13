@@ -3,7 +3,7 @@ package shield
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -394,10 +395,7 @@ func shieldErrorRules() []shieldErrorRule {
 // treated the same as InvalidParameterException since they never reach a specific handler's own
 // validation. Unrecognized errors fall back to InternalErrorException/500.
 func classifyShieldError(err error) (string, int) {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
-	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+	if jsonx.IsSyntaxError(err) || jsonx.IsTypeError(err) {
 		return codeInvalidParameterException, http.StatusBadRequest
 	}
 
@@ -415,7 +413,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    code,
 		keyMessageField: messageWithoutCode(code, err),
-	})
+	}, jsonx.V1())
 
 	return c.JSONBlob(status, payload)
 }
@@ -452,7 +450,7 @@ func decodeOffsetToken(token string) (int, error) {
 	}
 
 	var t offsetToken
-	if unmarshalErr := json.Unmarshal(raw, &t); unmarshalErr != nil || t.O < 0 {
+	if unmarshalErr := json.Unmarshal(raw, &t, jsonx.V1()); unmarshalErr != nil || t.O < 0 {
 		return 0, errInvalidPaginationToken
 	}
 
@@ -461,7 +459,7 @@ func decodeOffsetToken(token string) (int, error) {
 
 // encodeOffsetToken encodes an integer cursor as an opaque base64url(JSON) string.
 func encodeOffsetToken(offset int) string {
-	data, _ := json.Marshal(offsetToken{O: offset})
+	data, _ := json.Marshal(offsetToken{O: offset}, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(data)
 }

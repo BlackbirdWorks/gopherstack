@@ -2,26 +2,28 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // createAlgorithmRequest is the request body for CreateAlgorithm.
 type createAlgorithmRequest struct {
-	TrainingSpecification   json.RawMessage `json:"TrainingSpecification,omitempty"`
-	InferenceSpecification  json.RawMessage `json:"InferenceSpecification,omitempty"`
-	ValidationSpecification json.RawMessage `json:"ValidationSpecification,omitempty"`
-	AlgorithmName           string          `json:"AlgorithmName"`
-	AlgorithmDescription    string          `json:"AlgorithmDescription,omitempty"`
-	Tags                    []tagObject     `json:"Tags"`
-	CertifyForMarketplace   bool            `json:"CertifyForMarketplace,omitempty"`
+	TrainingSpecification   jsontext.Value `json:"TrainingSpecification,omitempty"`
+	InferenceSpecification  jsontext.Value `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification jsontext.Value `json:"ValidationSpecification,omitempty"`
+	AlgorithmName           string         `json:"AlgorithmName"`
+	AlgorithmDescription    string         `json:"AlgorithmDescription,omitempty"`
+	Tags                    []tagObject    `json:"Tags"`
+	CertifyForMarketplace   bool           `json:"CertifyForMarketplace,omitempty"`
 }
 
 func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAlgorithmRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -55,7 +57,7 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created algorithm", "name", al.AlgorithmName)
 
-	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn})
+	return json.Marshal(map[string]string{"AlgorithmArn": al.AlgorithmArn}, jsonx.V1())
 }
 
 // describeAlgorithmResponse is the response body for DescribeAlgorithm.
@@ -71,9 +73,9 @@ type describeAlgorithmResponse struct {
 	AlgorithmDescription    string                 `json:"AlgorithmDescription,omitempty"`
 	ProductID               string                 `json:"ProductId,omitempty"`
 	AlgorithmStatusDetails  AlgorithmStatusDetails `json:"AlgorithmStatusDetails"`
-	TrainingSpecification   json.RawMessage        `json:"TrainingSpecification"`
-	InferenceSpecification  json.RawMessage        `json:"InferenceSpecification,omitempty"`
-	ValidationSpecification json.RawMessage        `json:"ValidationSpecification,omitempty"`
+	TrainingSpecification   jsontext.Value         `json:"TrainingSpecification"`
+	InferenceSpecification  jsontext.Value         `json:"InferenceSpecification,omitempty"`
+	ValidationSpecification jsontext.Value         `json:"ValidationSpecification,omitempty"`
 	CreationTime            float64                `json:"CreationTime"`
 	CertifyForMarketplace   bool                   `json:"CertifyForMarketplace,omitempty"`
 }
@@ -86,7 +88,7 @@ type describeAlgorithmRequest struct {
 func (h *Handler) handleDescribeAlgorithm(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAlgorithmRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -111,7 +113,7 @@ func (h *Handler) handleDescribeAlgorithm(ctx context.Context, body []byte) ([]b
 		TrainingSpecification:   al.TrainingSpecification,
 		InferenceSpecification:  al.InferenceSpecification,
 		ValidationSpecification: al.ValidationSpecification,
-	})
+	}, jsonx.V1())
 }
 
 // deleteAlgorithmRequest is the request body for DeleteAlgorithm.
@@ -122,7 +124,7 @@ type deleteAlgorithmRequest struct {
 func (h *Handler) handleDeleteAlgorithm(ctx context.Context, body []byte) error {
 	var req deleteAlgorithmRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -136,7 +138,7 @@ func (h *Handler) handleDeleteAlgorithm(ctx context.Context, body []byte) error 
 func (h *Handler) handleListAlgorithms(ctx context.Context, body []byte) ([]byte, error) {
 	var req nameTimeListRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

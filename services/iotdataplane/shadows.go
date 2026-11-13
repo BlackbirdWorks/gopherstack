@@ -1,7 +1,8 @@
 package iotdataplane
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validateThingName checks that a thing name meets AWS IoT naming rules.
@@ -83,8 +85,8 @@ func validateShadowDocument(doc []byte) error {
 		return fmt.Errorf("%w: The payload exceeds the maximum size allowed", ErrRequestTooLarge)
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(doc, &obj); err != nil || obj == nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(doc, &obj, jsonx.V1()); err != nil || obj == nil {
 		return fmt.Errorf("%w: Invalid JSON", ErrValidation)
 	}
 
@@ -92,16 +94,16 @@ func validateShadowDocument(doc []byte) error {
 }
 
 // isJSONNull reports whether v is the JSON null literal.
-func isJSONNull(v json.RawMessage) bool {
+func isJSONNull(v jsontext.Value) bool {
 	var x any
 
-	return json.Unmarshal(v, &x) == nil && x == nil
+	return json.Unmarshal(v, &x, jsonx.V1()) == nil && x == nil
 }
 
 // mergeStateFields deep-merges patch into base: null deletes a key, nested
 // objects merge recursively, other values replace. base and patch are unchanged.
-func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
-	result := make(map[string]json.RawMessage, len(base))
+func mergeStateFields(base, patch map[string]jsontext.Value) map[string]jsontext.Value {
+	result := make(map[string]jsontext.Value, len(base))
 	maps.Copy(result, base)
 
 	for k, v := range patch {
@@ -116,7 +118,7 @@ func mergeStateFields(base, patch map[string]json.RawMessage) map[string]json.Ra
 	return result
 }
 
-func mergeJSONValue(existing, patch json.RawMessage) json.RawMessage {
+func mergeJSONValue(existing, patch jsontext.Value) jsontext.Value {
 	patchObj, ok := decodeJSONObject(patch)
 	if !ok {
 		return patch
@@ -127,7 +129,7 @@ func mergeJSONValue(existing, patch json.RawMessage) json.RawMessage {
 		existingObj = nil
 	}
 
-	merged, err := json.Marshal(mergeStateFields(existingObj, patchObj))
+	merged, err := json.Marshal(mergeStateFields(existingObj, patchObj), jsonx.V1())
 	if err != nil {
 		return patch
 	}
@@ -135,9 +137,9 @@ func mergeJSONValue(existing, patch json.RawMessage) json.RawMessage {
 	return merged
 }
 
-func decodeJSONObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
-	var obj map[string]json.RawMessage
-	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil || obj == nil {
+func decodeJSONObject(raw jsontext.Value) (map[string]jsontext.Value, bool) {
+	var obj map[string]jsontext.Value
+	if len(raw) == 0 || json.Unmarshal(raw, &obj, jsonx.V1()) != nil || obj == nil {
 		return nil, false
 	}
 
@@ -146,7 +148,7 @@ func decodeJSONObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
 
 // updateMetaFields returns a copy of meta with timestamps updated for keys present in patch.
 // Null-deleted keys are removed from the returned meta map.
-func updateMetaFields(meta map[string]int64, patch map[string]json.RawMessage, ts int64) map[string]int64 {
+func updateMetaFields(meta map[string]int64, patch map[string]jsontext.Value, ts int64) map[string]int64 {
 	result := make(map[string]int64, len(meta)+len(patch))
 	maps.Copy(result, meta)
 
@@ -163,8 +165,8 @@ func updateMetaFields(meta map[string]int64, patch map[string]json.RawMessage, t
 
 // computeDelta returns the fields where desired differs from reported, recursing
 // into nested objects so only the differing members appear. nil means no delta.
-func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.RawMessage {
-	delta := make(map[string]json.RawMessage)
+func computeDelta(desired, reported map[string]jsontext.Value) map[string]jsontext.Value {
+	delta := make(map[string]jsontext.Value)
 
 	for k, dv := range desired {
 		rv, ok := reported[k]
@@ -179,7 +181,7 @@ func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.
 
 		if dIsObj && rIsObj {
 			if sub := computeDelta(dObj, rObj); sub != nil {
-				if raw, err := json.Marshal(sub); err == nil {
+				if raw, err := json.Marshal(sub, jsonx.V1()); err == nil {
 					delta[k] = raw
 				}
 			}
@@ -199,14 +201,14 @@ func computeDelta(desired, reported map[string]json.RawMessage) map[string]json.
 	return delta
 }
 
-func jsonRawEqual(a, b json.RawMessage) bool {
+func jsonRawEqual(a, b jsontext.Value) bool {
 	var av, bv any
-	if json.Unmarshal(a, &av) != nil || json.Unmarshal(b, &bv) != nil {
+	if json.Unmarshal(a, &av, jsonx.V1()) != nil || json.Unmarshal(b, &bv, jsonx.V1()) != nil {
 		return string(a) == string(b)
 	}
 
-	ab, errA := json.Marshal(av)
-	bb, errB := json.Marshal(bv)
+	ab, errA := json.Marshal(av, jsonx.V1())
+	bb, errB := json.Marshal(bv, jsonx.V1())
 
 	return errA == nil && errB == nil && string(ab) == string(bb)
 }
@@ -272,7 +274,7 @@ func buildShadowResponse(entry *shadowEntry, clientToken string) ([]byte, error)
 		resp["clientToken"] = clientToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // sortedKeys returns a sorted copy of the keys of a map[string]V.
@@ -303,8 +305,8 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 type shadowUpdateInput struct {
 	Version       *int
 	ClientToken   string
-	StateDesired  json.RawMessage
-	StateReported json.RawMessage
+	StateDesired  jsontext.Value
+	StateReported jsontext.Value
 }
 
 // parseShadowUpdateDoc validates and parses an UpdateThingShadow request body.
@@ -312,12 +314,12 @@ type shadowUpdateInput struct {
 func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	// Outer document uses RawMessage for State so we can detect absent vs null.
 	var outer struct {
-		Version     json.RawMessage `json:"version,omitempty"`
-		ClientToken string          `json:"clientToken,omitempty"`
-		State       json.RawMessage `json:"state"`
+		Version     jsontext.Value `json:"version,omitempty"`
+		ClientToken string         `json:"clientToken,omitempty"`
+		State       jsontext.Value `json:"state"`
 	}
 
-	if err := json.Unmarshal(document, &outer); err != nil {
+	if err := json.Unmarshal(document, &outer, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: Invalid JSON", ErrValidation)
 	}
 
@@ -325,7 +327,7 @@ func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 
 	if len(outer.Version) > 0 && !isJSONNull(outer.Version) {
 		var v int
-		if err := json.Unmarshal(outer.Version, &v); err != nil {
+		if err := json.Unmarshal(outer.Version, &v, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: Invalid version", ErrValidation)
 		}
 
@@ -345,11 +347,11 @@ func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	}
 
 	var stateDoc struct {
-		Desired  json.RawMessage `json:"desired"`
-		Reported json.RawMessage `json:"reported"`
+		Desired  jsontext.Value `json:"desired"`
+		Reported jsontext.Value `json:"reported"`
 	}
 
-	if err := json.Unmarshal(outer.State, &stateDoc); err != nil {
+	if err := json.Unmarshal(outer.State, &stateDoc, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: State node must be an object", ErrValidation)
 	}
 
@@ -389,9 +391,9 @@ func jsonValueDepth(v any) int {
 // validateShadowStateDepth checks that a state.desired/state.reported section
 // does not exceed AWS IoT's documented maximum JSON nesting depth (see
 // maxShadowStateDepth). raw must already be known non-empty and non-null.
-func validateShadowStateDepth(raw json.RawMessage, sectionName string) error {
+func validateShadowStateDepth(raw jsontext.Value, sectionName string) error {
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(raw, &v, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %s node must be an object", ErrValidation, sectionLabel(sectionName))
 	}
 
@@ -406,12 +408,12 @@ func validateShadowStateDepth(raw json.RawMessage, sectionName string) error {
 // applyShadowStateSection merges a raw state section into existing state.
 // raw absent (nil) → keep existing; raw null → clear; raw object → merge patch.
 func applyShadowStateSection(
-	existing map[string]json.RawMessage,
+	existing map[string]jsontext.Value,
 	existingMeta map[string]int64,
-	raw json.RawMessage,
+	raw jsontext.Value,
 	sectionName string,
 	ts int64,
-) (map[string]json.RawMessage, map[string]int64, error) {
+) (map[string]jsontext.Value, map[string]int64, error) {
 	if len(raw) == 0 {
 		return existing, existingMeta, nil
 	}
@@ -424,8 +426,8 @@ func applyShadowStateSection(
 		return nil, nil, err
 	}
 
-	var patch map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &patch); err != nil {
+	var patch map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &patch, jsonx.V1()); err != nil {
 		return nil, nil, fmt.Errorf("%w: %s node must be an object", ErrValidation, sectionLabel(sectionName))
 	}
 
@@ -464,7 +466,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	now := time.Now()
 	ts := now.Unix()
 
-	var existingDesired, existingReported map[string]json.RawMessage
+	var existingDesired, existingReported map[string]jsontext.Value
 	var existingMetaDesired, existingMetaReported map[string]int64
 
 	if current != nil {
@@ -561,7 +563,7 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 	payload, err := json.Marshal(map[string]any{
 		"version":    entry.version,
 		keyTimestamp: entry.updatedAt.Unix(),
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("iotdataplane: marshal delete response: %w", err)
 	}
@@ -635,12 +637,12 @@ func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, docume
 	// Best-effort parse of state.desired / state.reported from the seeded document.
 	var doc struct {
 		State struct {
-			Desired  map[string]json.RawMessage `json:"desired"`
-			Reported map[string]json.RawMessage `json:"reported"`
+			Desired  map[string]jsontext.Value `json:"desired"`
+			Reported map[string]jsontext.Value `json:"reported"`
 		} `json:"state"`
 	}
 
-	if json.Unmarshal(document, &doc) == nil {
+	if json.Unmarshal(document, &doc, jsonx.V1()) == nil {
 		if doc.State.Desired != nil {
 			entry.desired = doc.State.Desired
 		}

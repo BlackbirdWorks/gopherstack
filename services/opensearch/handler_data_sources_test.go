@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -47,7 +49,7 @@ func TestAddDataSource_DataSourceTypeJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, getResp.StatusCode)
 
 	var ds map[string]any
-	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&ds))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getResp.Body), &ds, jsonx.V1()))
 
 	// No "DataSource" envelope: fields are top-level.
 	assert.Equal(t, "my-ds", ds["Name"])
@@ -85,7 +87,7 @@ func TestAddDirectQueryDataSource_DataSourceTypeJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, getResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getResp.Body), &out, jsonx.V1()))
 	assert.Equal(t, "dq-ds", out["DataSourceName"])
 
 	dsType, ok := out["DataSourceType"].(map[string]any)
@@ -97,7 +99,7 @@ func TestAddDataSource_DomainNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.AddDataSource("nonexistent", "ds1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err := b.AddDataSource("nonexistent", "ds1", "desc", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrDomainNotFound)
 }
@@ -106,10 +108,10 @@ func TestAddDirectQueryDataSource_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.AddDirectQueryDataSource("ds-1", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
+	_, err := b.AddDirectQueryDataSource("ds-1", "desc", jsontext.Value(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("ds-1", "desc2", json.RawMessage(`{"SecurityLake":{}}`), nil)
+	_, err = b.AddDirectQueryDataSource("ds-1", "desc2", jsontext.Value(`{"SecurityLake":{}}`), nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrDataSourceAlreadyExists)
 }
@@ -118,7 +120,7 @@ func TestDirectQueryDataSource_ARN(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	dsARN, err := b.AddDirectQueryDataSource("my-dq", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
+	dsARN, err := b.AddDirectQueryDataSource("my-dq", "desc", jsontext.Value(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 	assert.Contains(t, dsARN, "directQueryDataSource/my-dq")
 	assert.Contains(t, dsARN, testAccountID)
@@ -185,7 +187,7 @@ func TestDataSources_Lifecycle(t *testing.T) {
 			b.AddDomainInternal("ds-domain", "")
 
 			for _, name := range tt.addSources {
-				_, err := b.AddDataSource("ds-domain", name, "", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+				_, err := b.AddDataSource("ds-domain", name, "", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 				require.NoError(t, err)
 			}
 
@@ -234,7 +236,7 @@ func TestDirectQuery_DeleteAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	sources, ok := lOut["DirectQueryDataSources"].([]any)
 	require.True(t, ok)
 	require.Len(t, sources, 1)
@@ -250,7 +252,7 @@ func TestDirectQuery_DeleteAndList(t *testing.T) {
 	lr2 := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/directQueryDataSource", nil)
 	defer lr2.Body.Close()
 	var lOut2 map[string]any
-	require.NoError(t, json.NewDecoder(lr2.Body).Decode(&lOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr2.Body), &lOut2, jsonx.V1()))
 	sources2 := lOut2["DirectQueryDataSources"].([]any)
 	assert.Empty(t, sources2)
 }
@@ -281,7 +283,7 @@ func TestDirectQuery_UpdateReturnsARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, ur.StatusCode)
 
 	var uOut map[string]any
-	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ur.Body), &uOut, jsonx.V1()))
 	assert.Contains(t, uOut, "DataSourceArn")
 }
 
@@ -310,7 +312,7 @@ func TestDataSources_ListAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	sources, ok := lOut["DataSources"].([]any)
 	require.True(t, ok)
 	assert.Len(t, sources, 2)
@@ -322,7 +324,7 @@ func TestDataSources_ListAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, gr.StatusCode)
 
 	var ds map[string]any
-	require.NoError(t, json.NewDecoder(gr.Body).Decode(&ds))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &ds, jsonx.V1()))
 	assert.Equal(t, "ds-alpha", ds["Name"])
 	assert.Equal(t, "ACTIVE", ds["Status"])
 }
@@ -355,7 +357,7 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, ur.StatusCode)
 
 	var uOut map[string]any
-	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ur.Body), &uOut, jsonx.V1()))
 	assert.Contains(t, uOut["Message"], "updated")
 
 	// Get reflects the updated description.
@@ -363,7 +365,7 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 		"/2021-01-01/opensearch/domain/ds-ud-domain/dataSource/ds-target", nil)
 	defer gr.Body.Close()
 	var gOut map[string]any
-	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &gOut, jsonx.V1()))
 	assert.Equal(t, "after", gOut["Description"])
 
 	// Delete.
@@ -373,7 +375,7 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, del.StatusCode)
 
 	var delOut map[string]any
-	require.NoError(t, json.NewDecoder(del.Body).Decode(&delOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(del.Body), &delOut, jsonx.V1()))
 	assert.Equal(t, "DataSource deleted", delOut["Message"])
 
 	// List should be empty after delete.
@@ -381,7 +383,7 @@ func TestDataSources_UpdateAndDelete(t *testing.T) {
 		"/2021-01-01/opensearch/domain/ds-ud-domain/dataSource", nil)
 	defer lr.Body.Close()
 	var lOut map[string]any
-	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &lOut, jsonx.V1()))
 	remaining := lOut["DataSources"].([]any)
 	assert.Empty(t, remaining)
 }
@@ -584,6 +586,6 @@ func TestOpenSearchBackend_AddDataSource_MissingName(t *testing.T) {
 	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "my-domain"})
 	require.NoError(t, err)
 
-	_, err = b.AddDataSource("my-domain", "", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err = b.AddDataSource("my-domain", "", "desc", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.Error(t, err)
 }

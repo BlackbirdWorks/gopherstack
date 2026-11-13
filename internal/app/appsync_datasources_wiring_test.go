@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +17,8 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -95,7 +97,7 @@ func (f *asDSFixture) query(t *testing.T, field string, vars map[string]any) any
 		query = "query(" + strings.Join(decls, ", ") + ") { " + field + " }"
 	}
 
-	body, err := json.Marshal(map[string]any{"query": query, "variables": vars})
+	body, err := json.Marshal(map[string]any{"query": query, "variables": vars}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/apis/"+f.apiID+"/graphql", strings.NewReader(string(body)))
@@ -112,7 +114,7 @@ func (f *asDSFixture) query(t *testing.T, field string, vars map[string]any) any
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()), rec.Body.String())
 	require.Empty(t, out.Errors, rec.Body.String())
 
 	name, _, _ := strings.Cut(field, "(")
@@ -129,7 +131,7 @@ func asJSONValue(t *testing.T, v any) any {
 	}
 
 	var out any
-	require.NoError(t, json.Unmarshal([]byte(s), &out), s)
+	require.NoError(t, json.Unmarshal([]byte(s), &out, jsonx.V1()), s)
 
 	return out
 }

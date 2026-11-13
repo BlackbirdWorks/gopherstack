@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -48,7 +49,7 @@ func TestAPIGateway_ImportRestApi_DirectDispatch(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 
 	assert.Equal(t, "Pet Store", api["name"])
 	assert.Equal(t, "A sample API", api["description"])
@@ -63,7 +64,7 @@ func TestAPIGateway_ImportRestApi_YAML(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 	assert.Equal(t, "YAML API", api["name"])
 	assert.Equal(t, "from yaml", api["description"])
 }
@@ -79,7 +80,7 @@ func TestAPIGateway_ImportRestApi_CreatesResourcesFromPaths(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 	apiID, _ := api["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -143,7 +144,7 @@ func TestAPIGateway_PutRestApi_DirectDispatch_Merge(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 	assert.Equal(t, "merged", api["name"])
 
 	resources, _, err := backend.GetResources(created.ID, "", 0)
@@ -184,7 +185,7 @@ func TestAPIGateway_ImportRestApi_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 	assert.Equal(t, "Pet Store", api["name"])
 
 	// A plain POST /restapis (no mode=import) must still route to CreateRestApi
@@ -197,7 +198,7 @@ func TestAPIGateway_ImportRestApi_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	var api2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &api2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &api2, jsonx.V1()))
 	assert.Equal(t, "plain-create", api2["name"])
 }
 
@@ -228,7 +229,7 @@ func TestAPIGateway_PutRestApi_RESTRoute_Overwrite(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var api map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api, jsonx.V1()))
 	assert.Equal(t, "Pet Store", api["name"])
 
 	resources, _, err := backend.GetResources(created.ID, "", 0)
@@ -300,7 +301,7 @@ func TestAPIGateway_ImportApiKeys_RESTRoute(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ids, _ := resp["ids"].([]any)
 				require.Len(t, ids, tt.wantCount)
 			}
@@ -329,7 +330,7 @@ func TestAPIGateway_ImportApiKeys_DuplicateWarns(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ids, _ := resp["ids"].([]any)
 	warnings, _ := resp["warnings"].([]any)
 	assert.Len(t, ids, 1, "only the non-duplicate row is imported")
@@ -364,7 +365,7 @@ func TestAPIGateway_ImportDocumentationParts_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ids, _ := resp["ids"].([]any)
 	require.Len(t, ids, 2)
 

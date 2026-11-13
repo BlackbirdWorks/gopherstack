@@ -2,13 +2,14 @@ package serverlessrepo_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -30,7 +31,7 @@ func TestListApplications_Pagination_DeletedMidPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1, jsonx.V1()))
 	nextToken, ok := r1["nextToken"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, nextToken)
@@ -43,7 +44,7 @@ func TestListApplications_Pagination_DeletedMidPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2, jsonx.V1()))
 	apps2, _ := r2["applications"].([]any)
 
 	restarted := false
@@ -78,7 +79,7 @@ func TestListApplicationVersions_Pagination_StaleTokenDoesNotRestart(t *testing.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1, jsonx.V1()))
 	v1, _ := r1["versions"].([]any)
 	require.Len(t, v1, 2)
 
@@ -96,7 +97,7 @@ func TestListApplicationVersions_Pagination_StaleTokenDoesNotRestart(t *testing.
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 	v2, _ := r2["versions"].([]any)
 
 	for _, item := range v2 {
@@ -137,7 +138,7 @@ func TestListApplicationDependencies_Pagination_StaleTokenDoesNotRestart(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1, jsonx.V1()))
 	page1, _ := r1["dependencies"].([]any)
 	require.Len(t, page1, 2)
 
@@ -154,7 +155,7 @@ func TestListApplicationDependencies_Pagination_StaleTokenDoesNotRestart(t *test
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 	page2, _ := r2["dependencies"].([]any)
 
 	for _, item := range page2 {

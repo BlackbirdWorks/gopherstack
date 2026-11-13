@@ -3,7 +3,8 @@ package opensearch
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -154,7 +156,7 @@ func writeSecurityException(w http.ResponseWriter, action string, p securityPrin
 func writeRawJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), v)
 }
 
 // enforceFGAC authenticates and authorizes a data-plane request on a fine-grained-access-control
@@ -246,7 +248,7 @@ func rewriteForDLS(r *http.Request, dls map[string]any, asCount bool) bool {
 
 	raw, _ := httputils.ReadBody(r)
 	if len(bytes.TrimSpace(raw)) > 0 {
-		if err := json.Unmarshal(raw, &req); err != nil {
+		if err := json.Unmarshal(raw, &req, jsonx.V1()); err != nil {
 			return false
 		}
 	}
@@ -268,7 +270,7 @@ func rewriteForDLS(r *http.Request, dls map[string]any, asCount bool) bool {
 		req["size"] = 0
 	}
 
-	nb, _ := json.Marshal(req)
+	nb, _ := json.Marshal(req, jsonx.V1())
 	r.Body = io.NopCloser(bytes.NewReader(nb))
 	r.ContentLength = int64(len(nb))
 	r.Header.Del("Content-Length")
@@ -278,7 +280,7 @@ func rewriteForDLS(r *http.Request, dls map[string]any, asCount bool) bool {
 
 func transformRestrictedResponse(body []byte, op dataOp, res accessRestriction, asCount bool) []byte {
 	var resp map[string]any
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &resp, jsonx.V1()); err != nil {
 		return body
 	}
 
@@ -291,7 +293,7 @@ func transformRestrictedResponse(body []byte, op dataOp, res accessRestriction, 
 		filterGet(resp, res)
 	}
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return body
 	}

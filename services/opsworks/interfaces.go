@@ -2,7 +2,7 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -314,10 +314,10 @@ type LayerSettings struct {
 	Attributes                  map[string]string `json:"Attributes,omitempty"`
 	CustomInstanceProfileArn    string            `json:"CustomInstanceProfileArn,omitempty"`
 	CustomJSON                  string            `json:"CustomJson,omitempty"`
-	CustomRecipes               json.RawMessage   `json:"CustomRecipes,omitempty"`
-	CloudWatchLogsConfiguration json.RawMessage   `json:"CloudWatchLogsConfiguration,omitempty"`
-	LifecycleEventConfiguration json.RawMessage   `json:"LifecycleEventConfiguration,omitempty"`
-	VolumeConfigurations        json.RawMessage   `json:"VolumeConfigurations,omitempty"`
+	CustomRecipes               jsontext.Value    `json:"CustomRecipes,omitempty"`
+	CloudWatchLogsConfiguration jsontext.Value    `json:"CloudWatchLogsConfiguration,omitempty"`
+	LifecycleEventConfiguration jsontext.Value    `json:"LifecycleEventConfiguration,omitempty"`
+	VolumeConfigurations        jsontext.Value    `json:"VolumeConfigurations,omitempty"`
 	Packages                    []string          `json:"Packages,omitempty"`
 	CustomSecurityGroupIDs      []string          `json:"CustomSecurityGroupIds,omitempty"`
 }

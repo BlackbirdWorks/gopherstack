@@ -2,7 +2,8 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -23,7 +25,7 @@ func doOpenSearchRequest(t *testing.T, method, path string, body any) (int, map[
 	var reqBody io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		reqBody = bytes.NewReader(b)
@@ -43,7 +45,7 @@ func doOpenSearchRequest(t *testing.T, method, path string, body any) (int, map[
 
 	var result map[string]any
 
-	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &result, jsonx.V1()); err != nil {
 		result = nil
 	}
 

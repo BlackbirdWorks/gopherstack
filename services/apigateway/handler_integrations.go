@@ -1,9 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putIntegrationInput struct {
@@ -103,7 +105,7 @@ func (h *Handler) integrationResponseActions() map[string]actionFn {
 	return map[string]actionFn{
 		opPutIntegrationResponse: func(b []byte) (int, any, error) {
 			var input putIntegrationResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			ir, err := h.Backend.PutIntegrationResponse(
@@ -121,7 +123,7 @@ func (h *Handler) integrationResponseActions() map[string]actionFn {
 		},
 		opGetIntegrationResponse: func(b []byte) (int, any, error) {
 			var input getIntegrationResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			ir, err := h.Backend.GetIntegrationResponse(
@@ -138,7 +140,7 @@ func (h *Handler) integrationResponseActions() map[string]actionFn {
 		},
 		opDeleteIntegrationResponse: func(b []byte) (int, any, error) {
 			var input deleteIntegrationResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			if err := h.Backend.DeleteIntegrationResponse(
@@ -154,7 +156,7 @@ func (h *Handler) integrationResponseActions() map[string]actionFn {
 		},
 		opUpdateIntegrationResponse: func(b []byte) (int, any, error) {
 			var input UpdateIntegrationResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			out, err := h.Backend.UpdateIntegrationResponse(input)
@@ -171,7 +173,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 	return map[string]actionFn{
 		opPutIntegration: func(b []byte) (int, any, error) {
 			var input putIntegrationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			switch input.Type {
@@ -197,7 +199,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 		},
 		opGetIntegration: func(b []byte) (int, any, error) {
 			var input getIntegrationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			integ, err := h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod)
@@ -209,7 +211,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 		},
 		opDeleteIntegration: func(b []byte) (int, any, error) {
 			var input deleteIntegrationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			if err := h.Backend.DeleteIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod); err != nil {
@@ -220,7 +222,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 		},
 		opUpdateIntegration: func(b []byte) (int, any, error) {
 			var input UpdateIntegrationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			out, err := h.Backend.UpdateIntegration(input)

@@ -2,7 +2,8 @@ package ec2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -120,7 +122,7 @@ func (d *DockerCompute) Usage(ctx context.Context, providerID string) (InstanceU
 	defer func() { _ = res.Body.Close() }()
 
 	var stats mobycontainer.StatsResponse
-	if decodeErr := json.NewDecoder(res.Body).Decode(&stats); decodeErr != nil {
+	if decodeErr := json.UnmarshalDecode(jsontext.NewDecoder(res.Body), &stats, jsonx.V1()); decodeErr != nil {
 		return InstanceUsage{}, fmt.Errorf("decode container stats: %w", decodeErr)
 	}
 

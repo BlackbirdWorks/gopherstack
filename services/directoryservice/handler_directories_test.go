@@ -1,7 +1,7 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -33,7 +34,7 @@ func TestDirectoryService_CreateDirectory(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				id, ok := resp["DirectoryId"].(string)
 				require.True(t, ok)
 				assert.NotEmpty(t, id)
@@ -79,7 +80,7 @@ func TestDirectoryService_CreateMicrosoftAD(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				id, ok := resp["DirectoryId"].(string)
 				require.True(t, ok)
 				assert.NotEmpty(t, id)
@@ -115,7 +116,7 @@ func TestDirectoryService_DeleteDirectory(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		rec := doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
@@ -155,7 +156,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		dirs, ok := resp["DirectoryDescriptions"].([]any)
 		require.True(t, ok)
 		assert.Len(t, dirs, 2)
@@ -169,7 +170,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		rec := doRequest(t, h, "DescribeDirectories", map[string]any{
@@ -178,7 +179,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		dirs, ok := resp["DirectoryDescriptions"].([]any)
 		require.True(t, ok)
 		require.Len(t, dirs, 1)
@@ -188,7 +189,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		rec = doRequest(t, h, "DescribeDirectories", map[string]any{
 			"DirectoryIds": []string{dirID},
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		dirs = resp["DirectoryDescriptions"].([]any)
 		dir := dirs[0].(map[string]any)
 		assert.Equal(t, dirID, dir["DirectoryId"])
@@ -214,7 +215,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 			"Name": "stage.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
@@ -259,7 +260,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 			},
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
@@ -283,7 +284,7 @@ func TestDirectoryService_DescribeDirectories(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		dirs, ok := resp["DirectoryDescriptions"].([]any)
 		require.True(t, ok)
 		assert.Empty(t, dirs)
@@ -426,7 +427,7 @@ func TestDirectoryService_CreateAlias(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		rec := doRequest(t, h, "CreateAlias", map[string]any{
@@ -436,7 +437,7 @@ func TestDirectoryService_CreateAlias(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, dirID, resp["DirectoryId"])
 		assert.Equal(t, "myalias", resp["Alias"])
 	})
@@ -462,7 +463,7 @@ func TestDirectoryService_GetDirectoryLimits(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		limits, ok := resp["DirectoryLimits"].(map[string]any)
 		require.True(t, ok)
 		assert.EqualValues(t, 0, limits["CloudOnlyDirectoriesCurrentCount"])
@@ -479,7 +480,7 @@ func TestDirectoryService_GetDirectoryLimits(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		limits := resp["DirectoryLimits"].(map[string]any)
 		assert.EqualValues(t, 1, limits["CloudOnlyDirectoriesCurrentCount"])
 	})
@@ -495,7 +496,7 @@ func TestDirectoryService_MicrosoftAD_DescribeReturnsType(t *testing.T) {
 		"Edition":  "Enterprise",
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	dirID := createResp["DirectoryId"].(string)
 
 	rec := doRequest(t, h, "DescribeDirectories", map[string]any{
@@ -504,7 +505,7 @@ func TestDirectoryService_MicrosoftAD_DescribeReturnsType(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	dirs := resp["DirectoryDescriptions"].([]any)
 	require.Len(t, dirs, 1)
 	dir := dirs[0].(map[string]any)
@@ -520,7 +521,7 @@ func TestDirectoryService_DeleteDirectoryRemovesSnapshots(t *testing.T) {
 		"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	dirID := createResp["DirectoryId"].(string)
 
 	doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
@@ -529,7 +530,7 @@ func TestDirectoryService_DeleteDirectoryRemovesSnapshots(t *testing.T) {
 	descRec := doRequest(t, h, "DescribeSnapshots", map[string]any{"DirectoryId": dirID})
 	assert.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	snaps := descResp["Snapshots"].([]any)
 	assert.Empty(t, snaps)
 }

@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -96,7 +98,7 @@ type createWorkforceInput struct {
 func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req createWorkforceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -117,7 +119,7 @@ func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkforceArn: result.WorkforceArn})
+	return json.Marshal(map[string]any{keyWorkforceArn: result.WorkforceArn}, jsonx.V1())
 }
 
 // describeWorkforceInput mirrors DescribeWorkforceInput (api_op_DescribeWorkforce.go:34-42).
@@ -128,7 +130,7 @@ type describeWorkforceInput struct {
 func (h *Handler) handleDescribeWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeWorkforceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -141,7 +143,7 @@ func (h *Handler) handleDescribeWorkforce(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)})
+	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)}, jsonx.V1())
 }
 
 // updateWorkforceInput mirrors UpdateWorkforceInput (api_op_UpdateWorkforce.go:65-93).
@@ -156,7 +158,7 @@ type updateWorkforceInput struct {
 func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateWorkforceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -175,7 +177,7 @@ func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)})
+	return json.Marshal(map[string]any{"Workforce": workforceResponseMap(result)}, jsonx.V1())
 }
 
 // deleteWorkforceInput mirrors DeleteWorkforceInput (api_op_DeleteWorkforce.go:39-44).
@@ -186,7 +188,7 @@ type deleteWorkforceInput struct {
 func (h *Handler) handleDeleteWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteWorkforceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -198,7 +200,7 @@ func (h *Handler) handleDeleteWorkforce(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // listWorkforcesInput mirrors ListWorkforcesInput (api_op_ListWorkforces.go:31-48).
@@ -213,7 +215,7 @@ type listWorkforcesInput struct {
 func (h *Handler) handleListWorkforces(ctx context.Context, body []byte) ([]byte, error) {
 	var req listWorkforcesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -234,5 +236,5 @@ func (h *Handler) handleListWorkforces(ctx context.Context, body []byte) ([]byte
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

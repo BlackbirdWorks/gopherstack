@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const jsonFileMode = 0o644
@@ -28,7 +31,7 @@ func writeJSON(path string, results []result) error {
 		})
 	}
 
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := json.Marshal(out, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Errorf("marshal results: %w", err)
 	}

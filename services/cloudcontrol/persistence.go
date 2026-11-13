@@ -2,7 +2,7 @@ package cloudcontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -42,7 +42,7 @@ const cloudcontrolSnapshotVersion = 2
 // persisted directly here so a repeated ClientToken remains idempotent (and
 // conflict-detectable) across a restart.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage  `json:"tables"`
+	Tables       map[string]jsontext.Value   `json:"tables"`
 	ClientTokens map[string]clientTokenEntry `json:"clientTokens"`
 	AccountID    string                      `json:"accountID"`
 	Region       string                      `json:"region"`

@@ -1,7 +1,8 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -101,7 +103,7 @@ func (h *Handler) handleCreateAPI(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
 	var input CreateAPIInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -194,7 +196,7 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 	log := logger.Load(c.Request().Context())
 
 	var input UpdateAPIInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -270,7 +272,7 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 	var input struct {
 		Body string `json:"body"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -316,7 +318,7 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 	var input struct {
 		Body string `json:"body"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -485,7 +487,7 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 		return c.Blob(http.StatusOK, "application/x-yaml", blob)
 	}
 
-	blob, mErr := json.Marshal(spec)
+	blob, mErr := json.Marshal(spec, jsonx.V1())
 	if mErr != nil {
 		return writeErr(c, http.StatusInternalServerError, mErr.Error())
 	}

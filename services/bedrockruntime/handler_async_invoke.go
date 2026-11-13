@@ -1,7 +1,8 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // startAsyncInvokeInput is the parsed request body for StartAsyncInvoke.
@@ -28,16 +30,16 @@ type startAsyncInvokeInput struct {
 			S3URI string `json:"s3Uri"`
 		} `json:"s3OutputDataConfig"`
 	} `json:"outputDataConfig"`
-	ModelID            string          `json:"modelId"`
-	ClientRequestToken string          `json:"clientRequestToken"`
-	ModelInput         json.RawMessage `json:"modelInput"`
+	ModelID            string         `json:"modelId"`
+	ClientRequestToken string         `json:"clientRequestToken"`
+	ModelInput         jsontext.Value `json:"modelInput"`
 }
 
 // handleStartAsyncInvoke handles POST /async-invoke.
 func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 	var req startAsyncInvokeInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 

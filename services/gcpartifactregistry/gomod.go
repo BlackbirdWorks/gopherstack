@@ -3,7 +3,7 @@ package gcpartifactregistry
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"regexp"
@@ -16,6 +16,8 @@ import (
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxGoModFile = 16 << 20
@@ -88,7 +90,7 @@ func (b *InMemoryBackend) addGoModule(ref repoRef, data []byte) (*artifactregist
 	}
 
 	now := b.now().UTC()
-	info, _ := json.Marshal(goInfo{Version: version, Time: now})
+	info, _ := json.Marshal(goInfo{Version: version, Time: now}, jsonx.V1())
 	zipID, modID, infoID := moduleFileIDs(path, version)
 
 	for _, f := range []pkgFile{

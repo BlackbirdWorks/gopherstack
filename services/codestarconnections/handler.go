@@ -2,7 +2,7 @@ package codestarconnections
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -183,7 +184,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		ResourceName     string `json:"ResourceName"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	switch {
 	case req.ConnectionArn != "":
@@ -229,15 +230,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 const codestarContentType = "application/x-amz-json-1.0"
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	var errType string
 	var statusCode int
 
@@ -256,7 +254,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errType, statusCode = "LimitExceededException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation),
 		errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		errType, statusCode = errTypeInvalidInput, http.StatusBadRequest
 	default:
 		errType, statusCode = "InternalFailure", http.StatusInternalServerError
@@ -265,7 +263,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
 		Message: wireMessage(err, errType),
-	})
+	}, jsonx.V1())
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}

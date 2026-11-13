@@ -2,7 +2,8 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -75,11 +77,10 @@ func partitionKeyFromHeader(r *http.Request) (string, error) {
 }
 
 func parsePartitionKeyHeader(raw string) (string, error) {
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(raw)), jsonx.V1())
 
 	var arr []any
-	if err := dec.Decode(&arr); err != nil {
+	if err := json.UnmarshalDecode(dec, &arr, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return "", fmt.Errorf("%w: malformed %s header: %w", ErrInvalidDocument, headerPartitionKey, err)
 	}
 
@@ -106,7 +107,7 @@ func parsePartitionKeyHeader(raw string) (string, error) {
 		return canonicalPartitionKeyJSON(arr[0])
 	}
 
-	data, err := json.Marshal(arr)
+	data, err := json.Marshal(arr, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("cosmosdb: encode partition key: %w", err)
 	}
@@ -370,10 +371,15 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 
 	var req queryRequestBody
 
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body), jsonx.V1())
 
-	if decErr := dec.Decode(&req); decErr != nil || rejectTrailingJSON(dec) != nil {
+	if decErr := json.UnmarshalDecode(
+		dec,
+		&req,
+		jsonx.V1(),
+		jsonx.UseNumber(),
+	); decErr != nil ||
+		rejectTrailingJSON(dec) != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 

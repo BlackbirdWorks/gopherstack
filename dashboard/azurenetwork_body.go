@@ -1,13 +1,15 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -49,7 +51,7 @@ func netProxyBody(method string, p []string, in []byte) ([]byte, bool) {
 	}
 
 	var req netPxObj
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil, false
 	}
 
@@ -70,7 +72,7 @@ func netProxyBody(method string, p []string, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(out)
+	b, err := json.Marshal(out, jsonx.V1())
 
 	return b, err == nil
 }

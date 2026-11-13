@@ -1,10 +1,12 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type eventConfigDocResponse struct {
@@ -56,7 +58,7 @@ type listEventConfigurationsResponse struct {
 func eventConfigDocFromBody(body []byte) *EventConfigDoc {
 	var doc EventConfigDoc
 
-	_ = json.Unmarshal(body, &doc)
+	_ = json.Unmarshal(body, &doc, jsonx.V1())
 
 	return &doc
 }

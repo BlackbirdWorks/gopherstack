@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifilestorage"
 )
@@ -31,14 +32,14 @@ type fsFixture struct {
 func idOf(t *testing.T, v any) string {
 	t.Helper()
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	var out struct {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &out))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 	return out.ID
 }
@@ -108,7 +109,7 @@ func (f fsFixture) create(t *testing.T, coll, body string) map[string]any {
 	require.Less(t, rec.Code, http.StatusMultipleChoices, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -329,7 +330,7 @@ func TestOCIFileStorageProxyNFSEndpoint(t *testing.T) {
 		Enabled   bool              `json:"enabled"`
 	}
 
-	require.NoError(t, json.Unmarshal(on.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(on.Body.Bytes(), &out, jsonx.V1()))
 	assert.True(t, out.Enabled)
 	require.Len(t, out.Endpoints, 1)
 

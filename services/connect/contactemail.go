@@ -2,7 +2,7 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"strings"
 
@@ -44,7 +44,7 @@ type RawEmail struct {
 type EmailContent struct {
 	RawMessage             *RawEmail
 	MessageSourceType      string
-	TemplatedMessageConfig json.RawMessage
+	TemplatedMessageConfig jsontext.Value
 }
 
 // EmailMessage is a message handed to the Mailer.
@@ -94,9 +94,9 @@ type StartEmailContactInput struct {
 	Description             string
 	Name                    string
 	RelatedContactID        string `json:"RelatedContactId"`
-	SegmentAttributes       json.RawMessage
+	SegmentAttributes       jsontext.Value
 	Attachments             []EmailAttachment
-	References              json.RawMessage
+	References              jsontext.Value
 }
 
 func checkRawEmail(c *EmailContent, allowTemplate bool) error {

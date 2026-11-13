@@ -1,12 +1,13 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -203,7 +204,7 @@ func TestSQLFunctions_DocumentedExamples(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, rows, 1)
 
-			got, err := json.Marshal(rows[0])
+			got, err := json.Marshal(rows[0], jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(got))
 		})
@@ -343,7 +344,7 @@ func TestSQL_DocumentedStatementForms(t *testing.T) {
 
 			require.NoError(t, err)
 
-			got, marshalErr := json.Marshal(rows)
+			got, marshalErr := json.Marshal(rows, jsonx.V1())
 			require.NoError(t, marshalErr)
 			assert.JSONEq(t, tt.want, string(got))
 		})

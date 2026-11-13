@@ -2,7 +2,7 @@ package neptune
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -54,14 +54,14 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage                     `json:"tables"`
+	Tables                    map[string]jsontext.Value                      `json:"tables"`
 	ClusterRoles              map[string]map[string][]string                 `json:"clusterRoles"`
 	Tags                      map[string]map[string][]Tag                    `json:"tags"`
 	ParameterOverrides        map[string]map[string]ParameterValue           `json:"parameterOverrides"`
 	ClusterParameterOverrides map[string]map[string]ParameterValue           `json:"clusterParameterOverrides"`
 	PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:"pendingMaintenanceActions"`
 	EventsLog                 map[string][]Event                             `json:"eventsLog"`
-	OpenCypherGraphs          map[string]json.RawMessage                     `json:"openCypherGraphs,omitempty"`
+	OpenCypherGraphs          map[string]jsontext.Value                      `json:"openCypherGraphs,omitempty"`
 	SparqlStores              map[string]string                              `json:"sparqlStores,omitempty"`
 	AccountID                 string                                         `json:"accountID"`
 	Region                    string                                         `json:"region"`
@@ -293,7 +293,7 @@ func unwrapRegionalDTOs[V any](dtos *store.Table[regionalDTO[V]], setRegion func
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtoReg, clusterDTOs, instanceDTOs, subnetGroupDTOs, clusterParameterGroupDTOs,
 		clusterSnapshotDTOs, parameterGroupDTOs, clusterEndpointDTOs, eventSubscriptionDTOs,
 		globalClusterDTOs := buildPersistenceDTORegistry()
@@ -346,12 +346,12 @@ func (b *InMemoryBackend) graphLocked(key string) *opencypher.Graph {
 	return g
 }
 
-func (b *InMemoryBackend) exportGraphsLocked(ctx context.Context) map[string]json.RawMessage {
+func (b *InMemoryBackend) exportGraphsLocked(ctx context.Context) map[string]jsontext.Value {
 	if len(b.graphs) == 0 {
 		return nil
 	}
 
-	out := make(map[string]json.RawMessage, len(b.graphs))
+	out := make(map[string]jsontext.Value, len(b.graphs))
 
 	for key, g := range b.graphs {
 		raw, err := g.Export(ctx)
@@ -367,7 +367,7 @@ func (b *InMemoryBackend) exportGraphsLocked(ctx context.Context) map[string]jso
 	return out
 }
 
-func (b *InMemoryBackend) importGraphsLocked(ctx context.Context, dumps map[string]json.RawMessage) {
+func (b *InMemoryBackend) importGraphsLocked(ctx context.Context, dumps map[string]jsontext.Value) {
 	b.graphs = make(map[string]*opencypher.Graph, len(dumps))
 
 	for key, raw := range dumps {

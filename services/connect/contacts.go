@@ -2,7 +2,7 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"slices"
 	"strings"
@@ -40,8 +40,8 @@ type StartOutboundVoiceContactInput struct {
 	Description            string
 	RelatedContactID       string `json:"RelatedContactId"`
 	ClientToken            string
-	OutboundStrategy       json.RawMessage
-	References             json.RawMessage
+	OutboundStrategy       jsontext.Value
+	References             jsontext.Value
 }
 
 // ParticipantDetails names a chat participant.
@@ -73,7 +73,7 @@ type StartChatContactInput struct {
 	CustomerID            string `json:"CustomerId"`
 	RelatedContactID      string `json:"RelatedContactId"`
 	ClientToken           string
-	SegmentAttributes     json.RawMessage
+	SegmentAttributes     jsontext.Value
 }
 
 // StartTaskContactInput is the StartTaskContact request.
@@ -89,9 +89,9 @@ type StartTaskContactInput struct {
 	QuickConnectID    string `json:"QuickConnectId"`
 	TaskTemplateID    string `json:"TaskTemplateId"`
 	ClientToken       string
-	SegmentAttributes json.RawMessage
-	Attachments       json.RawMessage
-	References        json.RawMessage
+	SegmentAttributes jsontext.Value
+	Attachments       jsontext.Value
+	References        jsontext.Value
 }
 
 // ContactRefInput addresses one contact in body-addressed contact operations.
@@ -114,8 +114,8 @@ type ContactRefInput struct {
 	ContactID         string `json:"ContactId"        path:"ContactId"`
 	InstanceID        string `json:"InstanceId"       path:"InstanceId"`
 	InitialContactID  string `json:"InitialContactId"`
-	SegmentAttributes json.RawMessage
-	References        json.RawMessage
+	SegmentAttributes jsontext.Value
+	References        jsontext.Value
 }
 
 // ContactPathInput addresses one contact by path.

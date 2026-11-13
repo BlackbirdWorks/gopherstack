@@ -1,7 +1,7 @@
 package ssm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -39,7 +40,7 @@ type getMessagesResp struct {
 func agentCall(t *testing.T, h *ssm.Handler, op string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(raw)))
@@ -61,7 +62,7 @@ func agentGetMessages(t *testing.T, h *ssm.Handler) getMessagesResp {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out getMessagesResp
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }
@@ -84,7 +85,7 @@ func replyPayload(t *testing.T, docStatus string, plugin map[string]any) string 
 		"DocumentStatus":      docStatus,
 		"DocumentTraceOutput": "",
 		"RuntimeStatus":       map[string]any{"aws:runShellScript": plugin},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)
@@ -161,7 +162,7 @@ func TestAgentPollingRunsCommandEndToEnd(t *testing.T) {
 						} `json:"mainSteps"`
 					} `json:"DocumentContent"`
 				}
-				require.NoError(t, json.Unmarshal([]byte(msg.Payload), &payload))
+				require.NoError(t, json.Unmarshal([]byte(msg.Payload), &payload, jsonx.V1()))
 				assert.Equal(t, cmdID, payload.CommandID)
 				assert.Equal(t, "AWS-RunShellScript", payload.DocumentName)
 				assert.Equal(t, []string{"echo hello"}, payload.Parameters["commands"])

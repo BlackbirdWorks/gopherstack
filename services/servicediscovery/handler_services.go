@@ -2,10 +2,11 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type dnsRecordRequest struct {
@@ -124,7 +125,7 @@ func validateHealthCheckConfigEnum(hc *HealthCheckConfig) error {
 
 func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, error) {
 	var req createServiceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -173,7 +174,7 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		keyService: serviceToMap(svc, h.Backend.AccountID()),
-	})
+	}, jsonx.V1())
 }
 
 type deleteServiceRequest struct {
@@ -187,7 +188,7 @@ type deleteServiceRequest struct {
 // enforces this (returns ErrResourceInUse).
 func (h *Handler) handleDeleteService(_ context.Context, body []byte) error {
 	var req deleteServiceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -204,7 +205,7 @@ type getServiceRequest struct {
 
 func (h *Handler) handleGetService(_ context.Context, body []byte) ([]byte, error) {
 	var req getServiceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -219,7 +220,7 @@ func (h *Handler) handleGetService(_ context.Context, body []byte) ([]byte, erro
 
 	return json.Marshal(map[string]any{
 		keyService: serviceToMap(svc, h.Backend.AccountID()),
-	})
+	}, jsonx.V1())
 }
 
 type serviceFilter struct {
@@ -260,7 +261,7 @@ func buildServicesFilter(filters []serviceFilter) ListServicesFilter {
 
 func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, error) {
 	var req listServicesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -288,7 +289,7 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // serviceToMap converts a Service to a JSON-serialisable map including DNS and
@@ -373,7 +374,7 @@ type updateServiceRequest struct {
 
 func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, error) {
 	var req updateServiceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -401,7 +402,7 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyOperationID: opID})
+	return json.Marshal(map[string]string{keyOperationID: opID}, jsonx.V1())
 }
 
 type getServiceAttributesRequest struct {
@@ -410,7 +411,7 @@ type getServiceAttributesRequest struct {
 
 func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]byte, error) {
 	var req getServiceAttributesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -431,7 +432,7 @@ func (h *Handler) handleGetServiceAttributes(_ context.Context, body []byte) ([]
 			"ServiceArn":  arn,
 			keyAttributes: attrs,
 		},
-	})
+	}, jsonx.V1())
 }
 
 type updateServiceAttributesRequest struct {
@@ -441,7 +442,7 @@ type updateServiceAttributesRequest struct {
 
 func (h *Handler) handleUpdateServiceAttributes(_ context.Context, body []byte) error {
 	var req updateServiceAttributesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -463,7 +464,7 @@ type deleteServiceAttributesRequest struct {
 
 func (h *Handler) handleDeleteServiceAttributes(_ context.Context, body []byte) error {
 	var req deleteServiceAttributesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

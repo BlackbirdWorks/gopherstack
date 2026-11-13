@@ -7,15 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 21 (18 ok, 3 partial) |
+| PARITY entries audited | 27 (22 ok, 5 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 8 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- CreateReplica, DeleteReplica, GetConfiguration, UpdateConfiguration, UnassignKmsKey and DeleteWorkRequest are not routed (multi-region tables, tenancy KMS configuration and work request deletion).
+- Schema freezing uses WITH SCHEMA FROZEN on CREATE TABLE and ALTER TABLE FREEZE SCHEMA / UNFREEZE SCHEMA; the Oracle pages reached describe freezing only through the console, so this DDL spelling is unverified.
+- Region names for CreateReplica are format-checked, not matched against a catalogue of OCI regions, and replicas have no data, throttling or per-replica limits beyond maxWriteUnits.
+- DeleteWorkRequest only marks the work request CANCELED; the resource transition is not rolled back. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK.
 - Throughput and storage limits are validated but not enforced: no read or write throttling, no storage quota, so the throttle counts of ListTableUsage stay 0.
 - The 50/50/25 auto-reclaimable (Always Free) defaults and the minimum of 1 unit are not found in any primary source reached; the documented region-level limits (30 tables, 3 on-demand tables, 4 DDL operations per minute, 100 schema updates per table, 4 limit decreases per day, once-a-day capacity mode change, 10000/5000 on-demand ceiling) are not enforced.
 - The REST error code for oversize keys, rows and query strings is LimitExceeded (400) by inference from the OCI error reference; the NoSQL REST reference page itself could not be fetched. Key and row size are approximated from string and number bytes, not the server's serialized form.

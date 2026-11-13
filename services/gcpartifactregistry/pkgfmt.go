@@ -2,7 +2,7 @@ package gcpartifactregistry
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -240,7 +241,7 @@ func writePlain(w http.ResponseWriter, code int, msg string) {
 }
 
 func writeJSONBody(w http.ResponseWriter, code int, v any) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		writePlain(w, http.StatusInternalServerError, err.Error())
 

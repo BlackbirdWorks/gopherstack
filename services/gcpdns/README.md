@@ -14,7 +14,7 @@
 
 ### Known gaps
 
-- managedZones.getIamPolicy, setIamPolicy and testIamPermissions are not routed (404); dns/v1beta2 and dns/v2 are not served.
+- dns/v1beta2 and dns/v2 are not served.
 - Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only.
 - Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items.
 - Error message texts (validation, containerNotEmpty, quota) and a few conditions (rrsets.* calls appearing in the change history, change completion timing, project number, non-fixed quota values) were chosen without a production reference.

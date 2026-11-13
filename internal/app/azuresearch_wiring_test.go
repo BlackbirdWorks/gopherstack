@@ -3,7 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -133,7 +134,7 @@ func (e *searchE2E) call(t *testing.T, method, path, key string, body any) (int,
 	var rd io.Reader
 
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rd = bytes.NewReader(raw)
@@ -154,7 +155,7 @@ func (e *searchE2E) call(t *testing.T, method, path, key string, body any) (int,
 
 	var out map[string]any
 
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return res.StatusCode, out
 }

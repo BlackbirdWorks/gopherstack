@@ -2,7 +2,7 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -140,7 +141,7 @@ type isoTime struct {
 }
 
 func (t isoTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Time.Format(time.RFC3339))
+	return json.Marshal(t.Time.Format(time.RFC3339), jsonx.V1())
 }
 
 // Handler is the Echo HTTP handler for Amazon Bedrock operations.
@@ -704,7 +705,7 @@ func parseBody[T any](body []byte) (*T, error) {
 		return &v, nil
 	}
 
-	if err := json.Unmarshal(body, &v); err != nil {
+	if err := json.Unmarshal(body, &v, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,12 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
@@ -24,7 +26,7 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 	assert.NotEmpty(t, id)
 	assert.NotEmpty(t, created["createdAt"])
@@ -50,7 +52,7 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-template-groups", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["eventBridgeRuleTemplateGroups"].([]any), 1)
 
 	// Delete
@@ -135,7 +137,7 @@ func TestEBRuleTemplate_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 	assert.NotEmpty(t, created["createdAt"])
 	assert.NotEmpty(t, created["modifiedAt"])
@@ -152,14 +154,14 @@ func TestEBRuleTemplate_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "MEDIALIVE_MULTIPLEX_ALERT", updated["eventType"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-templates", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["eventBridgeRuleTemplates"].([]any), 1)
 
 	// Delete

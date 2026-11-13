@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/iskorotkov/avro/v2"
 	"github.com/iskorotkov/avro/v2/ocf"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -249,7 +252,10 @@ func avroSchemaFor(cols []outCol) (string, []*hiveType, error) {
 		fields = append(fields, map[string]any{avroKeyName: c.name, avroKeyType: nullable(sch), avroKeyDefault: nil})
 	}
 
-	b, err := json.Marshal(map[string]any{avroKeyType: "record", avroKeyName: avroRootName, "fields": fields})
+	b, err := json.Marshal(
+		map[string]any{avroKeyType: "record", avroKeyName: avroRootName, "fields": fields},
+		jsonx.V1(),
+	)
 
 	return string(b), types, err
 }
@@ -290,11 +296,13 @@ func (t *hiveType) fromText(s string) (any, error) {
 
 		return r, nil
 	case hiveArray, hiveMap, hiveStruct:
-		dec := json.NewDecoder(strings.NewReader(s))
-		dec.UseNumber()
-
 		var v any
-		if err := dec.Decode(&v); err != nil {
+		if err := json.UnmarshalDecode(
+			jsontext.NewDecoder(strings.NewReader(s)),
+			&v,
+			jsonx.V1(),
+			jsonx.UseNumber(),
+		); err != nil {
 			return nil, fmt.Errorf("%w: %w", errAvroValue, err)
 		}
 
@@ -308,7 +316,7 @@ func jsonScalarText(v any) string {
 	switch n := v.(type) {
 	case string:
 		return n
-	case json.Number:
+	case jsonx.Number:
 		return n.String()
 	case bool:
 		return strconv.FormatBool(n)
@@ -658,7 +666,7 @@ func avroCell(v any, t *hiveType) string {
 
 		return strconv.FormatFloat(n, 'g', -1, 64)
 	default:
-		b, err := json.Marshal(n)
+		b, err := json.Marshal(n, jsonx.V1())
 		if err != nil {
 			return fmt.Sprint(n)
 		}

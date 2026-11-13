@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -106,11 +107,11 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Authorizer(physicalID string) error
 // decodeProps resolves intrinsics in props and decodes them into out; the
 // backend inputs' JSON tags match CloudFormation's property names case-insensitively.
 func decodeProps(props map[string]any, params, physicalIDs map[string]string, out any) error {
-	raw, err := json.Marshal(resolveDeep(props, params, physicalIDs))
+	raw, err := json.Marshal(resolveDeep(props, params, physicalIDs), jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode properties: %w", err)
 	}
-	if err = json.Unmarshal(raw, out); err != nil {
+	if err = json.Unmarshal(raw, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode properties: %w", err)
 	}
 
@@ -203,7 +204,7 @@ func (rc *ResourceCreator) apiGatewayV2Body(
 		if s, isStr := resolved.(string); isStr {
 			return s, nil
 		}
-		raw, err := json.Marshal(resolved)
+		raw, err := json.Marshal(resolved, jsonx.V1())
 		if err != nil {
 			return "", fmt.Errorf("encode Body: %w", err)
 		}

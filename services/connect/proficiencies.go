@@ -2,11 +2,13 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -210,17 +212,17 @@ func (b *Backend) ListUserProficiencies(in *ProficienciesInput) (*ProficienciesO
 type UpdateUserConfigInput struct {
 	UserID string `json:"-" path:"UserId"`
 	instPath
-	AfterContactWorkConfigs     json.RawMessage
-	AutoAcceptConfigs           json.RawMessage
-	PersistentConnectionConfigs json.RawMessage
-	PhoneNumberConfigs          json.RawMessage
-	VoiceEnhancementConfigs     json.RawMessage
+	AfterContactWorkConfigs     jsontext.Value
+	AutoAcceptConfigs           jsontext.Value
+	PersistentConnectionConfigs jsontext.Value
+	PhoneNumberConfigs          jsontext.Value
+	VoiceEnhancementConfigs     jsontext.Value
 }
 
 var userChannels = []string{"VOICE", "CHAT", "TASK", emailValue} //nolint:gochecknoglobals // immutable lookup table
 
 // checkChannelConfigs validates that every entry names a known channel and returns the normalised list.
-func checkChannelConfigs(field string, raw json.RawMessage) (json.RawMessage, error) {
+func checkChannelConfigs(field string, raw jsontext.Value) (jsontext.Value, error) {
 	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
@@ -229,7 +231,7 @@ func checkChannelConfigs(field string, raw json.RawMessage) (json.RawMessage, er
 		Channel string `json:"Channel"`
 	}
 
-	if err := json.Unmarshal(raw, &items); err != nil {
+	if err := json.Unmarshal(raw, &items, jsonx.V1()); err != nil {
 		return nil, invalidParamErr("%s is not valid", field)
 	}
 
@@ -251,30 +253,30 @@ func checkChannelConfigs(field string, raw json.RawMessage) (json.RawMessage, er
 }
 
 type userConfigField struct {
-	dst  func(*User) *json.RawMessage
+	dst  func(*User) *jsontext.Value
 	name string
-	raw  json.RawMessage
+	raw  jsontext.Value
 }
 
 func userConfigFields(in *UpdateUserConfigInput) []userConfigField {
 	return []userConfigField{
 		{name: "AfterContactWorkConfigs", raw: in.AfterContactWorkConfigs,
-			dst: func(u *User) *json.RawMessage { return &u.AfterContactWorkConfigs }},
+			dst: func(u *User) *jsontext.Value { return &u.AfterContactWorkConfigs }},
 		{name: "AutoAcceptConfigs", raw: in.AutoAcceptConfigs,
-			dst: func(u *User) *json.RawMessage { return &u.AutoAcceptConfigs }},
+			dst: func(u *User) *jsontext.Value { return &u.AutoAcceptConfigs }},
 		{name: "PersistentConnectionConfigs", raw: in.PersistentConnectionConfigs,
-			dst: func(u *User) *json.RawMessage { return &u.PersistentConnectionConfigs }},
+			dst: func(u *User) *jsontext.Value { return &u.PersistentConnectionConfigs }},
 		{name: "PhoneNumberConfigs", raw: in.PhoneNumberConfigs,
-			dst: func(u *User) *json.RawMessage { return &u.PhoneNumberConfigs }},
+			dst: func(u *User) *jsontext.Value { return &u.PhoneNumberConfigs }},
 		{name: "VoiceEnhancementConfigs", raw: in.VoiceEnhancementConfigs,
-			dst: func(u *User) *json.RawMessage { return &u.VoiceEnhancementConfigs }},
+			dst: func(u *User) *jsontext.Value { return &u.VoiceEnhancementConfigs }},
 	}
 }
 
 // UpdateUserConfig replaces the supplied per-channel settings of a user.
 func (b *Backend) UpdateUserConfig(ctx context.Context, in *UpdateUserConfigInput) (*empty, error) {
 	fields := userConfigFields(in)
-	checked := make([]json.RawMessage, len(fields))
+	checked := make([]jsontext.Value, len(fields))
 
 	for i, f := range fields {
 		raw, err := checkChannelConfigs(f.name, f.raw)

@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 )
 
@@ -31,7 +31,7 @@ func (b *Backend) findSP(r Ref) (*ServicePrincipal, error) {
 }
 
 // CreateServicePrincipal instantiates an application in the tenant; body.appId must name a registered application.
-func (b *Backend) CreateServicePrincipal(body map[string]json.RawMessage) (ServicePrincipal, error) {
+func (b *Backend) CreateServicePrincipal(body map[string]jsontext.Value) (ServicePrincipal, error) {
 	b.mu.Lock("CreateServicePrincipal")
 	defer b.mu.Unlock()
 
@@ -111,7 +111,7 @@ func (b *Backend) ListServicePrincipals() []ServicePrincipal {
 }
 
 // UpdateServicePrincipal applies a PATCH body.
-func (b *Backend) UpdateServicePrincipal(r Ref, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateServicePrincipal(r Ref, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateServicePrincipal")
 	defer b.mu.Unlock()
 

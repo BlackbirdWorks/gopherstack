@@ -1,7 +1,7 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,10 +67,10 @@ func TestExportCounts(t *testing.T) {
 
 	opensearch.SeedInboundConnection(b, "conn-1")
 
-	_, err := b.AddDataSource("d1", "ds-1", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err := b.AddDataSource("d1", "ds-1", "desc", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("dq-1", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
+	_, err = b.AddDirectQueryDataSource("dq-1", "desc", jsontext.Value(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplication("app-1", nil, nil, nil)

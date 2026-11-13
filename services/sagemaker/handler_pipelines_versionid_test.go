@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DescribePipeline_PipelineVersionId(t *testing.T) {
@@ -59,7 +61,7 @@ func TestHandler_DescribePipeline_PipelineVersionId(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantDef, out["PipelineDefinition"])
 		})
 	}
@@ -81,7 +83,7 @@ func TestHandler_DescribePipeline_LastRunTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, beforeRec.Code, beforeRec.Body.String())
 
 	var beforeOut map[string]any
-	require.NoError(t, json.Unmarshal(beforeRec.Body.Bytes(), &beforeOut))
+	require.NoError(t, json.Unmarshal(beforeRec.Body.Bytes(), &beforeOut, jsonx.V1()))
 	_, hasLastRunTime := beforeOut["LastRunTime"]
 	assert.False(t, hasLastRunTime, "a pipeline that has never run must not emit LastRunTime")
 
@@ -96,7 +98,7 @@ func TestHandler_DescribePipeline_LastRunTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, afterRec.Code, afterRec.Body.String())
 
 	var afterOut map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut, jsonx.V1()))
 
 	lastRunTime, ok := afterOut["LastRunTime"].(float64)
 	require.True(t, ok, "a pipeline that has run must emit LastRunTime")

@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListTableOptimizerRuns_ReturnsRealHistory verifies ListTableOptimizerRuns
@@ -50,7 +52,7 @@ func TestListTableOptimizerRuns_ReturnsRealHistory(t *testing.T) {
 	var out struct {
 		TableOptimizerRuns []map[string]any `json:"TableOptimizerRuns"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.TableOptimizerRuns, 1)
 	assert.Equal(t, "completed", out.TableOptimizerRuns[0]["eventType"])
 }

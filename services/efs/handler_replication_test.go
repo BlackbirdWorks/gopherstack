@@ -1,7 +1,7 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -351,7 +352,7 @@ func TestReplicationConfiguration_SourceOwnerInResponse(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rcRec := doREST(t, h, http.MethodPost,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/replication-configuration",
@@ -365,7 +366,7 @@ func TestReplicationConfiguration_SourceOwnerInResponse(t *testing.T) {
 	var rcOut struct {
 		SourceFileSystemOwnerID string `json:"SourceFileSystemOwnerId"`
 	}
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut, jsonx.V1()))
 
 	assert.NotEmpty(t, rcOut.SourceFileSystemOwnerID,
 		"SourceFileSystemOwnerId must be present in CreateReplicationConfiguration response")
@@ -393,7 +394,7 @@ func TestReplicationConfiguration_DestinationHasOwnerNoArn(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rcRec := doREST(t, h, http.MethodPost,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/replication-configuration",
@@ -405,7 +406,7 @@ func TestReplicationConfiguration_DestinationHasOwnerNoArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rcRec.Code, "CreateReplicationConfiguration failed: %s", rcRec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &raw, jsonx.V1()))
 	dests, ok := raw["Destinations"].([]any)
 	require.True(t, ok)
 	require.Len(t, dests, 1)
@@ -420,7 +421,7 @@ func TestReplicationConfiguration_DestinationHasOwnerNoArn(t *testing.T) {
 			Status       string `json:"Status"`
 		} `json:"Destinations"`
 	}
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut, jsonx.V1()))
 	require.Len(t, rcOut.Destinations, 1)
 
 	d := rcOut.Destinations[0]
@@ -448,7 +449,7 @@ func TestDescribeReplicationConfigurations_ByDestinationFileSystemID(t *testing.
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rcRec := doREST(t, h, http.MethodPost,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/replication-configuration",
@@ -464,7 +465,7 @@ func TestDescribeReplicationConfigurations_ByDestinationFileSystemID(t *testing.
 			FileSystemID string `json:"FileSystemId"`
 		} `json:"Destinations"`
 	}
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut, jsonx.V1()))
 	require.Len(t, rcOut.Destinations, 1)
 
 	destFSID := rcOut.Destinations[0].FileSystemID
@@ -483,7 +484,7 @@ func TestDescribeReplicationConfigurations_ByDestinationFileSystemID(t *testing.
 			SourceFileSystemID string `json:"SourceFileSystemId"`
 		} `json:"Replications"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 
 	assert.Len(t, listOut.Replications, 1,
 		"DescribeReplicationConfigurations must return result when filtering by destination FS ID")
@@ -602,7 +603,7 @@ func TestCreateReplicationConfiguration_AssignsDestinationFileSystemID(t *testin
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rcRec := doREST(t, h, http.MethodPost,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/replication-configuration",
@@ -618,7 +619,7 @@ func TestCreateReplicationConfiguration_AssignsDestinationFileSystemID(t *testin
 			FileSystemID string `json:"FileSystemId"`
 		} `json:"Destinations"`
 	}
-	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut))
+	require.NoError(t, json.Unmarshal(rcRec.Body.Bytes(), &rcOut, jsonx.V1()))
 	require.Len(t, rcOut.Destinations, 1)
 
 	assert.NotEmpty(t, rcOut.Destinations[0].FileSystemID,

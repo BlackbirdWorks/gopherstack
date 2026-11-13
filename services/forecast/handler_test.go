@@ -2,7 +2,7 @@ package forecast_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/forecast"
 )
@@ -40,7 +41,7 @@ func request(t *testing.T, h *forecast.Handler, operation string, body map[strin
 func doRequest(t *testing.T, h *forecast.Handler, operation string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -69,7 +70,7 @@ func unmarshalResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]
 	t.Helper()
 
 	var response map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response, jsonx.V1()))
 
 	return response
 }

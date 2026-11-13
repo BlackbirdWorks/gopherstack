@@ -1,11 +1,12 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseCustomDataIDPath(method string, parts []string) (string, string) {
@@ -98,7 +99,7 @@ func (h *Handler) handleCreateCustomDataID(body []byte) (any, int, error) {
 		SeverityLevels       []SeverityLevel   `json:"severityLevels"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -152,7 +153,7 @@ func (h *Handler) handleListCustomDataIDs(body []byte) (any, int, error) {
 		MaxResults *int32 `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	limit := 0
 	if req.MaxResults != nil {
@@ -181,7 +182,7 @@ func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
 		Keywords             []string `json:"keywords"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -214,7 +215,7 @@ func (h *Handler) handleBatchGetCustomDataIdentifiers(body []byte) (any, int, er
 		IDs []string `json:"ids"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -250,7 +251,7 @@ func (h *Handler) handleListManagedDataIdentifiers(body []byte) (any, int, error
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}

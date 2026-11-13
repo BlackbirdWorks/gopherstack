@@ -2,7 +2,7 @@ package opsworks_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opsworks"
 )
 
@@ -29,7 +30,7 @@ func doTarget(t *testing.T, h *opsworks.Handler, operation string, body any) *ht
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -50,7 +51,7 @@ func parseJSON(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(body, &result))
+	require.NoError(t, json.Unmarshal(body, &result, jsonx.V1()))
 
 	return result
 }

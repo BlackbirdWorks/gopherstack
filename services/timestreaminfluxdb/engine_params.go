@@ -1,13 +1,16 @@
 package timestreaminfluxdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const hoursPerDay = 24
@@ -15,14 +18,14 @@ const hoursPerDay = 24
 // ParameterEnv translates an InfluxDBv2 parameter group document into influxd environment settings.
 // Every InfluxDBv2 parameter has an influxd flag of the same name in kebab case (INFLUXD_<FLAG>);
 // groups for other engines are stored but not applied.
-func ParameterEnv(raw json.RawMessage) []string {
-	var union map[string]json.RawMessage
-	if json.Unmarshal(raw, &union) != nil {
+func ParameterEnv(raw jsontext.Value) []string {
+	var union map[string]jsontext.Value
+	if json.Unmarshal(raw, &union, jsonx.V1()) != nil {
 		return nil
 	}
 
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(union["InfluxDBv2"], &fields) != nil {
+	var fields map[string]jsontext.Value
+	if json.Unmarshal(union["InfluxDBv2"], &fields, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -54,13 +57,13 @@ func envName(param string) string {
 	return sb.String()
 }
 
-func paramValue(name string, raw json.RawMessage) (string, bool) {
+func paramValue(name string, raw jsontext.Value) (string, bool) {
 	if isDurationParam(name) {
 		return durationValue(raw)
 	}
 
 	var v any
-	if json.Unmarshal(raw, &v) != nil {
+	if json.Unmarshal(raw, &v, jsonx.V1()) != nil {
 		return "", false
 	}
 
@@ -76,12 +79,12 @@ func paramValue(name string, raw json.RawMessage) (string, bool) {
 	return "", false
 }
 
-func durationValue(raw json.RawMessage) (string, bool) {
+func durationValue(raw jsontext.Value) (string, bool) {
 	var d struct {
 		DurationType string `json:"durationType"`
 		Value        int64  `json:"value"`
 	}
-	if json.Unmarshal(raw, &d) != nil {
+	if json.Unmarshal(raw, &d, jsonx.V1()) != nil {
 		return "", false
 	}
 

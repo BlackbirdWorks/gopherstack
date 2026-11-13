@@ -2,9 +2,10 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -64,7 +65,7 @@ type createAcmeEABOutput struct {
 
 func (h *Handler) jsonCreateAcmeExternalAccountBinding(ctx context.Context, body []byte) (any, error) {
 	var input createAcmeEABInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -110,7 +111,7 @@ type describeAcmeEABOutput struct {
 
 func (h *Handler) jsonDescribeAcmeExternalAccountBinding(ctx context.Context, body []byte) (any, error) {
 	var input describeAcmeEABInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -140,7 +141,7 @@ type deleteAcmeEABOutput struct{}
 
 func (h *Handler) jsonDeleteAcmeExternalAccountBinding(ctx context.Context, body []byte) (any, error) {
 	var input deleteAcmeEABInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -168,9 +169,10 @@ type listAcmeEABsOutput struct {
 	ExternalAccountBindings []acmeEABWire `json:"ExternalAccountBindings"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) jsonListAcmeExternalAccountBindings(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeEABsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -208,7 +210,7 @@ type getAcmeEABCredentialsOutput struct {
 
 func (h *Handler) jsonGetAcmeExternalAccountBindingCredentials(ctx context.Context, body []byte) (any, error) {
 	var input getAcmeEABCredentialsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -236,7 +238,7 @@ type revokeAcmeEABOutput struct{}
 
 func (h *Handler) jsonRevokeAcmeExternalAccountBinding(ctx context.Context, body []byte) (any, error) {
 	var input revokeAcmeEABInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

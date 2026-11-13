@@ -1,12 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSignalMap_CRUD(t *testing.T) {
@@ -23,7 +25,7 @@ func TestSignalMap_CRUD(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["id"])
 				assert.Equal(t, "CREATE_COMPLETE", resp["status"])
 				monitorDeployment, _ := resp["monitorDeployment"].(map[string]any)
@@ -60,7 +62,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["id"].(string)
 
 	// Get by ID
@@ -75,7 +77,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/signal-maps", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items := listResp["signalMaps"].([]any)
 	assert.Len(t, items, 1)
 
@@ -89,7 +91,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPost, "/prod/signal-maps/"+id+"/monitor-deployment", nil)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	var deployResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deployResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deployResp, jsonx.V1()))
 	deployMonitorDeployment, _ := deployResp["monitorDeployment"].(map[string]any)
 	assert.Equal(t, "DEPLOYMENT_COMPLETE", deployMonitorDeployment["status"])
 
@@ -127,7 +129,7 @@ func TestListSignalMaps_OmitsGetOnlyFields(t *testing.T) {
 	var out struct {
 		SignalMaps []map[string]any `json:"signalMaps"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.SignalMaps, 1)
 
 	item := out.SignalMaps[0]

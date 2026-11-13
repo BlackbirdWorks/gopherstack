@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -101,7 +102,7 @@ func (h *Handler) handleServerlessCollectionCreate(w http.ResponseWriter, r *htt
 		KmsKeyArn   string            `json:"kmsKeyArn"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	coll, err := h.Backend.CreateServerlessCollection(
@@ -166,7 +167,7 @@ func (h *Handler) handleServerlessCollectionBatchRoutes(w http.ResponseWriter, r
 			Names []string `json:"names"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		colls := h.Backend.BatchGetServerlessCollections(req.IDs, req.Names)
 		if colls == nil {
@@ -217,7 +218,7 @@ func (h *Handler) handleServerlessPolicyCRUDRoot(
 			Description string `json:"description"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		result, err := ops.create(req.Type, req.Name, req.Description, req.Policy)
 		if err != nil {
@@ -265,7 +266,7 @@ func (h *Handler) handleServerlessPolicyCRUDByName(
 			PolicyVersion string `json:"policyVersion"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		result, err := ops.update(policyType, name, req.Description, req.Policy, req.PolicyVersion)
 		if err != nil {
@@ -379,7 +380,7 @@ func (h *Handler) handleServerlessSecurityConfigCollection(w http.ResponseWriter
 			Description string                 `json:"description"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		sc, err := h.Backend.CreateServerlessSecurityConfig(
 			req.Type,
@@ -428,7 +429,7 @@ func (h *Handler) handleServerlessSecurityConfigItem(w http.ResponseWriter, r *h
 			ConfigVersion string                 `json:"configVersion"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		sc, err := h.Backend.UpdateServerlessSecurityConfig(
 			id,
@@ -512,7 +513,7 @@ func (h *Handler) handleServerlessNetworkPolicyRoutes(
 				Description string `json:"description"`
 			}
 			if len(body) > 0 {
-				_ = json.Unmarshal(body, &req)
+				_ = json.Unmarshal(body, &req, jsonx.V1())
 			}
 			np, err := h.Backend.CreateServerlessNetworkPolicy(
 				req.Type,

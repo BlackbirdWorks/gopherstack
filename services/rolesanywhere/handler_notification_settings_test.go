@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Notification Settings HTTP ----
@@ -38,7 +40,7 @@ func TestHandler_NotificationSettings_PutReset(t *testing.T) {
 			require.Equal(t, http.StatusCreated, recTA.Code)
 
 			var taResp map[string]any
-			require.NoError(t, json.Unmarshal(recTA.Body.Bytes(), &taResp))
+			require.NoError(t, json.Unmarshal(recTA.Body.Bytes(), &taResp, jsonx.V1()))
 			ta := taResp["trustAnchor"].(map[string]any)
 			taID := ta["trustAnchorId"].(string)
 
@@ -52,7 +54,7 @@ func TestHandler_NotificationSettings_PutReset(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, recPut.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.Contains(t, putResp, "trustAnchor")
 
 			// Reset notification settings.
@@ -91,7 +93,7 @@ func TestHandler_NotificationSettings_ConfiguredBy(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recTA.Code)
 
 	var taResp map[string]any
-	require.NoError(t, json.Unmarshal(recTA.Body.Bytes(), &taResp))
+	require.NoError(t, json.Unmarshal(recTA.Body.Bytes(), &taResp, jsonx.V1()))
 	ta := taResp["trustAnchor"].(map[string]any)
 	taID := ta["trustAnchorId"].(string)
 
@@ -104,7 +106,7 @@ func TestHandler_NotificationSettings_ConfiguredBy(t *testing.T) {
 	require.Equal(t, http.StatusOK, recPut.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putResp, jsonx.V1()))
 
 	updatedTA := putResp["trustAnchor"].(map[string]any)
 	settings := updatedTA["notificationSettings"].([]any)

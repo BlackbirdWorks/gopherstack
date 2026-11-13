@@ -1,11 +1,13 @@
 package ssm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // DocumentParameter is one declared document parameter (types.DocumentParameter).
@@ -37,7 +39,7 @@ func parseDocumentParameters(content, format string) []DocumentParameter {
 	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
-		err = json.Unmarshal([]byte(content), &doc)
+		err = json.Unmarshal([]byte(content), &doc, jsonx.V1())
 	}
 
 	if err != nil || len(doc.Parameters) == 0 {
@@ -69,7 +71,7 @@ func documentDefaultString(v any) string {
 	case string:
 		return val
 	default:
-		if b, err := json.Marshal(val); err == nil {
+		if b, err := json.Marshal(val, jsonx.V1()); err == nil {
 			return string(b)
 		}
 

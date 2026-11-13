@@ -2,7 +2,7 @@ package pipes
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -350,40 +351,37 @@ func errMessage(err error) string {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "NotFoundException",
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrQuota):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ServiceQuotaExceededException",
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errCodeValidation,
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		// This branch used to omit keyTypeField entirely, so
 		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
 		// decoder_util.go:15) found no code in the header (unset) or the
@@ -398,7 +396,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalException",
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
@@ -512,7 +510,7 @@ func (h *Handler) handleCreatePipe(ctx context.Context, path string, body []byte
 	}
 
 	var req createPipeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -535,7 +533,7 @@ func (h *Handler) handleCreatePipe(ctx context.Context, path string, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 func (h *Handler) handleDescribePipe(ctx context.Context, path string) ([]byte, error) {
@@ -549,7 +547,7 @@ func (h *Handler) handleDescribePipe(ctx context.Context, path string) ([]byte, 
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 // pipeSummary matches types.Pipe (the summary shape ListPipesOutput.Pipes uses),
@@ -613,7 +611,7 @@ func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte
 		})
 	}
 
-	return json.Marshal(listPipesResponse{Pipes: items, NextToken: res.NextToken})
+	return json.Marshal(listPipesResponse{Pipes: items, NextToken: res.NextToken}, jsonx.V1())
 }
 
 func (h *Handler) handleDeletePipe(ctx context.Context, path string) ([]byte, error) {
@@ -627,7 +625,7 @@ func (h *Handler) handleDeletePipe(ctx context.Context, path string) ([]byte, er
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte) ([]byte, error) {
@@ -637,7 +635,7 @@ func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte
 	}
 
 	var req updatePipeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -657,7 +655,7 @@ func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 func (h *Handler) handleStartPipe(ctx context.Context, path string) ([]byte, error) {
@@ -671,7 +669,7 @@ func (h *Handler) handleStartPipe(ctx context.Context, path string) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 func (h *Handler) handleStopPipe(ctx context.Context, path string) ([]byte, error) {
@@ -685,7 +683,7 @@ func (h *Handler) handleStopPipe(ctx context.Context, path string) ([]byte, erro
 		return nil, err
 	}
 
-	return json.Marshal(toPipeResponse(p))
+	return json.Marshal(toPipeResponse(p), jsonx.V1())
 }
 
 type tagResourceRequest struct {
@@ -699,7 +697,7 @@ func (h *Handler) handleTagResource(ctx context.Context, path string, body []byt
 	}
 
 	var req tagResourceRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, unmarshalErr)
 	}
 
@@ -750,7 +748,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([
 		return nil, err
 	}
 
-	return json.Marshal(listTagsResponse{Tags: tags})
+	return json.Marshal(listTagsResponse{Tags: tags}, jsonx.V1())
 }
 
 func extractTagsARN(path string) (string, error) {

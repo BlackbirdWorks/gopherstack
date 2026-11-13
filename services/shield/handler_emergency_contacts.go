@@ -1,8 +1,10 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // emergencyContactItem represents a single emergency contact in the API request/response.
@@ -19,7 +21,7 @@ type associateProactiveEngagementRequest struct {
 
 func (h *Handler) handleAssociateProactiveEngagementDetails(body []byte) error {
 	var req associateProactiveEngagementRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -57,7 +59,7 @@ type updateEmergencyContactSettingsRequest struct {
 
 func (h *Handler) handleUpdateEmergencyContactSettings(body []byte) error {
 	var req updateEmergencyContactSettingsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -80,5 +82,5 @@ func (h *Handler) handleDescribeEmergencyContactSettings() ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"EmergencyContactList": items,
-	})
+	}, jsonx.V1())
 }

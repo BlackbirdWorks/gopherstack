@@ -1,11 +1,13 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // This file exposes internals needed by the blackbox (azurearm_test) test
@@ -52,7 +54,7 @@ func NewTestHandlerWithCosmos(dataPlane CosmosResources, settings Settings) *Han
 
 // EventHubSnapshotJSON marshals the provider's ARM-side snapshot.
 func EventHubSnapshotJSON(p *EventHubProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -63,7 +65,7 @@ func EventHubRestoreJSON(t *testing.T, p *EventHubProvider, data []byte) {
 
 	var s eventHubSnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 
@@ -78,7 +80,7 @@ func NewTestHandlerWithEventGrid(dataPlane EventGrid, settings Settings) *Handle
 
 // EventGridSnapshotJSON marshals the provider's ARM-side snapshot.
 func EventGridSnapshotJSON(p *EventGridProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -89,7 +91,7 @@ func EventGridRestoreJSON(t *testing.T, p *EventGridProvider, data []byte) {
 
 	var s eventGridSnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 
@@ -104,7 +106,7 @@ func NewTestHandlerWithAppConfig(dataPlane AppConfig, settings Settings) *Handle
 
 // AppConfigSnapshotJSON marshals the provider's ARM-side snapshot.
 func AppConfigSnapshotJSON(p *AppConfigProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -115,7 +117,7 @@ func AppConfigRestoreJSON(t *testing.T, p *AppConfigProvider, data []byte) {
 
 	var s appConfigSnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 
@@ -144,7 +146,7 @@ func NewTestHandlerWithContainerRegistry(dataPlane ContainerRegistries, settings
 
 // ContainerRegistrySnapshotJSON marshals the provider's ARM-side snapshot.
 func ContainerRegistrySnapshotJSON(p *ContainerRegistryProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -155,7 +157,7 @@ func ContainerRegistryRestoreJSON(t *testing.T, p *ContainerRegistryProvider, da
 
 	var s containerRegistrySnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 
@@ -172,7 +174,7 @@ func NewTestHandlerWithRedis(dataPlane Redis, now func() time.Time) (*Handler, *
 
 // RedisSnapshotJSON marshals the provider's ARM-side snapshot.
 func RedisSnapshotJSON(p *RedisProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -183,7 +185,7 @@ func RedisRestoreJSON(t *testing.T, p *RedisProvider, data []byte) {
 
 	var s redisSnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 
@@ -199,7 +201,7 @@ func NewTestHandlerWithSQL(dataPlane SQL) (*Handler, *SQLProvider) {
 
 // SQLSnapshotJSON marshals the provider's ARM-side snapshot.
 func SQLSnapshotJSON(p *SQLProvider) []byte {
-	b, _ := json.Marshal(p.snapshot())
+	b, _ := json.Marshal(p.snapshot(), jsonx.V1())
 
 	return b
 }
@@ -210,7 +212,7 @@ func SQLRestoreJSON(t *testing.T, p *SQLProvider, data []byte) {
 
 	var s sqlSnapshot
 
-	require.NoError(t, json.Unmarshal(data, &s))
+	require.NoError(t, json.Unmarshal(data, &s, jsonx.V1()))
 	p.restore(&s)
 }
 

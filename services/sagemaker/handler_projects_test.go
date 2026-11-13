@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateProject(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_CreateProject(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ProjectArn"], "my-project")
 	assert.NotEmpty(t, resp["ProjectId"])
 }
@@ -39,7 +41,7 @@ func TestHandler_DescribeProject(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "proj-1", resp["ProjectName"])
 	assert.Equal(t, "CreateCompleted", resp["ProjectStatus"])
 }
@@ -69,7 +71,7 @@ func TestHandler_ListProjects(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["ProjectSummaryList"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -104,7 +106,7 @@ func TestHandler_ListProjects_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items := resp["ProjectSummaryList"].([]any)
 			require.Len(t, items, len(tc.wantNames))
 
@@ -135,7 +137,7 @@ func TestHandler_DescribeProject_NoTagsLeak(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotContains(t, resp, "Tags")
 	assert.NotZero(t, resp["LastModifiedTime"])
 }
@@ -185,7 +187,7 @@ func TestHandler_UpdateProject(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDescribe.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "updated description", out["ProjectDescription"])
 }
 

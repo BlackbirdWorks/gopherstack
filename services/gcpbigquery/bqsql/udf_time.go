@@ -2,10 +2,12 @@ package bqsql
 
 import (
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseAny parses a stored temporal text value and reports which family it belongs to.
@@ -661,7 +663,7 @@ func udfGenerateDates(a []driver.Value) (driver.Value, error) {
 		t, _, _ = parseAny(next)
 	}
 
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return string(b), nil
 }

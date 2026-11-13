@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -49,9 +51,9 @@ type AIBenchmarkJob struct {
 	AIWorkloadConfigIdentifier string            `json:"AIWorkloadConfigIdentifier"`
 	RoleArn                    string            `json:"RoleArn"`
 	FailureReason              string            `json:"FailureReason,omitempty"`
-	BenchmarkTarget            json.RawMessage   `json:"BenchmarkTarget"`
-	OutputConfig               json.RawMessage   `json:"OutputConfig"`
-	NetworkConfig              json.RawMessage   `json:"NetworkConfig,omitempty"`
+	BenchmarkTarget            jsontext.Value    `json:"BenchmarkTarget"`
+	OutputConfig               jsontext.Value    `json:"OutputConfig"`
+	NetworkConfig              jsontext.Value    `json:"NetworkConfig,omitempty"`
 }
 
 // MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1
@@ -75,7 +77,7 @@ func (j *AIBenchmarkJob) MarshalJSON() ([]byte, error) {
 		StartTime:    epochSecondsPtr(j.StartTime),
 		EndTime:      epochSecondsPtr(j.EndTime),
 		Tags:         toTagObjects(j.Tags),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [AIBenchmarkJob.MarshalJSON], used by
@@ -90,7 +92,7 @@ func (j *AIBenchmarkJob) UnmarshalJSON(data []byte) error {
 		CreationTime float64  `json:"CreationTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -104,9 +106,9 @@ func (j *AIBenchmarkJob) UnmarshalJSON(data []byte) error {
 func cloneAIBenchmarkJob(j *AIBenchmarkJob) *AIBenchmarkJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
-	cp.BenchmarkTarget = append(json.RawMessage(nil), j.BenchmarkTarget...)
-	cp.OutputConfig = append(json.RawMessage(nil), j.OutputConfig...)
-	cp.NetworkConfig = append(json.RawMessage(nil), j.NetworkConfig...)
+	cp.BenchmarkTarget = append(jsontext.Value(nil), j.BenchmarkTarget...)
+	cp.OutputConfig = append(jsontext.Value(nil), j.OutputConfig...)
+	cp.NetworkConfig = append(jsontext.Value(nil), j.NetworkConfig...)
 
 	if j.StartTime != nil {
 		t := *j.StartTime
@@ -152,9 +154,9 @@ type CreateAIBenchmarkJobOptions struct {
 	AIBenchmarkJobName         string
 	AIWorkloadConfigIdentifier string
 	RoleArn                    string
-	BenchmarkTarget            json.RawMessage
-	OutputConfig               json.RawMessage
-	NetworkConfig              json.RawMessage
+	BenchmarkTarget            jsontext.Value
+	OutputConfig               jsontext.Value
+	NetworkConfig              jsontext.Value
 }
 
 // CreateAIBenchmarkJob creates an AI benchmark job and schedules its

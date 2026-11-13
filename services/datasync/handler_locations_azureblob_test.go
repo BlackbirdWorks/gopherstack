@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_AzureBlob covers the AzureBlob location lifecycle.
@@ -31,7 +33,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn, ok := createResp["LocationArn"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, locArn)
@@ -41,7 +43,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, locArn, descResp["LocationArn"])
 	assert.Equal(t, "BLOCK", descResp["BlobType"])
 	assert.Equal(t, "HOT", descResp["AccessTier"])
@@ -62,7 +64,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 
 	// Describe after update
 	rec = doRequest(t, h, "DescribeLocationAzureBlob", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "COOL", descResp["AccessTier"])
 
 	// Not found

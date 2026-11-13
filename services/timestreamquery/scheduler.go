@@ -3,7 +3,7 @@ package timestreamquery
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"path"
 	"slices"
@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
@@ -302,7 +303,7 @@ func (b *InMemoryBackend) writeErrorReport(
 	body, err := json.Marshal(map[string]any{
 		"reportId": strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")),
 		"errors":   reportErrors(fail),
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil
 	}
@@ -386,7 +387,7 @@ func (b *InMemoryBackend) publishTo(ctx context.Context, n Notifier, topic strin
 		return
 	}
 
-	body, err := json.Marshal(msg)
+	body, err := json.Marshal(msg, jsonx.V1())
 	if err != nil {
 		return
 	}

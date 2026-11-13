@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -133,7 +134,7 @@ func TestHandler_UpdateUserAttributes(t *testing.T) {
 
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "attr-pool"})
 			var poolResp map[string]map[string]any
-			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 			poolID := poolResp["UserPool"]["Id"].(string)
 
 			clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -141,7 +142,7 @@ func TestHandler_UpdateUserAttributes(t *testing.T) {
 				"ClientName": "c",
 			})
 			var clientResp map[string]map[string]any
-			_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+			_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 			clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 			doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -168,7 +169,7 @@ func TestHandler_UpdateUserAttributes(t *testing.T) {
 			require.Equal(t, http.StatusOK, authRec.Code)
 
 			var authData map[string]map[string]any
-			require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authData))
+			require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authData, jsonx.V1()))
 			accessToken := authData["AuthenticationResult"]["AccessToken"].(string)
 
 			if tt.badToken {
@@ -221,7 +222,7 @@ func TestHandler_AdminUpdateUserAttributes(t *testing.T) {
 
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "admin-attr-pool"})
 			var poolResp map[string]map[string]any
-			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+			_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 			poolID := poolResp["UserPool"]["Id"].(string)
 
 			doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -256,7 +257,7 @@ func TestHandler_AddCustomAttributes(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "test-pool"})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["UserPool"].(map[string]any)["Id"].(string)
 			},
@@ -334,7 +335,7 @@ func TestHandler_AdminDeleteUserAttributes(t *testing.T) {
 			h := newTestHandler(t)
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "attr-pool"})
 			var poolResp map[string]any
-			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 			username := "deleteattr-user"
@@ -393,7 +394,7 @@ func TestAddCustomAttributes_RequiresCustomPrefix(t *testing.T) {
 			h := newTestHandler(t)
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "prefix-pool"})
 			var poolResp map[string]any
-			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 			rec := doCognitoRequest(t, h, "AddCustomAttributes", map[string]any{
@@ -413,7 +414,7 @@ func TestSortedAttributes(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "sorted-attrs-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -434,7 +435,7 @@ func TestSortedAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	attrs := resp["UserAttributes"].([]any)
 	require.GreaterOrEqual(t, len(attrs), 3)
 
@@ -462,7 +463,7 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 	require.Equal(t, http.StatusOK, poolRec.Code)
 
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -476,7 +477,7 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 	require.Equal(t, http.StatusOK, clientRec.Code)
 
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 
 	signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -490,7 +491,7 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 	require.Equal(t, http.StatusOK, signupRec.Code)
 
 	var signupResp map[string]any
-	require.NoError(t, json.Unmarshal(signupRec.Body.Bytes(), &signupResp))
+	require.NoError(t, json.Unmarshal(signupRec.Body.Bytes(), &signupResp, jsonx.V1()))
 
 	// AutoVerifiedAttributes only selects which channel receives the confirmation
 	// code; it does not skip confirmation itself (see TestSignUpWithValidation_AutoVerify).
@@ -513,7 +514,7 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 	require.Equal(t, http.StatusOK, authRec.Code)
 
 	var authResp map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 	idToken := authResp["AuthenticationResult"].(map[string]any)["IdToken"].(string)
 
 	claims := decodeJWTPayload(t, idToken)
@@ -550,7 +551,7 @@ func TestAdminCreateUserSubInAttributes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	user := resp["User"].(map[string]any)
 	attrs := user["Attributes"].([]any)

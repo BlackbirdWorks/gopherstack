@@ -2,13 +2,14 @@ package sparql_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
 
@@ -221,7 +222,7 @@ func TestResultFormats(t *testing.T) {
 			}
 
 			if tt.format == "json" {
-				assert.True(t, json.Valid(out))
+				assert.True(t, jsontext.Value(out).IsValid(jsonx.V1()))
 			}
 		})
 	}

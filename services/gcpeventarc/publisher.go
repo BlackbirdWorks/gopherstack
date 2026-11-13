@@ -2,12 +2,14 @@ package gcpeventarc
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"cloud.google.com/go/eventarc/publishing/apiv1/publishingpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // publisherServer is the Eventarc Publishing API for message buses. Channel publishing is not implemented.
@@ -30,7 +32,7 @@ func (s *publisherServer) Publish(
 
 	switch f := in.GetFormat().(type) {
 	case *publishingpb.PublishRequest_JsonMessage:
-		if err := json.Unmarshal([]byte(f.JsonMessage), &event); err != nil {
+		if err := json.Unmarshal([]byte(f.JsonMessage), &event, jsonx.V1()); err != nil {
 			return nil, errInvalid("json_message is not a JSON CloudEvent: %v", err)
 		}
 	case *publishingpb.PublishRequest_ProtoMessage_:
@@ -79,7 +81,7 @@ func protoEventMap(ce *publishingpb.CloudEvent) map[string]any {
 
 	if raw != nil {
 		var decoded any
-		if json.Unmarshal(raw, &decoded) == nil {
+		if json.Unmarshal(raw, &decoded, jsonx.V1()) == nil {
 			out["data"] = decoded
 		} else {
 			out["data"] = string(raw)

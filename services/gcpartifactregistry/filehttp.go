@@ -3,7 +3,7 @@ package gcpartifactregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -44,7 +45,7 @@ func writeRESTError(w http.ResponseWriter, err error) {
 
 	body, _ := json.Marshal(map[string]any{"error": map[string]any{
 		"code": gcprest.HTTPStatus(st.Code()), "message": st.Message(), "status": codeName(st.Code()),
-	}})
+	}}, jsonx.V1())
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(gcprest.HTTPStatus(st.Code()))

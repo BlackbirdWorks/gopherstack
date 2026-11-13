@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestUICustomization_SetGet_WithImageFile(t *testing.T) {
@@ -33,7 +35,7 @@ func TestUICustomization_SetGet_WithImageFile(t *testing.T) {
 			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"UICustomization"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 	require.NotNil(t, setOut.UICustomization)
 	assert.Equal(t, poolID, setOut.UICustomization.UserPoolID)
 	assert.Equal(t, clientID, setOut.UICustomization.ClientID)
@@ -56,7 +58,7 @@ func TestUICustomization_SetGet_WithImageFile(t *testing.T) {
 			LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 		} `json:"UICustomization"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	require.NotNil(t, getOut.UICustomization)
 	assert.Equal(t, ".banner { background: blue; }", getOut.UICustomization.CSS)
 	assert.Empty(t, getOut.UICustomization.ImageURL)
@@ -80,7 +82,7 @@ func TestUICustomization_Get_Empty(t *testing.T) {
 			CSS        string `json:"CSS,omitempty"`
 		} `json:"UICustomization"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.UICustomization)
 	assert.Empty(t, out.UICustomization.CSS)
 }
@@ -155,7 +157,7 @@ func TestUICustomization(t *testing.T) {
 			CSS string `json:"CSS,omitempty"`
 		} `json:"UICustomization"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, ".logo { color: red; }", resp.UICustomization.CSS)
 }
 
@@ -177,7 +179,7 @@ func TestManagedLoginBranding_CRUD(t *testing.T) {
 			ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
 		} `json:"ManagedLoginBranding"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	brandingID := createResp.ManagedLoginBranding.ManagedLoginBrandingID
 	require.NotEmpty(t, brandingID)
 
@@ -252,7 +254,7 @@ func TestManagedLoginBranding_SettingsAndAssets_AcceptedAndEchoed(t *testing.T) 
 	var createResp struct {
 		ManagedLoginBranding managedLoginBrandingWire `json:"ManagedLoginBranding"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	componentClasses, ok := createResp.ManagedLoginBranding.Settings["componentClasses"].(map[string]any)
 	require.True(t, ok)
 	primaryButton, ok := componentClasses["primaryButton"].(map[string]any)
@@ -277,7 +279,7 @@ func TestManagedLoginBranding_SettingsAndAssets_AcceptedAndEchoed(t *testing.T) 
 	var updResp struct {
 		ManagedLoginBranding managedLoginBrandingWire `json:"ManagedLoginBranding"`
 	}
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 	assert.True(t, updResp.ManagedLoginBranding.UseCognitoProvidedValues)
 	assert.NotEmpty(t, updResp.ManagedLoginBranding.Settings, "omitting Settings on update must not clear it")
 }

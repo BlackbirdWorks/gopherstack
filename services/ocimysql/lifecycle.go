@@ -2,7 +2,7 @@ package ocimysql
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -160,29 +160,29 @@ func (b *InMemoryBackend) mutable(id, ifMatch string, states ...string) (*DBSyst
 // UpdateDBSystemIn is the UpdateDBSystem body.
 type UpdateDBSystemIn struct {
 	Tags
-	DataStorageGBs *int                       `json:"dataStorageSizeInGBs"`
-	HostnameLabel  *string                    `json:"hostnameLabel"`
-	SubnetID       *string                    `json:"subnetId"`
-	ShapeName      *string                    `json:"shapeName"`
-	MysqlVersion   *string                    `json:"mysqlVersion"`
-	ConfigID       *string                    `json:"configurationId"`
-	AdminUsername  *string                    `json:"adminUsername"`
-	Port           *int                       `json:"port"`
-	Extra          map[string]json.RawMessage `json:"-"`
-	IPAddress      *string                    `json:"ipAddress"`
-	Description    *string                    `json:"description"`
-	HA             *bool                      `json:"isHighlyAvailable"`
-	AdminPassword  *string                    `json:"adminPassword"`
-	PortX          *int                       `json:"portX"`
-	DataStorage    *DataStorageIn             `json:"dataStorage"`
-	BackupPolicy   *BackupPolicyIn            `json:"backupPolicy"`
-	Deletion       *DeletionPolicyIn          `json:"deletionPolicy"`
-	Maintenance    map[string]any             `json:"maintenance"`
-	DisplayName    *string                    `json:"displayName"`
-	DBManagement   string                     `json:"databaseManagement"`
-	DatabaseMode   string                     `json:"databaseMode"`
-	AccessMode     string                     `json:"accessMode"`
-	CrashRecovery  string                     `json:"crashRecovery"`
+	DataStorageGBs *int                      `json:"dataStorageSizeInGBs"`
+	HostnameLabel  *string                   `json:"hostnameLabel"`
+	SubnetID       *string                   `json:"subnetId"`
+	ShapeName      *string                   `json:"shapeName"`
+	MysqlVersion   *string                   `json:"mysqlVersion"`
+	ConfigID       *string                   `json:"configurationId"`
+	AdminUsername  *string                   `json:"adminUsername"`
+	Port           *int                      `json:"port"`
+	Extra          map[string]jsontext.Value `json:"-"`
+	IPAddress      *string                   `json:"ipAddress"`
+	Description    *string                   `json:"description"`
+	HA             *bool                     `json:"isHighlyAvailable"`
+	AdminPassword  *string                   `json:"adminPassword"`
+	PortX          *int                      `json:"portX"`
+	DataStorage    *DataStorageIn            `json:"dataStorage"`
+	BackupPolicy   *BackupPolicyIn           `json:"backupPolicy"`
+	Deletion       *DeletionPolicyIn         `json:"deletionPolicy"`
+	Maintenance    map[string]any            `json:"maintenance"`
+	DisplayName    *string                   `json:"displayName"`
+	DBManagement   string                    `json:"databaseManagement"`
+	DatabaseMode   string                    `json:"databaseMode"`
+	AccessMode     string                    `json:"accessMode"`
+	CrashRecovery  string                    `json:"crashRecovery"`
 }
 
 type updateEffect struct {
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) applyUpdate(n *DBSystem, in UpdateDBSystemIn) (updateE
 
 	for k, v := range in.Extra {
 		if n.Extra == nil {
-			n.Extra = map[string]json.RawMessage{}
+			n.Extra = map[string]jsontext.Value{}
 		}
 
 		n.Extra[k] = v

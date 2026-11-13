@@ -1,12 +1,14 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListAvailableManagedRuleGroups_ReturnsCatalog(t *testing.T) {
@@ -19,7 +21,7 @@ func TestListAvailableManagedRuleGroups_ReturnsCatalog(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups, ok := resp["ManagedRuleGroups"].([]any)
 	require.True(t, ok)
@@ -53,7 +55,7 @@ func TestDescribeManagedRuleGroup_ReturnsCatalogData(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	capacity, _ := resp["Capacity"].(float64)
 	assert.InDelta(t, float64(700), capacity, 0, "AWSManagedRulesCommonRuleSet should have capacity 700")
@@ -73,7 +75,7 @@ func TestGetMobileSdkRelease_KnownVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "GetMobileSdkRelease Android/3.1.0: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	release := resp["MobileSdkRelease"].(map[string]any)
 	assert.Equal(t, "3.1.0", release["ReleaseVersion"])
@@ -95,7 +97,7 @@ func TestGetMobileSdkRelease_IOSVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	release := resp["MobileSdkRelease"].(map[string]any)
 	assert.Equal(t, "3.0.0", release["ReleaseVersion"])
 }
@@ -112,7 +114,7 @@ func TestGetMobileSdkRelease_UnknownVersion(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -139,7 +141,7 @@ func TestGetMobileSdkRelease_MissingPlatform(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidParameterException", errResp["__type"])
 }
 
@@ -155,7 +157,7 @@ func TestListMobileSdkReleases_Android(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	releases, ok := resp["ReleaseSummaries"].([]any)
 	require.True(t, ok)
@@ -180,7 +182,7 @@ func TestListMobileSdkReleases_iOS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	releases, _ := resp["ReleaseSummaries"].([]any)
 	assert.NotEmpty(t, releases, "should return at least one iOS release")
@@ -198,7 +200,7 @@ func TestListMobileSdkReleases_UnknownPlatform(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	releases, _ := resp["ReleaseSummaries"].([]any)
 	assert.Empty(t, releases, "unknown platform should return empty list")
 }
@@ -215,7 +217,7 @@ func TestGenerateMobileSdkReleaseUrl_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	url, ok := resp["Url"].(string)
 	require.True(t, ok, "Url field should be present")
@@ -259,14 +261,14 @@ func TestWebACL_ManagedRuleGroupStatement_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "ManagedRuleGroupStatement: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -333,7 +335,7 @@ func TestDescribeManagedRuleGroup(t *testing.T) {
 			require.Equal(t, tc.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantType != "" {
 				assert.Equal(t, tc.wantType, resp["__type"])
@@ -414,7 +416,7 @@ func TestGenerateMobileSdkReleaseUrl(t *testing.T) {
 			require.Equal(t, tc.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantType != "" {
 				assert.Equal(t, tc.wantType, resp["__type"])
@@ -510,7 +512,7 @@ func TestDescribeManagedRuleGroupRules(t *testing.T) {
 				} `json:"AvailableLabels"`
 				Capacity float64 `json:"Capacity"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			// Rules and AvailableLabels must never be null (always an array).
 			assert.NotNil(t, out.Rules, "Rules must not be null")

@@ -2,7 +2,8 @@ package rekognition
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (b *InMemoryBackend) datasetARN(projectARN, datasetType string) string {
@@ -161,8 +164,8 @@ func matchesDatasetEntryFilter(entry string, filter ListDatasetEntriesFilter) bo
 // name found across its "-metadata" blocks, plus whether it carried at
 // least one such block (i.e. is "labeled").
 func entryLabels(entry string) ([]string, bool) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(entry), &obj, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -186,8 +189,8 @@ func entryLabels(entry string) ([]string, bool) {
 // entrySourceRef parses one JSON-lines dataset entry and returns its
 // "source-ref" field (the image's S3 location), or "" if absent/malformed.
 func entrySourceRef(entry string) string {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(entry), &obj, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -197,7 +200,7 @@ func entrySourceRef(entry string) string {
 	}
 
 	var ref string
-	_ = json.Unmarshal(raw, &ref)
+	_ = json.Unmarshal(raw, &ref, jsonx.V1())
 
 	return ref
 }
@@ -292,9 +295,9 @@ func computeDatasetStats(entries []string) DatasetStats {
 }
 
 // labelNamesFromMeta parses a -metadata block and returns its label names.
-func labelNamesFromMeta(raw json.RawMessage) []string {
-	var meta map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &meta); err != nil {
+func labelNamesFromMeta(raw jsontext.Value) []string {
+	var meta map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &meta, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -303,15 +306,15 @@ func labelNamesFromMeta(raw json.RawMessage) []string {
 	// Single-label: "class-name"
 	if cn, ok := meta["class-name"]; ok {
 		var name string
-		if err := json.Unmarshal(cn, &name); err == nil && name != "" {
+		if err := json.Unmarshal(cn, &name, jsonx.V1()); err == nil && name != "" {
 			names = append(names, name)
 		}
 	}
 
 	// Multi-label: "class-map": {"LabelA": ..., "LabelB": ...}
 	if cm, ok := meta["class-map"]; ok {
-		var classMap map[string]json.RawMessage
-		if err := json.Unmarshal(cm, &classMap); err == nil {
+		var classMap map[string]jsontext.Value
+		if err := json.Unmarshal(cm, &classMap, jsonx.V1()); err == nil {
 			for name := range classMap {
 				names = append(names, name)
 			}
@@ -333,7 +336,7 @@ func decodeDatasetPageToken(token string) int {
 	}
 
 	var tok datasetPaginationToken
-	if err = json.Unmarshal(decoded, &tok); err != nil || tok.Offset <= 0 {
+	if err = json.Unmarshal(decoded, &tok, jsonx.V1()); err != nil || tok.Offset <= 0 {
 		return 0
 	}
 
@@ -395,7 +398,7 @@ func (b *InMemoryBackend) ListDatasetLabels(
 	var outToken string
 
 	if end < len(names) {
-		tok, _ := json.Marshal(datasetPaginationToken{Offset: end})
+		tok, _ := json.Marshal(datasetPaginationToken{Offset: end}, jsonx.V1())
 		outToken = base64.RawURLEncoding.EncodeToString(tok)
 	}
 

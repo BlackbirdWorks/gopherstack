@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_GetTrack(t *testing.T) {
@@ -55,7 +58,7 @@ func TestServerless_GetTrack(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			if tt.wantFound {
 				track, _ := resp["track"].(map[string]any)
@@ -80,7 +83,7 @@ func TestServerless_ListTracks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	tracks, _ := resp["tracks"].([]any)
 	require.Len(t, tracks, 2, "real Redshift Serverless exposes exactly two maintenance tracks")
@@ -105,7 +108,7 @@ func TestServerless_ListTracks_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&page1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &page1, jsonx.V1()))
 
 	tracks1, _ := page1["tracks"].([]any)
 	require.Len(t, tracks1, 1)
@@ -117,7 +120,7 @@ func TestServerless_ListTracks_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&page2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &page2, jsonx.V1()))
 
 	tracks2, _ := page2["tracks"].([]any)
 	require.Len(t, tracks2, 1)

@@ -1,10 +1,13 @@
 package dmsengine
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrSecret reports a Secrets Manager secret that cannot authenticate an endpoint.
@@ -14,13 +17,13 @@ var ErrSecret = errors.New("invalid endpoint secret")
 // host and port; other members are ignored ("Using secrets to access AWS Database Migration Service endpoints").
 func ApplySecret(ep *EndpointConfig, secret string) error {
 	var raw struct {
-		Username string          `json:"username"`
-		Password string          `json:"password"`
-		Host     string          `json:"host"`
-		Port     json.RawMessage `json:"port"`
+		Username string         `json:"username"`
+		Password string         `json:"password"`
+		Host     string         `json:"host"`
+		Port     jsontext.Value `json:"port"`
 	}
 
-	if err := json.Unmarshal([]byte(secret), &raw); err != nil {
+	if err := json.Unmarshal([]byte(secret), &raw, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: the secret is not a JSON object: %w", ErrSecret, err)
 	}
 
@@ -38,13 +41,13 @@ func ApplySecret(ep *EndpointConfig, secret string) error {
 	return nil
 }
 
-func secretPort(raw json.RawMessage) (int, error) {
+func secretPort(raw jsontext.Value) (int, error) {
 	if len(raw) == 0 {
 		return 0, fmt.Errorf("%w: the secret needs a port member", ErrSecret)
 	}
 
-	var s json.Number
-	if err := json.Unmarshal(raw, &s); err != nil {
+	var s jsonx.Number
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return 0, fmt.Errorf("%w: port: %w", ErrSecret, err)
 	}
 

@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCompilationJob_RequiredOutputMembersSurviveInProgress drives
@@ -47,7 +49,7 @@ func TestCompilationJob_RequiredOutputMembersSurviveInProgress(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	require.Equal(
 		t, "INPROGRESS", resp["CompilationJobStatus"],
@@ -86,7 +88,7 @@ func TestModelCard_ContentSurvivesEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	content, ok := resp["Content"]
 	assert.True(t, ok, "Content key must be present even when empty")

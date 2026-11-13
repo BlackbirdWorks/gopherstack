@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type serviceReport struct {
@@ -68,10 +71,9 @@ func writeJSON(path string, results []serviceReport) {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	if encErr := enc.Encode(results); encErr != nil {
+	if encErr := json.MarshalEncode(enc, results); encErr != nil {
 		fatal(encErr)
 	}
 

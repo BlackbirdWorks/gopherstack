@@ -3,7 +3,7 @@ package gcpdns
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
@@ -11,6 +11,7 @@ import (
 	dnsapi "google.golang.org/api/dns/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -112,13 +113,13 @@ func clone[T any](v *T) *T {
 		return nil
 	}
 
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
+	if err = json.Unmarshal(data, out, jsonx.V1()); err != nil {
 		return v
 	}
 
@@ -157,25 +158,25 @@ func mergePatch(dst, patch map[string]any) {
 }
 
 func patched[T any](cur *T, patch map[string]any) (*T, error) {
-	data, err := json.Marshal(cur)
+	data, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return nil, errInvalid("Invalid JSON payload received.")
 	}
 
 	var m map[string]any
-	if err = json.Unmarshal(data, &m); err != nil {
+	if err = json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return nil, errInvalid("Invalid JSON payload received.")
 	}
 
 	mergePatch(m, patch)
 
-	data, err = json.Marshal(m)
+	data, err = json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, errInvalid("Invalid JSON payload received.")
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
+	if err = json.Unmarshal(data, out, jsonx.V1()); err != nil {
 		return nil, errInvalid("Invalid JSON payload received: %v", err)
 	}
 

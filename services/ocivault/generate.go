@@ -5,10 +5,13 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -52,13 +55,13 @@ type GenerationContext struct {
 	PassphraseLength   int    `json:"passphraseLength,omitempty"`
 }
 
-func parseGeneration(raw json.RawMessage) (*GenerationContext, *APIError) {
+func parseGeneration(raw jsontext.Value) (*GenerationContext, *APIError) {
 	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
 
 	var g GenerationContext
-	if err := json.Unmarshal(raw, &g); err != nil {
+	if err := json.Unmarshal(raw, &g, jsonx.V1()); err != nil {
 		return nil, errParam("secretGenerationContext is not valid")
 	}
 
@@ -225,7 +228,10 @@ func (g *GenerationContext) generateSSH() ([]byte, error) {
 	}
 
 	if g.SecretTemplate == "" {
-		out, merr := json.Marshal(map[string]string{"publicKey": vals[phPublic], "privateKey": vals[phPrivate]})
+		out, merr := json.Marshal(
+			map[string]string{"publicKey": vals[phPublic], "privateKey": vals[phPrivate]},
+			jsonx.V1(),
+		)
 
 		return out, merr //nolint:wrapcheck // static shape
 	}

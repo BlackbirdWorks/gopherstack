@@ -3,7 +3,7 @@ package bedrockagentcorecontrol
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -344,7 +346,7 @@ func (o openAPIOp) request(ctx context.Context, args map[string]any) (*http.Requ
 			}
 		}
 
-		raw, err := json.Marshal(payload)
+		raw, err := json.Marshal(payload, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("encode request body: %w", err)
 		}
@@ -378,7 +380,7 @@ func paramString(v any) string {
 		return s
 	}
 
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonx.V1())
 
 	return string(raw)
 }

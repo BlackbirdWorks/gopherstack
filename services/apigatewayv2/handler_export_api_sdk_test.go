@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -36,7 +37,7 @@ func TestExportApi_OutputType_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var asJSON map[string]any
-	require.NoError(t, json.Unmarshal(jsonOut.Body, &asJSON), "OutputType=JSON must return valid JSON")
+	require.NoError(t, json.Unmarshal(jsonOut.Body, &asJSON, jsonx.V1()), "OutputType=JSON must return valid JSON")
 	assert.Equal(t, "3.0.1", asJSON["openapi"])
 
 	yamlOut, err := client.ExportApi(t.Context(), &apigatewayv2sdk.ExportApiInput{
@@ -47,7 +48,7 @@ func TestExportApi_OutputType_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Error(
-		t, json.Unmarshal(yamlOut.Body, &asJSON),
+		t, json.Unmarshal(yamlOut.Body, &asJSON, jsonx.V1()),
 		"OutputType=YAML must not return the same JSON syntax as OutputType=JSON",
 	)
 	assert.Contains(t, string(yamlOut.Body), "openapi:")

@@ -2,7 +2,7 @@ package gcpstorage_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 )
 
@@ -121,7 +122,7 @@ func TestBucketNotifications(t *testing.T) {
 				require.NoError(t, err)
 
 				var res map[string]any
-				require.NoError(t, json.Unmarshal(msgs[0].GetData(), &res))
+				require.NoError(t, json.Unmarshal(msgs[0].GetData(), &res, jsonx.V1()))
 				assert.Equal(t, "storage#object", res["kind"])
 				assert.Equal(t, "a.txt", res["name"])
 				assert.Equal(t, "bkt", res["bucket"])
@@ -219,7 +220,7 @@ func TestBucketNotifications(t *testing.T) {
 
 					if m.GetAttributes()["eventType"] == "OBJECT_DELETE" {
 						var res map[string]any
-						require.NoError(t, json.Unmarshal(m.GetData(), &res))
+						require.NoError(t, json.Unmarshal(m.GetData(), &res, jsonx.V1()))
 						assert.NotEmpty(t, res["timeDeleted"])
 					}
 				}

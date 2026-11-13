@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -84,7 +85,7 @@ func TestHandler_GetSamplingRules(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			records, ok := resp["SamplingRuleRecords"].([]any)
 			require.True(t, ok)
@@ -172,7 +173,7 @@ func TestHandler_UpdateSamplingRule_Attributes(t *testing.T) {
 			} `json:"SamplingRule"`
 		} `json:"SamplingRuleRecord"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, map[string]string{"env": "prod"}, resp.SamplingRuleRecord.SamplingRule.Attributes)
 }
 
@@ -238,7 +239,7 @@ func TestUpdateSamplingRule_ZeroFixedRate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	record, ok := resp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
@@ -277,7 +278,7 @@ func TestSamplingRuleAttributes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	record, ok := resp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
@@ -310,7 +311,7 @@ func TestSamplingRuleModifiedAtInRecord(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		records, ok := resp["SamplingRuleRecords"].([]any)
 		require.True(t, ok)
@@ -425,7 +426,7 @@ func TestHandler_GetSamplingRules_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			records, ok := resp["SamplingRuleRecords"].([]any)
 			require.True(t, ok)
@@ -545,7 +546,7 @@ func TestSamplingRule_DefaultRulePresentAtStart(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	records, ok := resp["SamplingRuleRecords"].([]any)
 	require.True(t, ok)
@@ -630,7 +631,7 @@ func TestUpdateSamplingRule_ZeroValues(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			record, ok := resp["SamplingRuleRecord"].(map[string]any)
 			require.True(t, ok)
@@ -762,7 +763,7 @@ func TestSamplingRule_SamplingRateBoostRoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	record, ok := createResp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
 	rule, ok := record["SamplingRule"].(map[string]any)
@@ -785,7 +786,7 @@ func TestSamplingRule_SamplingRateBoostRoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updResp map[string]any
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 	updRecord, ok := updResp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
 	updRule, ok := updRecord["SamplingRule"].(map[string]any)
@@ -811,7 +812,7 @@ func TestSamplingRule_UpdateAndDeleteByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	record, ok := createResp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
 	rule, ok := record["SamplingRule"].(map[string]any)
@@ -826,7 +827,7 @@ func TestSamplingRule_UpdateAndDeleteByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updResp map[string]any
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 	updRecord, ok := updResp["SamplingRuleRecord"].(map[string]any)
 	require.True(t, ok)
 	updRule, ok := updRecord["SamplingRule"].(map[string]any)
@@ -840,7 +841,7 @@ func TestSamplingRule_UpdateAndDeleteByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	records, ok := getResp["SamplingRuleRecords"].([]any)
 	require.True(t, ok)
 	for _, r := range records {

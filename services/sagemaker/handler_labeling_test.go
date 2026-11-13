@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ func TestHandler_CreateLabelingJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["LabelingJobArn"], "labeling-job/job-1")
 }
 
@@ -73,7 +75,7 @@ func TestHandler_CreateLabelingJob_TagsRoundTripThroughDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tags, ok := resp["Tags"].([]any)
 	require.True(t, ok, "DescribeLabelingJob must return Tags")
 	require.Len(t, tags, 1)
@@ -135,7 +137,7 @@ func TestHandler_DescribeLabelingJob_Lifecycle(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "job-lifecycle", resp["LabelingJobName"])
 		assert.Equal(t, "Initializing", resp["LabelingJobStatus"])
 		assert.NotEmpty(t, resp["JobReferenceCode"])
@@ -148,7 +150,7 @@ func TestHandler_DescribeLabelingJob_Lifecycle(t *testing.T) {
 		synctest.Wait()
 
 		rec = doSageMakerRequest(t, h, "DescribeLabelingJob", map[string]any{"LabelingJobName": "job-lifecycle"})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "Completed", resp["LabelingJobStatus"])
 	})
 }
@@ -162,7 +164,7 @@ func TestHandler_DescribeLabelingJob_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -186,14 +188,14 @@ func TestHandler_StopLabelingJob(t *testing.T) {
 
 		rec = doSageMakerRequest(t, h, "DescribeLabelingJob", map[string]any{"LabelingJobName": "job-stop"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Contains(t, []any{"Stopping", "Stopped"}, resp["LabelingJobStatus"])
 
 		time.Sleep(time.Second)
 		synctest.Wait()
 
 		rec = doSageMakerRequest(t, h, "DescribeLabelingJob", map[string]any{"LabelingJobName": "job-stop"})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "Stopped", resp["LabelingJobStatus"])
 	})
 }
@@ -229,7 +231,7 @@ func TestHandler_ListLabelingJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["LabelingJobSummaryList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 2)
@@ -240,7 +242,7 @@ func TestHandler_ListLabelingJobs(t *testing.T) {
 
 	// NameContains filter.
 	rec = doSageMakerRequest(t, h, "ListLabelingJobs", map[string]any{"NameContains": "list-job-a"})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ = resp["LabelingJobSummaryList"].([]any)
 	assert.Len(t, items, 1)
 }
@@ -269,7 +271,7 @@ func TestHandler_ListLabelingJobsForWorkteam(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["LabelingJobSummaryList"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
@@ -308,7 +310,7 @@ func TestHandler_ListLabelingJobs_ResponseIncludesInputConfigAndOutput(t *testin
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, ok := resp["LabelingJobSummaryList"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 1)
@@ -322,7 +324,7 @@ func TestHandler_ListLabelingJobs_ResponseIncludesInputConfigAndOutput(t *testin
 		synctest.Wait()
 
 		rec = doSageMakerRequest(t, h, "ListLabelingJobs", map[string]any{})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, ok = resp["LabelingJobSummaryList"].([]any)
 		require.True(t, ok)
 		require.Len(t, items, 1)
@@ -378,7 +380,7 @@ func TestHandler_ListLabelingJobs_TimeFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items, _ := resp["LabelingJobSummaryList"].([]any)
 			assert.Len(t, items, tc.wantCount)
 		})
@@ -429,7 +431,7 @@ func TestHandler_ListLabelingJobs_SortBy(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items, ok := resp["LabelingJobSummaryList"].([]any)
 			require.True(t, ok)
 			require.Len(t, items, 2)
@@ -454,7 +456,7 @@ func TestHandler_ListLabelingJobsForWorkteam_Filters(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	jobReferenceCode, ok := describeResp["JobReferenceCode"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, jobReferenceCode)
@@ -490,7 +492,7 @@ func TestHandler_ListLabelingJobsForWorkteam_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items, _ := resp["LabelingJobSummaryList"].([]any)
 			assert.Len(t, items, tc.wantCount)
 		})
@@ -512,7 +514,7 @@ func TestHandler_ListWorkforces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["Workforces"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
@@ -563,7 +565,7 @@ func TestHandler_DeleteWorkforce_ResourceInUse(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUse", resp["__type"])
 }
 
@@ -591,7 +593,7 @@ func TestHandler_UpdateWorkforce_WithSourceIPConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wf, ok := resp["Workforce"].(map[string]any)
 	require.True(t, ok)
 
@@ -623,7 +625,7 @@ func TestHandler_CreateWorkteam_WithWorkforceName(t *testing.T) {
 
 	rec = doSageMakerRequest(t, h, "DescribeWorkteam", map[string]any{"WorkteamName": "team-link"})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wt, ok := resp["Workteam"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, wt["WorkforceArn"], "workforce/wf-link")
@@ -662,7 +664,7 @@ func TestHandler_UpdateWorkteam(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wt, ok := resp["Workteam"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "after", wt["Description"])
@@ -689,7 +691,7 @@ func TestHandler_DeleteWorkteam_ReturnsSuccess(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, true, resp["Success"])
 }
 
@@ -706,7 +708,7 @@ func TestHandler_ListSubscribedWorkteams_AlwaysEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["SubscribedWorkteams"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, items)
@@ -724,7 +726,7 @@ func TestHandler_DescribeSubscribedWorkteam_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -782,7 +784,7 @@ func TestLabelingFamily_SnapshotRestore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var wtResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wtResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wtResp, jsonx.V1()))
 	wt, ok := wtResp["Workteam"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, wt["WorkforceArn"], "workforce/persist-wf")
@@ -791,6 +793,6 @@ func TestLabelingFamily_SnapshotRestore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var jobResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobResp, jsonx.V1()))
 	assert.Equal(t, "persist-job", jobResp["LabelingJobName"])
 }

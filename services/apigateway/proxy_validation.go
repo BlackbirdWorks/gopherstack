@@ -2,13 +2,15 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -72,7 +74,7 @@ func (h *Handler) validateRequestBody(
 	// Replace body so downstream handlers can still read it.
 	r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 
-	if len(bodyBytes) == 0 || !json.Valid(bodyBytes) {
+	if len(bodyBytes) == 0 || !jsontext.Value(bodyBytes).IsValid(jsonx.V1()) {
 		writeValidationError(w, "Invalid request body")
 
 		return true
@@ -130,7 +132,7 @@ func writeValidationError(w http.ResponseWriter, message string) {
 	w.Header().Set(headerContentType, "application/json")
 	w.Header().Set("X-Amzn-Errortype", "BadRequestException")
 	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: message})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{jsonMessageKey: message})
 }
 
 // missingRequiredParameters returns the names of required request parameters (as

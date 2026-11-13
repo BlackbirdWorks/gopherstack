@@ -2,13 +2,15 @@ package ocimonitoring_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/monitoring"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const streamOCID = "ocid1.stream.oc1..stream"
@@ -56,7 +58,7 @@ func TestAlarmDeliversToStream(t *testing.T) {
 		DedupeKey string `json:"dedupeKey"`
 	}
 
-	require.NoError(t, json.Unmarshal(sink.msgs[streamOCID][0], &got))
+	require.NoError(t, json.Unmarshal(sink.msgs[streamOCID][0], &got, jsonx.V1()))
 	assert.Equal(t, "OK_TO_FIRING", got.Type)
 	assert.Equal(t, *a.Id, got.DedupeKey)
 }

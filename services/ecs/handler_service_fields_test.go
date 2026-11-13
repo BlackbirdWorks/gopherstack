@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestService_EnableExecuteCommand_Create(t *testing.T) {
@@ -30,7 +32,7 @@ func TestService_EnableExecuteCommand_Create(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	assert.Equal(t, true, svc["enableExecuteCommand"])
 }
@@ -55,7 +57,7 @@ func TestService_EnableExecuteCommand_Default_False(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	eec := svc["enableExecuteCommand"]
 	assert.NotEqual(t, true, eec)
@@ -87,7 +89,7 @@ func TestService_EnableExecuteCommand_UpdateService(t *testing.T) {
 	require.Equal(t, http.StatusOK, updResp.Code)
 
 	var updOut map[string]any
-	require.NoError(t, json.Unmarshal(updResp.Body.Bytes(), &updOut))
+	require.NoError(t, json.Unmarshal(updResp.Body.Bytes(), &updOut, jsonx.V1()))
 	svc := updOut["service"].(map[string]any)
 	assert.Equal(t, true, svc["enableExecuteCommand"])
 
@@ -100,7 +102,7 @@ func TestService_EnableExecuteCommand_UpdateService(t *testing.T) {
 	require.Equal(t, http.StatusOK, disResp.Code)
 
 	var disOut map[string]any
-	require.NoError(t, json.Unmarshal(disResp.Body.Bytes(), &disOut))
+	require.NoError(t, json.Unmarshal(disResp.Body.Bytes(), &disOut, jsonx.V1()))
 	disSvc := disOut["service"].(map[string]any)
 	eec := disSvc["enableExecuteCommand"]
 	assert.NotEqual(t, true, eec)
@@ -131,7 +133,7 @@ func TestService_EnableExecuteCommand_DescribeServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	svcs := descOut["services"].([]any)
 	require.Len(t, svcs, 1)
 	assert.Equal(t, true, svcs[0].(map[string]any)["enableExecuteCommand"])
@@ -159,7 +161,7 @@ func TestService_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		svc := resp["service"].(map[string]any)
 
@@ -192,7 +194,7 @@ func TestService_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		svc := resp["service"].(map[string]any)
 
@@ -229,7 +231,7 @@ func TestService_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		services, _ := resp["services"].([]any)
 		require.Len(t, services, 1)
@@ -268,7 +270,7 @@ func TestHandler_CreateService_DeploymentConfigDefaults(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	assert.InDelta(t, float64(100), dc["minimumHealthyPercent"], 0.001)
@@ -297,7 +299,7 @@ func TestHandler_CreateService_DeploymentConfigCustom(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	assert.InDelta(t, float64(50), dc["minimumHealthyPercent"], 0.001)
@@ -343,7 +345,7 @@ func TestHandler_CreateService_DeploymentController_Rolling_Accepted(t *testing.
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentController"].(map[string]any)
 	assert.Equal(t, "ROLLING", dc["type"])
@@ -374,7 +376,7 @@ func TestHandler_CreateService_LoadBalancers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	lbs := svc["loadBalancers"].([]any)
 	require.Len(t, lbs, 1)
@@ -408,7 +410,7 @@ func TestHandler_CreateService_ServiceRegistries(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	regs := svc["serviceRegistries"].([]any)
 	require.Len(t, regs, 1)
@@ -441,7 +443,7 @@ func TestHandler_CreateService_NetworkConfiguration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	nc := svc["networkConfiguration"].(map[string]any)
 	avpc := nc["awsvpcConfiguration"].(map[string]any)
@@ -476,7 +478,7 @@ func TestHandler_UpdateService_NetworkConfiguration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	nc := svc["networkConfiguration"].(map[string]any)
 	avpc := nc["awsvpcConfiguration"].(map[string]any)
@@ -512,7 +514,7 @@ func TestHandler_UpdateService_LoadBalancers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	lbs := svc["loadBalancers"].([]any)
 	require.Len(t, lbs, 1)
@@ -545,7 +547,7 @@ func TestHandler_UpdateService_DeploymentConfig_MinMaxPercent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	svc := out["service"].(map[string]any)
 	dc := svc["deploymentConfiguration"].(map[string]any)
 	assert.InDelta(t, float64(25), dc["minimumHealthyPercent"], 0.001)

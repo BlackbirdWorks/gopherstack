@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putTransformerInput struct {
@@ -16,7 +18,7 @@ func (h *Handler) handlePutTransformer(
 	body []byte,
 ) (any, error) {
 	var in putTransformerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -38,7 +40,7 @@ func (h *Handler) handleGetTransformer(
 	body []byte,
 ) (any, error) {
 	var in getTransformerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) handleDeleteTransformer(
 	body []byte,
 ) (any, error) {
 	var in deleteTransformerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -103,7 +105,7 @@ func (h *Handler) handleTestTransformer(
 		LogEventMessages  []string         `json:"logEventMessages"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}

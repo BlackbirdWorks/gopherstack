@@ -1,13 +1,14 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -98,7 +99,7 @@ func (h *Handler) handleCreateConnector(c *echo.Context) error {
 	}
 
 	var req createConnectorRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 	}
 
@@ -152,7 +153,7 @@ func (h *Handler) handleUpdateConnector(c *echo.Context) error {
 	}
 
 	var req updateConnectorRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 	}
 
@@ -190,7 +191,7 @@ func (h *Handler) handleDeleteConnector(c *echo.Context) error {
 		ConnectorArn string `json:"connectorArn"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 	}
 
@@ -405,7 +406,7 @@ func decodeListConnectorsRequest(c *echo.Context) (listConnectorsRequest, bool) 
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			_ = c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 
 			return req, false
@@ -479,7 +480,7 @@ func (h *Handler) handleListConnectorScanConfigurations(c *echo.Context) error {
 	var req listConnectorScanConfigurationsRequest
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 		}
 	}
@@ -533,7 +534,7 @@ func (h *Handler) handleUpdateConnectorScanConfiguration(c *echo.Context) error 
 	}
 
 	var req updateConnectorScanConfigurationRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, "invalid JSON"))
 	}
 

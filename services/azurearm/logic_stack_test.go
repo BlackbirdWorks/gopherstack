@@ -3,7 +3,8 @@ package azurearm_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -337,7 +339,7 @@ func (s *logicStack) content(t *testing.T, link *armlogic.ContentLink) any {
 
 	var v any
 
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&v))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &v, jsonx.V1()))
 
 	return v
 }
@@ -360,7 +362,7 @@ func (s *logicStack) rawJSON(t *testing.T, method, path, body string) (int, map[
 
 	var out map[string]any
 
-	_ = json.NewDecoder(resp.Body).Decode(&out)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

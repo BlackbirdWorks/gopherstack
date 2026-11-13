@@ -2,7 +2,7 @@ package codedeploy_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
@@ -29,7 +30,7 @@ func doRequest(t *testing.T, h *codedeploy.Handler, action string, body any) *ht
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -175,7 +176,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 	h := newTestHandler(t)
 	e := echo.New()
 
-	bodyBytes, _ := json.Marshal(map[string]string{"applicationName": "my-app"})
+	bodyBytes, _ := json.Marshal(map[string]string{"applicationName": "my-app"}, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)

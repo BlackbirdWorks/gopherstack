@@ -1,7 +1,8 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // openSearchServerlessTargetPrefix is the real opensearchserverless@v1.34.4
@@ -72,7 +74,7 @@ func (h *Handler) handleServerlessJSONRPC(c *echo.Context, op string) error {
 
 	var input map[string]any
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 			return awserr.Write(c, awserr.ProtocolJSON10, awserr.APIError{
 				Code:       errValidation,
 				Message:    "invalid JSON",
@@ -100,7 +102,7 @@ func (h *Handler) handleServerlessJSONRPC(c *echo.Context, op string) error {
 		return awserr.Write(c, awserr.ProtocolJSON10, apiErr)
 	}
 
-	payload, marshalErr := json.Marshal(out)
+	payload, marshalErr := json.Marshal(out, jsonx.V1())
 	if marshalErr != nil {
 		return awserr.Write(c, awserr.ProtocolJSON10, serverlessInternalError())
 	}
@@ -697,7 +699,7 @@ func policyDetailJR(v any) map[string]any {
 		m["description"] = pl.Description
 	}
 	if pl.Policy != "" {
-		m["policy"] = json.RawMessage(pl.Policy)
+		m["policy"] = jsontext.Value(pl.Policy)
 	}
 
 	return m
@@ -732,13 +734,13 @@ func decodeSAMLOptionsJR(raw any) *ServerlessSAMLOptions {
 		return nil
 	}
 
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var opts ServerlessSAMLOptions
-	if unmarshalErr := json.Unmarshal(b, &opts); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(b, &opts, jsonx.V1()); unmarshalErr != nil {
 		return nil
 	}
 

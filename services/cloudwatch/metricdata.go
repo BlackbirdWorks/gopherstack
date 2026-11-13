@@ -2,12 +2,14 @@ package cloudwatch
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -36,7 +38,7 @@ type metricDataCursor struct {
 
 // encodeMetricDataToken encodes a pagination cursor into an opaque base64 token.
 func encodeMetricDataToken(c metricDataCursor) string {
-	raw, err := json.Marshal(c)
+	raw, err := json.Marshal(c, jsonx.V1())
 	if err != nil {
 		return ""
 	}
@@ -59,7 +61,7 @@ func validateMetricDataWindow(startTime, endTime time.Time, nextToken string) er
 	}
 
 	var c metricDataCursor
-	if err = json.Unmarshal(raw, &c); err != nil || c.ResultIndex < 0 || c.PointOffset < 0 {
+	if err = json.Unmarshal(raw, &c, jsonx.V1()); err != nil || c.ResultIndex < 0 || c.PointOffset < 0 {
 		return ErrInvalidNextToken
 	}
 
@@ -79,7 +81,7 @@ func decodeMetricDataToken(token string) metricDataCursor {
 	}
 
 	var c metricDataCursor
-	if err = json.Unmarshal(raw, &c); err != nil {
+	if err = json.Unmarshal(raw, &c, jsonx.V1()); err != nil {
 		return metricDataCursor{}
 	}
 

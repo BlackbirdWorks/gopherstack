@@ -2,10 +2,11 @@ package timestreamquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -19,7 +20,7 @@ func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) 
 		MaxRows     int32  `json:"MaxRows"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -61,7 +62,7 @@ func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) 
 		resp["QueryInsightsResponse"] = page.Insights
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // marshalRows converts []Row to JSON-serialisable form.
@@ -102,7 +103,7 @@ func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, e
 		QueryID string `json:"QueryId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
@@ -116,5 +117,5 @@ func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		"CancellationMessage": "Query has been successfully cancelled.",
-	})
+	}, jsonx.V1())
 }

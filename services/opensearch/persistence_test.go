@@ -1,7 +1,7 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -633,10 +633,10 @@ func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
 
 	opensearch.SeedInboundConnection(b, "conn-abc")
 
-	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
-	_, err = b.AddDirectQueryDataSource("my-dq", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), []string{})
+	_, err = b.AddDirectQueryDataSource("my-dq", "desc", jsontext.Value(`{"CloudWatchLog":{}}`), []string{})
 	require.NoError(t, err)
 
 	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")
@@ -786,7 +786,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// "Dirty" DTO tables: domainDataSources, domainIndexes, dryRuns.
-	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
+	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", jsontext.Value(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
 	_, err = original.CreateIndex(domain.Name, "idx-1", nil, nil, nil, nil)
@@ -806,7 +806,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.AddDirectQueryDataSource(
 		"dq-1",
 		"a direct query source",
-		json.RawMessage(`{"CloudWatchLog":{}}`),
+		jsontext.Value(`{"CloudWatchLog":{}}`),
 		nil,
 	)
 	require.NoError(t, err)

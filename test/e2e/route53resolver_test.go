@@ -54,6 +54,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
@@ -87,6 +88,7 @@ func TestRoute53ResolverDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
@@ -119,6 +121,7 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/route53resolver")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)

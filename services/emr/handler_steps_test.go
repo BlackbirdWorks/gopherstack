@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -33,7 +34,7 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "AddJobFlowSteps", map[string]any{
 		"JobFlowId": createOut.JobFlowID,
@@ -52,7 +53,7 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 		StepIDs []string `json:"StepIds"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.StepIDs, 1)
 	assert.Contains(t, out.StepIDs[0], "s-")
 }
@@ -68,7 +69,7 @@ func TestEMR_AddJobFlowSteps_RejectsTerminatedCluster(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	termRec := doEMRRequest(t, h, "TerminateJobFlows", map[string]any{
 		"JobFlowIds": []string{createOut.JobFlowID},
@@ -91,7 +92,7 @@ func TestEMR_AddJobFlowSteps_RejectsTerminatedCluster(t *testing.T) {
 	var errBody struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", errBody.Type)
 
 	listRec := doEMRRequest(t, h, "ListSteps", map[string]any{"ClusterId": createOut.JobFlowID})
@@ -100,7 +101,7 @@ func TestEMR_AddJobFlowSteps_RejectsTerminatedCluster(t *testing.T) {
 	var listOut struct {
 		Steps []any `json:"Steps"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut.Steps)
 }
 
@@ -115,7 +116,7 @@ func TestEMR_ListBootstrapActions(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "ListBootstrapActions", map[string]any{
 		"ClusterId": createOut.JobFlowID,
@@ -127,7 +128,7 @@ func TestEMR_ListBootstrapActions(t *testing.T) {
 		BootstrapActions []any `json:"BootstrapActions"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.BootstrapActions)
 }
 
@@ -163,7 +164,7 @@ func TestEMR_CancelSteps(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			clusterID := tt.clusterID
 			if clusterID == "" {
@@ -181,7 +182,7 @@ func TestEMR_CancelSteps(t *testing.T) {
 				var out struct {
 					CancelStepsInfoList []any `json:"CancelStepsInfoList"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Empty(t, out.CancelStepsInfoList)
 			}
 		})
@@ -199,7 +200,7 @@ func TestSteps(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	clusterID := create.JobFlowID
 
 	addRec := doEMRRequest(t, h, "AddJobFlowSteps", map[string]any{
@@ -222,7 +223,7 @@ func TestSteps(t *testing.T) {
 	var addOut struct {
 		StepIDs []string `json:"StepIds"`
 	}
-	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addOut))
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addOut, jsonx.V1()))
 	require.Len(t, addOut.StepIDs, 2)
 	assert.NotEmpty(t, addOut.StepIDs[0])
 
@@ -234,7 +235,7 @@ func TestSteps(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"Steps"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.Steps, 2)
 
 	descRec := doEMRRequest(t, h, "DescribeStep", map[string]any{
@@ -332,7 +333,7 @@ func TestListBootstrapActions_RoundTrip(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			listRec := doEMRRequest(t, h, "ListBootstrapActions", map[string]any{
 				"ClusterId": createOut.JobFlowID,
@@ -346,7 +347,7 @@ func TestListBootstrapActions_RoundTrip(t *testing.T) {
 					Args       []string `json:"Args"`
 				} `json:"BootstrapActions"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 
 			if tt.wantActions == nil {
 				assert.Empty(t, listOut.BootstrapActions)
@@ -423,7 +424,7 @@ func TestCancelSteps_ReturnsPerStepInfo(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	// List steps to get IDs
 	listRec := doEMRRequest(t, h, "ListSteps", map[string]any{"ClusterId": create.JobFlowID})
@@ -434,7 +435,7 @@ func TestCancelSteps_ReturnsPerStepInfo(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"Steps"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.Steps)
 
 	stepID := listOut.Steps[0].ID
@@ -450,7 +451,7 @@ func TestCancelSteps_ReturnsPerStepInfo(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"CancelStepsInfoList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.CancelStepsInfoList, 1)
 	assert.Equal(t, stepID, out.CancelStepsInfoList[0].StepID)
 	assert.NotEmpty(t, out.CancelStepsInfoList[0].Status)

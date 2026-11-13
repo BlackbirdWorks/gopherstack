@@ -15,14 +15,14 @@
 
 ### Known gaps
 
-- NFS: Rename, ListFilesAndDirectories and snapshot diffs ignore NFS properties; file types other than Regular, SymLink and Directory are not modelled; the 400 InvalidUri refusal of link operations on SMB shares and the default link count of 2 for directories are unverified.
+- NFS: Rename, ListFilesAndDirectories and snapshot diffs ignore NFS properties; file types other than Regular, SymLink and Directory are not modelled; the Create Hard Link and Create Symbolic Link references document no error code for SMB shares (400 InvalidUri is kept, unverified) and no default link count for directories (2 is kept, unverified).
 - SMB handles are never modelled, so List Handles is empty and Force Close Handles is a no-op.
 - Metrics and logging settings are stored only.
 - Get User Delegation Key and user delegation SAS are unsupported; SAS and Shared Key signatures are only verifiable for devstoreaccount1, verification is off by default, and the Bearer token is not validated. The codes for an unknown si, a service SAS used on a share-level operation (AuthorizationResourceTypeMismatch) and sr=f path mismatch on other accounts are unverified.
-- Access tier changes are instant and provisioned/bursting options are echoed without validation.
+- Access tier changes are instant, and provisioned IOPS/bandwidth are echoed without the documented ranges (HDD 500-50,000 IOPS and 60-5,120 MiB/s, SSD 3,000-102,400 IOPS and 100-10,340 MiB/s) because the emulator has no provisioned v2 or media-tier model.
 - Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent: net/http canonicalises request header names before the handler runs, so the case is unrecoverable without a custom connection reader; list XML returns them as stored.
 - Copy File only reads emulator file and blob URLs; x-ms-copy-source-authorization is ignored and no CRC64 source check exists (the Azure CRC64 polynomial is unverified).
-- LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; trailing-dot handling (x-ms-allow-trailing-dot) and structured-body/CRC64 transactional validation are ignored.
+- LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; x-ms-source-allow-trailing-dot (copy and rename sources) is ignored, and structured-body/CRC64 transactional validation is ignored.
 - Share soft delete follows ARM PUT/PATCH/GET storageAccounts/{a}/fileServices/default (shareDeleteRetentionPolicy only; cors and protocolSettings sent through ARM are accepted but not applied, and the default is disabled rather than 7 days). ARM fileServices/shares resources and the dashboard UI do not exist yet.
 - Share snapshots are full in-memory deep copies (metadata and tree), so large trees cost memory per snapshot.
 

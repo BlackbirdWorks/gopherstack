@@ -1,13 +1,14 @@
 package codepipeline_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -67,7 +68,7 @@ func TestHandler_AcknowledgeThirdPartyJob(t *testing.T) {
 
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus, out["status"])
 			}
 		})
@@ -166,7 +167,7 @@ func TestHandler_PollForThirdPartyJobs_WireShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			jobs, _ := out["jobs"].([]any)
 			require.Len(t, jobs, 1)
 
@@ -218,7 +219,7 @@ func TestGetThirdPartyJobDetails_DataPopulated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			details, ok := out["jobDetails"].(map[string]any)
 			require.True(t, ok, "jobDetails must be present")

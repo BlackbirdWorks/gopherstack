@@ -3,7 +3,7 @@ package azureeventgrid
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -96,7 +98,7 @@ func validationEvent(topicRID, code, validationURL string) ([]byte, error) {
 		"id": uuid.NewString(), propTopic: topicRID, fieldSubject: "", fieldEventType: validationEventType,
 		fieldEventTime: time.Now().UTC().Format(time.RFC3339Nano), "metadataVersion": "1", fieldDataVersion: "2",
 		fieldData: map[string]any{"validationCode": code, "validationUrl": validationURL},
-	}})
+	}}, jsonx.V1())
 }
 
 // postHandshake sends the SubscriptionValidationEvent; echoed reports whether the
@@ -138,7 +140,7 @@ func (b *InMemoryBackend) postHandshake(
 	}
 
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
-	_ = json.Unmarshal(data, &out)
+	_ = json.Unmarshal(data, &out, jsonx.V1())
 
 	return out.ValidationResponse == code, nil
 }

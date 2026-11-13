@@ -26,13 +26,14 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -54,7 +55,7 @@ func TestEpochSecondsWireShape_AssociationExecution(t *testing.T) {
 
 	body, err := json.Marshal(ssm.AssociationExecution{
 		AssociationID: "assoc-1", ExecutionID: "exec-1", Status: "Success", ExecutionDate: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "ExecutionDate")
 }
@@ -65,7 +66,7 @@ func TestEpochSecondsWireShape_MaintenanceWindowExecution(t *testing.T) {
 	body, err := json.Marshal(ssm.MaintenanceWindowExecution{
 		WindowID: "mw-1", WindowExecutionID: "mwexec-1", Status: "SUCCESS",
 		StartTime: 1_700_000_000, EndTime: 1_700_003_600,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "StartTime")
 	numericJSONField(t, body, "EndTime")
@@ -76,7 +77,7 @@ func TestEpochSecondsWireShape_InstanceInformation(t *testing.T) {
 
 	body, err := json.Marshal(ssm.InstanceInformation{
 		InstanceID: "i-1", PingStatus: "Online", RegistrationDate: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "RegistrationDate")
 }
@@ -86,7 +87,7 @@ func TestEpochSecondsWireShape_InstanceAssociationStatusInfo(t *testing.T) {
 
 	body, err := json.Marshal(ssm.InstanceAssociationStatusInfo{
 		AssociationID: "assoc-1", Name: "MyDoc", Status: "Success", ExecutionDate: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "ExecutionDate")
 }
@@ -96,7 +97,7 @@ func TestEpochSecondsWireShape_InstancePatchState(t *testing.T) {
 
 	body, err := json.Marshal(ssm.InstancePatchState{
 		InstanceID: "i-1", PatchGroup: "grp1", Operation: "Scan", OperationStartTime: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "OperationStartTime")
 }
@@ -106,7 +107,7 @@ func TestEpochSecondsWireShape_PatchComplianceData(t *testing.T) {
 
 	body, err := json.Marshal(ssm.PatchComplianceData{
 		Title: "KB123", State: "INSTALLED", InstalledTime: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "InstalledTime")
 }
@@ -117,7 +118,7 @@ func TestEpochSecondsWireShape_ResourceDataSync(t *testing.T) {
 	body, err := json.Marshal(ssm.ResourceDataSync{
 		SyncName: "sync-1", SyncType: "SyncToDestination", LastStatus: "InProgress",
 		SyncCreatedTime: 1_700_000_000, LastSyncTime: 1_700_000_100,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "SyncCreatedTime")
 	numericJSONField(t, body, "LastSyncTime")
@@ -129,7 +130,7 @@ func TestEpochSecondsWireShape_InventoryDeletion(t *testing.T) {
 	body, err := json.Marshal(ssm.InventoryDeletion{
 		DeletionID: "deletion-1", TypeName: "AWS:Application", LastStatus: "Complete",
 		DeletionStartTime: 1_700_000_000,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "DeletionStartTime")
 }
@@ -140,7 +141,7 @@ func TestEpochSecondsWireShape_Node(t *testing.T) {
 	body, err := json.Marshal(ssm.Node{
 		ID: "i-1", CaptureTime: 1_700_000_000,
 		NodeType: &ssm.NodeType{Instance: &ssm.NodeInstanceInfo{PlatformType: "Linux"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	numericJSONField(t, body, "CaptureTime")
 }

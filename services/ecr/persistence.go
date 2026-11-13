@@ -2,7 +2,7 @@ package ecr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -52,7 +52,7 @@ const ecrSnapshotVersion = 2
 // lifecycleLastEvaluated were never persisted before this conversion and
 // still aren't.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage   `json:"tables"`
+	Tables                 map[string]jsontext.Value    `json:"tables"`
 	RepoTags               map[string]map[string]string `json:"repoTags,omitempty"`
 	UploadedLayers         map[string]map[string]int64  `json:"uploadedLayers,omitempty"`
 	RegistryScanningConfig *RegistryScanningSettings    `json:"registryScanningConfig,omitempty"`

@@ -1,7 +1,7 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -40,7 +41,7 @@ func TestAppStream_Sessions(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["StreamingURL"])
 				assert.NotEmpty(t, resp["Expires"])
 			},
@@ -66,7 +67,7 @@ func TestAppStream_Sessions(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				sessions := resp["Sessions"].([]any)
 				assert.Len(t, sessions, 1)
 			},
@@ -112,7 +113,7 @@ func TestAppStream_SessionLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 	sessions := descResp["Sessions"].([]any)
 	require.Len(t, sessions, 1)
 	sessionID := sessions[0].(map[string]any)["Id"].(string)
@@ -142,7 +143,7 @@ func TestAppStream_DrainSessionInstance(t *testing.T) {
 		"StackName": "drain-stk", "FleetName": "drain-fleet",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	sessions := descResp["Sessions"].([]any)
 	require.Len(t, sessions, 1)
 	sessionID := sessions[0].(map[string]any)["Id"].(string)
@@ -178,7 +179,7 @@ func TestAppStream_SessionStreamingURL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["StreamingURL"])
 
 	expires, ok := resp["Expires"].(float64)
@@ -220,7 +221,7 @@ func TestAppStream_DescribeSessionsFilterByStack(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sessions, ok := resp["Sessions"].([]any)
 	require.True(t, ok)
 	assert.Len(t, sessions, 2)

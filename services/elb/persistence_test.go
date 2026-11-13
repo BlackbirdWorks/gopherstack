@@ -2,7 +2,7 @@ package elb_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/elb"
@@ -370,7 +371,7 @@ func TestPersistenceEmptySnapshot(t *testing.T) {
 	b := newBackend()
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
-	require.True(t, json.Valid(snap))
+	require.True(t, jsontext.Value(snap).IsValid(jsonx.V1()))
 }
 
 // TestPersistenceRoundTripBackendServerDescriptions verifies that Snapshot/Restore preserves

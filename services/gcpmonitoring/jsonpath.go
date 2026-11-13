@@ -1,11 +1,13 @@
 package gcpmonitoring
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errJSONPath = errors.New("invalid JSONPath")
@@ -144,7 +146,7 @@ func jsonPathMatches(m *uptimeMatcher, body []byte) bool {
 	}
 
 	var doc any
-	if json.Unmarshal(body, &doc) != nil {
+	if json.Unmarshal(body, &doc, jsonx.V1()) != nil {
 		return false
 	}
 

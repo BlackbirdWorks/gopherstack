@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -50,7 +51,7 @@ func TestAccuracy_MarketplaceEndpoint_CreateStartsAsCreating(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				ep := out["marketplaceModelEndpoint"].(map[string]any)
 				assert.Equal(t, "REGISTERED", ep["status"])
 				assert.Equal(t, "Creating", ep["endpointStatus"])
@@ -185,7 +186,7 @@ func TestAccuracy_MarketplaceEndpoint_ListResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	endpoints := out["marketplaceModelEndpoints"].([]any)
 	assert.Len(t, endpoints, 3)
 
@@ -243,7 +244,7 @@ func TestAccuracy_MarketplaceEndpoint_ListModelSourceFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			endpoints := out["marketplaceModelEndpoints"].([]any)
 
 			gotSources := make([]string, 0, len(endpoints))
@@ -277,7 +278,7 @@ func TestAccuracy_MarketplaceEndpoint_DeleteRemovesFromList(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["marketplaceModelEndpoints"].([]any))
 }
 
@@ -299,7 +300,7 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	updated := out["marketplaceModelEndpoint"].(map[string]any)
 	assert.Equal(t, ep.EndpointArn, updated["endpointArn"])
 	assert.NotEmpty(t, updated["updatedAt"])
@@ -428,7 +429,7 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	endpointARN := createOut["marketplaceModelEndpoint"].(map[string]any)["endpointArn"].(string)
 
 	// List endpoints.

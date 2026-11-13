@@ -42,6 +42,7 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iotanalytics")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -77,6 +78,7 @@ func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iotanalytics")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -112,6 +114,7 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iotanalytics")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

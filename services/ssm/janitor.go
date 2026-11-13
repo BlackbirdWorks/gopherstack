@@ -2,10 +2,11 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -303,7 +304,7 @@ func parameterExpiresAt(policiesJSON string) (time.Time, bool) {
 	}
 
 	var policies []parameterExpirationPolicy
-	if err := json.Unmarshal([]byte(policiesJSON), &policies); err != nil {
+	if err := json.Unmarshal([]byte(policiesJSON), &policies, jsonx.V1()); err != nil {
 		return time.Time{}, false
 	}
 

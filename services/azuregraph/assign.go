@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 )
@@ -24,7 +24,7 @@ func principalType(kind string) string {
 // CreateAppRoleAssignment grants an app role. ownerID is the path service principal, user or group;
 // asResource selects appRoleAssignedTo (owner is the resource) over appRoleAssignments (owner is the principal).
 func (b *Backend) CreateAppRoleAssignment(
-	ownerID string, asResource bool, body map[string]json.RawMessage,
+	ownerID string, asResource bool, body map[string]jsontext.Value,
 ) (AppRoleAssignment, error) {
 	if err := requireProps("AppRoleAssignment", body, "principalId", "resourceId", "appRoleId"); err != nil {
 		return AppRoleAssignment{}, err
@@ -135,7 +135,7 @@ func (b *Backend) DeleteAppRoleAssignment(id, assignmentID string, asResource bo
 }
 
 // CreateGrant records a delegated permission grant.
-func (b *Backend) CreateGrant(body map[string]json.RawMessage) (OAuth2PermissionGrant, error) {
+func (b *Backend) CreateGrant(body map[string]jsontext.Value) (OAuth2PermissionGrant, error) {
 	if err := requireProps("OAuth2PermissionGrant", body, "clientId", "consentType", "resourceId"); err != nil {
 		return OAuth2PermissionGrant{}, err
 	}
@@ -181,7 +181,7 @@ func (b *Backend) ListGrants() []OAuth2PermissionGrant {
 }
 
 // UpdateGrant changes the scope of a grant.
-func (b *Backend) UpdateGrant(id string, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateGrant(id string, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateGrant")
 	defer b.mu.Unlock()
 

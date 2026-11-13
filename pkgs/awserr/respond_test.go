@@ -1,7 +1,7 @@
 package awserr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestClassifyMatchesWrappedSentinel(t *testing.T) {
@@ -67,7 +68,7 @@ func TestWriteJSON10(t *testing.T) {
 		Type    string `json:"__type"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", env.Type)
 	assert.Equal(t, "nope", env.Message)
 }

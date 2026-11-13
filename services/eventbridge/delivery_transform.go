@@ -2,10 +2,13 @@ package eventbridge
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // inputPathsMapKeyRe validates InputPathsMap variable names per AWS spec.
@@ -19,7 +22,7 @@ func applyInputPath(path string, envelope map[string]any) string {
 		return ""
 	}
 
-	b, _ := json.Marshal(val)
+	b, _ := json.Marshal(val, jsonx.V1())
 
 	return string(b)
 }
@@ -175,9 +178,8 @@ func jsonEscapeInner(s string) string {
 // mirrors AWS, which does not HTML-escape input-transformer substitutions.
 func marshalNoHTMLEscape(v any) []byte {
 	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	enc := jsontext.NewEncoder(&buf, jsonx.V1(), jsontext.EscapeForHTML(false))
+	if err := json.MarshalEncode(enc, v); err != nil {
 		return nil
 	}
 

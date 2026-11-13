@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -133,7 +135,7 @@ func TestApplications_HTTPHandler(t *testing.T) {
 			require.Equal(t, http.StatusOK, lr.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(lr.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &out, jsonx.V1()))
 
 			apps, ok := out["ApplicationSummaries"].([]any)
 			require.True(t, ok)
@@ -156,7 +158,7 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/application",
 		map[string]any{"Name": "wire-app"})
 	var cOut map[string]any
-	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cr.Body), &cOut, jsonx.V1()))
 	cr.Body.Close()
 	require.Equal(t, http.StatusOK, cr.StatusCode)
 
@@ -172,7 +174,7 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, gr.StatusCode)
 
 	var gOut map[string]any
-	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &gOut, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", gOut["status"])
 	assert.NotEmpty(t, gOut["endpoint"])
 	assert.NotEmpty(t, gOut["createdAt"])
@@ -185,7 +187,7 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, ur.StatusCode)
 
 	var uOut map[string]any
-	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ur.Body), &uOut, jsonx.V1()))
 	assert.NotContains(t, uOut, "status")
 	assert.NotEmpty(t, uOut["createdAt"])
 	assert.NotEmpty(t, uOut["lastUpdatedAt"])
@@ -281,7 +283,7 @@ func createTestApplication(t *testing.T, h *opensearch.Handler, name string) str
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	id, ok := out["id"].(string)
 	require.True(t, ok)
@@ -301,7 +303,7 @@ func domainARN(t *testing.T, h *opensearch.Handler, domainName string) string {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	status, ok := out["DomainStatus"].(map[string]any)
 	require.True(t, ok)
@@ -340,7 +342,7 @@ func TestDataSourceAttachments_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, ar.StatusCode)
 
 				var attOut map[string]any
-				require.NoError(t, json.NewDecoder(ar.Body).Decode(&attOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ar.Body), &attOut, jsonx.V1()))
 				assert.Equal(t, appID, attOut["id"])
 				assert.Equal(t, arn, attOut["dataSourceArn"])
 				assert.Equal(t, arn, attOut["arn"])
@@ -356,7 +358,7 @@ func TestDataSourceAttachments_HTTPHandler(t *testing.T) {
 					map[string]any{"dataSourceArn": arn})
 				defer ar2.Body.Close()
 				var attOut2 map[string]any
-				require.NoError(t, json.NewDecoder(ar2.Body).Decode(&attOut2))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(ar2.Body), &attOut2, jsonx.V1()))
 				assert.Equal(t, attOut["attachmentId"], attOut2["attachmentId"])
 
 				lr := doRequest(t, h, http.MethodPost,
@@ -365,7 +367,7 @@ func TestDataSourceAttachments_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, lr.StatusCode)
 
 				var listOut map[string]any
-				require.NoError(t, json.NewDecoder(lr.Body).Decode(&listOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &listOut, jsonx.V1()))
 				attachments, ok := listOut["attachments"].([]any)
 				require.True(t, ok)
 				require.Len(t, attachments, 1)
@@ -384,7 +386,7 @@ func TestDataSourceAttachments_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, dr.StatusCode)
 
 				var descOut map[string]any
-				require.NoError(t, json.NewDecoder(dr.Body).Decode(&descOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &descOut, jsonx.V1()))
 				assert.Equal(t, "ATTACHED", descOut["status"])
 
 				detR := doRequest(t, h, http.MethodPost,
@@ -619,7 +621,7 @@ func TestCapabilities_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, rr.StatusCode)
 
 				var regOut map[string]any
-				require.NoError(t, json.NewDecoder(rr.Body).Decode(&regOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rr.Body), &regOut, jsonx.V1()))
 				assert.Equal(t, appID, regOut["applicationId"])
 				assert.Equal(t, "ai-capability", regOut["capabilityName"])
 				assert.Equal(t, "active", regOut["status"])
@@ -633,7 +635,7 @@ func TestCapabilities_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, gr.StatusCode)
 
 				var getOut map[string]any
-				require.NoError(t, json.NewDecoder(gr.Body).Decode(&getOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &getOut, jsonx.V1()))
 				assert.Equal(t, "active", getOut["status"])
 				assert.Equal(t, []any{}, getOut["failures"])
 
@@ -643,7 +645,7 @@ func TestCapabilities_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, dr.StatusCode)
 
 				var deregOut map[string]any
-				require.NoError(t, json.NewDecoder(dr.Body).Decode(&deregOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(dr.Body), &deregOut, jsonx.V1()))
 				// DeregisterCapabilityOutput always reports "deleting" per its doc,
 				// regardless of this emulator's actual (synchronous) removal.
 				assert.Equal(t, "deleting", deregOut["status"])
@@ -744,7 +746,7 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, sr.StatusCode)
 
 				var startOut map[string]any
-				require.NoError(t, json.NewDecoder(sr.Body).Decode(&startOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(sr.Body), &startOut, jsonx.V1()))
 				migrationID, ok := startOut["migrationId"].(string)
 				require.True(t, ok)
 				require.NotEmpty(t, migrationID)
@@ -757,7 +759,7 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, gr.StatusCode)
 
 				var getOut map[string]any
-				require.NoError(t, json.NewDecoder(gr.Body).Decode(&getOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(gr.Body), &getOut, jsonx.V1()))
 				assert.Equal(t, appID, getOut["applicationId"])
 				assert.Equal(t, "SUCCEEDED", getOut["status"])
 				// No saved-object store exists to migrate real objects, so counts
@@ -774,7 +776,7 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 				require.Equal(t, http.StatusOK, lr.StatusCode)
 
 				var listOut map[string]any
-				require.NoError(t, json.NewDecoder(lr.Body).Decode(&listOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(lr.Body), &listOut, jsonx.V1()))
 				migrations, ok := listOut["migrations"].([]any)
 				require.True(t, ok)
 				require.Len(t, migrations, 1)
@@ -783,7 +785,7 @@ func TestMigrations_HTTPHandler(t *testing.T) {
 					"/2021-01-01/opensearch/app-migrations?applicationId="+appID+"&status=PENDING", nil)
 				defer filteredR.Body.Close()
 				var filteredOut map[string]any
-				require.NoError(t, json.NewDecoder(filteredR.Body).Decode(&filteredOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(filteredR.Body), &filteredOut, jsonx.V1()))
 				assert.Empty(t, filteredOut["migrations"])
 			},
 		},

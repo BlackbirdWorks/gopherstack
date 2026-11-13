@@ -1,7 +1,7 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 
@@ -22,7 +22,7 @@ func isValidGrantType(grantType string) bool {
 }
 
 // PutApplicationGrant stores a typed grant with its full body.
-func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error {
+func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, body jsontext.Value) error {
 	b.mu.Lock("PutApplicationGrant")
 	defer b.mu.Unlock()
 
@@ -35,10 +35,10 @@ func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, 
 		return ErrApplicationNotFound
 	}
 	if b.applicationGrants[applicationArn] == nil {
-		b.applicationGrants[applicationArn] = make(map[string]json.RawMessage)
+		b.applicationGrants[applicationArn] = make(map[string]jsontext.Value)
 	}
 	if len(body) == 0 {
-		body = json.RawMessage("null")
+		body = jsontext.Value("null")
 	}
 	b.applicationGrants[applicationArn][grantType] = body
 
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]Applic
 	grants := b.applicationGrants[applicationArn]
 	result := make([]ApplicationGrant, 0, len(grants))
 	for gType, body := range grants {
-		bodyCopy := make(json.RawMessage, len(body))
+		bodyCopy := make(jsontext.Value, len(body))
 		copy(bodyCopy, body)
 		result = append(result, ApplicationGrant{GrantType: gType, Grant: bodyCopy})
 	}
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]Applic
 }
 
 // GetApplicationGrant returns a specific grant body.
-func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (json.RawMessage, error) {
+func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) (jsontext.Value, error) {
 	b.mu.RLock("GetApplicationGrant")
 	defer b.mu.RUnlock()
 
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) 
 	if !exists {
 		return nil, ErrGrantNotFound
 	}
-	result := make(json.RawMessage, len(body))
+	result := make(jsontext.Value, len(body))
 	copy(result, body)
 
 	return result, nil

@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -56,7 +57,7 @@ func TestCancelDQRecommendationRun_NotFound(t *testing.T) {
 				var out struct {
 					RunID string `json:"RunId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.NotEmpty(t, out.RunID, "expected RunId in response")
 				runID = out.RunID
 			}
@@ -177,13 +178,13 @@ func TestDataQuality_RuleRecommendationRun(t *testing.T) {
 	startRec := doGlueRequest(t, h, "StartDataQualityRuleRecommendationRun", map[string]any{})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"].(string)
 
 	getRecommendRec := doGlueRequest(t, h, "GetDataQualityRuleRecommendationRun", map[string]any{"RunId": runID})
 	require.Equal(t, http.StatusOK, getRecommendRec.Code)
 	var getRecommendOut map[string]any
-	require.NoError(t, json.Unmarshal(getRecommendRec.Body.Bytes(), &getRecommendOut))
+	require.NoError(t, json.Unmarshal(getRecommendRec.Body.Bytes(), &getRecommendOut, jsonx.V1()))
 	assert.NotEmpty(t, getRecommendOut["RunId"])
 
 	listRecommendRec := doGlueRequest(t, h, "ListDataQualityRuleRecommendationRuns", map[string]any{})
@@ -243,7 +244,7 @@ func TestDataQualityRulesets(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 		})
@@ -293,7 +294,7 @@ func TestDataQualityRulesetTagging(t *testing.T) {
 
 			if tt.check != nil {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 		})
@@ -380,7 +381,7 @@ func TestHandlerDataQuality_GetDataQualityRuleset(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "my-ruleset", out["Name"])
 			}
 		})
@@ -496,7 +497,7 @@ func TestHandlerDataQuality_ListDataQualityRulesets(t *testing.T) {
 
 			require.Equal(t, tt.wantCode, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			rulesets, _ := out["Rulesets"].([]any)
 			assert.Len(t, rulesets, tt.wantLen)
 		})
@@ -540,7 +541,7 @@ func TestHandlerDataQuality_StartDataQualityRulesetEvaluationRun(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["RunId"])
 			}
 		})
@@ -585,7 +586,7 @@ func TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun(t *testing.T) {
 				)
 				require.Equal(t, http.StatusOK, startRec.Code)
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &out, jsonx.V1()))
 				runID = out["RunId"]
 			}
 
@@ -594,7 +595,7 @@ func TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotNil(t, out["RunId"])
 			}
 		})
@@ -618,7 +619,7 @@ func TestHandlerDataQuality_BatchGetDataQualityRulesetEvaluationRun(t *testing.T
 	)
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"]
 	require.NotEmpty(t, runID)
 
@@ -631,7 +632,7 @@ func TestHandlerDataQuality_BatchGetDataQualityRulesetEvaluationRun(t *testing.T
 		Runs         []map[string]any `json:"Runs"`
 		RunsNotFound []string         `json:"RunsNotFound"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Runs, 1)
 	assert.Equal(t, runID, out.Runs[0]["RunId"])
 	assert.Equal(t, []string{"no-such-run"}, out.RunsNotFound)
@@ -671,7 +672,7 @@ func TestHandlerDataQuality_CancelDataQualityRulesetEvaluationRun(t *testing.T) 
 			)
 			require.Equal(t, http.StatusOK, startRec.Code)
 			var startOut map[string]string
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 			runID := startOut["RunId"]
 
 			if tt.preCancel {

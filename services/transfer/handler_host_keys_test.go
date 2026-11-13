@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // testSSHHostKeyBody is a syntactically valid (but not cryptographically
@@ -25,7 +27,7 @@ func TestHandler_DescribeHostKeyIncludesFingerprint(t *testing.T) {
 	serverRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
 	require.Equal(t, http.StatusOK, serverRec.Code)
 	var serverResp map[string]any
-	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp))
+	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp, jsonx.V1()))
 	serverID := serverResp["ServerId"].(string)
 
 	importRec := doTransferRequest(t, h, "ImportHostKey", map[string]any{
@@ -36,7 +38,7 @@ func TestHandler_DescribeHostKeyIncludesFingerprint(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, importRec.Code)
 	var importResp map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp, jsonx.V1()))
 	hostKeyID := importResp["HostKeyId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeHostKey", map[string]any{
@@ -46,7 +48,7 @@ func TestHandler_DescribeHostKeyIncludesFingerprint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	hk := resp["HostKey"].(map[string]any)
 
 	fp, hasFp := hk["HostKeyFingerprint"].(string)
@@ -75,7 +77,7 @@ func TestHandler_ListHostKeysIncludesFingerprintAndArn(t *testing.T) {
 	serverRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
 	require.Equal(t, http.StatusOK, serverRec.Code)
 	var serverResp map[string]any
-	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp))
+	require.NoError(t, json.Unmarshal(serverRec.Body.Bytes(), &serverResp, jsonx.V1()))
 	serverID := serverResp["ServerId"].(string)
 
 	doTransferRequest(t, h, "ImportHostKey", map[string]any{
@@ -90,7 +92,7 @@ func TestHandler_ListHostKeysIncludesFingerprintAndArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	hostKeys := resp["HostKeys"].([]any)
 	require.NotEmpty(t, hostKeys)
 
@@ -150,7 +152,7 @@ func TestHandler_DescribeHostKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importResp map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp, jsonx.V1()))
 	hostKeyID := importResp["HostKeyId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeHostKey", map[string]any{
@@ -174,7 +176,7 @@ func TestHandler_DeleteHostKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importResp map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp, jsonx.V1()))
 	hostKeyID := importResp["HostKeyId"].(string)
 
 	rec := doTransferRequest(t, h, "DeleteHostKey", map[string]any{
@@ -198,7 +200,7 @@ func TestHandler_UpdateHostKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importResp map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importResp, jsonx.V1()))
 	hostKeyID := importResp["HostKeyId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateHostKey", map[string]any{

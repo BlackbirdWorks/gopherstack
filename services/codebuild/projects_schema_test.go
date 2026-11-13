@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_CreateProject_SourceSchema tests the expanded source schema.
@@ -82,7 +85,7 @@ func TestHandler_CreateProject_SourceSchema(t *testing.T) {
 					} `json:"source"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantLocation, out.Project.Source.Location)
 			assert.Equal(t, tt.wantBuildspec, out.Project.Source.Buildspec)
 			assert.Equal(t, tt.wantCloneDepth, out.Project.Source.GitCloneDepth)
@@ -157,7 +160,7 @@ func TestHandler_CreateProject_ArtifactsSchema(t *testing.T) {
 					} `json:"artifacts"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out.Project.Artifacts.Type)
 			assert.Equal(t, tt.wantPath, out.Project.Artifacts.Path)
 			assert.Equal(t, tt.wantNamespaceType, out.Project.Artifacts.NamespaceType)
@@ -245,7 +248,7 @@ func TestHandler_CreateProject_EnvironmentSchema(t *testing.T) {
 					} `json:"environment"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out.Project.Environment.Type)
 			assert.Equal(t, tt.wantComputeType, out.Project.Environment.ComputeType)
 			assert.Equal(t, tt.wantPrivilegedMode, out.Project.Environment.PrivilegedMode)
@@ -317,7 +320,7 @@ func TestHandler_CreateProject_CacheSchema(t *testing.T) {
 					} `json:"cache"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantType, out.Project.Cache.Type)
 			assert.Len(t, out.Project.Cache.Modes, tt.wantModeLen)
 		})
@@ -393,7 +396,7 @@ func TestHandler_CreateProject_Timeouts(t *testing.T) {
 					AutoRetryLimit         float64 `json:"autoRetryLimit"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.InDelta(t, float64(tt.timeoutInMinutes), out.Project.TimeoutInMinutes, 0)
 			assert.InDelta(t, float64(tt.queuedTimeoutInMinutes), out.Project.QueuedTimeoutInMinutes, 0)
 			assert.InDelta(t, float64(tt.concurrentBuildLimit), out.Project.ConcurrentBuildLimit, 0)
@@ -468,7 +471,7 @@ func TestHandler_CreateProject_SecondarySources(t *testing.T) {
 					SecondarySourceVersions []map[string]any `json:"secondarySourceVersions"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Project.SecondarySources, tt.wantSecondaryCount)
 			if tt.secondarySourceVersions != nil {
 				assert.Len(t, out.Project.SecondarySourceVersions, len(tt.secondarySourceVersions))
@@ -524,7 +527,7 @@ func TestHandler_CreateProject_VpcConfig(t *testing.T) {
 					} `json:"vpcConfig"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantVpcID, out.Project.VpcConfig.VpcID)
 		})
 	}
@@ -588,7 +591,7 @@ func TestHandler_UpdateProject_Tags(t *testing.T) {
 					} `json:"tags"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updateRec.Body), &out, jsonx.V1()))
 
 			var gotVal string
 			for _, tag := range out.Project.Tags {
@@ -679,7 +682,7 @@ func TestHandler_CreateProject_LogsConfig(t *testing.T) {
 					} `json:"logsConfig"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantCloudWatchStatus, out.Project.LogsConfig.CloudWatchLogs.Status)
 			assert.Equal(t, tt.wantS3Status, out.Project.LogsConfig.S3Logs.Status)
 		})
@@ -739,7 +742,7 @@ func TestHandler_CreateProject_BuildBatchConfig(t *testing.T) {
 					} `json:"buildBatchConfig"`
 				} `json:"project"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantServiceRole, out.Project.BuildBatchConfig.ServiceRole)
 			assert.InDelta(t, tt.wantMaxBuilds, out.Project.BuildBatchConfig.Restrictions.MaximumBuildsAllowed, 0)
 		})

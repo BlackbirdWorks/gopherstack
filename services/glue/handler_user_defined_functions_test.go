@@ -1,7 +1,8 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -139,7 +141,7 @@ func TestGetUserDefinedFunctions_Pattern(t *testing.T) {
 					FunctionName string `json:"FunctionName"`
 				} `json:"UserDefinedFunctions"`
 			}
-			require.NoError(t, json.NewDecoder(rr.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rr.Body), &out, jsonx.V1()))
 
 			got := make([]string, 0, len(out.UserDefinedFunctions))
 			for _, u := range out.UserDefinedFunctions {

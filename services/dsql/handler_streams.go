@@ -1,11 +1,13 @@
 package dsql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchStreamOps handles cluster change-data-capture stream operations.
@@ -26,7 +28,7 @@ func (h *Handler) dispatchStreamOps(c *echo.Context, op, resource string, body [
 
 func (h *Handler) handleCreateStream(c *echo.Context, clusterIdentifier string, body []byte) error {
 	var req createStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeInvalidBody(c)
 	}
 

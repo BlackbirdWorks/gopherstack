@@ -2,7 +2,7 @@ package elasticsearch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -537,7 +538,7 @@ func (h *Handler) decodeRequest(w http.ResponseWriter, r *http.Request, out any)
 		return true
 	}
 
-	if err = json.Unmarshal(body, out); err != nil {
+	if err = json.Unmarshal(body, out, jsonx.V1()); err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return false

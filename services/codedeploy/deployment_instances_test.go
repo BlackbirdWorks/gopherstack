@@ -1,13 +1,14 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -65,7 +66,7 @@ func TestDeploymentInstances_BatchGetMissingDeployment(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DeploymentDoesNotExistException", resp["__type"])
 }
 
@@ -87,7 +88,7 @@ func TestHandler_BatchGetDeploymentInstances_RealTargets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["instancesSummary"].([]any)
 	require.True(t, ok)
 	// Only the two tag-filter-matched instances resolve as real targets;
@@ -144,7 +145,7 @@ func TestHandler_BatchGetDeploymentTargets_ECS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, ok := resp["deploymentTargets"].([]any)
 	require.True(t, ok)
 	require.Len(t, targets, 1)
@@ -207,7 +208,7 @@ func TestHandler_GetDeploymentTarget_Lambda(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	target, ok := resp["deploymentTarget"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "LambdaTarget", target["deploymentTargetType"])
@@ -222,7 +223,7 @@ func TestHandler_GetDeploymentTarget_Lambda(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "DeploymentTargetDoesNotExistException", errResp["__type"])
 }
 
@@ -250,7 +251,7 @@ func TestHandler_GetDeploymentInstance_RealMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summary, ok := resp["instanceSummary"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, matched[0], summary["instanceId"])
@@ -277,7 +278,7 @@ func TestHandler_ListDeploymentTargets_ListDeploymentInstances_RealTargets(t *te
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var targetsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &targetsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &targetsResp, jsonx.V1()))
 	targetIDs, ok := targetsResp["targetIds"].([]any)
 	require.True(t, ok)
 	require.Len(t, targetIDs, 2)
@@ -287,7 +288,7 @@ func TestHandler_ListDeploymentTargets_ListDeploymentInstances_RealTargets(t *te
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var instResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &instResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &instResp, jsonx.V1()))
 	instances, ok := instResp["instancesList"].([]any)
 	require.True(t, ok)
 	assert.ElementsMatch(t, []any{matched[0], matched[1]}, instances)
@@ -339,7 +340,7 @@ func TestHandler_ListDeploymentInstances_StatusAndTypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			instances, ok := resp["instancesList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, instances, tt.wantLen)
@@ -390,7 +391,7 @@ func TestHandler_ListDeploymentTargets_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			targetIDs, ok := resp["targetIds"].([]any)
 			require.True(t, ok)
 			assert.Len(t, targetIDs, tt.wantLen)
@@ -425,7 +426,7 @@ func TestHandler_ListDeploymentInstances_ECSIsEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	instances, ok := resp["instancesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, instances)
@@ -450,7 +451,7 @@ func TestDeploymentTargets_StatusTracksDeploymentStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	target, ok := resp["deploymentTarget"].(map[string]any)
 	require.True(t, ok)
 	instanceTarget, ok := target["instanceTarget"].(map[string]any)

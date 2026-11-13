@@ -1,13 +1,14 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseJobPath(method string, parts []string) (string, string) {
@@ -148,7 +149,7 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		InitialRun                    bool              `json:"initialRun"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -211,7 +212,7 @@ func (h *Handler) handleListClassificationJobs(body []byte) (any, int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -241,7 +242,7 @@ func (h *Handler) handleUpdateClassificationJob(jobID string, body []byte) (int,
 		JobStatus string `json:"jobStatus"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -278,7 +279,7 @@ func (h *Handler) handlePutClassificationExportConfiguration(body []byte) (int, 
 		Configuration *ClassificationExportConfig `json:"configuration"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -321,7 +322,7 @@ func (h *Handler) handleUpdateClassificationScope(scopeID string, body []byte) (
 		S3 *ClassificationScopeS3Update `json:"s3"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

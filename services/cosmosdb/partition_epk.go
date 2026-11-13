@@ -3,10 +3,13 @@ package cosmosdb
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"math/big"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Effective partition key hashing for partition key version 2. Ported from the hashing azcosmos v1.5.0 uses to
@@ -157,7 +160,7 @@ func appendEPKComponent(buf []byte, v any) []byte {
 		}
 
 		return append(buf, epkComponentFalse)
-	case json.Number:
+	case jsonx.Number:
 		f, _ := x.Float64()
 
 		return appendEPKNumber(buf, f)
@@ -193,11 +196,10 @@ func epkOfValues(vals []any) u128 {
 // epkHash is the routing hash of a canonical partition key: a scalar hashes as a whole; a hierarchical key (a JSON
 // array) routes by its first component, whose hash opens its effective partition key.
 func epkHash(pkJSON string) u128 {
-	dec := json.NewDecoder(bytes.NewReader([]byte(pkJSON)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(pkJSON)))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return epkOfValues([]any{pkJSON})
 	}
 

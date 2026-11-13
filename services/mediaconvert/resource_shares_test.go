@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -20,7 +22,7 @@ func TestMediaConvert_CreateResourceShare_TableTests(t *testing.T) {
 		})
 		require.Equal(t, http.StatusCreated, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		job, _ := resp["job"].(map[string]any)
 		id, _ := job["id"].(string)
 
@@ -121,7 +123,7 @@ func TestCreateResourceShare_SetsShareStatus(t *testing.T) {
 		ShareToken string  `json:"shareToken"`
 		SharedAt   float64 `json:"sharedAt"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(*got.LastShareDetails), &details))
+	require.NoError(t, json.Unmarshal([]byte(*got.LastShareDetails), &details, jsonx.V1()))
 	assert.NotEmpty(t, details.ShareToken)
 	assert.Greater(t, details.SharedAt, float64(0))
 }

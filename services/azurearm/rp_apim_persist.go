@@ -1,24 +1,30 @@
 package azurearm
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // apimSnapshot is the persisted state of the API Management provider, subscription keys, secret named values and
 // backend credentials included (as with the other azurearm credentials).
 type apimSnapshot struct {
-	Services   json.RawMessage `json:"services,omitempty"`
-	Operations json.RawMessage `json:"operations,omitempty"`
+	Services   jsontext.Value `json:"services,omitempty"`
+	Operations jsontext.Value `json:"operations,omitempty"`
 }
 
 func (p *APIMProvider) snapshot() *apimSnapshot {
 	p.mu.RLock(apimCSnapshot)
 	defer p.mu.RUnlock()
 
-	raw, err := json.Marshal(p.svcs)
+	raw, err := json.Marshal(p.svcs, jsonx.V1())
 	if err != nil {
 		return &apimSnapshot{}
 	}
 
-	ops, err := json.Marshal(p.ops)
+	ops, err := json.Marshal(p.ops, jsonx.V1())
 	if err != nil {
 		return &apimSnapshot{Services: raw}
 	}
@@ -39,7 +45,7 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 	}
 
 	var ops map[string]*apimOp
-	if err := json.Unmarshal(snap.Operations, &ops); err == nil {
+	if err := json.Unmarshal(snap.Operations, &ops, jsonx.V1()); err == nil {
 		for id, o := range ops {
 			if o != nil {
 				p.ops[id] = o
@@ -48,7 +54,7 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 	}
 
 	var svcs map[string]*apimService
-	if err := json.Unmarshal(snap.Services, &svcs); err != nil {
+	if err := json.Unmarshal(snap.Services, &svcs, jsonx.V1()); err != nil {
 		return
 	}
 

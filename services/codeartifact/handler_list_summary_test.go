@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,8 @@ import (
 	casdk "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListPackages_SummaryShape locks that ListPackages emits the
@@ -36,7 +38,7 @@ func TestHandler_ListPackages_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pkgs, ok := resp["packages"].([]any)
 	require.True(t, ok)
 	require.Len(t, pkgs, 1)
@@ -112,7 +114,7 @@ func TestHandler_ListPackageVersions_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions, ok := resp["versions"].([]any)
 	require.True(t, ok)
 	require.Len(t, versions, 1)

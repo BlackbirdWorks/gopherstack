@@ -1,13 +1,15 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEndpoint_FullShape(t *testing.T) {
@@ -119,7 +121,7 @@ func TestEndpoint_FullShape(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			endpointID := "ep-" + tc.name
@@ -137,7 +139,7 @@ func TestEndpoint_FullShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantChannelType != "" {
 				assert.Equal(t, tc.wantChannelType, resp["ChannelType"])
@@ -174,7 +176,7 @@ func TestEndpoint_UserAttributes(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	rec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/endpoints/ep-1",
@@ -196,7 +198,7 @@ func TestEndpoint_UserAttributes(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	user, ok := resp["User"].(map[string]any)
 	require.True(t, ok, "User field must be present")
@@ -217,7 +219,7 @@ func TestEndpointBatch_FullShape(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	// Real EndpointBatchRequest.Item is a JSON array of EndpointBatchItem,
@@ -258,7 +260,7 @@ func TestEndpointBatch_FullShape(t *testing.T) {
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/endpoints/ep-batch-1", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &r1, jsonx.V1()))
 	assert.NotNil(t, r1["Attributes"])
 	assert.NotNil(t, r1["Metrics"])
 	assert.NotNil(t, r1["Demographic"])
@@ -267,7 +269,7 @@ func TestEndpointBatch_FullShape(t *testing.T) {
 	getRec2 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/endpoints/ep-batch-2", nil)
 	require.Equal(t, http.StatusOK, getRec2.Code)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &r2, jsonx.V1()))
 	assert.Equal(t, "INACTIVE", r2["EndpointStatus"])
 	assert.Equal(t, "ALL", r2["OptOut"])
 }
@@ -284,7 +286,7 @@ func TestEndpoint_EffectiveDate_RoundTrip(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	effectiveDate := "2026-01-15T10:30:00Z"
@@ -299,7 +301,7 @@ func TestEndpoint_EffectiveDate_RoundTrip(t *testing.T) {
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/endpoints/ep-eff", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, effectiveDate, resp["EffectiveDate"])
 }
 
@@ -330,7 +332,7 @@ func TestEndpoint_UserAttributes_MultiValue(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ep map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep, jsonx.V1()))
 
 	user := ep["User"].(map[string]any)
 	assert.Equal(t, "user-001", user["UserId"])
@@ -390,7 +392,7 @@ func TestEndpoint_UserAttributes_UpdateMerge(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ep map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep, jsonx.V1()))
 
 	ua := ep["User"].(map[string]any)["UserAttributes"].(map[string]any)
 	assert.Equal(t, []any{"gold"}, ua["tier"])
@@ -435,7 +437,7 @@ func TestGetUserEndpoints_ByUserID(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items := resp["Item"].([]any)
 	assert.Len(t, items, 2, "only endpoints for shared-user")
@@ -489,7 +491,7 @@ func TestEndpoint_UserAttributes_BatchUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec1.Code)
 
 	var ep1 map[string]any
-	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &ep1))
+	require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &ep1, jsonx.V1()))
 	ua1 := ep1["User"].(map[string]any)["UserAttributes"].(map[string]any)
 	assert.Equal(t, []any{"beta-testers"}, ua1["segment"])
 
@@ -499,7 +501,7 @@ func TestEndpoint_UserAttributes_BatchUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var ep2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &ep2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &ep2, jsonx.V1()))
 	ua2 := ep2["User"].(map[string]any)["UserAttributes"].(map[string]any)
 	assert.Equal(t, []any{"power-users"}, ua2["segment"])
 }
@@ -532,7 +534,7 @@ func TestEndpoint_Metrics_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ep map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep, jsonx.V1()))
 
 	metrics := ep["Metrics"].(map[string]any)
 	assert.InDelta(t, 12.0, metrics["session_count"], 0.001)
@@ -577,7 +579,7 @@ func TestEndpoint_Demographic_Location(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ep map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep, jsonx.V1()))
 
 	demo := ep["Demographic"].(map[string]any)
 	assert.Equal(t, "4.2.1", demo["AppVersion"])
@@ -730,7 +732,7 @@ func TestUpdateEndpoint_ReturnsMessageBody(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			msg, _ := resp["Message"].(string)
 			assert.Equal(t, "Accepted", msg,

@@ -1,11 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
@@ -31,12 +33,12 @@ type domainClusterConfigAlias domainClusterConfig
 // UnmarshalJSON records which members the request set, so UpdateDomainConfig can
 // leave omitted ones unchanged.
 func (cc *domainClusterConfig) UnmarshalJSON(data []byte) error {
-	if err := json.Unmarshal(data, (*domainClusterConfigAlias)(cc)); err != nil {
+	if err := json.Unmarshal(data, (*domainClusterConfigAlias)(cc), jsonx.V1()); err != nil {
 		return err
 	}
 
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -136,7 +138,7 @@ func (a *advancedSecurityOptionsJSON) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -523,40 +525,41 @@ func mergeJSONTypes(a, b string) string {
 	}
 }
 
-func decodeJSONObject(line []byte) ([]string, []json.RawMessage, bool) {
-	dec := json.NewDecoder(bytes.NewReader(line))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+func decodeJSONObject(line []byte) ([]string, []jsontext.Value, bool) {
+	dec := jsontext.NewDecoder(bytes.NewReader(line), jsonx.V1())
+	if tok, err := dec.ReadToken(); err != nil || tok.Kind() != '{' {
 		return nil, nil, false
 	}
 
 	var keys []string
 
-	var vals []json.RawMessage
+	var vals []jsontext.Value
 
-	for dec.More() {
-		kt, err := dec.Token()
+	for dec.PeekKind() != '}' {
+		kt, err := dec.ReadToken()
 		if err != nil {
 			return nil, nil, false
 		}
 
-		var raw json.RawMessage
-		if err = dec.Decode(&raw); err != nil {
+		key := kt.String()
+
+		raw, err := dec.ReadValue()
+		if err != nil {
 			return nil, nil, false
 		}
 
-		keys = append(keys, fmt.Sprint(kt))
-		vals = append(vals, raw)
+		keys = append(keys, key)
+		vals = append(vals, raw.Clone())
 	}
 
 	return keys, vals, true
 }
 
-func jsonType(raw json.RawMessage) string {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+func jsonType(raw jsontext.Value) string {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return avroString
 	}
 
@@ -569,7 +572,7 @@ func jsonValueType(v any) string {
 		return ""
 	case bool:
 		return avroBoolean
-	case json.Number:
+	case jsonx.Number:
 		if _, err := x.Int64(); err == nil {
 			return typeBigint
 		}

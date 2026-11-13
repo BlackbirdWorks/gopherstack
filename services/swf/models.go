@@ -1,9 +1,12 @@
 package swf
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -118,24 +121,24 @@ func (e HistoryEvent) MarshalJSON() ([]byte, error) {
 	}
 	maps.Copy(m, e.Attributes)
 
-	return json.Marshal(m)
+	return json.Marshal(m, jsonx.V1())
 }
 
 // UnmarshalJSON restores a HistoryEvent from its JSON representation,
 // capturing any unknown keys (the attributes block) into Attributes.
 func (e *HistoryEvent) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return err
 	}
 	if v, ok := raw["eventType"]; ok {
-		_ = json.Unmarshal(v, &e.EventType)
+		_ = json.Unmarshal(v, &e.EventType, jsonx.V1())
 	}
 	if v, ok := raw["eventId"]; ok {
-		_ = json.Unmarshal(v, &e.EventID)
+		_ = json.Unmarshal(v, &e.EventID, jsonx.V1())
 	}
 	if v, ok := raw["eventTimestamp"]; ok {
-		_ = json.Unmarshal(v, &e.Timestamp)
+		_ = json.Unmarshal(v, &e.Timestamp, jsonx.V1())
 	}
 	known := map[string]bool{
 		"eventType": true, "eventId": true, "eventTimestamp": true,
@@ -144,7 +147,7 @@ func (e *HistoryEvent) UnmarshalJSON(data []byte) error {
 	for k, v := range raw {
 		if !known[k] {
 			var x any
-			_ = json.Unmarshal(v, &x)
+			_ = json.Unmarshal(v, &x, jsonx.V1())
 			e.Attributes[k] = x
 		}
 	}

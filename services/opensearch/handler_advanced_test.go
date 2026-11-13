@@ -1,13 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -75,7 +77,7 @@ func TestOpenSearchHandler_GetCompatibleVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	versions, ok := out["CompatibleVersions"].([]any)
 	require.True(t, ok)
@@ -102,7 +104,7 @@ func TestOpenSearchHandler_ListInstanceTypeDetails(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	details, ok := out["InstanceTypeDetails"].([]any)
 	require.True(t, ok)
@@ -168,7 +170,7 @@ func TestGetCompatibleVersions(t *testing.T) {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			versions, ok := out["CompatibleVersions"].([]any)
 			require.True(t, ok)
@@ -198,7 +200,7 @@ func TestListInstanceTypeDetails_InstanceRoleAndSecurity(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	details, ok := out["InstanceTypeDetails"].([]any)
 	require.True(t, ok)
@@ -268,7 +270,7 @@ func TestListVersions_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			versions, ok := out["Versions"].([]any)
 			require.True(t, ok)
@@ -303,7 +305,7 @@ func TestListVersions_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
 
 	var page1 map[string]any
-	require.NoError(t, json.NewDecoder(resp1.Body).Decode(&page1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp1.Body), &page1, jsonx.V1()))
 
 	versions1 := page1["Versions"].([]any)
 	assert.Len(t, versions1, 3)
@@ -316,7 +318,7 @@ func TestListVersions_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 
 	var page2 map[string]any
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&page2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp2.Body), &page2, jsonx.V1()))
 
 	versions2 := page2["Versions"].([]any)
 	assert.NotEmpty(t, versions2)
@@ -447,7 +449,7 @@ func TestDescribeInstanceTypeLimits_ResponseFormat(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			limitsByRole, ok := out["LimitsByRole"].(map[string]any)
 			require.True(t, ok, "LimitsByRole must be an object")
@@ -517,7 +519,7 @@ func TestUpgradeDomain_HTTPHandler(t *testing.T) {
 
 			if len(tt.wantFields) > 0 {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				for _, field := range tt.wantFields {
 					assert.Contains(t, out, field)
 				}
@@ -590,7 +592,7 @@ func TestListInstanceTypeDetails_HTTPHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	details, ok := out["InstanceTypeDetails"].([]any)
 	require.True(t, ok)

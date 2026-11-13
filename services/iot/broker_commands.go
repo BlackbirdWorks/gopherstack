@@ -1,9 +1,11 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -77,7 +79,7 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 	}
 
 	reply := func(outcome string, body map[string]any) {
-		out, err := json.Marshal(body)
+		out, err := json.Marshal(body, jsonx.V1())
 		if err != nil {
 			return
 		}
@@ -101,7 +103,7 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 	}
 
 	var body commandResponseBody
-	if err := json.Unmarshal(payload, &body); err != nil {
+	if err := json.Unmarshal(payload, &body, jsonx.V1()); err != nil {
 		reject(jobsCodeInvalidJSON, "payload is not valid JSON", "")
 
 		return

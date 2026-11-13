@@ -1,13 +1,14 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -103,7 +104,7 @@ func (h *Handler) serveAccount(w http.ResponseWriter, r *http.Request, domain st
 		}
 
 		body, _ := httputils.ReadBody(r)
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			writeSecError(w, secBadRequest("Could not parse content of request."))
 
 			return
@@ -255,7 +256,7 @@ func (h *Handler) patchSecurityResource(
 	body, _ := httputils.ReadBody(r)
 
 	var ops []patchOp
-	if err := json.Unmarshal(body, &ops); err != nil {
+	if err := json.Unmarshal(body, &ops, jsonx.V1()); err != nil {
 		writeSecError(w, secBadRequest("Could not parse content of request."))
 
 		return

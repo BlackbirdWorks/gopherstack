@@ -2,7 +2,7 @@ package resiliencehub
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -283,7 +284,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		status, errType = http.StatusNotFound, "ResourceNotFoundException"
 	}
 
-	payload, _ := json.Marshal(body)
+	payload, _ := json.Marshal(body, jsonx.V1())
 
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 
@@ -395,7 +396,7 @@ func decodeJSONBody(body []byte, v any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return validationError("malformed request body: " + err.Error())
 	}
 
@@ -405,7 +406,7 @@ func decodeJSONBody(body []byte, v any) error {
 // marshalResponse marshals v, wrapping any error as an internal failure
 // (marshaling our own well-typed wire structs should never fail).
 func marshalResponse(v any) ([]byte, error) {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("resiliencehub: marshal response: %w", err)
 	}

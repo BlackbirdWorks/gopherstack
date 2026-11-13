@@ -1,12 +1,13 @@
 package workspaces
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -239,7 +240,7 @@ func streamingPropertiesFromDS(ds *storedDirSettings) *StreamingProperties {
 	}
 
 	var sp StreamingProperties
-	if err := json.Unmarshal([]byte(raw), &sp); err != nil {
+	if err := json.Unmarshal([]byte(raw), &sp, jsonx.V1()); err != nil {
 		return nil
 	}
 

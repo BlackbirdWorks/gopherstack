@@ -1,7 +1,8 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -812,8 +815,8 @@ func (b *InMemoryBackend) SecurityPut(domain string, kind securityKind, name str
 }
 
 func keyCheck(body []byte, allowed ...string) *secError {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(body, &raw, jsonx.V1()); err != nil {
 		return secBadRequest("Could not parse content of request.")
 	}
 
@@ -833,7 +836,7 @@ func keyCheck(body []byte, allowed ...string) *secError {
 }
 
 func decodeStrict(body []byte, v any) *secError {
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return secBadRequest("Could not parse content of request.")
 	}
 
@@ -925,7 +928,7 @@ func validateRoleIndexPermission(ip RoleIndexPermission) *secError {
 
 	if ip.DLS != "" {
 		var q map[string]any
-		if err := json.Unmarshal([]byte(ip.DLS), &q); err != nil || len(q) == 0 {
+		if err := json.Unmarshal([]byte(ip.DLS), &q, jsonx.V1()); err != nil || len(q) == 0 {
 			return secBadRequest("Invalid DLS query: dls must be a JSON object.")
 		}
 	}

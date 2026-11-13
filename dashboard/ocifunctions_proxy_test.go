@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
 
@@ -36,7 +37,7 @@ func ociFnCall(
 	require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
 
 	out := map[string]any{}
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 
 	return rec, out
 }

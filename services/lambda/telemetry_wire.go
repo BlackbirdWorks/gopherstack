@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"net"
@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Telemetry API 2022-07-01 and Logs API 2020-08-15 subscribe contracts:
@@ -297,13 +299,13 @@ type wireEvent struct {
 
 // MarshalJSON writes the fields in the documented order: time, type, record.
 func (e wireEvent) MarshalJSON() ([]byte, error) {
-	rec, err := json.Marshal(e.Record)
+	rec, err := json.Marshal(e.Record, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
-	t, _ := json.Marshal(e.Time)
-	typ, _ := json.Marshal(e.Type)
+	t, _ := json.Marshal(e.Time, jsonx.V1())
+	typ, _ := json.Marshal(e.Type, jsonx.V1())
 
 	return slices.Concat([]byte(`{"time":`), t, []byte(`,"type":`), typ, []byte(`,"record":`), rec, []byte{'}'}), nil
 }

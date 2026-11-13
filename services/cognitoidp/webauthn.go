@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"slices"
@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -195,13 +197,13 @@ func descriptorsOf(creds []webauthn.Credential) []protocol.CredentialDescriptor 
 }
 
 func toJSONMap(v any) (map[string]any, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encoding webauthn options: %w", err)
 	}
 
 	var out map[string]any
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("decoding webauthn options: %w", err)
 	}
 
@@ -295,7 +297,7 @@ func (b *InMemoryBackend) CompleteWebAuthnRegistration(
 		return nil, fmt.Errorf("%w: access token is for a different app client", ErrWebAuthnClientMismatch)
 	}
 
-	raw, err := json.Marshal(credential)
+	raw, err := json.Marshal(credential, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: credential: %w", ErrInvalidParameter, err)
 	}
@@ -388,7 +390,7 @@ func (b *InMemoryBackend) beginPasskeyLoginLocked(
 		return nil, fmt.Errorf("%w: beginning passkey login: %w", ErrInvalidParameter, err)
 	}
 
-	opts, err := json.Marshal(assertion.Response)
+	opts, err := json.Marshal(assertion.Response, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encoding credential request options: %w", err)
 	}

@@ -7,16 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 20 (16 ok, 4 partial) |
+| PARITY entries audited | 49 (45 ok, 4 partial) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Virtual node pools and virtual nodes (CreateVirtualNodePool, GetVirtualNodePool, ListVirtualNodePools, UpdateVirtualNodePool, DeleteVirtualNodePool, GetVirtualNode, ListVirtualNodes) are not routed.
-- Add-ons (InstallAddon, GetAddon, ListAddons, UpdateAddon, DisableAddon, ListAddonOptions), workload mappings, pod shapes (ListPodShapes), credential rotation, public API endpoint decommission and endpoint-config updates (UpdateClusterEndpointConfig), RebootClusterNode, ReplaceBootVolumeClusterNode, DeleteWorkRequest and ExtendEndpointDecommissionRollbackDeadline are not routed.
+- ListPodShapes is not routed: the Oracle pod shape catalogue (names, OCPU, memory and bandwidth options) could not be fetched from a primary source, so virtual node pools only require a non-empty podConfiguration.shape.
+- The virtual node pool size cap of 1000 is copied from the node pool cap and unverified; essential add-ons (CoreDNS, kube-proxy, the CNI plugin) are not pre-installed on enhanced clusters, add-on API names follow the display names of the Oracle add-on table, and add-on configuration keys, addonSchemaVersion, addonGroup and descriptions are not modelled.
+- Credential rotation and endpoint decommission change state only: no certificates or tokens are regenerated and kubeconfig tokens keep working; the operation types of workload mapping changes (no work request is returned) and the 30 day default rollback deadline are not documented by the SDK; WorkloadMapping.mappedTenancyId is never populated.
+- DeleteWorkRequest only marks a work request CANCELED; the SDK says it cancels work that has not started, which the emulator cannot distinguish because work starts when it is accepted.
 - Worker nodes are metadata: they get unique private IPs from the subnet CIDR and ocid1.instance identifiers but are not OCI Core instances and do not join the k3s cluster, so a docker-mode cluster has only the control plane node.
 - Kubeconfigs use a static bearer token, not the oci ce cluster generate-token exec plugin; tokenVersion and expiration are accepted but the token never expires.
 - Without OKE_ENGINE=docker the API server endpoints are documentation-range (or subnet CIDR) addresses nothing listens on; VCN_HOSTNAME endpoints and endpoint.vcnHostnameEndpoint are never populated.

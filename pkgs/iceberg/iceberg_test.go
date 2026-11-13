@@ -1,7 +1,8 @@
 package iceberg_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTransformSpecVectors(t *testing.T) {
@@ -184,8 +186,8 @@ func TestMetadataPreservesUnknownFields(t *testing.T) {
 	out, err := iceberg.EncodeMetadata(m)
 	require.NoError(t, err)
 
-	var generic map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(out, &generic))
+	var generic map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(out, &generic, jsonx.V1()))
 	assert.Contains(t, generic, "statistics")
 
 	_, err = iceberg.ParseMetadata([]byte(`{"format-version":9}`))
@@ -206,7 +208,7 @@ func TestHiveType(t *testing.T) {
 		t.Run(tc.want, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := iceberg.HiveType(json.RawMessage(tc.in))
+			got, err := iceberg.HiveType(jsontext.Value(tc.in))
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})

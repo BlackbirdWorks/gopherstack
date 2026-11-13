@@ -1,7 +1,8 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -59,7 +61,7 @@ func TestHandler_CreateDomainName(t *testing.T) {
 
 			if tt.wantDomain != "" {
 				var dn apigatewayv2.DomainName
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn, jsonx.V1()))
 				assert.Equal(t, tt.wantDomain, dn.DomainNameValue)
 			}
 		})
@@ -138,7 +140,7 @@ func TestHandler_GetDomainNames(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.DomainName `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.domainCnt)
 			}
 		})
@@ -181,7 +183,7 @@ func TestHandler_GetDomainName(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var dn apigatewayv2.DomainName
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn, jsonx.V1()))
 				assert.Equal(t, "example.com", dn.DomainNameValue)
 			}
 		})
@@ -310,7 +312,7 @@ func TestHandler_CreateDomainName_WithConfigurations(t *testing.T) {
 
 			if tt.wantConfig {
 				var dn apigatewayv2.DomainName
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn, jsonx.V1()))
 				require.Len(t, dn.DomainNameConfigurations, 1)
 				assert.Equal(t, "AVAILABLE", dn.DomainNameConfigurations[0].DomainNameStatus)
 				assert.Equal(t, "REGIONAL", dn.DomainNameConfigurations[0].EndpointType)
@@ -358,14 +360,14 @@ func TestDomainNameConfigurationsNullBug(t *testing.T) {
 			rr := doRequest(t, h, http.MethodPost, "/v2/domainnames", tt.body)
 			require.Equal(t, http.StatusCreated, rr.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw, jsonx.V1()))
 
 			_, hasKey := raw["domainNameConfigurations"]
 			assert.True(t, hasKey, "domainNameConfigurations key must always be present in DomainName response")
 
 			var dn apigatewayv2.DomainName
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &dn, jsonx.V1()))
 
 			if tt.wantConfigsEmpty {
 				assert.Empty(t, dn.DomainNameConfigurations,

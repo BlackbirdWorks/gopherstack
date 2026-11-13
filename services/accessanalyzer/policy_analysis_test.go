@@ -1,13 +1,14 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -24,7 +25,7 @@ func policyAllow(action, resource string) string {
 		},
 	}
 
-	b, _ := json.Marshal(p)
+	b, _ := json.Marshal(p, jsonx.V1())
 
 	return string(b)
 }
@@ -48,7 +49,7 @@ func policyPublic() string {
 		},
 	}
 
-	b, _ := json.Marshal(p)
+	b, _ := json.Marshal(p, jsonx.V1())
 
 	return string(b)
 }
@@ -541,7 +542,7 @@ func TestCheckAccessNotGrantedHTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantResult, resp["result"])
 		})
 	}
@@ -588,7 +589,7 @@ func TestCheckNoNewAccessHTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantResult, resp["result"])
 		})
 	}
@@ -633,7 +634,7 @@ func TestCheckNoPublicAccessHTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantResult, resp["result"])
 			assert.NotNil(t, resp["reasons"])
 		})
@@ -689,7 +690,7 @@ func TestValidatePolicyHTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotNil(t, resp["findings"])
 
 			findings := resp["findings"].([]any)

@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -269,7 +271,7 @@ func (p *LogicProvider) sendHTTP(ctx context.Context, r *logicHTTPRequest) (*log
 		case string:
 			body = strings.NewReader(b)
 		default:
-			raw, err := json.Marshal(b)
+			raw, err := json.Marshal(b, jsonx.V1())
 			if err != nil {
 				return nil, err
 			}
@@ -321,7 +323,7 @@ func decodeHTTPBody(contentType string, raw []byte) any {
 
 	if strings.Contains(strings.ToLower(contentType), "json") {
 		var v any
-		if err := json.Unmarshal(raw, &v); err == nil {
+		if err := json.Unmarshal(raw, &v, jsonx.V1()); err == nil {
 			return normLogic(v)
 		}
 	}

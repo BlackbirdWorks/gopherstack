@@ -2,10 +2,12 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createSnapshotInput struct {
@@ -34,14 +36,14 @@ type listSnapshotsOutput struct {
 }
 
 type deleteSnapshotInput struct {
-	ApplicationName           string      `json:"ApplicationName"`
-	SnapshotName              string      `json:"SnapshotName"`
-	SnapshotCreationTimestamp json.Number `json:"SnapshotCreationTimestamp,omitempty"`
+	ApplicationName           string       `json:"ApplicationName"`
+	SnapshotName              string       `json:"SnapshotName"`
+	SnapshotCreationTimestamp jsonx.Number `json:"SnapshotCreationTimestamp,omitempty"`
 }
 
 func (h *Handler) handleCreateApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createSnapshotInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -57,7 +59,7 @@ func (h *Handler) handleCreateApplicationSnapshot(ctx context.Context, c *echo.C
 
 func (h *Handler) handleDescribeApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeSnapshotInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -71,7 +73,7 @@ func (h *Handler) handleDescribeApplicationSnapshot(ctx context.Context, c *echo
 
 func (h *Handler) handleListApplicationSnapshots(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listSnapshotsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -90,7 +92,7 @@ func (h *Handler) handleListApplicationSnapshots(ctx context.Context, c *echo.Co
 
 func (h *Handler) handleDeleteApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteSnapshotInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

@@ -1,7 +1,7 @@
 package ocivault
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -25,7 +25,7 @@ type secretWire struct {
 	VaultID          string                    `json:"vaultId"`
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
-	SecretRules      []json.RawMessage         `json:"secretRules,omitempty"`
+	SecretRules      []jsontext.Value          `json:"secretRules,omitempty"`
 	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 }
 

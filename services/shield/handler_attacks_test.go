@@ -1,7 +1,7 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -25,7 +26,7 @@ func TestHandler_DescribeAttackStatisticsFlatResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasWrapper := resp["AttackStatistics"]
 	assert.False(t, hasWrapper, "response must NOT be wrapped in 'AttackStatistics'")
@@ -48,7 +49,7 @@ func TestHandler_DescribeAttackStatisticsTimeRangeIsFloat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tr := resp["TimeRange"].(map[string]any)
 
@@ -83,7 +84,7 @@ func TestHandler_ListAttacksStartTimeRangeObject(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Len(t, summaries, 1, "StartTime TimeRange object must be accepted")
@@ -107,7 +108,7 @@ func TestHandler_ListAttacksEndTimeRangeObject(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Len(t, summaries, 1, "EndTime TimeRange object must be accepted")
@@ -131,7 +132,7 @@ func TestHandler_ListAttacksEndTimeRangeFiltersOut(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Empty(t, summaries, "attacks after ToExclusive must be excluded")
@@ -157,7 +158,7 @@ func TestHandler_ListAttacksEndTimeExclusiveBoundary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Empty(t, summaries, "an attack starting exactly at ToExclusive must be excluded, not included")
@@ -181,7 +182,7 @@ func TestHandler_ListAttacksDefaultMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Len(t, summaries, 20, "omitted MaxResults must default to 20 per the documented default")
@@ -209,7 +210,7 @@ func TestHandler_ListAttacksOpaquePageToken(t *testing.T) {
 		NextToken string `json:"NextToken"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.NextToken)
 
 	offset := opaqueOffset(t, out.NextToken)
@@ -274,7 +275,7 @@ func TestHandler_DescribeAttack(t *testing.T) {
 
 			if tt.wantFields {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				attack, ok := result["Attack"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, id, attack["AttackId"])
@@ -323,7 +324,7 @@ func TestHandler_DescribeAttackStatistics(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 			items, ok := result["DataItems"].([]any)
 			require.True(t, ok)
@@ -350,7 +351,7 @@ func TestHandler_AttackRichFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// No "AttackVectors" key: types.AttackDetail (shield@v1.37.4 types/types.go)
 	// has no such member -- that's AttackSummary's field (ListAttacks), see
@@ -379,7 +380,7 @@ func TestHandler_ListAttacksMultipleARNs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Len(t, summaries, 2)
@@ -404,7 +405,7 @@ func TestHandler_ListAttacksPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	assert.Len(t, summaries, 2)
@@ -427,7 +428,7 @@ func TestHandler_DescribeAttackStatisticsWithVolume(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotNil(t, resp["TimeRange"])
 	assert.NotNil(t, resp["DataItems"])
@@ -447,7 +448,7 @@ func TestHandler_DescribeAttackStatisticsEmptyWhenNoAttacks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items := resp["DataItems"].([]any)
 	assert.Len(t, items, 1)
@@ -467,7 +468,7 @@ func TestHandler_AttackTimestampIsFloat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	atk := raw["Attack"].(map[string]any)
 	st, ok := atk["StartTime"].(float64)
@@ -494,7 +495,7 @@ func TestHandler_SimulateAttackHTTPEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotEmpty(t, resp["AttackId"])
 	assert.Equal(t, 1, shield.AttackCount(b))
@@ -533,7 +534,7 @@ func TestHandler_AttackSimulationEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, simRec.Code)
 
 	var simResp map[string]any
-	require.NoError(t, json.Unmarshal(simRec.Body.Bytes(), &simResp))
+	require.NoError(t, json.Unmarshal(simRec.Body.Bytes(), &simResp, jsonx.V1()))
 	attackID := simResp["AttackId"].(string)
 
 	// ListAttacks must show it.
@@ -541,7 +542,7 @@ func TestHandler_AttackSimulationEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["AttackSummaries"].([]any)
 	require.Len(t, summaries, 1)
 
@@ -550,7 +551,7 @@ func TestHandler_AttackSimulationEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	atk := descResp["Attack"].(map[string]any)
 	_, hasVectors := atk["AttackVectors"]
 	assert.False(t, hasVectors, "types.AttackDetail has no AttackVectors member")
@@ -562,7 +563,7 @@ func TestHandler_AttackSimulationEndToEnd(t *testing.T) {
 	require.Equal(t, http.StatusOK, statsRec.Code)
 
 	var statsResp map[string]any
-	require.NoError(t, json.Unmarshal(statsRec.Body.Bytes(), &statsResp))
+	require.NoError(t, json.Unmarshal(statsRec.Body.Bytes(), &statsResp, jsonx.V1()))
 	items := statsResp["DataItems"].([]any)
 	require.NotEmpty(t, items)
 
@@ -585,7 +586,7 @@ func TestHandler_ListAttacksIncludesVectors(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["AttackSummaries"].([]any)
 	require.Len(t, summaries, 1)

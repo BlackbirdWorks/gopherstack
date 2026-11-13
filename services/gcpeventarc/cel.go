@@ -1,7 +1,7 @@
 package gcpeventarc
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,8 @@ import (
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errCELResult = errors.New("unexpected CEL result")
@@ -91,7 +93,7 @@ func (messageLib) CompileOptions() []cel.EnvOption {
 			}))),
 		cel.Function("toJsonString", cel.MemberOverload("dyn_tojsonstring", []*cel.Type{cel.DynType}, cel.StringType,
 			cel.UnaryBinding(func(a ref.Val) ref.Val {
-				raw, err := json.Marshal(toNative(a))
+				raw, err := json.Marshal(toNative(a), jsonx.V1())
 				if err != nil {
 					return types.NewErr("toJsonString: %v", err)
 				}

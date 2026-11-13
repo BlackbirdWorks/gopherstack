@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -76,7 +77,7 @@ func TestReportPlanSubFields(t *testing.T) {
 			require.Equal(t, tt.wantStatus, resp.Code)
 
 			var createData map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createData))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createData, jsonx.V1()))
 			rpName := createData["ReportPlanName"].(string)
 
 			// Describe and verify sub-fields.
@@ -84,7 +85,7 @@ func TestReportPlanSubFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var getData map[string]any
-			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData))
+			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData, jsonx.V1()))
 			rpDoc := getData["ReportPlan"].(map[string]any)
 
 			if tt.wantDelivery {
@@ -142,7 +143,7 @@ func TestReportPlanFullShape(t *testing.T) {
 	getResp := doRequest(t, h, http.MethodGet, "/audit/report-plans/rp-full-shape", "")
 	require.Equal(t, http.StatusOK, getResp.Code)
 	var getData map[string]any
-	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData))
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData, jsonx.V1()))
 	rpDoc := getData["ReportPlan"].(map[string]any)
 
 	ch := rpDoc["ReportDeliveryChannel"].(map[string]any)
@@ -169,7 +170,7 @@ func TestReportPlanFullShape(t *testing.T) {
 
 	getResp2 := doRequest(t, h, http.MethodGet, "/audit/report-plans/rp-full-shape", "")
 	var getData2 map[string]any
-	require.NoError(t, json.Unmarshal(getResp2.Body.Bytes(), &getData2))
+	require.NoError(t, json.Unmarshal(getResp2.Body.Bytes(), &getData2, jsonx.V1()))
 	rpDoc2 := getData2["ReportPlan"].(map[string]any)
 	assert.Equal(t, "updated", rpDoc2["ReportPlanDescription"])
 	ch2 := rpDoc2["ReportDeliveryChannel"].(map[string]any)

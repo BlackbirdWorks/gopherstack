@@ -1,11 +1,13 @@
 package lambdaweb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
 
@@ -286,10 +288,10 @@ func validatePolicyDocument(policy string) error {
 	}
 
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if json.Unmarshal([]byte(policy), &doc) != nil || len(doc.Statement) == 0 {
+	if json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil || len(doc.Statement) == 0 {
 		return validationError("The resource policy must be a valid JSON policy document with a Statement.")
 	}
 

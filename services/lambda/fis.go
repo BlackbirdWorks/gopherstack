@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"math/rand/v2"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -338,7 +339,7 @@ func (b *InMemoryBackend) applyFISFaultToInvocation(
 			errPayload, _ := json.Marshal(map[string]string{
 				"errorMessage": faultErr.Error(),
 				"errorType":    "FISFaultInjection",
-			})
+			}, jsonx.V1())
 
 			return errPayload, http.StatusOK, nil
 		}

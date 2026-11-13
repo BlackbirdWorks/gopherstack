@@ -1,12 +1,14 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestManagedRuleSet_PutAndGet(t *testing.T) {
@@ -33,7 +35,7 @@ func TestManagedRuleSet_PutAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code, "PutManagedRuleSetVersions: %s", putRec.Body.String())
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	lockToken1, _ := putResp["NextLockToken"].(string)
 	assert.NotEmpty(t, lockToken1, "PutManagedRuleSetVersions should return NextLockToken")
 
@@ -46,7 +48,7 @@ func TestManagedRuleSet_PutAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code, "GetManagedRuleSet: %s", getRec.Body.String())
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	ms := getResp["ManagedRuleSet"].(map[string]any)
 	assert.Equal(t, msID, ms["Id"])
@@ -78,7 +80,7 @@ func TestManagedRuleSet_GetNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -93,7 +95,7 @@ func TestManagedRuleSet_GetMissingID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidParameterException", errResp["__type"])
 }
 
@@ -119,7 +121,7 @@ func TestManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	lockToken := putResp["NextLockToken"].(string)
 
 	expiry := int64(9999999999)
@@ -142,7 +144,7 @@ func TestManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 	)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["NextLockToken"])
 	assert.Equal(t, "Version_1.0", updateResp["ExpiringVersion"])
 	assert.InDelta(t, float64(expiry), updateResp["ExpiryTimestamp"], 0)
@@ -156,7 +158,7 @@ func TestManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	ms := getResp["ManagedRuleSet"].(map[string]any)
 	versions := ms["PublishedVersions"].(map[string]any)
 	v10 := versions["Version_1.0"].(map[string]any)
@@ -180,7 +182,7 @@ func TestManagedRuleSet_UpdateExpiryNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -199,7 +201,7 @@ func TestManagedRuleSet_UpdateExpiryVersionNotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	lockToken := putResp["NextLockToken"].(string)
 
 	// Attempt to expire a version that was never published.
@@ -214,7 +216,7 @@ func TestManagedRuleSet_UpdateExpiryVersionNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -242,7 +244,7 @@ func TestManagedRuleSet_PutLockTokenEnforcement(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFOptimisticLockException", errResp["__type"])
 }
 
@@ -275,7 +277,7 @@ func TestListManagedRuleSets_ScopeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, filtRec.Code)
 
 	var filtResp map[string]any
-	require.NoError(t, json.Unmarshal(filtRec.Body.Bytes(), &filtResp))
+	require.NoError(t, json.Unmarshal(filtRec.Body.Bytes(), &filtResp, jsonx.V1()))
 	filt, _ := filtResp["ManagedRuleSets"].([]any)
 	assert.Len(t, filt, 1)
 	assert.Equal(t, "regional-ms", filt[0].(map[string]any)["Name"])
@@ -284,7 +286,7 @@ func TestListManagedRuleSets_ScopeFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, cfRec.Code)
 
 	var cfResp map[string]any
-	require.NoError(t, json.Unmarshal(cfRec.Body.Bytes(), &cfResp))
+	require.NoError(t, json.Unmarshal(cfRec.Body.Bytes(), &cfResp, jsonx.V1()))
 	cf, _ := cfResp["ManagedRuleSets"].([]any)
 	assert.Len(t, cf, 1)
 	assert.Equal(t, "cloudfront-ms", cf[0].(map[string]any)["Name"])
@@ -388,7 +390,7 @@ func TestManagedRuleSet_RequiredFieldValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "WAFInvalidParameterException", errResp["__type"])
 		})
 	}
@@ -439,7 +441,7 @@ func TestListManagedRuleSets_DuplicateNamePagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		items, _ := resp["ManagedRuleSets"].([]any)
 		for _, item := range items {

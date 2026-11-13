@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -60,7 +61,7 @@ func TestHandler_GetOperation(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				opID := createResp["OperationId"].(string)
 
 				rec = doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
@@ -100,7 +101,7 @@ func TestOperationCountIncrementsOnRegisterDeregister(t *testing.T) {
 	nsID := createNamespaceHelper(t, h, "ns-opcount")
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-opcount", "NamespaceId": nsID})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	opsBefore := servicediscovery.OperationCount(b)
@@ -158,7 +159,7 @@ func TestListOperations_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			ops := out["Operations"].([]any)
 			assert.Len(t, ops, tt.wantLen)
 			if tt.wantNextToken {
@@ -187,7 +188,7 @@ func TestListOperations_SummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	ops := out["Operations"].([]any)
 	require.Len(t, ops, 1)
 
@@ -219,7 +220,7 @@ func TestListOperations_NamespaceAndServiceIDFilters(t *testing.T) {
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-op-filter", "NamespaceId": nsID})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -232,7 +233,7 @@ func TestListOperations_NamespaceAndServiceIDFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, nsFilterRec.Code)
 
 	var nsOut map[string]any
-	require.NoError(t, json.Unmarshal(nsFilterRec.Body.Bytes(), &nsOut))
+	require.NoError(t, json.Unmarshal(nsFilterRec.Body.Bytes(), &nsOut, jsonx.V1()))
 	assert.Len(t, nsOut["Operations"].([]any), 1, "only CREATE_NAMESPACE targets this namespace")
 
 	svcFilterRec := doSDRequest(t, h, "ListOperations", map[string]any{
@@ -241,7 +242,7 @@ func TestListOperations_NamespaceAndServiceIDFilters(t *testing.T) {
 	require.Equal(t, http.StatusOK, svcFilterRec.Code)
 
 	var svcOut map[string]any
-	require.NoError(t, json.Unmarshal(svcFilterRec.Body.Bytes(), &svcOut))
+	require.NoError(t, json.Unmarshal(svcFilterRec.Body.Bytes(), &svcOut, jsonx.V1()))
 	assert.Len(t, svcOut["Operations"].([]any), 1, "only REGISTER_INSTANCE targets this service")
 }
 
@@ -263,7 +264,7 @@ func TestListOperations_TypeFilterIN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out["Operations"].([]any), 2)
 }
 
@@ -291,7 +292,7 @@ func TestListOperations_UpdateDateBetweenFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, inRangeRec.Code)
 
 	var inRangeOut map[string]any
-	require.NoError(t, json.Unmarshal(inRangeRec.Body.Bytes(), &inRangeOut))
+	require.NoError(t, json.Unmarshal(inRangeRec.Body.Bytes(), &inRangeOut, jsonx.V1()))
 	assert.Len(t, inRangeOut["Operations"].([]any), 1)
 
 	outOfRangeRec := doSDRequest(t, h, "ListOperations", map[string]any{
@@ -309,7 +310,7 @@ func TestListOperations_UpdateDateBetweenFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, outOfRangeRec.Code)
 
 	var outOfRangeOut map[string]any
-	require.NoError(t, json.Unmarshal(outOfRangeRec.Body.Bytes(), &outOfRangeOut))
+	require.NoError(t, json.Unmarshal(outOfRangeRec.Body.Bytes(), &outOfRangeOut, jsonx.V1()))
 	assert.Empty(t, outOfRangeOut["Operations"].([]any))
 }
 
@@ -345,7 +346,7 @@ func TestListOperations_StatusFilter(t *testing.T) {
 			rec := doSDRequest(t, h, "ListOperations", req)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			ops := out["Operations"].([]any)
 			assert.Len(t, ops, tt.wantLen, "filterStatus=%s", tt.filterStatus)
 		})

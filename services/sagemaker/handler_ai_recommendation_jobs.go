@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aiRecommendationJobOpsSupported returns the operations handled by
@@ -51,23 +54,23 @@ func (h *Handler) dispatchAIRecommendationJobOps(
 // createAIRecommendationJobInput mirrors CreateAIRecommendationJobInput
 // (api_op_CreateAIRecommendationJob.go:30-90).
 type createAIRecommendationJobInput struct {
-	ModelSource                json.RawMessage `json:"ModelSource"`
-	OutputConfig               json.RawMessage `json:"OutputConfig"`
-	PerformanceTarget          json.RawMessage `json:"PerformanceTarget"`
-	ComputeSpec                json.RawMessage `json:"ComputeSpec"`
-	InferenceSpecification     json.RawMessage `json:"InferenceSpecification"`
-	AdapterSource              json.RawMessage `json:"AdapterSource"`
-	OptimizeModel              *bool           `json:"OptimizeModel"`
-	AIRecommendationJobName    string          `json:"AIRecommendationJobName"`
-	AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
-	RoleArn                    string          `json:"RoleArn"`
-	Tags                       []tagObject     `json:"Tags"`
+	ModelSource                jsontext.Value `json:"ModelSource"`
+	OutputConfig               jsontext.Value `json:"OutputConfig"`
+	PerformanceTarget          jsontext.Value `json:"PerformanceTarget"`
+	ComputeSpec                jsontext.Value `json:"ComputeSpec"`
+	InferenceSpecification     jsontext.Value `json:"InferenceSpecification"`
+	AdapterSource              jsontext.Value `json:"AdapterSource"`
+	OptimizeModel              *bool          `json:"OptimizeModel"`
+	AIRecommendationJobName    string         `json:"AIRecommendationJobName"`
+	AIWorkloadConfigIdentifier string         `json:"AIWorkloadConfigIdentifier"`
+	RoleArn                    string         `json:"RoleArn"`
+	Tags                       []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAIRecommendationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -92,7 +95,7 @@ func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIRecommendationJobArn: j.AIRecommendationJobArn})
+	return json.Marshal(map[string]string{keyAIRecommendationJobArn: j.AIRecommendationJobArn}, jsonx.V1())
 }
 
 // describeAIRecommendationJobInput mirrors DescribeAIRecommendationJobInput
@@ -104,7 +107,7 @@ type describeAIRecommendationJobInput struct {
 func (h *Handler) handleDescribeAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAIRecommendationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -117,7 +120,7 @@ func (h *Handler) handleDescribeAIRecommendationJob(ctx context.Context, body []
 		return nil, err
 	}
 
-	return json.Marshal(j)
+	return json.Marshal(j, jsonx.V1())
 }
 
 // deleteAIRecommendationJobInput mirrors DeleteAIRecommendationJobInput
@@ -129,7 +132,7 @@ type deleteAIRecommendationJobInput struct {
 func (h *Handler) handleDeleteAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteAIRecommendationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -142,7 +145,7 @@ func (h *Handler) handleDeleteAIRecommendationJob(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN})
+	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN}, jsonx.V1())
 }
 
 // stopAIRecommendationJobInput mirrors StopAIRecommendationJobInput
@@ -154,7 +157,7 @@ type stopAIRecommendationJobInput struct {
 func (h *Handler) handleStopAIRecommendationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopAIRecommendationJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -167,7 +170,7 @@ func (h *Handler) handleStopAIRecommendationJob(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN})
+	return json.Marshal(map[string]string{keyAIRecommendationJobArn: jobARN}, jsonx.V1())
 }
 
 // listAIRecommendationJobsInput mirrors ListAIRecommendationJobsInput
@@ -186,7 +189,7 @@ type listAIRecommendationJobsInput struct {
 func (h *Handler) handleListAIRecommendationJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAIRecommendationJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

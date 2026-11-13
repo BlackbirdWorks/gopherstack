@@ -2,7 +2,8 @@ package appconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -276,7 +278,7 @@ func (b *InMemoryBackend) deliverAction(act preAction, event map[string]any) ([]
 			return nil, nil
 		}
 
-		payload, err := json.Marshal(ev)
+		payload, err := json.Marshal(ev, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("%w: encoding extension event: %w", ErrBadRequest, err)
 		}
@@ -303,7 +305,7 @@ func stringifyDeploymentNumber(ev map[string]any) map[string]any {
 }
 
 func (b *InMemoryBackend) deliverSNS(act preAction, ev map[string]any) error {
-	msg, err := json.Marshal(stringifyDeploymentNumber(ev))
+	msg, err := json.Marshal(stringifyDeploymentNumber(ev), jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -315,7 +317,7 @@ func (b *InMemoryBackend) deliverSNS(act preAction, ev map[string]any) error {
 }
 
 func (b *InMemoryBackend) deliverSQS(act preAction, ev map[string]any) error {
-	body, err := json.Marshal(stringifyDeploymentNumber(ev))
+	body, err := json.Marshal(stringifyDeploymentNumber(ev), jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -324,7 +326,7 @@ func (b *InMemoryBackend) deliverSQS(act preAction, ev map[string]any) error {
 }
 
 func (b *InMemoryBackend) deliverEvents(act preAction, ev map[string]any) error {
-	detail, err := json.Marshal(ev)
+	detail, err := json.Marshal(ev, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -403,12 +405,12 @@ func (b *InMemoryBackend) tickRollbackReason(job tickJob) string {
 			return fmt.Sprintf("Extension action %s failed: %v", act.uri, err)
 		}
 
-		if len(raw) == 0 || !json.Valid(raw) {
+		if len(raw) == 0 || !jsontext.Value(raw).IsValid(jsonx.V1()) {
 			continue
 		}
 
 		var resp actionResponse
-		if json.Unmarshal(raw, &resp) != nil {
+		if json.Unmarshal(raw, &resp, jsonx.V1()) != nil {
 			continue
 		}
 

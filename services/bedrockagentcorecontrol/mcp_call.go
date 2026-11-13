@@ -3,7 +3,7 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +12,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const gatewayMessageVersion = "1.0"
@@ -99,7 +101,7 @@ func (b *InMemoryBackend) callLambda(
 		return textResult(errNoLambdaHost.Error(), true), nil
 	}
 
-	payload, _ := json.Marshal(ci.args)
+	payload, _ := json.Marshal(ci.args, jsonx.V1())
 
 	clientCtx, _ := json.Marshal(map[string]any{"custom": map[string]string{
 		"bedrockAgentCoreToolName":       ci.toolFull,
@@ -108,7 +110,7 @@ func (b *InMemoryBackend) callLambda(
 		"bedrockAgentCoreMessageVersion": gatewayMessageVersion,
 		"bedrockAgentCoreAwsRequestId":   uuid.NewString(),
 		"bedrockAgentCoreMcpMessageId":   ci.messageID,
-	}})
+	}}, jsonx.V1())
 
 	out, fnErr, err := inv.InvokeLambda(ctx, strOf(cfg, "lambdaArn"),
 		base64.StdEncoding.EncodeToString(clientCtx), payload)
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) callLambda(
 
 	if fnErr == "" && mapOf(defs[idx])["outputSchema"] != nil {
 		var structured map[string]any
-		if json.Unmarshal(out, &structured) == nil && structured != nil {
+		if json.Unmarshal(out, &structured, jsonx.V1()) == nil && structured != nil {
 			res["structuredContent"] = structured
 		}
 	}
@@ -139,12 +141,12 @@ func (b *InMemoryBackend) callMCPServer(
 			return cerr
 		}
 
-		raw, merr := json.Marshal(out)
+		raw, merr := json.Marshal(out, jsonx.V1())
 		if merr != nil {
 			return merr
 		}
 
-		return json.Unmarshal(raw, &res)
+		return json.Unmarshal(raw, &res, jsonx.V1())
 	})
 	if err != nil {
 		return textResult("MCP server call failed: "+err.Error(), true), nil //nolint:nilerr // tool error

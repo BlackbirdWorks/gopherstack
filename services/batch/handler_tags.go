@@ -2,11 +2,13 @@ package batch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Tags handlers ---
@@ -35,7 +37,7 @@ type tagResourceInput struct {
 func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, resourceARN string, body []byte) error {
 	var in tagResourceInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 		}
 	}

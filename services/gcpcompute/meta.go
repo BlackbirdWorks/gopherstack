@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -95,13 +97,13 @@ func clone[T any](v *T) *T {
 		return nil
 	}
 
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
+	if err = json.Unmarshal(data, out, jsonx.V1()); err != nil {
 		return v
 	}
 
@@ -127,13 +129,13 @@ func regionOfZone(zone string) string {
 }
 
 func fromDoc[T any](m map[string]any) (*T, error) {
-	data, err := json.Marshal(m)
+	data, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
+	if err = json.Unmarshal(data, out, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

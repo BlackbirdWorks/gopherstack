@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestObservabilityConfigurationCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -30,7 +32,7 @@ func TestObservabilityConfigurationCRUD(t *testing.T) { //nolint:paralleltest //
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["ObservabilityConfiguration"].(map[string]any)
 				assert.Contains(t, cfg["ObservabilityConfigurationArn"], "observabilityconfiguration/my-obs/1/")
 				assert.Equal(t, "ACTIVE", cfg["Status"])
@@ -65,7 +67,7 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	obsArn := createResp["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationArn"].(string)
 
 	tests := []struct {
@@ -83,7 +85,7 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["ObservabilityConfiguration"].(map[string]any)
 				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
 			},
@@ -110,7 +112,7 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["ObservabilityConfigurationSummaryList"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -123,7 +125,7 @@ func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["ObservabilityConfiguration"].(map[string]any)
 				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
 			},
@@ -156,7 +158,7 @@ func TestDeleteObservabilityConfiguration_RejectsWhenServiceUsesIt(t *testing.T)
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var obsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &obsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &obsResp, jsonx.V1()))
 	obsArn := obsResp["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationArn"].(string)
 
 	rec = doRequest(t, h, "CreateService", map[string]any{
@@ -171,7 +173,7 @@ func TestDeleteObservabilityConfiguration_RejectsWhenServiceUsesIt(t *testing.T)
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcArn := svcResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DeleteObservabilityConfiguration", map[string]any{"ObservabilityConfigurationArn": obsArn})
@@ -201,26 +203,26 @@ func TestObservabilityConfigurationRevisionsLatestOnlyDefault(t *testing.T) { //
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2, jsonx.V1()))
 	rev2 := r2["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationRevision"].(float64)
 	assert.InDelta(t, float64(2), rev2, 0.0001)
 
 	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list := listResp["ObservabilityConfigurationSummaryList"].([]any)
 	assert.Len(t, list, 1)
 
 	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{"LatestOnly": true})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list = listResp["ObservabilityConfigurationSummaryList"].([]any)
 	assert.Len(t, list, 1)
 
 	rec = doRequest(t, h, "ListObservabilityConfigurations", map[string]any{"LatestOnly": false})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list = listResp["ObservabilityConfigurationSummaryList"].([]any)
 	assert.Len(t, list, 2)
 }

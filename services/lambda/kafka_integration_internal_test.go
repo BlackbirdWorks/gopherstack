@@ -3,7 +3,7 @@ package lambda
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/netip"
 	"strconv"
 	"testing"
@@ -17,6 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
@@ -80,7 +81,7 @@ func awaitDelivery(t *testing.T, ch <-chan []byte) map[string]any {
 	case raw := <-ch:
 		var ev map[string]any
 
-		require.NoError(t, json.Unmarshal(raw, &ev))
+		require.NoError(t, json.Unmarshal(raw, &ev, jsonx.V1()))
 
 		return ev
 	case <-time.After(kafkaDeliveryTimeout):

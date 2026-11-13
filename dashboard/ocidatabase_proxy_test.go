@@ -3,7 +3,7 @@ package dashboard_test
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocidatabase"
 )
 
@@ -75,7 +76,7 @@ func (f dbFixture) settle(t *testing.T, id, state string) {
 			State string `json:"lifecycleState"`
 		}
 
-		return json.Unmarshal(rec.Body.Bytes(), &got) == nil && got.State == state
+		return json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()) == nil && got.State == state
 	}, 10*time.Second, 5*time.Millisecond)
 }
 
@@ -91,7 +92,7 @@ func (f dbFixture) create(t *testing.T, extra string) string {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &db))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &db, jsonx.V1()))
 	f.settle(t, db.ID, "AVAILABLE")
 
 	return db.ID

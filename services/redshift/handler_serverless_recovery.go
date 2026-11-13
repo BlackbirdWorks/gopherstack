@@ -1,10 +1,12 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *ServerlessHandler) handleGetRecoveryPoint(c *echo.Context, body []byte) error {
@@ -12,7 +14,7 @@ func (h *ServerlessHandler) handleGetRecoveryPoint(c *echo.Context, body []byte)
 		RecoveryPointID string `json:"recoveryPointId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -39,7 +41,7 @@ func (h *ServerlessHandler) handleListRecoveryPoints(c *echo.Context, body []byt
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -69,7 +71,7 @@ func (h *ServerlessHandler) handleRestoreFromRecoveryPoint(c *echo.Context, body
 		WorkgroupName       string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 

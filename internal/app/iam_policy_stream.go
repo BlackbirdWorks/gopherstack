@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -120,7 +121,7 @@ func followIAMPolicyStream(c *echo.Context, rec *iampolicystream.Recorder, f iam
 	_ = rc.Flush()
 
 	send := func(ev iampolicystream.Event) error {
-		b, err := json.Marshal(ev)
+		b, err := json.Marshal(ev, jsonx.V1())
 		if err != nil {
 			return err
 		}

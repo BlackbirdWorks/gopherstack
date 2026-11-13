@@ -3,7 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
@@ -56,7 +56,7 @@ func TestWireGCPFunctions(t *testing.T) {
 			_, err := ps.Backend.CreateTopic(&pubsubpb.Topic{Name: topic})
 			require.NoError(t, err)
 
-			_, err = gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": json.RawMessage(`"src-bucket"`)})
+			_, err = gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": jsontext.Value(`"src-bucket"`)})
 			require.NoError(t, err)
 
 			var buf bytes.Buffer

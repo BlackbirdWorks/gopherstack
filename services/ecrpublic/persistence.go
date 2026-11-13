@@ -2,7 +2,7 @@ package ecrpublic
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"maps"
@@ -34,7 +34,7 @@ const ecrPublicSnapshotVersion = 1
 // LayerUploads (in-flight sessions) is deliberately NOT persisted, matching
 // AWS: an in-progress upload does not survive a restart.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage       `json:"tables"`
+	Tables              map[string]jsontext.Value        `json:"tables"`
 	TagIndex            map[string]map[string]tagBinding `json:"tagIndex,omitempty"`
 	UploadedLayers      map[string]map[string]int64      `json:"uploadedLayers,omitempty"`
 	RegistryCatalogData RegistryCatalogData              `json:"registryCatalogData"`

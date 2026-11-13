@@ -1,13 +1,15 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // describeTypeXMLResult mirrors the DescribeTypeResult XML shape returned by the
@@ -170,7 +172,7 @@ func TestHandler_DescribeType_CatalogSchemas(t *testing.T) {
 			require.NotEmpty(t, parsed.Schema)
 
 			var schema parsedProviderSchema
-			require.NoError(t, json.Unmarshal([]byte(parsed.Schema), &schema))
+			require.NoError(t, json.Unmarshal([]byte(parsed.Schema), &schema, jsonx.V1()))
 			assert.Equal(t, tc.typeName, schema.TypeName)
 			assert.NotEmpty(t, schema.Description)
 			require.Contains(t, schema.PrimaryIdentifier, tc.wantPrimaryID)
@@ -214,7 +216,7 @@ func TestHandler_DescribeType_UnknownType_ValidFallback(t *testing.T) {
 	require.NotEmpty(t, parsed.Schema)
 
 	var schema parsedProviderSchema
-	require.NoError(t, json.Unmarshal([]byte(parsed.Schema), &schema))
+	require.NoError(t, json.Unmarshal([]byte(parsed.Schema), &schema, jsonx.V1()))
 	assert.Equal(t, "AWS::Totally::Unmodeled", schema.TypeName)
 	require.NotEmpty(t, schema.PrimaryIdentifier)
 	assert.NotEmpty(t, schema.Properties)

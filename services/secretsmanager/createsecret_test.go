@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -100,7 +101,7 @@ func TestCreateSecret_NameAWSPrefixHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", errResp.Type)
 }
 
@@ -227,7 +228,7 @@ func TestCreateSecret_DuplicateHTTPStatus(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceExistsException", errResp.Type)
 }
 
@@ -459,7 +460,7 @@ func TestCreateSecret_ReplicaRegionsAddedIsReadableInReplicaRegion(t *testing.T)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out secretsmanager.GetSecretValueOutput
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "secret-value", out.SecretString)
 }
 
@@ -513,12 +514,12 @@ func TestCreateSecret_ReplicaRegionsAddedHTTP(t *testing.T) {
 		"AddReplicaRegions": []map[string]string{
 			{"Region": "eu-central-1"},
 		},
-	})
+	}, jsonx.V1())
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.CreateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ReplicationStatus, 1)
 	assert.Equal(t, "eu-central-1", out.ReplicationStatus[0].Region)
 }
@@ -540,7 +541,7 @@ func TestCreateSecret_ReplicaRegionsAddedMultipleHTTP(t *testing.T) {
 			{"Region": "eu-north-1"},
 			{"Region": "ap-east-1"},
 		},
-	})
+	}, jsonx.V1())
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -548,7 +549,7 @@ func TestCreateSecret_ReplicaRegionsAddedMultipleHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Len(t, desc.ReplicationStatus, 3)
 }
 
@@ -801,7 +802,7 @@ func TestCreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp secretsmanager.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, errResp.Type)
 		})
 	}
@@ -1007,7 +1008,7 @@ func TestCreateSecret_NameValidation(t *testing.T) {
 			t.Cleanup(b.StopRotationScheduler)
 			h := secretsmanager.NewHandler(b)
 
-			body, _ := json.Marshal(map[string]string{"Name": tt.secretName, "SecretString": "v"})
+			body, _ := json.Marshal(map[string]string{"Name": tt.secretName, "SecretString": "v"}, jsonx.V1())
 			rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -1033,7 +1034,7 @@ func TestCreateSecret_CreateDescribeRoundtrip(t *testing.T) {
 		},
 	}
 
-	body, _ := json.Marshal(createBody)
+	body, _ := json.Marshal(createBody, jsonx.V1())
 	rec := doR1Request(t, h, "secretsmanager.CreateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1041,7 +1042,7 @@ func TestCreateSecret_CreateDescribeRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "roundtrip/secret", desc.Name)
 	assert.Equal(t, "roundtrip test", desc.Description)
 	assert.Equal(t, "alias/roundtrip", desc.KmsKeyID)

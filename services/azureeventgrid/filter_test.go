@@ -1,12 +1,13 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	eg "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -21,7 +22,7 @@ func decode(t *testing.T, raw string) map[string]any {
 
 	var m map[string]any
 
-	require.NoError(t, json.Unmarshal([]byte(raw), &m))
+	require.NoError(t, json.Unmarshal([]byte(raw), &m, jsonx.V1()))
 
 	return m
 }

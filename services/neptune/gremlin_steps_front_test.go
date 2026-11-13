@@ -1,7 +1,7 @@
 package neptune_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -124,7 +125,7 @@ func TestGremlinHTTPGraphSONShapes(t *testing.T) {
 	seedGremlin(t, gremlinG(t, c))
 
 	post := func(script string) map[string]any {
-		body, err := json.Marshal(map[string]string{"gremlin": script})
+		body, err := json.Marshal(map[string]string{"gremlin": script}, jsonx.V1())
 		require.NoError(t, err)
 
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
@@ -141,7 +142,7 @@ func TestGremlinHTTPGraphSONShapes(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(raw, &out))
+		require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 		return out
 	}

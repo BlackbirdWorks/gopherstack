@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -140,7 +141,7 @@ func TestDevEndpoint_UpdateAndGet(t *testing.T) {
 	getRec := doGlueRequest(t, h, "GetDevEndpoint", map[string]any{"EndpointName": "dep-upd"})
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	dep := out["DevEndpoint"].(map[string]any)
 	args, ok := dep["Arguments"].(map[string]any)
 	require.True(t, ok)
@@ -197,7 +198,7 @@ func TestUpdateDevEndpoint_PublicKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	dep := out["DevEndpoint"].(map[string]any)
 	keysRaw, ok := dep["PublicKeys"].([]any)
 	require.True(t, ok)
@@ -237,6 +238,6 @@ func TestDevEndpoint_ResourceNumberLimitExceeded(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "ResourceNumberLimitExceededException", out["__type"])
 }

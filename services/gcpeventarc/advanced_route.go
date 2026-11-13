@@ -3,7 +3,7 @@ package gcpeventarc
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -90,13 +91,13 @@ func (b *InMemoryBackend) publishToBus(bus string, event map[string]any, hops in
 func sortedNames(m map[string]proto.Message) []string { return slices.Sorted(maps.Keys(m)) }
 
 func cloneMap(m map[string]any) map[string]any {
-	raw, err := json.Marshal(m)
+	raw, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return maps.Clone(m)
 	}
 
 	var out map[string]any
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return maps.Clone(m)
 	}
 
@@ -247,7 +248,7 @@ func (b *InMemoryBackend) deliverWorkflow(ctx context.Context, workflow string, 
 		return errPrecondition("No Workflows emulator is connected.")
 	}
 
-	arg, err := json.Marshal(msg)
+	arg, err := json.Marshal(msg, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode message: %w", err)
 	}
@@ -264,7 +265,7 @@ func (b *InMemoryBackend) deliverTopic(topic string, msg map[string]any) error {
 		return errPrecondition("No Pub/Sub emulator is connected.")
 	}
 
-	data, err := json.Marshal(msg)
+	data, err := json.Marshal(msg, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode message: %w", err)
 	}
@@ -326,7 +327,7 @@ func bodyBytes(v any) []byte {
 	case string:
 		return []byte(t)
 	default:
-		raw, _ := json.Marshal(t)
+		raw, _ := json.Marshal(t, jsonx.V1())
 
 		return raw
 	}
@@ -472,7 +473,7 @@ func eventMessage(id, source, typ, subject string, at time.Time, ext map[string]
 	}
 
 	var decoded any
-	if json.Unmarshal(data, &decoded) == nil {
+	if json.Unmarshal(data, &decoded, jsonx.V1()) == nil {
 		msg["data"] = decoded
 	}
 

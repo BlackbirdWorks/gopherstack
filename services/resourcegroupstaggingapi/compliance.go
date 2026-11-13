@@ -2,10 +2,11 @@ package resourcegroupstaggingapi
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -189,7 +190,7 @@ type tagPolicyStringListAssign struct {
 // fabricate an unverified mapping.
 func requiredTagsFromPolicy(policyJSON string) []RequiredTag {
 	var doc tagPolicyDocument
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 

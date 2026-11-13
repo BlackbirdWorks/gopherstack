@@ -2,13 +2,14 @@ package redshiftdata_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshiftdata"
 )
 
@@ -64,7 +65,7 @@ func TestHandler_ExecuteStatement(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 			}
 		})
@@ -107,7 +108,7 @@ func TestHandler_BatchExecuteStatement(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 			}
 		})
@@ -134,7 +135,7 @@ func TestHandler_DescribeStatement(t *testing.T) {
 					"Database":          "testdb",
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["Id"].(string)
 			},
@@ -171,7 +172,7 @@ func TestHandler_DescribeStatement(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantStatus2 != "" {
 				assert.Equal(t, tt.wantStatus2, resp["Status"])
@@ -201,7 +202,7 @@ func TestHandler_GetStatementResult(t *testing.T) {
 					"Database":          "testdb",
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["Id"].(string)
 			},
@@ -225,7 +226,7 @@ func TestHandler_GetStatementResult(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["Records"])
 			}
 		})
@@ -252,7 +253,7 @@ func TestHandler_GetStatementResultV2(t *testing.T) {
 					"ResultFormat":      "CSV",
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["Id"].(string)
 			},
@@ -291,7 +292,7 @@ func TestHandler_GetStatementResultV2(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.checkRecords {
 				assert.NotNil(t, resp["Records"])
@@ -349,7 +350,7 @@ func TestHandler_ListStatements(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			stmts, ok := resp["Statements"].([]any)
 			require.True(t, ok)
@@ -399,7 +400,7 @@ func TestHandler_CancelStatement(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}
@@ -419,7 +420,7 @@ func TestHandler_CancelStatement_AlreadyFinished(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	id := resp["Id"].(string)
 
@@ -428,7 +429,7 @@ func TestHandler_CancelStatement_AlreadyFinished(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, cancelRec.Code)
 
 	var cancelResp map[string]any
-	require.NoError(t, json.Unmarshal(cancelRec.Body.Bytes(), &cancelResp))
+	require.NoError(t, json.Unmarshal(cancelRec.Body.Bytes(), &cancelResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", cancelResp["__type"])
 }
 
@@ -456,7 +457,7 @@ func TestHandler_ListStatements_WithFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	assert.Len(t, stmts, 1)
@@ -484,7 +485,7 @@ func TestHandler_ListStatements_WithWorkgroupFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	assert.Len(t, stmts, 1)
@@ -507,7 +508,7 @@ func TestHandler_DescribeStatement_AllFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -515,7 +516,7 @@ func TestHandler_DescribeStatement_AllFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, id, resp["Id"])
 	assert.Equal(t, "FINISHED", resp["Status"])
@@ -545,7 +546,7 @@ func TestHandler_BatchExecuteStatement_AllFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	id := createResp["Id"].(string)
 
@@ -553,7 +554,7 @@ func TestHandler_BatchExecuteStatement_AllFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, id, resp["Id"])
 	// IsBatchStatement/QueryStrings are real StatementData (ListStatements
@@ -569,7 +570,7 @@ func TestHandler_BatchExecuteStatement_AllFields(t *testing.T) {
 	var listResp struct {
 		Statements []map[string]any `json:"Statements"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.NotEmpty(t, listResp.Statements)
 
 	assert.Equal(t, true, listResp.Statements[0]["IsBatchStatement"])
@@ -595,7 +596,7 @@ func TestHandler_ListStatements_WithSecretARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stmts := resp["Statements"].([]any)
 	require.Len(t, stmts, 1)
@@ -782,7 +783,7 @@ func TestHandler_ListSessions(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantErrType != "" {
 				assert.Equal(t, tt.wantErrType, resp["__type"])

@@ -3,7 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	eventbridgebackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -173,14 +174,14 @@ func (a appsyncRDSData) ExecuteRDSStatement(
 	raw, err := json.Marshal(map[string]any{
 		"records": nonNil(records), "columnMetadata": nonNil(cols),
 		"numberOfRecordsUpdated": updated, "generatedFields": nonNil(generated),
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode result: %w", err)
 	}
 
 	var out map[string]any
 
-	return out, json.Unmarshal(raw, &out)
+	return out, json.Unmarshal(raw, &out, jsonx.V1())
 }
 
 func nonNil[T any](s []T) []T {

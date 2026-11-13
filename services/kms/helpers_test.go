@@ -3,7 +3,7 @@ package kms_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"log/slog"
@@ -284,7 +285,7 @@ func buildBodyFromResourceID(operation, resourceID string) string {
 
 	switch operation {
 	case "ConnectCustomKeyStore", "DeleteCustomKeyStore", "DisconnectCustomKeyStore":
-		body, _ := json.Marshal(map[string]string{"CustomKeyStoreId": resourceID})
+		body, _ := json.Marshal(map[string]string{"CustomKeyStoreId": resourceID}, jsonx.V1())
 
 		return string(body)
 	case "GenerateMac":
@@ -292,21 +293,21 @@ func buildBodyFromResourceID(operation, resourceID string) string {
 			"KeyId":        resourceID,
 			"MacAlgorithm": "HMAC_SHA_256",
 			"Message":      []byte("test message"),
-		})
+		}, jsonx.V1())
 
 		return string(body)
 	case "GenerateDataKeyPair":
 		body, _ := json.Marshal(map[string]any{
 			"KeyId":       resourceID,
 			"KeyPairSpec": "ECC_NIST_P256",
-		})
+		}, jsonx.V1())
 
 		return string(body)
 	case "GenerateDataKeyPairWithoutPlaintext":
 		body, _ := json.Marshal(map[string]any{
 			"KeyId":       resourceID,
 			"KeyPairSpec": "ECC_NIST_P256",
-		})
+		}, jsonx.V1())
 
 		return string(body)
 	case "DeriveSharedSecret":
@@ -323,7 +324,7 @@ func buildBodyFromResourceID(operation, resourceID string) string {
 			"KeyId":                 resourceID,
 			"KeyAgreementAlgorithm": "ECDH",
 			"PublicKey":             pubOut.PublicKey,
-		})
+		}, jsonx.V1())
 
 		return string(body)
 	}

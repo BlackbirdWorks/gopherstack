@@ -2,7 +2,7 @@ package polly
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -318,7 +319,7 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 		return encodeErr
 	}
 
-	closed, err := json.Marshal(map[string]int{"RequestCharacters": result.RequestCharacters})
+	closed, err := json.Marshal(map[string]int{"RequestCharacters": result.RequestCharacters}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -383,7 +384,7 @@ func decodeStreamText(body io.Reader) (string, string, error) {
 		}
 
 		var event streamTextEvent
-		if jsonErr := json.Unmarshal(message.Payload, &event); jsonErr != nil {
+		if jsonErr := json.Unmarshal(message.Payload, &event, jsonx.V1()); jsonErr != nil {
 			return "", "", jsonErr
 		}
 		texts = append(texts, event.Text)
@@ -613,7 +614,7 @@ func decodeRequest(c *echo.Context, value any) error {
 	if err != nil {
 		return fmt.Errorf("%w: failed to read body", ErrValidation)
 	}
-	if jsonErr := json.Unmarshal(body, value); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, value, jsonx.V1()); jsonErr != nil {
 		return fmt.Errorf("%w: invalid JSON: %w", ErrValidation, jsonErr)
 	}
 

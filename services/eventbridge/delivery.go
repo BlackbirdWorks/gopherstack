@@ -2,7 +2,7 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"strconv"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/google/uuid"
 
@@ -675,7 +676,7 @@ func sendToDLQ(
 		return
 	}
 
-	payload, _ := json.Marshal(envelope)
+	payload, _ := json.Marshal(envelope, jsonx.V1())
 
 	var err error
 	if withAttrs, ok := dt.SQS.(SQSAttributeSender); ok {
@@ -732,7 +733,7 @@ func indexedRulesForEvent(
 
 // buildEventEnvelope creates a JSON string representing the normalized event for pattern matching.
 func buildEventEnvelope(entry EventEntry) string {
-	b, _ := json.Marshal(buildEventEnvelopeMap(entry))
+	b, _ := json.Marshal(buildEventEnvelopeMap(entry), jsonx.V1())
 
 	return string(b)
 }
@@ -760,7 +761,7 @@ func buildEventEnvelopeMap(entry EventEntry) map[string]any {
 
 	if entry.Detail != "" {
 		var detail map[string]any
-		switch err := json.Unmarshal([]byte(entry.Detail), &detail); {
+		switch err := json.Unmarshal([]byte(entry.Detail), &detail, jsonx.V1()); {
 		case err != nil:
 			envelope["detail"] = entry.Detail
 		case detail == nil:
@@ -969,7 +970,7 @@ func buildPayload(target *Target, envelope map[string]any) string {
 		return applyInputTransformer(target.InputTransformer, envelope)
 	}
 
-	b, _ := json.Marshal(envelope)
+	b, _ := json.Marshal(envelope, jsonx.V1())
 
 	return string(b)
 }
@@ -987,7 +988,7 @@ func parseDeliveryDetail(entry EventEntry) any {
 	}
 
 	var d any
-	if err := json.Unmarshal([]byte(entry.Detail), &d); err != nil {
+	if err := json.Unmarshal([]byte(entry.Detail), &d, jsonx.V1()); err != nil {
 		return entry.Detail
 	}
 
@@ -1157,7 +1158,7 @@ func entryFromEnvelope(envelope map[string]any, busName string) EventEntry {
 	}
 
 	if detail, ok := envelope["detail"]; ok {
-		if b, err := json.Marshal(detail); err == nil {
+		if b, err := json.Marshal(detail, jsonx.V1()); err == nil {
 			entry.Detail = string(b)
 		}
 	}

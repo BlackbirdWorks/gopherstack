@@ -71,6 +71,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -107,6 +108,7 @@ func TestIdentityStoreDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -141,6 +143,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -198,6 +201,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -265,6 +269,7 @@ func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/identitystore")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

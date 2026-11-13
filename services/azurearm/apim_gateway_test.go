@@ -2,7 +2,8 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type echoReply struct {
@@ -33,7 +36,7 @@ func newEchoBackend(t *testing.T) *httptest.Server {
 		b, _ := io.ReadAll(r.Body)
 		w.Header().Set("X-Backend", "yes")
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(echoReply{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), echoReply{
 			Method:  r.Method,
 			Path:    r.URL.Path,
 			Query:   r.URL.RawQuery,
@@ -101,7 +104,7 @@ func (e *gwEnv) call(t *testing.T, method, path, body string, extra map[string]s
 func (e *gwEnv) policy(t *testing.T, scope, doc string, wantStatus int) string {
 	t.Helper()
 
-	b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": doc}})
+	b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": doc}}, jsonx.V1())
 	require.NoError(t, err)
 
 	status, body, _ := e.raw(t, http.MethodPut, e.armPath(scope+"/policies/policy"), string(b), nil)
@@ -129,7 +132,7 @@ func decodeEcho(t *testing.T, body string) echoReply {
 
 	var r echoReply
 
-	require.NoError(t, json.Unmarshal([]byte(body), &r), body)
+	require.NoError(t, json.Unmarshal([]byte(body), &r, jsonx.V1()), body)
 
 	return r
 }

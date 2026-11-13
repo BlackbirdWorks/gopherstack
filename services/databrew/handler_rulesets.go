@@ -2,9 +2,11 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseRulesetOp(method, name string) string {
@@ -65,7 +67,7 @@ func (h *Handler) handleCreateRuleset(ctx context.Context, body []byte) ([]byte,
 		TargetArn   string            `json:"TargetArn"`
 		Rules       []Rule            `json:"Rules"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.TargetArn == "" || req.Rules == nil {
@@ -81,14 +83,14 @@ func (h *Handler) handleCreateRuleset(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: rs.Name})
+	return json.Marshal(map[string]string{keyName: rs.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	rs, err := h.Backend.DescribeRuleset(ctx, req.Name)
@@ -96,7 +98,7 @@ func (h *Handler) handleDescribeRuleset(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(newRulesetDescribeView(rs))
+	return json.Marshal(newRulesetDescribeView(rs), jsonx.V1())
 }
 
 func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, error) {
@@ -105,7 +107,7 @@ func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, 
 		NextToken  string `json:"NextToken"`
 		TargetArn  string `json:"TargetArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -126,7 +128,7 @@ func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte,
 		Description string `json:"Description"`
 		Rules       []Rule `json:"Rules"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.Rules == nil {
@@ -141,19 +143,19 @@ func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteRuleset(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }

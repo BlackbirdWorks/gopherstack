@@ -2,13 +2,14 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // permissionStatusAttachable is the steady-state PermissionStatus for every
@@ -134,7 +135,7 @@ type createPermissionResponse struct {
 
 func (h *Handler) handleCreatePermission(_ context.Context, body []byte) ([]byte, error) {
 	var req createPermissionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -169,7 +170,7 @@ func (h *Handler) handleCreatePermission(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(createPermissionResponse{Permission: toPermissionSummaryObject(p)})
+	return json.Marshal(createPermissionResponse{Permission: toPermissionSummaryObject(p)}, jsonx.V1())
 }
 
 type deletePermissionResponse struct {
@@ -187,7 +188,7 @@ func (h *Handler) handleDeletePermission(_ context.Context, c *echo.Context) ([]
 		return nil, err
 	}
 
-	return json.Marshal(deletePermissionResponse{ReturnValue: true, PermissionStatus: "DELETING"})
+	return json.Marshal(deletePermissionResponse{ReturnValue: true, PermissionStatus: "DELETING"}, jsonx.V1())
 }
 
 type getPermissionRequest struct {
@@ -201,7 +202,7 @@ type getPermissionResponse struct {
 
 func (h *Handler) handleGetPermission(_ context.Context, body []byte) ([]byte, error) {
 	var req getPermissionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -214,7 +215,7 @@ func (h *Handler) handleGetPermission(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(getPermissionResponse{Permission: toPermissionDetailObject(p, pv)})
+	return json.Marshal(getPermissionResponse{Permission: toPermissionDetailObject(p, pv)}, jsonx.V1())
 }
 
 type listPermissionsRequest struct {
@@ -231,7 +232,7 @@ type listPermissionsResponse struct {
 
 func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte, error) {
 	var req listPermissionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -252,7 +253,7 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(listPermissionsResponse{NextToken: nextToken, Permissions: page})
+	return json.Marshal(listPermissionsResponse{NextToken: nextToken, Permissions: page}, jsonx.V1())
 }
 
 type promotePermissionCreatedFromPolicyRequest struct {
@@ -269,7 +270,7 @@ func (h *Handler) handlePromotePermissionCreatedFromPolicy(
 	body []byte,
 ) ([]byte, error) {
 	var req promotePermissionCreatedFromPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -283,6 +284,6 @@ func (h *Handler) handlePromotePermissionCreatedFromPolicy(
 	}
 
 	return json.Marshal(
-		promotePermissionCreatedFromPolicyResponse{Permission: toPermissionSummaryObject(p)},
+		promotePermissionCreatedFromPolicyResponse{Permission: toPermissionSummaryObject(p)}, jsonx.V1(),
 	)
 }

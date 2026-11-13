@@ -2,13 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleFunctions handles /v1/apis/{apiId}/functions[/{functionId}[/resolvers]].
@@ -61,7 +62,7 @@ func (h *Handler) createFunction(ctx context.Context, c *echo.Context, apiID str
 	}
 
 	var f Function
-	if jsonErr := json.Unmarshal(body, &f); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &f, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -124,7 +125,7 @@ func (h *Handler) updateFunction(ctx context.Context, c *echo.Context, apiID, fu
 	}
 
 	var f Function
-	if jsonErr := json.Unmarshal(body, &f); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &f, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

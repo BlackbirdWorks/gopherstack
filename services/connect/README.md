@@ -7,8 +7,8 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 386 (386 ok) |
-| Known gaps | 19 |
+| PARITY entries audited | 387 (387 ok) |
+| Known gaps | 17 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -16,23 +16,21 @@
 ### Known gaps
 
 - Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)
-- EvaluationForms: ListEvaluationFormAIVersions is not routed; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
+- EvaluationForms: ListEvaluationFormAIVersions is not routed: the AI version catalog is service-owned and API_ListEvaluationFormAIVersions shows only one sample response (AGENT_EVALUATION_2025-11-12 and 2025-09-01), so a catalog would be fabricated; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
 - TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated
 - Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
 - Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
 - AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
 - Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed: associations are RAM resource shares and the dataset catalog is not published
-- DismissUserContact is not routed: the emulator keeps no per-agent contact state (MISSED, ERROR, REJECTED) for a dismissal to clear
 - Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)
 - Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed (no chat message plane, no queue-position model for routing data)
 - Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model
 - GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
 - Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
-- Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ContactEvaluations, NextContacts, QueuePriority and the other contact analytics members are never populated; Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated
-- ListQueues QueueTypes=AGENT: per-agent queues are not modeled
+- Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ConnectedToSystemTimestamp, NextContacts (the NextContactEntry types are not documented), QueuePriority, QueueTimeAdjustmentSeconds, RoutingCriteria, ContactDetails, WisdomInfo, GlobalResiliencyMetadata, Cases and the other contact analytics members are never populated (ContactAssociationId, TaskTemplateInfo and ContactEvaluations are); Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated
 - CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced
-- CloudFormation: AWS::Connect::AWSManagedView, ContactFlowVersion, ContactFlowModuleVersion, ContactFlowModuleAlias, DataLakeAssociation, DataTableRecord, Metric, Notification, TestCase and UserHierarchyStructure are not provisioned; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
+- CloudFormation: AWS::Connect::AWSManagedView is not provisioned (no page for it exists in the CloudFormation resource reference, so its properties and attributes cannot be verified) and AWS::Connect::DataLakeAssociation is not provisioned (it is a RAM share of an analytics dataset and the analytics association operations above are unrouted); AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
 - Lex bot associations are shape-checked only: no Lex service exists in the emulator
 
 ### Structural gaps

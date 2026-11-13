@@ -2,7 +2,8 @@ package gremlin_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -55,7 +57,7 @@ type wsResponse struct {
 		Code    int    `json:"code"`
 	} `json:"status"`
 	Result struct {
-		Data json.RawMessage `json:"data"`
+		Data jsontext.Value `json:"data"`
 	} `json:"result"`
 }
 
@@ -75,7 +77,7 @@ func call(t *testing.T, c *websocket.Conn, mt int, payload []byte) []wsResponse 
 		require.NoError(t, err)
 
 		var r wsResponse
-		require.NoError(t, json.Unmarshal(data, &r), string(data))
+		require.NoError(t, json.Unmarshal(data, &r, jsonx.V1()), string(data))
 
 		out = append(out, r)
 
@@ -89,7 +91,7 @@ const evalFrame = `{"requestId":"11111111-1111-1111-1111-111111111111","op":"eva
 	`"args":{"gremlin":%q,"language":"gremlin-groovy","aliases":{"g":"g"}%s}}`
 
 func evalBody(script, extra string) string {
-	b, _ := json.Marshal(script)
+	b, _ := json.Marshal(script, jsonx.V1())
 
 	return strings.Replace(strings.Replace(evalFrame, "%q", string(b), 1), "%s", extra, 1)
 }

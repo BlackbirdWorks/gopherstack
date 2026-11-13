@@ -3,11 +3,13 @@ package lambdaweb
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const logTimeLayout = "2006-01-02T15:04:05.000Z07:00"
@@ -129,7 +131,7 @@ func (s *shipper) application(stderr bool, line string) {
 		ev.RequestID, ev.EndpointName = s.live()
 	}
 
-	if b, err := json.Marshal(ev); err == nil {
+	if b, err := json.Marshal(ev, jsonx.V1()); err == nil {
 		s.put(b)
 	}
 }
@@ -139,7 +141,7 @@ func parseMessage(line string) any {
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "{") {
 		var obj map[string]any
-		if json.Unmarshal([]byte(trimmed), &obj) == nil {
+		if json.Unmarshal([]byte(trimmed), &obj, jsonx.V1()) == nil {
 			return obj
 		}
 	}
@@ -153,7 +155,10 @@ func (s *shipper) system(typ, level string, record any) {
 		return
 	}
 
-	b, err := json.Marshal(systemEvent{Timestamp: s.stamp(), Level: level, Type: typ, Region: s.region, Record: record})
+	b, err := json.Marshal(
+		systemEvent{Timestamp: s.stamp(), Level: level, Type: typ, Region: s.region, Record: record},
+		jsonx.V1(),
+	)
 	if err == nil {
 		s.put(b)
 	}

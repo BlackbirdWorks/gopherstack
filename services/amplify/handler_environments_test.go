@@ -1,12 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_BackendEnvironmentCRUD verifies backend environment lifecycle via the HTTP handler.
@@ -32,7 +34,7 @@ func TestHandler_BackendEnvironmentCRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			be := createResp["backendEnvironment"].(map[string]any)
 			assert.Equal(t, "prod", be["environmentName"])
 
@@ -45,7 +47,7 @@ func TestHandler_BackendEnvironmentCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp["backendEnvironments"].([]any), 1)
 
 			// Delete.

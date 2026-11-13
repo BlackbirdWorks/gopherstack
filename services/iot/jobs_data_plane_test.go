@@ -2,7 +2,8 @@ package iot_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/iot"
@@ -55,7 +57,7 @@ func newJobsDataEnv(t *testing.T) jobsDataEnv {
 func (e jobsDataEnv) device(t *testing.T, method, path string, body any) (int, map[string]any) {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), method, e.url+path, bytes.NewReader(raw))
@@ -69,7 +71,7 @@ func (e jobsDataEnv) device(t *testing.T, method, path string, body any) (int, m
 	defer resp.Body.Close()
 
 	out := map[string]any{}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

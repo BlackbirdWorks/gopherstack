@@ -5,13 +5,14 @@ package pipes_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -57,7 +58,7 @@ func TestPagination_Limit(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			pipeList, _ := resp["Pipes"].([]any)
 			assert.Len(t, pipeList, tt.wantCount)
 		})
@@ -87,7 +88,7 @@ func TestPagination_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, page1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(page1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(page1.Body.Bytes(), &resp1, jsonx.V1()))
 	list1 := resp1["Pipes"].([]any)
 	assert.Len(t, list1, 2)
 	assert.NotEmpty(t, resp1["NextToken"], "NextToken should be present when more pages exist")
@@ -98,7 +99,7 @@ func TestPagination_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, page2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(page2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(page2.Body.Bytes(), &resp2, jsonx.V1()))
 	list2 := resp2["Pipes"].([]any)
 	assert.NotEmpty(t, list2)
 

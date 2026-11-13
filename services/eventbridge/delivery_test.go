@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -442,8 +443,8 @@ func TestDelivery_SharedEventIDAcrossTargets(t *testing.T) {
 		msg1 := sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")[0]
 		msg2 := sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")[0]
 
-		require.NoError(t, json.Unmarshal([]byte(msg1), &id1))
-		require.NoError(t, json.Unmarshal([]byte(msg2), &id2))
+		require.NoError(t, json.Unmarshal([]byte(msg1), &id1, jsonx.V1()))
+		require.NoError(t, json.Unmarshal([]byte(msg2), &id2, jsonx.V1()))
 		assert.NotEmpty(t, id1.ID)
 		assert.Equal(t, id1.ID, id2.ID, "all targets for the same rule+event must share the same event id")
 	})

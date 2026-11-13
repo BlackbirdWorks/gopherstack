@@ -1,7 +1,7 @@
 package cloudcontrol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -59,7 +60,7 @@ func TestHandler_CreateResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantOp, pe["Operation"])
@@ -119,7 +120,7 @@ func TestHandler_CreateResource_ClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	pe1 := out1["ProgressEvent"].(map[string]any)
 
 	// Same clientToken must return the same RequestToken (idempotent).
@@ -127,7 +128,7 @@ func TestHandler_CreateResource_ClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	pe2 := out2["ProgressEvent"].(map[string]any)
 
 	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"])
@@ -210,14 +211,14 @@ func TestHandler_ProgressEvent_ResourceModel(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	createPE := createOut["ProgressEvent"].(map[string]any)
 
 	createModel, ok := createPE["ResourceModel"].(string)
 	require.True(t, ok, "ResourceModel must be present as a string on CreateResource")
 
 	var createParsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createModel), &createParsed))
+	require.NoError(t, json.Unmarshal([]byte(createModel), &createParsed, jsonx.V1()))
 	assert.Equal(t, "model-test", createParsed["LogGroupName"])
 
 	updateRec := doRequest(t, h, "UpdateResource", map[string]any{
@@ -228,14 +229,14 @@ func TestHandler_ProgressEvent_ResourceModel(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	updatePE := updateOut["ProgressEvent"].(map[string]any)
 
 	updateModel, ok := updatePE["ResourceModel"].(string)
 	require.True(t, ok, "ResourceModel must be present as a string on UpdateResource")
 
 	var updateParsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(updateModel), &updateParsed))
+	require.NoError(t, json.Unmarshal([]byte(updateModel), &updateParsed, jsonx.V1()))
 	assert.InEpsilon(t, float64(30), updateParsed["RetentionInDays"], 0, "ResourceModel must reflect the patched value")
 }
 func TestHandler_GetResource(t *testing.T) {
@@ -301,7 +302,7 @@ func TestHandler_GetResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				rd, ok := out["ResourceDescription"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantProps, rd["Properties"])
@@ -325,7 +326,7 @@ func TestHandler_GetResource_PropertiesIsJSONString(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	pe := createOut["ProgressEvent"].(map[string]any)
 	identifier := pe["Identifier"].(string)
 
@@ -336,7 +337,7 @@ func TestHandler_GetResource_PropertiesIsJSONString(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	desc, ok := getOut["ResourceDescription"].(map[string]any)
 	require.True(t, ok, "ResourceDescription must be present")
 
@@ -348,7 +349,7 @@ func TestHandler_GetResource_PropertiesIsJSONString(t *testing.T) {
 
 	// The string must be valid JSON.
 	var parsed map[string]any
-	require.NoError(t, json.Unmarshal([]byte(propertiesRaw.(string)), &parsed))
+	require.NoError(t, json.Unmarshal([]byte(propertiesRaw.(string)), &parsed, jsonx.V1()))
 	assert.Equal(t, "my-bucket", parsed["BucketName"])
 }
 
@@ -479,7 +480,7 @@ func TestHandler_ListResources(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				descs, ok := out["ResourceDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, descs, tt.wantCount)
@@ -506,7 +507,7 @@ func TestHandler_ListResources_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1, jsonx.V1()))
 
 	descs1, ok := out1["ResourceDescriptions"].([]any)
 	require.True(t, ok)
@@ -526,7 +527,7 @@ func TestHandler_ListResources_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	descs2, ok := out2["ResourceDescriptions"].([]any)
 	require.True(t, ok)
@@ -598,7 +599,7 @@ func TestHandler_DeleteResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantOp, pe["Operation"])
@@ -678,7 +679,7 @@ func TestHandler_UpdateResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				pe, ok := out["ProgressEvent"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantOp, pe["Operation"])
@@ -713,14 +714,14 @@ func TestHandler_UpdateResource_ClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	pe1 := out1["ProgressEvent"].(map[string]any)
 
 	rec2 := doRequest(t, h, "UpdateResource", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	pe2 := out2["ProgressEvent"].(map[string]any)
 
 	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"],
@@ -1109,7 +1110,7 @@ func TestHandler_DeleteResource_ClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	pe1 := out1["ProgressEvent"].(map[string]any)
 
 	// Without idempotency this second call would 400 with ResourceNotFoundException,
@@ -1118,7 +1119,7 @@ func TestHandler_DeleteResource_ClientToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	pe2 := out2["ProgressEvent"].(map[string]any)
 
 	assert.Equal(t, pe1["RequestToken"], pe2["RequestToken"],
@@ -1461,7 +1462,7 @@ func TestHandler_ProgressEvent_RequiredFields(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				pe := out["ProgressEvent"].(map[string]any)
 
 				return map[string]any{
@@ -1479,7 +1480,7 @@ func TestHandler_ProgressEvent_RequiredFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			pe, ok := out["ProgressEvent"].(map[string]any)
 			require.True(t, ok, "ProgressEvent must be present")
 

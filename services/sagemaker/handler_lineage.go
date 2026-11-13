@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -174,7 +175,7 @@ type createArtifactInput struct {
 func (h *Handler) handleCreateArtifact(ctx context.Context, body []byte) ([]byte, error) {
 	var req createArtifactInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +202,7 @@ func (h *Handler) handleCreateArtifact(ctx context.Context, body []byte) ([]byte
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created artifact", "arn", ar.ArtifactArn)
 
-	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
+	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn}, jsonx.V1())
 }
 
 // describeArtifactInput is the DescribeArtifact request shape (named, not
@@ -213,7 +214,7 @@ type describeArtifactInput struct {
 func (h *Handler) handleDescribeArtifact(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeArtifactInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -245,7 +246,7 @@ func (h *Handler) handleDescribeArtifact(ctx context.Context, body []byte) ([]by
 		resp["MetadataProperties"] = toMetadataProperties(ar.MetadataProperties)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateArtifactInput is the UpdateArtifact request shape (named, not
@@ -260,7 +261,7 @@ type updateArtifactInput struct {
 func (h *Handler) handleUpdateArtifact(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateArtifactInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -275,7 +276,7 @@ func (h *Handler) handleUpdateArtifact(ctx context.Context, body []byte) ([]byte
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated artifact", "arn", ar.ArtifactArn)
 
-	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
+	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn}, jsonx.V1())
 }
 
 // deleteArtifactInput is the DeleteArtifact request shape (named, not
@@ -290,7 +291,7 @@ type deleteArtifactInput struct {
 func (h *Handler) handleDeleteArtifact(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteArtifactInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -307,7 +308,7 @@ func (h *Handler) handleDeleteArtifact(ctx context.Context, body []byte) ([]byte
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted artifact", "arn", ar.ArtifactArn)
 
-	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn})
+	return json.Marshal(map[string]string{keyArtifactArn: ar.ArtifactArn}, jsonx.V1())
 }
 
 type artifactSummary struct {
@@ -332,7 +333,7 @@ func marshalSummaryPage[T, S any](key, nextToken string, items []*T, conv func(*
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listArtifactsInput is the ListArtifacts request shape (named, not inline —
@@ -351,7 +352,7 @@ type listArtifactsInput struct {
 func (h *Handler) handleListArtifacts(ctx context.Context, body []byte) ([]byte, error) {
 	var req listArtifactsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -412,7 +413,7 @@ type createContextInput struct {
 func (h *Handler) handleCreateContext(ctx context.Context, body []byte) ([]byte, error) {
 	var req createContextInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -443,7 +444,7 @@ func (h *Handler) handleCreateContext(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created context", "name", c.ContextName)
 
-	return json.Marshal(map[string]string{keyContextArn: c.ContextArn})
+	return json.Marshal(map[string]string{keyContextArn: c.ContextArn}, jsonx.V1())
 }
 
 // describeContextInput is the DescribeContext request shape (named, not
@@ -455,7 +456,7 @@ type describeContextInput struct {
 func (h *Handler) handleDescribeContext(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeContextInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -484,7 +485,7 @@ func (h *Handler) handleDescribeContext(ctx context.Context, body []byte) ([]byt
 		resp["Properties"] = c.Properties
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateContextInput is the UpdateContext request shape (named, not
@@ -499,7 +500,7 @@ type updateContextInput struct {
 func (h *Handler) handleUpdateContext(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateContextInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -514,7 +515,7 @@ func (h *Handler) handleUpdateContext(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated context", "name", c.ContextName)
 
-	return json.Marshal(map[string]string{keyContextArn: c.ContextArn})
+	return json.Marshal(map[string]string{keyContextArn: c.ContextArn}, jsonx.V1())
 }
 
 // deleteContextInput is the DeleteContext request shape (named, not
@@ -526,7 +527,7 @@ type deleteContextInput struct {
 func (h *Handler) handleDeleteContext(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteContextInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -541,7 +542,7 @@ func (h *Handler) handleDeleteContext(ctx context.Context, body []byte) ([]byte,
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted context", "name", req.ContextName)
 
-	return json.Marshal(map[string]string{keyContextArn: c.ContextArn})
+	return json.Marshal(map[string]string{keyContextArn: c.ContextArn}, jsonx.V1())
 }
 
 type contextSummary struct {
@@ -569,7 +570,7 @@ type listContextsInput struct {
 func (h *Handler) handleListContexts(ctx context.Context, body []byte) ([]byte, error) {
 	var req listContextsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -611,7 +612,7 @@ type describeActionInput struct {
 func (h *Handler) handleDescribeAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeActionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -651,7 +652,7 @@ func (h *Handler) handleDescribeAction(ctx context.Context, body []byte) ([]byte
 		resp["MetadataProperties"] = toMetadataProperties(a.MetadataProperties)
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateActionInput is the UpdateAction request shape (named, not
@@ -667,7 +668,7 @@ type updateActionInput struct {
 func (h *Handler) handleUpdateAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateActionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -684,7 +685,7 @@ func (h *Handler) handleUpdateAction(ctx context.Context, body []byte) ([]byte, 
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated action", "name", a.ActionName)
 
-	return json.Marshal(map[string]string{keyActionArn: a.ActionArn})
+	return json.Marshal(map[string]string{keyActionArn: a.ActionArn}, jsonx.V1())
 }
 
 // deleteActionInput is the DeleteAction request shape (named, not
@@ -696,7 +697,7 @@ type deleteActionInput struct {
 func (h *Handler) handleDeleteAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteActionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -711,7 +712,7 @@ func (h *Handler) handleDeleteAction(ctx context.Context, body []byte) ([]byte, 
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted action", "name", req.ActionName)
 
-	return json.Marshal(map[string]string{keyActionArn: a.ActionArn})
+	return json.Marshal(map[string]string{keyActionArn: a.ActionArn}, jsonx.V1())
 }
 
 type actionSummary struct {
@@ -740,7 +741,7 @@ type listActionsInput struct {
 func (h *Handler) handleListActions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listActionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -784,7 +785,7 @@ type deleteAssociationInput struct {
 func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteAssociationInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -803,7 +804,7 @@ func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]b
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted association",
 		"source", req.SourceArn, "destination", req.DestinationArn)
 
-	return json.Marshal(map[string]string{"SourceArn": req.SourceArn, "DestinationArn": req.DestinationArn})
+	return json.Marshal(map[string]string{"SourceArn": req.SourceArn, "DestinationArn": req.DestinationArn}, jsonx.V1())
 }
 
 // associationSummary mirrors types.AssociationSummary (types.go:157-188).
@@ -839,7 +840,7 @@ type listAssociationsInput struct {
 func (h *Handler) handleListAssociations(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAssociationsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -888,7 +889,7 @@ type describeLineageGroupInput struct {
 func (h *Handler) handleDescribeLineageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeLineageGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -906,7 +907,7 @@ func (h *Handler) handleDescribeLineageGroup(ctx context.Context, body []byte) (
 		"LineageGroupName":  req.LineageGroupName,
 		keyCreationTime:     epochSeconds(createdAt),
 		keyLastModifiedTime: epochSeconds(createdAt),
-	})
+	}, jsonx.V1())
 }
 
 // listLineageGroupsInput is the ListLineageGroups request shape (named, not
@@ -923,7 +924,7 @@ type listLineageGroupsInput struct {
 func (h *Handler) handleListLineageGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req listLineageGroupsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -951,7 +952,7 @@ func (h *Handler) handleListLineageGroups(ctx context.Context, body []byte) ([]b
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // getLineageGroupPolicyInput is the GetLineageGroupPolicy request shape
@@ -963,7 +964,7 @@ type getLineageGroupPolicyInput struct {
 func (h *Handler) handleGetLineageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req getLineageGroupPolicyInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1007,7 +1008,7 @@ type queryLineageInput struct {
 func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, error) {
 	var req queryLineageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1056,7 +1057,7 @@ func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, 
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // fromQueryFilters converts the wire Filters object to backend QueryLineageFilters.
@@ -1087,7 +1088,7 @@ type addAssociationRequest struct {
 
 func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte, error) {
 	var req addAssociationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1118,7 +1119,7 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{
 		"SourceArn":      req.SourceArn,
 		"DestinationArn": req.DestinationArn,
-	})
+	}, jsonx.V1())
 }
 
 // associateTrialComponentRequest is the request body for AssociateTrialComponent.
@@ -1129,7 +1130,7 @@ type associateTrialComponentRequest struct {
 
 func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req associateTrialComponentRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1153,7 +1154,7 @@ func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte
 	return json.Marshal(map[string]string{
 		"TrialArn":          assoc.TrialArn,
 		"TrialComponentArn": assoc.TrialComponentArn,
-	})
+	}, jsonx.V1())
 }
 
 // actionSourceRequest is the source for a CreateAction request.
@@ -1180,7 +1181,7 @@ type createActionRequest struct {
 
 func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req createActionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -1212,5 +1213,5 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName)
 
-	return json.Marshal(map[string]string{"ActionArn": a.ActionArn})
+	return json.Marshal(map[string]string{"ActionArn": a.ActionArn}, jsonx.V1())
 }

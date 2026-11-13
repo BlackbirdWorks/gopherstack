@@ -1,8 +1,9 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var attrAliases = map[string]string{ //nolint:gochecknoglobals // static alias table
@@ -162,7 +163,7 @@ func (a AdvancedFilter) matchScalar(v any) bool {
 		return a.matchString(x)
 	case float64:
 		return a.matchNumber(x)
-	case json.Number:
+	case jsonx.Number:
 		f, err := x.Float64()
 
 		return err == nil && a.matchNumber(f)
@@ -230,7 +231,7 @@ func toFloat(v any) (float64, bool) {
 		return x, true
 	case int:
 		return float64(x), true
-	case json.Number:
+	case jsonx.Number:
 		f, err := x.Float64()
 
 		return f, err == nil

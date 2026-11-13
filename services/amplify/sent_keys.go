@@ -1,12 +1,18 @@
 package amplify
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // sentKeys reports which top-level JSON members a request body carried, so an
 // update can tell an explicit empty value or false from an omitted member.
 func sentKeys(body []byte) map[string]bool {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(body, &raw, jsonx.V1()); err != nil {
 		return nil
 	}
 

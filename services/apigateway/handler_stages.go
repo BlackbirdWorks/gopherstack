@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getStagesInput struct {
@@ -46,7 +48,7 @@ func (h *Handler) stageActions() map[string]actionFn {
 
 func (h *Handler) createStageAction(b []byte) (int, any, error) {
 	var input CreateStageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -60,7 +62,7 @@ func (h *Handler) createStageAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateStageAction(b []byte) (int, any, error) {
 	var input updateStageHandlerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	stage, err := h.Backend.UpdateStage(input.RestAPIID, input.StageName, input.UpdateStageInput)
@@ -77,7 +79,7 @@ func (h *Handler) updateStageAction(b []byte) (int, any, error) {
 
 func (h *Handler) flushStageCacheAction(b []byte) (int, any, error) {
 	var input flushStageCacheInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
@@ -91,7 +93,7 @@ func (h *Handler) flushStageCacheAction(b []byte) (int, any, error) {
 
 func (h *Handler) flushStageAuthorizersCacheAction(b []byte) (int, any, error) {
 	var input flushStageCacheInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	h.authCache.flush()
@@ -101,7 +103,7 @@ func (h *Handler) flushStageAuthorizersCacheAction(b []byte) (int, any, error) {
 
 func (h *Handler) getStagesAction(b []byte) (int, any, error) {
 	var input getStagesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	stages, err := h.Backend.GetStages(input.RestAPIID)
@@ -123,7 +125,7 @@ func (h *Handler) getStagesAction(b []byte) (int, any, error) {
 
 func (h *Handler) getStageAction(b []byte) (int, any, error) {
 	var input getStageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	stage, err := h.Backend.GetStage(input.RestAPIID, input.StageName)
@@ -136,7 +138,7 @@ func (h *Handler) getStageAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteStageAction(b []byte) (int, any, error) {
 	var input deleteStageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteStage(input.RestAPIID, input.StageName); err != nil {

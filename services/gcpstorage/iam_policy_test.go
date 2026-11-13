@@ -1,12 +1,14 @@
 package gcpstorage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -72,7 +74,7 @@ func TestBucketIAMConditions(t *testing.T) {
 					Etag string `json:"etag"`
 				}
 
-				require.NoError(t, json.Unmarshal([]byte(seeded), &cur))
+				require.NoError(t, json.Unmarshal([]byte(seeded), &cur, jsonx.V1()))
 
 				if tt.freshEtag {
 					body = `{"etag":"` + cur.Etag + `","version":3}`
@@ -87,7 +89,7 @@ func TestBucketIAMConditions(t *testing.T) {
 					Version int `json:"version"`
 				}
 
-				require.NoError(t, json.Unmarshal([]byte(out), &got))
+				require.NoError(t, json.Unmarshal([]byte(out), &got, jsonx.V1()))
 				assert.Equal(t, tt.wantPolVer, got.Version)
 			}
 		})

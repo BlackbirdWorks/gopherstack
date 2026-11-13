@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/http"
 	"strings"
@@ -232,7 +232,7 @@ func TestBackend_SpecRoundTrip(t *testing.T) {
 	t.Parallel()
 	b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateMesh("m1", json.RawMessage(`{"key":"val"}`), nil)
+	_, err := b.CreateMesh("m1", jsontext.Value(`{"key":"val"}`), nil)
 	require.NoError(t, err)
 
 	m, err := b.DescribeMesh("m1")

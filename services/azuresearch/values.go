@@ -1,11 +1,12 @@
 package azuresearch
 
 import (
-	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const earthRadiusKM = 6371.0088
@@ -20,7 +21,7 @@ func asFloat(v any) (float64, bool) {
 		return float64(n), true
 	case int:
 		return float64(n), true
-	case json.Number:
+	case jsonx.Number:
 		f, err := n.Float64()
 
 		return f, err == nil
@@ -193,7 +194,7 @@ func normalizeVector(d *fieldDef, arr []any) (any, error) {
 	out := make([]any, len(arr))
 
 	for i, el := range arr {
-		f, ok := el.(json.Number)
+		f, ok := el.(jsonx.Number)
 		if !ok {
 			if ff, isF := el.(float64); isF {
 				out[i] = ff
@@ -288,7 +289,7 @@ func nonFinite(f float64) string {
 
 func numberOf(v any) (float64, bool) {
 	switch n := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		f, err := n.Float64()
 
 		return f, err == nil
@@ -303,7 +304,7 @@ func normalizeInt(d *fieldDef, v any) (any, error) {
 	var i int64
 
 	switch n := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		parsed, err := n.Int64()
 		if err != nil {
 			return nil, typeErr(d.Base)

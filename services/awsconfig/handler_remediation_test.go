@@ -1,13 +1,14 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -43,7 +44,7 @@ func TestAWSConfigHandler_StartAndDescribeRemediationExecution(t *testing.T) {
 			State string `json:"State"`
 		} `json:"RemediationExecutionStatuses"`
 	}
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.RemediationExecutionStatuses, 1)
 	assert.Equal(t, "SUCCEEDED", out.RemediationExecutionStatuses[0].State)
 }

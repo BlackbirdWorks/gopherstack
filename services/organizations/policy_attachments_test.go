@@ -1,7 +1,8 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -418,7 +420,7 @@ func TestAttachPolicy_UnknownTarget_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var polResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&polResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &polResp, jsonx.V1()))
 	policyID := polResp["Policy"].(map[string]any)["PolicySummary"].(map[string]any)["Id"].(string)
 
 	// Attempt to attach to a non-existent target.

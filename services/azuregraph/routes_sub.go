@@ -1,12 +1,15 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func supports(kind string, allowed ...string) bool { return slices.Contains(allowed, kind) }
@@ -114,7 +117,7 @@ func (h *Handler) addPassword(c *echo.Context, id string) error {
 
 	var in PasswordCredential
 	if raw := body["passwordCredential"]; len(raw) > 0 && string(raw) != jsonNull {
-		if err = json.Unmarshal(raw, &in); err != nil {
+		if err = json.Unmarshal(raw, &in, jsonx.V1()); err != nil {
 			return h.writeErr(c, badRequest("Invalid value specified for property 'passwordCredential'."))
 		}
 	}
@@ -144,7 +147,7 @@ func (h *Handler) addKey(c *echo.Context, id string) error {
 	}
 
 	var in KeyCredential
-	if err = json.Unmarshal(body["keyCredential"], &in); err != nil {
+	if err = json.Unmarshal(body["keyCredential"], &in, jsonx.V1()); err != nil {
 		return h.writeErr(c, badRequest("A value is required for property 'keyCredential' of resource 'Application'."))
 	}
 
@@ -174,7 +177,7 @@ func (h *Handler) removeCred(c *echo.Context, id string, remove func(id, keyID s
 	}
 
 	var keyID string
-	if json.Unmarshal(body["keyId"], &keyID) != nil || keyID == "" {
+	if json.Unmarshal(body["keyId"], &keyID, jsonx.V1()) != nil || keyID == "" {
 		return h.writeErr(c, badRequest("A value is required for property 'keyId'."))
 	}
 
@@ -198,9 +201,9 @@ func (h *Handler) relation(c *echo.Context, load func() ([]Object, error)) error
 	return h.list(c, "directoryObjects", "DirectoryObject", nil, typedObjects(objs))
 }
 
-func odataRefTarget(body map[string]json.RawMessage) (string, bool) {
+func odataRefTarget(body map[string]jsontext.Value) (string, bool) {
 	var ref string
-	if json.Unmarshal(body["@odata.id"], &ref) != nil || ref == "" {
+	if json.Unmarshal(body["@odata.id"], &ref, jsonx.V1()) != nil || ref == "" {
 		return "", false
 	}
 

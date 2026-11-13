@@ -1,7 +1,7 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // sdkRouteCases is the authoritative method+path for every real IoT Data
@@ -96,7 +98,7 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 			var decoded struct {
 				Error string `json:"error"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &decoded))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &decoded, jsonx.V1()))
 			assert.NotEqual(t, "not found", decoded.Error,
 				"method=%s path=%s op=%s: dispatched to the unmatched-route default", tc.method, tc.path, tc.op)
 		})

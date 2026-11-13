@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleSetLoadBasedAutoScaling handles SetLoadBasedAutoScaling requests.
@@ -15,7 +17,7 @@ func (h *Handler) handleSetLoadBasedAutoScaling(_ context.Context, body []byte) 
 		Enable      bool               `json:"Enable"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) handleDescribeLoadBasedAutoScaling(_ context.Context, body []b
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}

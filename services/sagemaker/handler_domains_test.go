@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateDomain(t *testing.T) {
@@ -50,7 +52,7 @@ func TestHandler_CreateDomain(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["DomainId"])
 				assert.NotEmpty(t, resp["Url"])
 			}
@@ -76,7 +78,7 @@ func TestHandler_DomainLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	domainID := createOut["DomainId"].(string)
 
 	// Describe domain by ID — the fields accepted on Create must round-trip,
@@ -86,7 +88,7 @@ func TestHandler_DomainLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recDesc.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "test-domain", descOut["DomainName"])
 	assert.Equal(t, "VpcOnly", descOut["AppNetworkAccessType"])
 	assert.Equal(t, "vpc-1", descOut["VpcId"])
@@ -98,7 +100,7 @@ func TestHandler_DomainLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["Domains"].([]any), 1)
 
 	// Update domain — a partial update must apply the overridable field
@@ -113,7 +115,7 @@ func TestHandler_DomainLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDescAfterUpdate.Code)
 
 	var descAfterUpdate map[string]any
-	require.NoError(t, json.Unmarshal(recDescAfterUpdate.Body.Bytes(), &descAfterUpdate))
+	require.NoError(t, json.Unmarshal(recDescAfterUpdate.Body.Bytes(), &descAfterUpdate, jsonx.V1()))
 	assert.Equal(t, "PublicInternetOnly", descAfterUpdate["AppNetworkAccessType"])
 	assert.Equal(t, "vpc-1", descAfterUpdate["VpcId"])
 
@@ -170,7 +172,7 @@ func TestHandler_ListDomains_MaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out["Domains"].([]any), 2, "MaxResults must cap the page, not just be parsed and ignored")
 	assert.NotEmpty(t, out["NextToken"])
 }

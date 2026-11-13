@@ -2,7 +2,7 @@ package gcprun
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -20,38 +20,38 @@ import (
 const snapshotVersion = 1
 
 type svcSnap struct {
-	Failure string          `json:"failure"`
-	Service json.RawMessage `json:"service"`
-	RevSeq  int             `json:"revSeq"`
+	Failure string         `json:"failure"`
+	Service jsontext.Value `json:"service"`
+	RevSeq  int            `json:"revSeq"`
 }
 
 type revSnap struct {
-	StartErr string          `json:"startErr"`
-	Revision json.RawMessage `json:"revision"`
-	Seq      int             `json:"seq"`
+	StartErr string         `json:"startErr"`
+	Revision jsontext.Value `json:"revision"`
+	Seq      int            `json:"seq"`
 }
 
 type taskSnap struct {
-	State string          `json:"state"`
-	Task  json.RawMessage `json:"task"`
+	State string         `json:"state"`
+	Task  jsontext.Value `json:"task"`
 }
 
 type backendSnapshot struct {
-	Services   map[string]svcSnap         `json:"services"`
-	Revisions  map[string]revSnap         `json:"revisions"`
-	Jobs       map[string]json.RawMessage `json:"jobs"`
-	Executions map[string]json.RawMessage `json:"executions"`
-	Tasks      map[string]taskSnap        `json:"tasks"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	DeletedSvc map[string]json.RawMessage `json:"deletedServices"`
-	DeletedJob map[string]json.RawMessage `json:"deletedJobs"`
-	DeletedExe map[string]json.RawMessage `json:"deletedExecutions"`
-	IAM        map[string]json.RawMessage `json:"iamPolicies"`
-	IAMSeq     uint64                     `json:"iamSeq"`
-	Version    int                        `json:"version"`
+	Services   map[string]svcSnap        `json:"services"`
+	Revisions  map[string]revSnap        `json:"revisions"`
+	Jobs       map[string]jsontext.Value `json:"jobs"`
+	Executions map[string]jsontext.Value `json:"executions"`
+	Tasks      map[string]taskSnap       `json:"tasks"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	DeletedSvc map[string]jsontext.Value `json:"deletedServices"`
+	DeletedJob map[string]jsontext.Value `json:"deletedJobs"`
+	DeletedExe map[string]jsontext.Value `json:"deletedExecutions"`
+	IAM        map[string]jsontext.Value `json:"iamPolicies"`
+	IAMSeq     uint64                    `json:"iamSeq"`
+	Version    int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	raw, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -60,8 +60,8 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return raw
 }
 
-func marshalMap[T proto.Message](m map[string]T) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(m))
+func marshalMap[T proto.Message](m map[string]T) map[string]jsontext.Value {
+	out := make(map[string]jsontext.Value, len(m))
 	for k, v := range m {
 		out[k] = marshalPB(v)
 	}
@@ -69,7 +69,7 @@ func marshalMap[T proto.Message](m map[string]T) map[string]json.RawMessage {
 	return out
 }
 
-func unmarshalMap[T proto.Message](raw map[string]json.RawMessage, mk func() T, what string) (map[string]T, error) {
+func unmarshalMap[T proto.Message](raw map[string]jsontext.Value, mk func() T, what string) (map[string]T, error) {
 	out := make(map[string]T, len(raw))
 
 	for k, r := range raw {
@@ -84,7 +84,7 @@ func unmarshalMap[T proto.Message](raw map[string]json.RawMessage, mk func() T, 
 	return out, nil
 }
 
-func unmarshalPB[T proto.Message](raw json.RawMessage, m T) (T, error) {
+func unmarshalPB[T proto.Message](raw jsontext.Value, m T) (T, error) {
 	err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, m)
 
 	return m, err
@@ -99,8 +99,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:    snapshotVersion,
 		Services:   make(map[string]svcSnap, len(b.services)),
 		Revisions:  make(map[string]revSnap, len(b.revisions)),
-		Jobs:       make(map[string]json.RawMessage, len(b.jobs)),
-		Executions: make(map[string]json.RawMessage, len(b.executions)),
+		Jobs:       make(map[string]jsontext.Value, len(b.jobs)),
+		Executions: make(map[string]jsontext.Value, len(b.executions)),
 		Tasks:      make(map[string]taskSnap, len(b.tasks)),
 		Operations: b.ops.Snapshot(),
 	}

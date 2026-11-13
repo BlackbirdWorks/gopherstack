@@ -2,7 +2,7 @@ package dashboard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocidns"
 )
 
@@ -71,7 +72,7 @@ func (f dnsFixture) zone(t *testing.T, name string) string {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &z))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &z, jsonx.V1()))
 
 	return z.ID
 }
@@ -100,7 +101,7 @@ func TestOCIDNSProxyZoneAndRecordLifecycle(t *testing.T) {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &zone))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &zone, jsonx.V1()))
 
 	list := f.proxy(t, http.MethodGet, dnsAPI+"/zones?compartmentId="+dnsComp+"&scope=GLOBAL", "")
 	require.Equal(t, http.StatusOK, list.Code, list.Body.String())
@@ -247,7 +248,7 @@ func TestOCIDNSProxyTsigSecretStripped(t *testing.T) {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &key))
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &key, jsonx.V1()))
 
 	direct := f.direct(t, http.MethodGet, "/20180115/tsigKeys/"+key.ID, "")
 	require.Contains(t, direct.Body.String(), dnsSecret, "fixture: the emulator returns the secret on get")
@@ -326,7 +327,7 @@ func TestOCIDNSProxyTryIt(t *testing.T) {
 
 		var out map[string]any
 
-		require.NoError(t, json.Unmarshal(got.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(got.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "NOERROR", out["rcode"])
 		assert.Equal(t, true, out["authoritative"])
 

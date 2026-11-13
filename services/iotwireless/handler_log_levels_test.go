@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_LogLevels(t *testing.T) {
@@ -19,7 +21,7 @@ func TestHandler_LogLevels(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "INFO", getResp["DefaultLogLevel"])
 
 	// Update log levels
@@ -28,7 +30,7 @@ func TestHandler_LogLevels(t *testing.T) {
 
 	// Verify updated
 	rec = doIoTWRequest(t, h, http.MethodGet, "/log-levels", "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "DEBUG", getResp["DefaultLogLevel"])
 
 	// Put resource log level
@@ -45,7 +47,7 @@ func TestHandler_LogLevels(t *testing.T) {
 	rec = doIoTWRequest(t, h, http.MethodGet, "/log-levels/my-device", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "ERROR", getResp["LogLevel"])
 
 	// Reset resource log level
@@ -54,7 +56,7 @@ func TestHandler_LogLevels(t *testing.T) {
 
 	// After reset, should return INFO default
 	rec = doIoTWRequest(t, h, http.MethodGet, "/log-levels/my-device", "")
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "INFO", getResp["LogLevel"])
 
 	// Reset all resource log levels
@@ -91,7 +93,7 @@ func TestHandler_LogLevels_OptionListsRoundTrip(t *testing.T) {
 		WirelessDeviceLogOptions  []map[string]any `json:"WirelessDeviceLogOptions"`
 		WirelessGatewayLogOptions []map[string]any `json:"WirelessGatewayLogOptions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "ERROR", resp.DefaultLogLevel)
 	require.Len(t, resp.WirelessDeviceLogOptions, 1)

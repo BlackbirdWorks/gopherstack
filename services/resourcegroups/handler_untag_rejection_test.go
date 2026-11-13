@@ -2,7 +2,7 @@ package resourcegroups_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -89,7 +90,7 @@ func TestResourceGroupsHandler_Untag_RejectionNotBypassed(t *testing.T) {
 					GroupArn string `json:"GroupArn"`
 				} `json:"Group"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			groupARN := created.Group.GroupArn
 
 			untagRec := doResourceTagsRequestRaw(t, h, http.MethodDelete, groupARN, tt.body)
@@ -98,7 +99,7 @@ func TestResourceGroupsHandler_Untag_RejectionNotBypassed(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(
-				t, json.Unmarshal(untagRec.Body.Bytes(), &resp),
+				t, json.Unmarshal(untagRec.Body.Bytes(), &resp, jsonx.V1()),
 				"response body must be a single well-formed JSON document, not two concatenated: %s",
 				untagRec.Body.String(),
 			)
@@ -109,7 +110,7 @@ func TestResourceGroupsHandler_Untag_RejectionNotBypassed(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			assert.Equal(t, map[string]string{"env": "prod"}, tagsResp.Tags, "rejected Untag must not remove any tags")
 		})
 	}

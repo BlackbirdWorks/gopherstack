@@ -2,9 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,7 +23,7 @@ func (h *Handler) handleCreateWorkspaceServiceAccountToken(
 	workspaceID, serviceAccountID := segs[1], segs[3]
 
 	var req createWorkspaceServiceAccountTokenRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -39,7 +40,7 @@ func (h *Handler) handleCreateWorkspaceServiceAccountToken(
 			Name: tok.Name,
 			Key:  tok.Key,
 		},
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteWorkspaceServiceAccountToken(
@@ -56,7 +57,7 @@ func (h *Handler) handleDeleteWorkspaceServiceAccountToken(
 		keyServiceAccountID: serviceAccountID,
 		"tokenId":           tokenID,
 		keyWorkspaceID:      workspaceID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleListWorkspaceServiceAccountTokens(
@@ -89,5 +90,5 @@ func (h *Handler) handleListWorkspaceServiceAccountTokens(
 		out["nextToken"] = p.Next
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }

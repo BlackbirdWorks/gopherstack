@@ -1,11 +1,13 @@
 package gcpcompute
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const quotePair = 2
@@ -325,13 +327,13 @@ func parseFilter(expr string) (filterNode, *APIError) {
 }
 
 func toDoc(item any) map[string]any {
-	data, err := json.Marshal(item)
+	data, err := json.Marshal(item, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var m map[string]any
-	_ = json.Unmarshal(data, &m)
+	_ = json.Unmarshal(data, &m, jsonx.V1())
 
 	return m
 }

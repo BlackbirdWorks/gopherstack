@@ -1,11 +1,13 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type logicExprKind int
@@ -284,7 +286,7 @@ func normLogic(v any) any {
 		return int64(t)
 	case int32:
 		return int64(t)
-	case json.Number:
+	case jsonx.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
 		}
@@ -330,7 +332,7 @@ func logicString(v any) string {
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprint(v)
 	}

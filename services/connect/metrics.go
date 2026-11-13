@@ -1,7 +1,7 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 	"time"
@@ -572,10 +572,10 @@ func sortMetricResults(results []CurrentMetricResult, criteria []CurrentMetricSo
 
 // HistoricalMetric names one historical metric and statistic.
 type HistoricalMetric struct {
-	Name      string          `json:"Name"`
-	Statistic string          `json:"Statistic"`
-	Unit      string          `json:"Unit"`
-	Threshold json.RawMessage `json:"Threshold,omitempty"`
+	Name      string         `json:"Name"`
+	Statistic string         `json:"Statistic"`
+	Unit      string         `json:"Unit"`
+	Threshold jsontext.Value `json:"Threshold,omitempty"`
 }
 
 // GetMetricDataInput is the GetMetricData request.

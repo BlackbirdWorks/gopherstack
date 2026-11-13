@@ -1,11 +1,13 @@
 package ssm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // automationDoc is the minimal shape of an SSM automation (schemaVersion 0.3)
@@ -118,7 +120,7 @@ func parseAutomationDocSteps(content string) []automationDocStep {
 	}
 
 	var doc automationDoc
-	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+	if err := json.Unmarshal([]byte(content), &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 

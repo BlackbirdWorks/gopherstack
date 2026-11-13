@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"math"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -216,8 +218,8 @@ type docShape struct {
 		} `json:"speaker_labels"`
 		ChannelLabels *struct {
 			Channels []struct {
-				Label string            `json:"channel_label"`
-				Items []json.RawMessage `json:"items"`
+				Label string           `json:"channel_label"`
+				Items []jsontext.Value `json:"items"`
 			} `json:"channels"`
 			Number int `json:"number_of_channels"`
 		} `json:"channel_labels"`
@@ -234,7 +236,7 @@ type docShape struct {
 			} `json:"alternatives"`
 			ID int `json:"id"`
 		} `json:"items"`
-		AudioSegments []json.RawMessage `json:"audio_segments"`
+		AudioSegments []jsontext.Value `json:"audio_segments"`
 	} `json:"results"`
 }
 
@@ -242,7 +244,7 @@ func parseDoc(t *testing.T, data []byte) docShape {
 	t.Helper()
 
 	var d docShape
-	require.NoError(t, json.Unmarshal(data, &d), string(data))
+	require.NoError(t, json.Unmarshal(data, &d, jsonx.V1()), string(data))
 
 	return d
 }
@@ -581,7 +583,7 @@ func TestJobOutput_MedicalAndCallAnalytics(t *testing.T) {
 			Total int `json:"TotalConversationDurationMillis"`
 		} `json:"ConversationCharacteristics"`
 	}
-	require.NoError(t, json.Unmarshal(env.getOut(t, "calls/ca.json"), &caDoc))
+	require.NoError(t, json.Unmarshal(env.getOut(t, "calls/ca.json"), &caDoc, jsonx.V1()))
 	assert.Equal(t, "ca", caDoc.JobName)
 	assert.Len(t, caDoc.Participants, 2)
 	assert.Empty(t, caDoc.Transcript)

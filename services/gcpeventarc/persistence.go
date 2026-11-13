@@ -2,7 +2,7 @@ package gcpeventarc
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -21,28 +21,28 @@ import (
 const snapshotVersion = 1
 
 type triggerSnap struct {
-	Trigger    json.RawMessage `json:"trigger"`
-	Policy     json.RawMessage `json:"policy,omitempty"`
-	OwnedTopic bool            `json:"ownedTopic,omitempty"`
+	Trigger    jsontext.Value `json:"trigger"`
+	Policy     jsontext.Value `json:"policy,omitempty"`
+	OwnedTopic bool           `json:"ownedTopic,omitempty"`
 }
 
 type channelSnap struct {
-	Channel json.RawMessage `json:"channel"`
-	Policy  json.RawMessage `json:"policy,omitempty"`
+	Channel jsontext.Value `json:"channel"`
+	Policy  jsontext.Value `json:"policy,omitempty"`
 }
 
 type backendSnapshot struct {
-	Triggers    map[string]triggerSnap                `json:"triggers"`
-	Channels    map[string]channelSnap                `json:"channels"`
-	Connections map[string]json.RawMessage            `json:"connections"`
-	Configs     map[string]json.RawMessage            `json:"configs"`
-	Operations  map[string]json.RawMessage            `json:"operations"`
-	Advanced    map[string]map[string]json.RawMessage `json:"advanced,omitempty"`
-	Version     int                                   `json:"version"`
-	Seq         uint64                                `json:"seq"`
+	Triggers    map[string]triggerSnap               `json:"triggers"`
+	Channels    map[string]channelSnap               `json:"channels"`
+	Connections map[string]jsontext.Value            `json:"connections"`
+	Configs     map[string]jsontext.Value            `json:"configs"`
+	Operations  map[string]jsontext.Value            `json:"operations"`
+	Advanced    map[string]map[string]jsontext.Value `json:"advanced,omitempty"`
+	Version     int                                  `json:"version"`
+	Seq         uint64                               `json:"seq"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	if m == nil || !m.ProtoReflect().IsValid() {
 		return nil
 	}
@@ -59,7 +59,7 @@ func unmarshalPB(raw []byte, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
-func restorePolicy(raw json.RawMessage) (*iampb.Policy, error) {
+func restorePolicy(raw jsontext.Value) (*iampb.Policy, error) {
 	if len(raw) == 0 {
 		return nil, nil //nolint:nilnil // no policy stored
 	}
@@ -81,8 +81,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version: snapshotVersion, Seq: b.seq,
 		Triggers:    make(map[string]triggerSnap, len(b.triggers)),
 		Channels:    make(map[string]channelSnap, len(b.channels)),
-		Connections: make(map[string]json.RawMessage, len(b.conns)),
-		Configs:     make(map[string]json.RawMessage, len(b.configs)),
+		Connections: make(map[string]jsontext.Value, len(b.conns)),
+		Configs:     make(map[string]jsontext.Value, len(b.configs)),
 		Operations:  b.ops.Snapshot(),
 	}
 
@@ -102,10 +102,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Configs[n] = marshalPB(c)
 	}
 
-	snap.Advanced = make(map[string]map[string]json.RawMessage, len(b.adv))
+	snap.Advanced = make(map[string]map[string]jsontext.Value, len(b.adv))
 
 	for coll, table := range b.adv {
-		snap.Advanced[coll] = make(map[string]json.RawMessage, len(table))
+		snap.Advanced[coll] = make(map[string]jsontext.Value, len(table))
 
 		for n, m := range table {
 			snap.Advanced[coll][n] = marshalPB(m)

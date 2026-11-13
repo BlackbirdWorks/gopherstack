@@ -1,13 +1,15 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -252,11 +254,11 @@ func TestAWSConfigHandler_DescribeDeliveryChannels_NameFilter(t *testing.T) {
 				return
 			}
 
-			var out map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			var out map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			var channels []any
-			require.NoError(t, json.Unmarshal(out["DeliveryChannels"], &channels))
+			require.NoError(t, json.Unmarshal(out["DeliveryChannels"], &channels, jsonx.V1()))
 			assert.Len(t, channels, tt.wantCount)
 		})
 	}

@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_ResourcePolicy_CRUD(t *testing.T) {
@@ -23,7 +26,7 @@ func TestServerless_ResourcePolicy_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&putResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &putResp, jsonx.V1()))
 	rp, _ := putResp["resourcePolicy"].(map[string]any)
 	require.NotNil(t, rp)
 	assert.Equal(t, resourceArn, rp["resourceArn"])
@@ -33,7 +36,7 @@ func TestServerless_ResourcePolicy_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	rp, _ = getResp["resourcePolicy"].(map[string]any)
 	require.NotNil(t, rp)
 	assert.Equal(t, policy, rp["policy"])
@@ -42,7 +45,7 @@ func TestServerless_ResourcePolicy_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&deleteResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &deleteResp, jsonx.V1()))
 	assert.Empty(t, deleteResp, "DeleteResourcePolicyResponse has zero members on the real wire")
 
 	rec = doServerlessOp(t, h, "GetResourcePolicy", map[string]any{"resourceArn": resourceArn})
@@ -105,7 +108,7 @@ func TestServerless_ResourcePolicy_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}

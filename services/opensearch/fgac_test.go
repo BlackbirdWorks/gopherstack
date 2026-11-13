@@ -3,7 +3,8 @@ package opensearch_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
@@ -157,7 +159,7 @@ func secAPI(t *testing.T, c *opensearchapi.Client, method, path string, body any
 	var rdr io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rdr = bytes.NewReader(b)
@@ -176,7 +178,7 @@ func secAPI(t *testing.T, c *opensearchapi.Client, method, path string, body any
 	require.NoError(t, err)
 
 	var out map[string]any
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }
@@ -203,7 +205,7 @@ func structErr(t *testing.T, err error) *osgo.StructError {
 func jsonBody(t *testing.T, v any) io.Reader {
 	t.Helper()
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return bytes.NewReader(b)
@@ -222,11 +224,11 @@ func searchAll(ctx context.Context, c *opensearchapi.Client, index string) (*ope
 	})
 }
 
-func hitSource(t *testing.T, raw json.RawMessage) map[string]any {
+func hitSource(t *testing.T, raw jsontext.Value) map[string]any {
 	t.Helper()
 
 	var src map[string]any
-	require.NoError(t, json.Unmarshal(raw, &src))
+	require.NoError(t, json.Unmarshal(raw, &src, jsonx.V1()))
 
 	return src
 }
@@ -1035,7 +1037,7 @@ func TestFGAC_PasswordNeverInResponses(t *testing.T) {
 		code, body := secAPI(t, admin, http.MethodGet, "/_plugins/_security/api/"+p, nil)
 		require.Equal(t, http.StatusOK, code)
 
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		assert.NotContains(t, string(raw), fgacMasterPass)
 		assert.NotContains(t, string(raw), "$2a$")
@@ -1047,7 +1049,7 @@ func TestFGAC_PasswordNeverInResponses(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(out, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), fgacMasterPass)
 	assert.NotContains(t, string(raw), "$2a$")

@@ -2,7 +2,9 @@ package azuresearch
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ordered is a JSON object that keeps insertion order, as the service lists fields in schema order.
@@ -32,12 +34,12 @@ func (o *ordered) MarshalJSON() ([]byte, error) {
 			buf.WriteByte(',')
 		}
 
-		kb, err := json.Marshal(k)
+		kb, err := json.Marshal(k, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}
 
-		vb, err := json.Marshal(o.vals[k])
+		vb, err := json.Marshal(o.vals[k], jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

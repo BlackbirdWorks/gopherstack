@@ -1,12 +1,14 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -212,7 +214,7 @@ func alarmReasonData(a MetricAlarm, d alarmEvalDetail, now time.Time) string {
 		"evaluatedDatapoints": evaluated,
 	}
 
-	bs, err := json.Marshal(data)
+	bs, err := json.Marshal(data, jsonx.V1())
 	if err != nil {
 		return ""
 	}

@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errKillFake = errors.New("no console")
@@ -79,7 +81,7 @@ func readyServer(t *testing.T, ready *atomic.Bool) string {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok"})
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), healthResponse{Status: "ok"})
 	}))
 	t.Cleanup(srv.Close)
 
@@ -316,12 +318,15 @@ func TestLifecycleStatusServiceHealth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/_gopherstack/health":
-			_ = json.NewEncoder(w).Encode(healthResponse{
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), healthResponse{
 				Status: "ok", Version: "v1", UptimeSecs: 5, Goroutines: 12, HeapAllocB: 3 << 20,
 				Services: []string{"S3", "SQS"}, Disabled: []string{"SNS"},
 			})
 		case "/_localstack/health":
-			_ = json.NewEncoder(w).Encode(localstackHealthResponse{Services: map[string]string{"s3": "available"}})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				localstackHealthResponse{Services: map[string]string{"s3": "available"}},
+			)
 		default:
 			http.NotFound(w, r)
 		}
@@ -336,7 +341,7 @@ func TestLifecycleStatusServiceHealth(t *testing.T) {
 	require.NoError(t, cmd.run(t.Context(), d))
 
 	var rep statusReport
-	require.NoError(t, json.Unmarshal(out.Bytes(), &rep))
+	require.NoError(t, json.Unmarshal(out.Bytes(), &rep, jsonx.V1()))
 
 	got := map[string]serviceState{}
 	for _, s := range rep.Clouds["aws"] {

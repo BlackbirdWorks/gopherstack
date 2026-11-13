@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"slices"
 	"strings"
@@ -92,7 +92,7 @@ func roleDefinitionExists(id string) bool {
 func roleAssignReadOnly() []string { return []string{"id"} }
 
 // CreateRoleAssignment assigns a built-in directory role to a user, role-assignable group or service principal.
-func (b *Backend) CreateRoleAssignment(body map[string]json.RawMessage) (RoleAssignment, error) {
+func (b *Backend) CreateRoleAssignment(body map[string]jsontext.Value) (RoleAssignment, error) {
 	b.mu.Lock("CreateRoleAssignment")
 	defer b.mu.Unlock()
 

@@ -1,12 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestWAF_Tags_TagAndList(t *testing.T) {
@@ -19,7 +21,7 @@ func TestWAF_Tags_TagAndList(t *testing.T) {
 	rec := wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": aclID})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var aclResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp, jsonx.V1()))
 	arn := aclResp["WebACL"].(map[string]any)["WebACLArn"].(string)
 	require.NotEmpty(t, arn)
 
@@ -37,7 +39,7 @@ func TestWAF_Tags_TagAndList(t *testing.T) {
 	rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	info := listResp["TagInfoForResource"].(map[string]any)
 	assert.Equal(t, arn, info["ResourceARN"])
 	tagList := info["TagList"].([]any)
@@ -62,7 +64,7 @@ func TestWAF_Tags_UntagResource(t *testing.T) {
 
 	rec := wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": aclID})
 	var aclResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp, jsonx.V1()))
 	arn := aclResp["WebACL"].(map[string]any)["WebACLArn"].(string)
 
 	// Tag
@@ -85,7 +87,7 @@ func TestWAF_Tags_UntagResource(t *testing.T) {
 	// Verify only k2 remains
 	rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList := listResp["TagInfoForResource"].(map[string]any)["TagList"].([]any)
 	require.Len(t, tagList, 1)
 	assert.Equal(t, "k2", tagList[0].(map[string]any)["Key"])
@@ -108,12 +110,12 @@ func TestWAF_Tags_CreateWebACLWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn := resp["WebACL"].(map[string]any)["WebACLArn"].(string)
 
 	rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList := listResp["TagInfoForResource"].(map[string]any)["TagList"].([]any)
 	require.Len(t, tagList, 1)
 	assert.Equal(t, "cost-center", tagList[0].(map[string]any)["Key"])

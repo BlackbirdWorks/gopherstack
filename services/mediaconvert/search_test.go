@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -74,7 +76,7 @@ func TestSearchJobs_QueueFilter(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recQ.Code)
 
 	var qResp map[string]any
-	require.NoError(t, json.Unmarshal(recQ.Body.Bytes(), &qResp))
+	require.NoError(t, json.Unmarshal(recQ.Body.Bytes(), &qResp, jsonx.V1()))
 
 	qMap, _ := qResp["queue"].(map[string]any)
 	qARN, _ := qMap["arn"].(string)
@@ -239,7 +241,7 @@ func TestSearchJobs_FilterByStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			jobs, _ := out["jobs"].([]any)
 			assert.Len(t, jobs, tt.wantCount)
 		})

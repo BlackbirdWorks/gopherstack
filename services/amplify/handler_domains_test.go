@@ -1,12 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_DomainAssociationCRUD verifies domain association lifecycle via the HTTP handler.
@@ -34,7 +36,7 @@ func TestHandler_DomainAssociationCRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			da := createResp["domainAssociation"].(map[string]any)
 			assert.Equal(t, "example.com", da["domainName"])
 
@@ -47,7 +49,7 @@ func TestHandler_DomainAssociationCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp["domainAssociations"].([]any), 1)
 
 			// Update.
@@ -56,7 +58,7 @@ func TestHandler_DomainAssociationCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var updateResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 			updated := updateResp["domainAssociation"].(map[string]any)
 			assert.Equal(t, true, updated["enableAutoSubDomain"])
 

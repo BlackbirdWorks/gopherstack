@@ -1,11 +1,13 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseTagRoute maps tag-path requests to operations. Per the real
@@ -70,7 +72,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var in tagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -85,7 +87,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, body []byte) error {
 	var in untagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

@@ -2,8 +2,10 @@ package efs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // DescribeFileSystemPolicy returns the resource-based policy for a file system.
@@ -48,7 +50,7 @@ func (b *InMemoryBackend) DeleteFileSystemPolicy(ctx context.Context, fileSystem
 // PutFileSystemPolicy sets the resource-based policy for a file system.
 // The policy must be valid JSON and no larger than 20 KB.
 func (b *InMemoryBackend) PutFileSystemPolicy(ctx context.Context, fileSystemID, policy string) error {
-	if !json.Valid([]byte(policy)) {
+	if !jsontext.Value([]byte(policy)).IsValid(jsonx.V1()) {
 		return fmt.Errorf("%w: FileSystemPolicy is not valid JSON", ErrInvalidPolicy)
 	}
 	if len(policy) > maxFileSystemPolicyBytes {

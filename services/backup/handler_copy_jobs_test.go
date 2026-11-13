@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -35,7 +36,7 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 			}`)
 			require.Equal(t, http.StatusOK, resp.Code)
 			var startData map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &startData))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &startData, jsonx.V1()))
 			jobID := startData["BackupJobId"].(string)
 
 			rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:rp-copy-1"
@@ -49,7 +50,7 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 			_ = jobID
 
 			var copyData map[string]any
-			require.NoError(t, json.Unmarshal(copyResp.Body.Bytes(), &copyData))
+			require.NoError(t, json.Unmarshal(copyResp.Body.Bytes(), &copyData, jsonx.V1()))
 			assert.NotEmpty(t, copyData["CopyJobId"], "CopyJobId must be present")
 
 			creationDate, exists := copyData["CreationDate"]

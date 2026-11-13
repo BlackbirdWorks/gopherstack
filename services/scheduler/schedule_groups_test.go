@@ -2,7 +2,8 @@ package scheduler_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -60,7 +62,7 @@ func TestSchedulerHandler_CreateScheduleGroup(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["ScheduleGroupArn"], "arn:aws:scheduler:")
 				assert.Contains(t, resp["ScheduleGroupArn"], "schedule-group/my-group")
 			}
@@ -125,7 +127,7 @@ func TestCreateScheduleGroup_DescriptionNotAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasDescription := resp["Description"]
 	assert.False(t, hasDescription, "GetScheduleGroupOutput has no Description member on real AWS")
 }
@@ -172,7 +174,7 @@ func TestSchedulerHandler_GetScheduleGroup(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["Name"])
 				assert.Contains(t, resp["Arn"], "schedule-group/"+tt.wantName)
 				assert.Equal(t, "ACTIVE", resp["State"])
@@ -192,7 +194,7 @@ func TestGetScheduleGroup_ReturnsCreationDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["CreationDate"])
 	assert.NotEmpty(t, resp["LastModificationDate"])
 }
@@ -206,11 +208,11 @@ func TestGetScheduleGroup_TimestampsAreEpochSeconds(t *testing.T) {
 	rec := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "default"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	var cd float64
-	require.NoError(t, json.Unmarshal(out["CreationDate"], &cd), "CreationDate must be a JSON number")
+	require.NoError(t, json.Unmarshal(out["CreationDate"], &cd, jsonx.V1()), "CreationDate must be a JSON number")
 	assert.Greater(t, cd, float64(0))
 }
 
@@ -232,19 +234,19 @@ func TestGetScheduleGroup_OmitsTags(t *testing.T) {
 	rec2 := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "grp-with-tags"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	_, hasTags := out["Tags"]
 	assert.False(t, hasTags, "GetScheduleGroup must not include a Tags field (not in real GetScheduleGroupOutput)")
 
 	var groupARN string
-	require.NoError(t, json.Unmarshal(out["Arn"], &groupARN))
+	require.NoError(t, json.Unmarshal(out["Arn"], &groupARN, jsonx.V1()))
 
 	listRec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": groupARN})
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagsMap := wireTagsToMap(t, listResp["Tags"])
 	assert.Equal(t, "test", tagsMap["env"])
 }
@@ -371,7 +373,7 @@ func TestSchedulerHandler_ListScheduleGroups(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "ScheduleGroups")
 			groups, ok := resp["ScheduleGroups"].([]any)
 			require.True(t, ok)
@@ -395,7 +397,7 @@ func TestListScheduleGroups_FilterByNamePrefix(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ScheduleGroups"].([]any)
 	require.Len(t, groups, 1)
@@ -417,7 +419,7 @@ func TestListScheduleGroups_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups := resp["ScheduleGroups"].([]any)
 	names := make([]string, len(groups))
@@ -441,13 +443,13 @@ func TestListScheduleGroups_TimestampsAreEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		ScheduleGroups []map[string]json.RawMessage `json:"ScheduleGroups"`
+		ScheduleGroups []map[string]jsontext.Value `json:"ScheduleGroups"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.ScheduleGroups)
 
 	var cd float64
-	require.NoError(t, json.Unmarshal(out.ScheduleGroups[0]["CreationDate"], &cd))
+	require.NoError(t, json.Unmarshal(out.ScheduleGroups[0]["CreationDate"], &cd, jsonx.V1()))
 	assert.Greater(t, cd, float64(0))
 }
 
@@ -469,13 +471,13 @@ func TestListScheduleGroups_OmitsTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out struct {
-		ScheduleGroups []map[string]json.RawMessage `json:"ScheduleGroups"`
+		ScheduleGroups []map[string]jsontext.Value `json:"ScheduleGroups"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 	for _, g := range out.ScheduleGroups {
 		var name string
-		require.NoError(t, json.Unmarshal(g["Name"], &name))
+		require.NoError(t, json.Unmarshal(g["Name"], &name, jsonx.V1()))
 
 		if name == "list-grp-tags" {
 			_, hasTags := g["Tags"]
@@ -503,15 +505,15 @@ func TestListScheduleGroups_MaxResultsPagination(t *testing.T) {
 	rec := doSchedulerRequest(t, h, "ListScheduleGroups", map[string]any{"MaxResults": "2"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
-	var groups []json.RawMessage
-	require.NoError(t, json.Unmarshal(out["ScheduleGroups"], &groups))
+	var groups []jsontext.Value
+	require.NoError(t, json.Unmarshal(out["ScheduleGroups"], &groups, jsonx.V1()))
 	assert.Len(t, groups, 2)
 
 	var token string
-	require.NoError(t, json.Unmarshal(out["NextToken"], &token))
+	require.NoError(t, json.Unmarshal(out["NextToken"], &token, jsonx.V1()))
 	assert.NotEmpty(t, token)
 }
 
@@ -527,7 +529,7 @@ func TestRESTListScheduleGroups(t *testing.T) {
 	var out struct {
 		ScheduleGroups []map[string]any `json:"ScheduleGroups"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.ScheduleGroups, "default group should always be present")
 }
 
@@ -551,7 +553,7 @@ func TestSchedulerHandler_ScheduleGroup_RESTRouting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "my-group", getResp["Name"])
 
 	req3 := httptest.NewRequest(http.MethodGet, "/schedule-groups", nil)

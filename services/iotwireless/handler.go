@@ -1,7 +1,8 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -975,7 +977,10 @@ func writeError(c *echo.Context, status int, message string) error {
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 	c.Response().WriteHeader(status)
 
-	_ = json.NewEncoder(c.Response()).Encode(errorResponse{Type: errType, Message: message})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(c.Response(), jsonx.V1()),
+		errorResponse{Type: errType, Message: message},
+	)
 
 	return nil
 }
@@ -985,7 +990,7 @@ func writeJSON(c *echo.Context, status int, v any) error {
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().WriteHeader(status)
 
-	_ = json.NewEncoder(c.Response()).Encode(v)
+	_ = json.MarshalEncode(jsontext.NewEncoder(c.Response(), jsonx.V1()), v)
 
 	return nil
 }

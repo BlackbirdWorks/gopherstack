@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -37,7 +38,7 @@ func TestEMR_AddAndRemoveTags(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			addRec := doEMRRequest(t, h, "AddTags", map[string]any{
 				"ResourceId": createOut.JobFlowID,
@@ -75,7 +76,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 				var createOut struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				return createOut.JobFlowID
 			},
@@ -96,7 +97,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 				var createOut struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 
 				return createOut.JobFlowID
 			},
@@ -131,7 +132,7 @@ func TestEMR_ListTagsForResource(t *testing.T) {
 				var tagOut struct {
 					Tags []emr.Tag `json:"Tags"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut, jsonx.V1()))
 				tt.checkTags(t, tagOut.Tags)
 			}
 		})
@@ -270,7 +271,7 @@ func TestListTagsForResource_ReturnsList(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListTagsForResource", map[string]any{
 		"ResourceId": createOut.JobFlowID,
@@ -280,7 +281,7 @@ func TestListTagsForResource_ReturnsList(t *testing.T) {
 	var out struct {
 		Tags []emr.Tag `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Tags, 2)
 	// Verify sorted order.
 	assert.Equal(t, "a", out.Tags[0].Key)

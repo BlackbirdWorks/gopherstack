@@ -1,12 +1,14 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var logicExtraProps = []string{ //nolint:gochecknoglobals // static property list
@@ -374,7 +376,7 @@ func (p *LogicProvider) triggerBody(w *logicWorkflow, name string) map[string]an
 }
 
 func marshalLogicSize(v any) int64 {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return 0
 	}

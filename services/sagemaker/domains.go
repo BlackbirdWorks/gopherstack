@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -43,18 +43,18 @@ type Domain struct {
 	VpcID                      string            `json:"VpcId,omitempty"`
 	TagPropagation             string            `json:"TagPropagation,omitempty"`
 	SubnetIDs                  []string          `json:"SubnetIds,omitempty"`
-	DefaultUserSettings        json.RawMessage   `json:"DefaultUserSettings,omitempty"`
-	DefaultSpaceSettings       json.RawMessage   `json:"DefaultSpaceSettings,omitempty"`
-	DomainSettings             json.RawMessage   `json:"DomainSettings,omitempty"`
+	DefaultUserSettings        jsontext.Value    `json:"DefaultUserSettings,omitempty"`
+	DefaultSpaceSettings       jsontext.Value    `json:"DefaultSpaceSettings,omitempty"`
+	DomainSettings             jsontext.Value    `json:"DomainSettings,omitempty"`
 }
 
 func cloneDomain(d *Domain) *Domain {
 	cp := *d
 	cp.Tags = maps.Clone(d.Tags)
 	cp.SubnetIDs = append([]string(nil), d.SubnetIDs...)
-	cp.DefaultUserSettings = append(json.RawMessage(nil), d.DefaultUserSettings...)
-	cp.DefaultSpaceSettings = append(json.RawMessage(nil), d.DefaultSpaceSettings...)
-	cp.DomainSettings = append(json.RawMessage(nil), d.DomainSettings...)
+	cp.DefaultUserSettings = append(jsontext.Value(nil), d.DefaultUserSettings...)
+	cp.DefaultSpaceSettings = append(jsontext.Value(nil), d.DefaultSpaceSettings...)
+	cp.DomainSettings = append(jsontext.Value(nil), d.DomainSettings...)
 
 	return &cp
 }
@@ -72,9 +72,9 @@ type CreateDomainOptions struct {
 	VpcID                      string
 	TagPropagation             string
 	SubnetIDs                  []string
-	DefaultUserSettings        json.RawMessage
-	DefaultSpaceSettings       json.RawMessage
-	DomainSettings             json.RawMessage
+	DefaultUserSettings        jsontext.Value
+	DefaultSpaceSettings       jsontext.Value
+	DomainSettings             jsontext.Value
 }
 
 // CreateDomain creates a new SageMaker Studio domain.
@@ -198,9 +198,9 @@ type UpdateDomainOptions struct {
 	TagPropagation             string
 	VpcID                      string
 	SubnetIDs                  []string
-	DefaultUserSettings        json.RawMessage
-	DefaultSpaceSettings       json.RawMessage
-	DomainSettingsForUpdate    json.RawMessage
+	DefaultUserSettings        jsontext.Value
+	DefaultSpaceSettings       jsontext.Value
+	DomainSettingsForUpdate    jsontext.Value
 }
 
 // applyUpdateDomainOptions overwrites d's overridable fields with any

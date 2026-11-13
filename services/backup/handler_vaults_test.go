@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -33,7 +34,7 @@ func TestDescribeBackupVaultVaultState(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			state, exists := data["VaultState"]
 			require.True(t, exists, "VaultState must be present in DescribeBackupVault response")
@@ -67,7 +68,7 @@ func TestListBackupVaultsVaultState(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			list, ok := data["BackupVaultList"].([]any)
 			require.True(t, ok, "BackupVaultList must be present")
@@ -184,14 +185,14 @@ func TestCreateVaultCreatorRequestIdIdempotency(t *testing.T) {
 			r1 := doRequest(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.firstRequest)
 			require.Equal(t, http.StatusOK, r1.Code)
 			var d1 map[string]any
-			require.NoError(t, json.Unmarshal(r1.Body.Bytes(), &d1))
+			require.NoError(t, json.Unmarshal(r1.Body.Bytes(), &d1, jsonx.V1()))
 			arn1 := d1["BackupVaultArn"].(string)
 
 			r2 := doRequest(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.secondRequest)
 			assert.Equal(t, tt.wantSecondCode, r2.Code)
 			if tt.wantSameArn {
 				var d2 map[string]any
-				require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &d2))
+				require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &d2, jsonx.V1()))
 				assert.Equal(t, arn1, d2["BackupVaultArn"].(string))
 			}
 		})

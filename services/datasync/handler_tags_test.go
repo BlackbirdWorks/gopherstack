@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDataSync_Tags(t *testing.T) {
@@ -30,7 +32,7 @@ func TestDataSync_Tags(t *testing.T) {
 	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": agentArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags, 2)
@@ -44,7 +46,7 @@ func TestDataSync_Tags(t *testing.T) {
 
 	// Verify untag
 	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": agentArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags = listResp["Tags"].([]any)
 	assert.Len(t, tags, 1)
 
@@ -79,7 +81,7 @@ func TestDataSync_TagsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	tags, ok := listResp["Tags"].([]any)
 	require.True(t, ok)
@@ -102,7 +104,7 @@ func TestDataSync_TagsRoundTrip(t *testing.T) {
 
 	rec = doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": agentArn})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	tags, ok = listResp["Tags"].([]any)
 	require.True(t, ok)

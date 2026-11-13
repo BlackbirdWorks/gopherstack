@@ -2,11 +2,14 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -22,11 +25,11 @@ const (
 // ContainerPolicies are the optional container settings that are stored and echoed verbatim; the unique-key
 // policy is enforced on writes and computed properties are evaluated by queries.
 type ContainerPolicies struct {
-	UniqueKeyPolicy       json.RawMessage `json:"uniqueKeyPolicy"`
-	GeospatialConfig      json.RawMessage `json:"geospatialConfig"`
-	VectorEmbeddingPolicy json.RawMessage `json:"vectorEmbeddingPolicy"`
-	FullTextPolicy        json.RawMessage `json:"fullTextPolicy"`
-	ComputedProperties    json.RawMessage `json:"computedProperties"`
+	UniqueKeyPolicy       jsontext.Value `json:"uniqueKeyPolicy"`
+	GeospatialConfig      jsontext.Value `json:"geospatialConfig"`
+	VectorEmbeddingPolicy jsontext.Value `json:"vectorEmbeddingPolicy"`
+	FullTextPolicy        jsontext.Value `json:"fullTextPolicy"`
+	ComputedProperties    jsontext.Value `json:"computedProperties"`
 }
 
 type uniqueKeyPolicy struct {
@@ -40,14 +43,14 @@ type computedProperty struct {
 	Query string `json:"query"`
 }
 
-func isJSONNull(raw json.RawMessage) bool {
+func isJSONNull(raw jsontext.Value) bool {
 	t := bytes.TrimSpace(raw)
 
 	return len(t) == 0 || bytes.Equal(t, []byte(nullText))
 }
 
 func (p ContainerPolicies) stored() ContainerPolicies {
-	for _, f := range []*json.RawMessage{
+	for _, f := range []*jsontext.Value{
 		&p.UniqueKeyPolicy, &p.GeospatialConfig, &p.VectorEmbeddingPolicy, &p.FullTextPolicy, &p.ComputedProperties,
 	} {
 		if isJSONNull(*f) {
@@ -81,13 +84,13 @@ func (p ContainerPolicies) validate() error {
 
 // validateSearchIndexes checks the indexing policy's vector and full-text indexes against the policies they
 // refer to.
-func validateSearchIndexes(indexing json.RawMessage, p ContainerPolicies) error {
+func validateSearchIndexes(indexing jsontext.Value, p ContainerPolicies) error {
 	if len(indexing) == 0 {
 		return nil
 	}
 
 	var pol indexingPolicy
-	if err := json.Unmarshal(indexing, &pol); err != nil {
+	if err := json.Unmarshal(indexing, &pol, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: indexingPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
@@ -148,26 +151,27 @@ func (c *storedContainer) checkReplaceIndexes(spec ContainerSpec) error {
 }
 
 // sameJSON reports whether two raw JSON values are semantically equal.
-func sameJSON(a, b json.RawMessage) bool {
+func sameJSON(a, b jsontext.Value) bool {
 	var va, vb any
 
-	return json.Unmarshal(a, &va) == nil && json.Unmarshal(b, &vb) == nil && reflect.DeepEqual(va, vb)
+	return json.Unmarshal(a, &va, jsonx.V1()) == nil && json.Unmarshal(b, &vb, jsonx.V1()) == nil &&
+		reflect.DeepEqual(va, vb)
 }
 
-func parseUniqueKeyPolicy(raw json.RawMessage) (uniqueKeyPolicy, error) {
+func parseUniqueKeyPolicy(raw jsontext.Value) (uniqueKeyPolicy, error) {
 	var pol uniqueKeyPolicy
 	if isJSONNull(raw) {
 		return pol, nil
 	}
 
-	if err := json.Unmarshal(raw, &pol); err != nil {
+	if err := json.Unmarshal(raw, &pol, jsonx.V1()); err != nil {
 		return pol, fmt.Errorf("%w: uniqueKeyPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
 	return pol, nil
 }
 
-func validateUniqueKeyPolicy(raw json.RawMessage) error {
+func validateUniqueKeyPolicy(raw jsontext.Value) error {
 	pol, err := parseUniqueKeyPolicy(raw)
 	if err != nil {
 		return err
@@ -192,7 +196,7 @@ func validateUniqueKeyPolicy(raw json.RawMessage) error {
 	return nil
 }
 
-func validateGeospatialConfig(raw json.RawMessage) error {
+func validateGeospatialConfig(raw jsontext.Value) error {
 	if isJSONNull(raw) {
 		return nil
 	}
@@ -201,7 +205,12 @@ func validateGeospatialConfig(raw json.RawMessage) error {
 		Type string `json:"type"`
 	}
 
-	if err := json.Unmarshal(raw, &cfg); err != nil || (cfg.Type != geoTypeGeography && cfg.Type != geoTypeGeometry) {
+	if err := json.Unmarshal(
+		raw,
+		&cfg,
+		jsonx.V1(),
+	); err != nil ||
+		(cfg.Type != geoTypeGeography && cfg.Type != geoTypeGeometry) {
 		return fmt.Errorf("%w: geospatialConfig.type must be %s or %s",
 			ErrInvalidContainerPolicy, geoTypeGeography, geoTypeGeometry)
 	}
@@ -211,13 +220,13 @@ func validateGeospatialConfig(raw json.RawMessage) error {
 
 // parseComputedProperties decodes and validates computedProperties: each query must be
 // SELECT VALUE <expr> FROM <alias> with nothing else.
-func parseComputedProperties(raw json.RawMessage) ([]computedProperty, error) {
+func parseComputedProperties(raw jsontext.Value) ([]computedProperty, error) {
 	if isJSONNull(raw) {
 		return nil, nil
 	}
 
 	var props []computedProperty
-	if err := json.Unmarshal(raw, &props); err != nil {
+	if err := json.Unmarshal(raw, &props, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: computedProperties is malformed", ErrInvalidContainerPolicy)
 	}
 
@@ -273,7 +282,7 @@ func isBareSelectValue(stmt *sqlSelectStmt) bool {
 }
 
 // policiesEqualUnique reports whether two raw unique-key policies are semantically identical.
-func policiesEqualUnique(a, b json.RawMessage) bool {
+func policiesEqualUnique(a, b jsontext.Value) bool {
 	pa, errA := parseUniqueKeyPolicy(a)
 	pb, errB := parseUniqueKeyPolicy(b)
 
@@ -309,7 +318,7 @@ func (c *storedContainer) applyPolicies(p ContainerPolicies, replacing bool) err
 		c.UniqueKeyPolicy = p.UniqueKeyPolicy
 	}
 
-	for _, f := range []struct{ dst, src *json.RawMessage }{
+	for _, f := range []struct{ dst, src *jsontext.Value }{
 		{&c.GeospatialConfig, &p.GeospatialConfig},
 		{&c.VectorEmbeddingPolicy, &p.VectorEmbeddingPolicy},
 		{&c.FullTextPolicy, &p.FullTextPolicy},
@@ -324,7 +333,7 @@ func (c *storedContainer) applyPolicies(p ContainerPolicies, replacing bool) err
 }
 
 // policyChanged reports whether a replace request carries a setting different from the stored one.
-func policyChanged(stored, requested json.RawMessage) bool {
+func policyChanged(stored, requested jsontext.Value) bool {
 	return requested != nil && !sameJSON(stored, requested)
 }
 

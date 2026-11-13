@@ -4,7 +4,7 @@ package kms_test
 // keys and aliases created in one region are not visible in another.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -48,14 +49,14 @@ func TestRegionIsolation_AliasInTwoRegions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var east1Key kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1Key))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1Key, jsonx.V1()))
 	east1KeyID := east1Key.KeyMetadata.KeyID
 
 	// Create alias "alias/my-key" in us-east-1.
 	aliasBody, _ := json.Marshal(map[string]string{
 		"AliasName":   "alias/my-key",
 		"TargetKeyId": east1KeyID,
-	})
+	}, jsonx.V1())
 	rec = kmsCall(t, h, e, "CreateAlias", "us-east-1", string(aliasBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -64,14 +65,14 @@ func TestRegionIsolation_AliasInTwoRegions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var west2Key kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &west2Key))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &west2Key, jsonx.V1()))
 	west2KeyID := west2Key.KeyMetadata.KeyID
 
 	// Create same alias "alias/my-key" in us-west-2 — should succeed (different region).
 	aliasBody2, _ := json.Marshal(map[string]string{
 		"AliasName":   "alias/my-key",
 		"TargetKeyId": west2KeyID,
-	})
+	}, jsonx.V1())
 	rec = kmsCall(t, h, e, "CreateAlias", "us-west-2", string(aliasBody2))
 	assert.Equal(t, http.StatusOK, rec.Code, "same alias name should succeed in a different region")
 }
@@ -102,7 +103,7 @@ func TestRegionIsolation_ListKeys_RegionScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var east1List kms.ListKeysOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1List))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1List, jsonx.V1()))
 	assert.Len(t, east1List.Keys, 3, "us-east-1 should have 3 keys")
 
 	// ListKeys in us-west-2 should return only 2 keys.
@@ -110,7 +111,7 @@ func TestRegionIsolation_ListKeys_RegionScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var west2List kms.ListKeysOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &west2List))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &west2List, jsonx.V1()))
 	assert.Len(t, west2List.Keys, 2, "us-west-2 should have 2 keys")
 }
 
@@ -129,18 +130,18 @@ func TestRegionIsolation_DescribeKey_CrossRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var east1Key kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1Key))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &east1Key, jsonx.V1()))
 	east1KeyARN := east1Key.KeyMetadata.Arn
 
 	aliasBody, _ := json.Marshal(map[string]string{
 		"AliasName":   "alias/region-test-key",
 		"TargetKeyId": east1Key.KeyMetadata.KeyID,
-	})
+	}, jsonx.V1())
 	rec = kmsCall(t, h, e, "CreateAlias", "us-east-1", string(aliasBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// DescribeKey via alias in us-east-1 should succeed.
-	descBody, _ := json.Marshal(map[string]string{"KeyId": "alias/region-test-key"})
+	descBody, _ := json.Marshal(map[string]string{"KeyId": "alias/region-test-key"}, jsonx.V1())
 	rec = kmsCall(t, h, e, "DescribeKey", "us-east-1", string(descBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "DescribeKey in same region via alias should succeed")
 
@@ -149,7 +150,7 @@ func TestRegionIsolation_DescribeKey_CrossRegion(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "DescribeKey via alias from wrong region should fail")
 
 	// DescribeKey via ARN from us-west-2 should succeed — ARN encodes the region.
-	arnBody, _ := json.Marshal(map[string]string{"KeyId": east1KeyARN})
+	arnBody, _ := json.Marshal(map[string]string{"KeyId": east1KeyARN}, jsonx.V1())
 	rec = kmsCall(t, h, e, "DescribeKey", "us-west-2", string(arnBody))
 	assert.Equal(t, http.StatusOK, rec.Code, "DescribeKey via ARN should succeed from any region")
 }
@@ -168,12 +169,12 @@ func TestRegionIsolation_AliasNotVisible_CrossRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var keyOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &keyOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &keyOut, jsonx.V1()))
 
 	aliasBody, _ := json.Marshal(map[string]string{
 		"AliasName":   "alias/east-only",
 		"TargetKeyId": keyOut.KeyMetadata.KeyID,
-	})
+	}, jsonx.V1())
 	rec = kmsCall(t, h, e, "CreateAlias", "us-east-1", string(aliasBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -182,7 +183,7 @@ func TestRegionIsolation_AliasNotVisible_CrossRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var aliasList kms.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aliasList))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aliasList, jsonx.V1()))
 
 	for _, a := range aliasList.Aliases {
 		assert.NotEqual(t, "alias/east-only", a.AliasName,

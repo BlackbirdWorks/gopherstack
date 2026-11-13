@@ -2,9 +2,11 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type startQueryInput struct {
@@ -74,7 +76,7 @@ type listLogGroupsForQueryOutput struct {
 
 func (h *Handler) handleStartQuery(ctx context.Context, b []byte) (any, error) {
 	var input startQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -103,7 +105,7 @@ func (h *Handler) handleStartQuery(ctx context.Context, b []byte) (any, error) {
 
 func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input getQueryResultsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	results, stats, status, err := h.Backend.GetQueryResults(input.QueryID)
@@ -140,7 +142,7 @@ func (h *Handler) handleGetQueryResults(ctx context.Context, b []byte) (any, err
 
 func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input stopQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.StopQuery(input.QueryID); err != nil {
@@ -152,7 +154,7 @@ func (h *Handler) handleStopQuery(ctx context.Context, b []byte) (any, error) { 
 
 func (h *Handler) handleDescribeQueries(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input describeQueriesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	queries, next, err := h.Backend.DescribeQueries(
@@ -179,7 +181,7 @@ func (h *Handler) handleListLogGroupsForQuery(
 	b []byte,
 ) (any, error) {
 	var input listLogGroupsForQueryInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	groups, err := h.Backend.ListLogGroupsForQuery(input.QueryID)

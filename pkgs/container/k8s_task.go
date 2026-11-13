@@ -2,7 +2,7 @@ package container
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PodLaunch describes a multi-container Pod started as one unit, for callers (ECS tasks) that map their own
@@ -177,7 +179,7 @@ func (r *KubernetesRuntime) ownSecret(ctx context.Context, pod *corev1.Pod) erro
 				APIVersion: "v1", Kind: "Pod", Name: pod.Name, UID: pod.UID,
 			}},
 		},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("marshal owner reference: %w", err)
 	}

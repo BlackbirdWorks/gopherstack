@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -109,18 +110,18 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 				`{"BackupPlan":{"BackupPlanName":"p","Rules":[{"RuleName":"r","TargetBackupVaultName":"v"}]}}`)
 			require.Equal(t, http.StatusOK, planResp.Code)
 			var planData map[string]any
-			require.NoError(t, json.Unmarshal(planResp.Body.Bytes(), &planData))
+			require.NoError(t, json.Unmarshal(planResp.Body.Bytes(), &planData, jsonx.V1()))
 			planID := planData["BackupPlanId"].(string)
 
 			// Create selection.
-			body, err := json.Marshal(map[string]any{"BackupSelection": tt.selection})
+			body, err := json.Marshal(map[string]any{"BackupSelection": tt.selection}, jsonx.V1())
 			require.NoError(t, err)
 			selResp := doRequest(t, h, http.MethodPut,
 				"/backup/plans/"+planID+"/selections", string(body))
 			require.Equal(t, http.StatusOK, selResp.Code)
 
 			var selData map[string]any
-			require.NoError(t, json.Unmarshal(selResp.Body.Bytes(), &selData))
+			require.NoError(t, json.Unmarshal(selResp.Body.Bytes(), &selData, jsonx.V1()))
 			selID := selData["SelectionId"].(string)
 
 			// Get selection and verify fields.
@@ -129,7 +130,7 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var getData map[string]any
-			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData))
+			require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getData, jsonx.V1()))
 			selDoc := getData["BackupSelection"].(map[string]any)
 			tt.wantSel(t, selDoc)
 		})

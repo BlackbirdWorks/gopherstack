@@ -2,7 +2,8 @@ package extensions
 
 import (
 	"crypto/subtle"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -11,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -115,8 +118,8 @@ func (m *Manager) ServeRegister(w http.ResponseWriter, r *http.Request) {
 
 	var reg Registration
 
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRegistrationBytes))
-	if err := dec.Decode(&reg); err != nil {
+	dec := jsontext.NewDecoder(http.MaxBytesReader(w, r.Body, maxRegistrationBytes))
+	if err := json.UnmarshalDecode(dec, &reg, jsonx.V1()); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{keyMessage: "invalid JSON: " + err.Error()})
 
 		return
@@ -287,5 +290,5 @@ func overlap(a, b []string) bool {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), v)
 }

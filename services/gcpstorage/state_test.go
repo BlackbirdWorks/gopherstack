@@ -2,7 +2,8 @@ package gcpstorage_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
 
@@ -19,7 +21,7 @@ type anyTopic struct{}
 func (anyTopic) TopicExists(string) bool                         { return true }
 func (anyTopic) Publish(string, []byte, map[string]string) error { return nil }
 
-func rawJSON(s string) json.RawMessage { return json.RawMessage(s) }
+func rawJSON(s string) jsontext.Value { return jsontext.Value(s) }
 
 func TestJanitorRunsLifecycleOnTheClock(t *testing.T) {
 	t.Parallel()
@@ -149,11 +151,11 @@ func TestHMACSecretSurvivesRestoreAndStillVerifies(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code, body)
 }
 
-func mustField(t *testing.T, raw json.RawMessage, field string) json.RawMessage {
+func mustField(t *testing.T, raw jsontext.Value, field string) jsontext.Value {
 	t.Helper()
 
-	var m map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw, &m))
+	var m map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(raw, &m, jsonx.V1()))
 
 	return m[field]
 }

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_TransformJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		assert.NotEmpty(t, createResp["TransformJobArn"])
 
 		// Describe — InProgress initially
@@ -60,7 +61,7 @@ func TestHandler_TransformJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "my-transform", descResp["TransformJobName"])
 		assert.Equal(t, "my-model", descResp["ModelName"])
 		assert.Equal(t, "InProgress", descResp["TransformJobStatus"])
@@ -71,7 +72,7 @@ func TestHandler_TransformJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		summaries := listResp["TransformJobSummaries"].([]any)
 		assert.Len(t, summaries, 1)
 
@@ -81,7 +82,7 @@ func TestHandler_TransformJobLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
 			"TransformJobName": "my-transform",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "Completed", descResp["TransformJobStatus"])
 	})
 }
@@ -147,7 +148,7 @@ func TestHandler_CreateTransformJob_ModelNotFound(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFound", errResp["__type"])
 
 	rec = doSageMakerRequest(t, h, "DescribeTransformJob", map[string]any{
@@ -185,7 +186,7 @@ func TestHandler_StopTransformJob(t *testing.T) {
 		"TransformJobName": "stop-me",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Stopping", descResp["TransformJobStatus"])
 }
 
@@ -219,7 +220,7 @@ func TestHandler_ListTransformJobs_StatusFilter(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries := listResp["TransformJobSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 	assert.Equal(t, "tj-2", summaries[0].(map[string]any)["TransformJobName"])
@@ -253,7 +254,7 @@ func TestHandler_ListTransformJobs_SortByName(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["TransformJobSummaries"].([]any)
 	require.Len(t, summaries, 2)
 	assert.Equal(t, "tj-alpha", summaries[0].(map[string]any)["TransformJobName"])
@@ -341,7 +342,7 @@ func TestHandler_CreateTransformJob_RoleArnNotPartOfWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	_, present := descResp["RoleArn"]
 	assert.False(t, present, "RoleArn is not a real CreateTransformJobInput/DescribeTransformJobOutput field")
 }
@@ -482,7 +483,7 @@ func TestHandler_Tags_TransformJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobARN := createResp["TransformJobArn"]
 	require.NotEmpty(t, jobARN)
 
@@ -492,7 +493,7 @@ func TestHandler_Tags_TransformJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "owner", tags[0].(map[string]any)["Key"])

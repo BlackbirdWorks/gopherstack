@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +12,8 @@ import (
 	"github.com/google/rpmpack"
 	"github.com/stretchr/testify/require"
 	arapi "google.golang.org/api/artifactregistry/v1"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func tarGz(t *testing.T, files map[string]string) []byte {
@@ -108,7 +110,7 @@ func fieldOf(stanza, field string) string {
 	return ""
 }
 
-func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(raw, v) }
+func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(raw, v, jsonx.V1()) }
 
 func aptUpload(svc *arapi.Service, repo string) *arapi.ProjectsLocationsRepositoriesAptArtifactsUploadCall {
 	return svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName(repo), &arapi.UploadAptArtifactRequest{})

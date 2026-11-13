@@ -1,7 +1,7 @@
 package ocivault
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -112,19 +112,19 @@ type Secret struct {
 	GenContext     *GenerationContext        `json:"genContext,omitempty"`
 	Rotation       *SecretRotation           `json:"rotation,omitempty"`
 	transition
-	KeyID         string            `json:"keyId"`
-	VaultID       string            `json:"vaultId"`
-	CompartmentID string            `json:"compartmentId"`
-	Description   string            `json:"description,omitempty"`
-	State         string            `json:"state"`
-	Etag          string            `json:"etag"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Versions      []*SecretVersion  `json:"versions"`
-	Rules         []json.RawMessage `json:"rules,omitempty"`
-	Current       int64             `json:"current"`
-	Previous      int64             `json:"previous"`
-	Pending       int64             `json:"pending"`
-	Seq           int64             `json:"seq"`
-	AutoGen       bool              `json:"autoGen,omitempty"`
+	KeyID         string           `json:"keyId"`
+	VaultID       string           `json:"vaultId"`
+	CompartmentID string           `json:"compartmentId"`
+	Description   string           `json:"description,omitempty"`
+	State         string           `json:"state"`
+	Etag          string           `json:"etag"`
+	ID            string           `json:"id"`
+	Name          string           `json:"name"`
+	Versions      []*SecretVersion `json:"versions"`
+	Rules         []jsontext.Value `json:"rules,omitempty"`
+	Current       int64            `json:"current"`
+	Previous      int64            `json:"previous"`
+	Pending       int64            `json:"pending"`
+	Seq           int64            `json:"seq"`
+	AutoGen       bool             `json:"autoGen,omitempty"`
 }

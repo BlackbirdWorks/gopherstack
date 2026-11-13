@@ -1,12 +1,15 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
 	"regexp"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -81,7 +84,7 @@ func gcpComputeBody(method string, parts []string, in io.Reader) ([]byte, error)
 }
 
 func decodeComputeBody(in io.Reader, out any) error {
-	if err := json.NewDecoder(in).Decode(out); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(in), out, jsonx.V1()); err != nil {
 		return errComputeBody
 	}
 
@@ -101,7 +104,7 @@ func rebuildComputeSnapshot(in io.Reader) ([]byte, error) {
 		return nil, errComputeSnapName
 	}
 
-	return json.Marshal(map[string]string{computeKeyName: req.Name})
+	return json.Marshal(map[string]string{computeKeyName: req.Name}, jsonx.V1())
 }
 
 func rebuildComputeInstance(in io.Reader, zone string) ([]byte, error) {
@@ -147,7 +150,7 @@ func rebuildComputeInstance(in io.Reader, zone string) ([]byte, error) {
 		out["labels"] = labels
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 func shortComputeName(s string) string {

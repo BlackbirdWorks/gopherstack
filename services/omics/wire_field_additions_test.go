@@ -2,7 +2,7 @@ package omics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
@@ -578,7 +579,7 @@ func TestListAnnotationImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	var resp struct {
 		ImportJobs []map[string]any `json:"annotationImportJobs"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ImportJobs, 1)
 
 	job := resp.ImportJobs[0]
@@ -626,7 +627,7 @@ func TestListVariantImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	var resp struct {
 		ImportJobs []map[string]any `json:"variantImportJobs"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ImportJobs, 1)
 
 	job := resp.ImportJobs[0]
@@ -682,7 +683,7 @@ func TestOmicsStoreLists_OmitGetOnlyFields(t *testing.T) {
 				var resp struct {
 					Stores []map[string]any `json:"annotationStores"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				require.Len(t, resp.Stores, 1)
 
 				return resp.Stores[0]
@@ -708,7 +709,7 @@ func TestOmicsStoreLists_OmitGetOnlyFields(t *testing.T) {
 				var resp struct {
 					Stores []map[string]any `json:"variantStores"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				require.Len(t, resp.Stores, 1)
 
 				return resp.Stores[0]
@@ -737,7 +738,7 @@ func TestOmicsStoreLists_OmitGetOnlyFields(t *testing.T) {
 				var resp struct {
 					Versions []map[string]any `json:"annotationStoreVersions"`
 				}
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				require.Len(t, resp.Versions, 1)
 
 				return resp.Versions[0]

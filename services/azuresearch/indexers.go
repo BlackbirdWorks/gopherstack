@@ -3,7 +3,7 @@ package azuresearch
 import (
 	"encoding/base64"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -296,7 +297,7 @@ func crackBlob(be BlobEntry, data []byte, account, container string, cfg map[str
 func jsonDocs(data []byte, withMeta func(map[string]any) map[string]any, array bool) []map[string]any {
 	if array {
 		var list []map[string]any
-		if json.Unmarshal(data, &list) != nil {
+		if json.Unmarshal(data, &list, jsonx.V1()) != nil {
 			return nil
 		}
 
@@ -309,7 +310,7 @@ func jsonDocs(data []byte, withMeta func(map[string]any) map[string]any, array b
 	}
 
 	var m map[string]any
-	if json.Unmarshal(data, &m) != nil {
+	if json.Unmarshal(data, &m, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -325,7 +326,7 @@ func jsonLineDocs(data []byte, withMeta func(map[string]any) map[string]any) []m
 		}
 
 		var m map[string]any
-		if json.Unmarshal([]byte(line), &m) == nil {
+		if json.Unmarshal([]byte(line), &m, jsonx.V1()) == nil {
 			out = append(out, withMeta(m))
 		}
 	}
@@ -611,7 +612,7 @@ func coerceTarget(ix *Index, t map[string]any) map[string]any {
 			}
 		case typeInt32, typeInt64:
 			if n, isNum := v.(float64); isNum {
-				t[f.Name] = json.Number(fmtNum(n))
+				t[f.Name] = jsonx.Number(fmtNum(n))
 			}
 		}
 	}
@@ -647,7 +648,7 @@ func applyMappingFunc(fn map[string]any, v any) (any, error) {
 		return parts[int(pos)], nil
 	case "jsonArrayToStringCollection":
 		var out []any
-		if err := json.Unmarshal([]byte(s), &out); err != nil {
+		if err := json.Unmarshal([]byte(s), &out, jsonx.V1()); err != nil {
 			return nil, badf("jsonArrayToStringCollection: the value is not a JSON array of strings.")
 		}
 

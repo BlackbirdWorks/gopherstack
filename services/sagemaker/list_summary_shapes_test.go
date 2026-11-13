@@ -1,13 +1,15 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListSummaries_MemberRoundTrips drives each op's Create then List
@@ -199,7 +201,7 @@ func TestListInferenceExperiments_SummaryOmitsArn(t *testing.T) {
 	var resp struct {
 		InferenceExperiments []map[string]any `json:"InferenceExperiments"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.InferenceExperiments, 1)
 
 	_, hasArn := resp.InferenceExperiments[0]["Arn"]
@@ -244,7 +246,7 @@ func TestListTransformJobs_SummaryOmitsModelName(t *testing.T) {
 	var resp struct {
 		TransformJobSummaries []map[string]any `json:"TransformJobSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.TransformJobSummaries, 1)
 
 	_, hasModelName := resp.TransformJobSummaries[0]["ModelName"]

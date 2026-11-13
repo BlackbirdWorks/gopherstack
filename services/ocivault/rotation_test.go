@@ -3,7 +3,7 @@ package ocivault_test
 import (
 	"context"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"net/http"
@@ -16,6 +16,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/vault"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errTargetUnreachable = errors.New("target unreachable")
@@ -117,7 +119,7 @@ func TestRotateSecretStages(t *testing.T) {
 
 			se.e.backend.SetFunctionInvoker(func(ctx context.Context, fnID string, body []byte) error {
 				var p rotationPayload
-				require.NoError(t, json.Unmarshal(body, &p))
+				require.NoError(t, json.Unmarshal(body, &p, jsonx.V1()))
 				assert.Equal(t, rotFn, fnID)
 				assert.Equal(t, *s.Id, p.SecretID)
 				log.add(p.Step)
@@ -178,7 +180,7 @@ func TestRotationFailureKeepsCurrent(t *testing.T) {
 	se := newSecretEnv(t)
 	se.e.backend.SetFunctionInvoker(func(_ context.Context, _ string, body []byte) error {
 		var p rotationPayload
-		_ = json.Unmarshal(body, &p)
+		_ = json.Unmarshal(body, &p, jsonx.V1())
 
 		if p.Step == "UPDATE_TARGET_SYSTEM" {
 			return errTargetUnreachable
@@ -214,7 +216,7 @@ func TestScheduledRotation(t *testing.T) {
 	log := &stepLog{}
 	se.e.backend.SetFunctionInvoker(func(_ context.Context, _ string, body []byte) error {
 		var p rotationPayload
-		_ = json.Unmarshal(body, &p)
+		_ = json.Unmarshal(body, &p, jsonx.V1())
 		log.add(p.Step)
 
 		return nil
@@ -373,7 +375,7 @@ func TestGeneratedSecrets(t *testing.T) {
 				t.Helper()
 
 				var m map[string]string
-				require.NoError(t, json.Unmarshal([]byte(got), &m))
+				require.NoError(t, json.Unmarshal([]byte(got), &m, jsonx.V1()))
 				assert.Equal(t, "admin", m["user"])
 				assert.Len(t, m["password"], 16)
 			},
@@ -395,7 +397,7 @@ func TestGeneratedSecrets(t *testing.T) {
 				t.Helper()
 
 				var m map[string]string
-				require.NoError(t, json.Unmarshal([]byte(got), &m))
+				require.NoError(t, json.Unmarshal([]byte(got), &m, jsonx.V1()))
 
 				pub, _ := pem.Decode([]byte(m["publicKey"]))
 				require.NotNil(t, pub)

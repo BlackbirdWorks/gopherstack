@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudFormationProvisionsAppIntegrationsAndCodeGuru(t *testing.T) {
@@ -44,7 +46,7 @@ func TestCloudFormationProvisionsAppIntegrationsAndCodeGuru(t *testing.T) {
 			"EventArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Event", "EventIntegrationArn"}}},
 			"AssocArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Assoc", "AssociationArn"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)
@@ -122,7 +124,7 @@ func TestCloudFormationProvisionsConnect(t *testing.T) {
 			"InstanceId": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Instance", "Id"}}},
 			"QueueArn":   map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Queue", "QueueArn"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

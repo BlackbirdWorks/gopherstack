@@ -2,7 +2,7 @@ package bedrockruntime_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 )
 
@@ -44,7 +45,7 @@ func TestStartWorker_AdvancesAsyncInvoke_NearCompletionDelay(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, rec.Code)
 
 		var started map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 		arn, ok := started["invocationArn"].(string)
 		require.True(t, ok)
 
@@ -57,7 +58,7 @@ func TestStartWorker_AdvancesAsyncInvoke_NearCompletionDelay(t *testing.T) {
 		require.Equal(t, http.StatusOK, getRec.Code)
 
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 
 		assert.Equal(t, bedrockruntime.AsyncInvokeStatusCompleted, got["status"])
 	})

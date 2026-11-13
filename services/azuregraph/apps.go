@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/url"
 	"slices"
 	"strings"
@@ -107,7 +107,7 @@ func validateAppRoles(roles []AppRole, scopes []PermissionScope) error {
 }
 
 // CreateApplication registers an application.
-func (b *Backend) CreateApplication(body map[string]json.RawMessage) (Application, error) {
+func (b *Backend) CreateApplication(body map[string]jsontext.Value) (Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
@@ -159,7 +159,7 @@ func (b *Backend) ListApplications() []Application {
 }
 
 // UpdateApplication applies a PATCH body.
-func (b *Backend) UpdateApplication(r Ref, body map[string]json.RawMessage) error {
+func (b *Backend) UpdateApplication(r Ref, body map[string]jsontext.Value) error {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 

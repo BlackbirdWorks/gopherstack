@@ -1,7 +1,7 @@
 package ociqueue
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"slices"
 	"strconv"
@@ -29,27 +29,27 @@ const (
 type CreateQueueIn struct {
 	RetryToken string `json:"-"`
 	Tags
-	Retention    *int              `json:"retentionInSeconds"`
-	Visibility   *int              `json:"visibilityInSeconds"`
-	Timeout      *int              `json:"timeoutInSeconds"`
-	ChannelLimit *int              `json:"channelConsumptionLimit"`
-	DLQCount     *int              `json:"deadLetterQueueDeliveryCount"`
-	KMSKeyID     *string           `json:"customEncryptionKeyId"`
-	Name         string            `json:"displayName"`
-	Compartment  string            `json:"compartmentId"`
-	Capabilities []json.RawMessage `json:"capabilities"`
+	Retention    *int             `json:"retentionInSeconds"`
+	Visibility   *int             `json:"visibilityInSeconds"`
+	Timeout      *int             `json:"timeoutInSeconds"`
+	ChannelLimit *int             `json:"channelConsumptionLimit"`
+	DLQCount     *int             `json:"deadLetterQueueDeliveryCount"`
+	KMSKeyID     *string          `json:"customEncryptionKeyId"`
+	Name         string           `json:"displayName"`
+	Compartment  string           `json:"compartmentId"`
+	Capabilities []jsontext.Value `json:"capabilities"`
 }
 
 // UpdateQueueIn is the UpdateQueue request body.
 type UpdateQueueIn struct {
 	Tags
-	Name         *string           `json:"displayName"`
-	Visibility   *int              `json:"visibilityInSeconds"`
-	Timeout      *int              `json:"timeoutInSeconds"`
-	ChannelLimit *int              `json:"channelConsumptionLimit"`
-	DLQCount     *int              `json:"deadLetterQueueDeliveryCount"`
-	KMSKeyID     *string           `json:"customEncryptionKeyId"`
-	Capabilities []json.RawMessage `json:"capabilities"`
+	Name         *string          `json:"displayName"`
+	Visibility   *int             `json:"visibilityInSeconds"`
+	Timeout      *int             `json:"timeoutInSeconds"`
+	ChannelLimit *int             `json:"channelConsumptionLimit"`
+	DLQCount     *int             `json:"deadLetterQueueDeliveryCount"`
+	KMSKeyID     *string          `json:"customEncryptionKeyId"`
+	Capabilities []jsontext.Value `json:"capabilities"`
 }
 
 // PurgeIn is the PurgeQueue request body.
@@ -133,7 +133,7 @@ func firstErr(errs ...*APIError) *APIError {
 	return nil
 }
 
-func checkCapabilities(c []json.RawMessage) *APIError {
+func checkCapabilities(c []jsontext.Value) *APIError {
 	if len(c) > 0 {
 		return errParam("capabilities are not supported by this emulator")
 	}

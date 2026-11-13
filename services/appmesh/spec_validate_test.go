@@ -1,7 +1,7 @@
 package appmesh_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,9 +37,9 @@ func TestBackend_MeshSpecValidation(t *testing.T) {
 			t.Parallel()
 
 			b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
-			var raw json.RawMessage
+			var raw jsontext.Value
 			if tt.spec != "" {
-				raw = json.RawMessage(tt.spec)
+				raw = jsontext.Value(tt.spec)
 			}
 			_, err := b.CreateMesh("m1", raw, nil)
 			if tt.wantErr {
@@ -102,9 +102,9 @@ func TestBackend_VirtualRouterSpecValidation(t *testing.T) {
 			_, err := b.CreateMesh("m1", nil, nil)
 			require.NoError(t, err)
 
-			var raw json.RawMessage
+			var raw jsontext.Value
 			if tt.spec != "" {
-				raw = json.RawMessage(tt.spec)
+				raw = jsontext.Value(tt.spec)
 			}
 			_, err = b.CreateVirtualRouter("m1", "vr1", raw, nil)
 			if tt.wantErr {
@@ -168,9 +168,9 @@ func TestBackend_VirtualServiceSpecValidation(t *testing.T) {
 			_, err := b.CreateMesh("m1", nil, nil)
 			require.NoError(t, err)
 
-			var raw json.RawMessage
+			var raw jsontext.Value
 			if tt.spec != "" {
-				raw = json.RawMessage(tt.spec)
+				raw = jsontext.Value(tt.spec)
 			}
 			_, err = b.CreateVirtualService("m1", "vs1", raw, nil)
 			if tt.wantErr {

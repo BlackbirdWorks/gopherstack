@@ -3,7 +3,7 @@ package gcpscheduler_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 )
 
@@ -165,7 +166,7 @@ func decodeJWT(t *testing.T, token string) map[string]any {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(raw, &claims))
+	require.NoError(t, json.Unmarshal(raw, &claims, jsonx.V1()))
 
 	return claims
 }

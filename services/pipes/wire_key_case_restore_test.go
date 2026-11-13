@@ -1,12 +1,13 @@
 package pipes_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -41,7 +42,7 @@ func TestWireKeyCase_OldSnapshotKeysStillDecode(t *testing.T) {
 
 			var got pipes.ECSTaskTargetParameters
 
-			require.NoError(t, json.Unmarshal([]byte(tt.raw), &got))
+			require.NoError(t, json.Unmarshal([]byte(tt.raw), &got, jsonx.V1()))
 			assert.Equal(t, []string{"s-1"}, got.NetworkConfiguration.AwsvpcConfiguration.Subnets)
 			assert.Equal(t, "FARGATE", got.CapacityProviderStrategy[0].CapacityProvider)
 			assert.Equal(t, 2, got.CapacityProviderStrategy[0].Weight)

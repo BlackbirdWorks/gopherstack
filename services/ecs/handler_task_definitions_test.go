@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -92,7 +93,7 @@ func TestECS_RegisterTaskDefinition(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				td, ok := resp["taskDefinition"].(map[string]any)
 				require.True(t, ok)
@@ -119,7 +120,7 @@ func TestECS_RegisterTaskDefinition_MultipleRevisions(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		td := resp["taskDefinition"].(map[string]any)
 		assert.Equal(t, i, int(td["revision"].(float64)))
@@ -145,7 +146,7 @@ func TestECS_DescribeTaskDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	td := resp["taskDefinition"].(map[string]any)
 	assert.Equal(t, "web", td["family"])
@@ -174,14 +175,14 @@ func TestECS_DeregisterTaskDefinition(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	tdArn := createResp["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 	rec2 := doECSRequest(t, h, "DeregisterTaskDefinition", map[string]any{"taskDefinition": tdArn})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var deregResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &deregResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &deregResp, jsonx.V1()))
 
 	td := deregResp["taskDefinition"].(map[string]any)
 	assert.Equal(t, "INACTIVE", td["status"])
@@ -206,7 +207,7 @@ func TestECS_ListTaskDefinitions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns := resp["taskDefinitionArns"].([]any)
 	assert.GreaterOrEqual(t, len(arns), 3)
@@ -216,7 +217,7 @@ func TestECS_ListTaskDefinitions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	arns2 := resp2["taskDefinitionArns"].([]any)
 	assert.Len(t, arns2, 2)
@@ -317,7 +318,7 @@ func TestECS_Handler_ListTaskDefinitions_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns, ok := resp["taskDefinitionArns"].([]any)
 	require.True(t, ok)
@@ -391,7 +392,7 @@ func TestECS_ListTaskDefinitions_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arns := resp["taskDefinitionArns"].([]any)
 			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
@@ -421,7 +422,7 @@ func TestECS_ListTaskDefinitions_TokenChaining(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	arns1 := page1["taskDefinitionArns"].([]any)
 	assert.Len(t, arns1, 2)
@@ -440,7 +441,7 @@ func TestECS_ListTaskDefinitions_TokenChaining(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 
 	arns2 := page2["taskDefinitionArns"].([]any)
 	assert.GreaterOrEqual(t, len(arns2), 1)
@@ -482,7 +483,7 @@ func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	td := resp["taskDefinition"].(map[string]any)
 	latestRev := int(td["revision"].(float64))
@@ -498,7 +499,7 @@ func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	arns := listResp["taskDefinitionArns"].([]any)
 	assert.LessOrEqual(t, len(arns), 100, "stored revisions should not exceed the cap")
@@ -524,7 +525,7 @@ func TestTaskDefinition_MultipleRevisions_SameFamily(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	arns := listOut["taskDefinitionArns"].([]any)
 	assert.Len(t, arns, 3)
 
@@ -534,7 +535,7 @@ func TestTaskDefinition_MultipleRevisions_SameFamily(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, famResp.Code)
 	var famOut map[string]any
-	require.NoError(t, json.Unmarshal(famResp.Body.Bytes(), &famOut))
+	require.NoError(t, json.Unmarshal(famResp.Body.Bytes(), &famOut, jsonx.V1()))
 	families := famOut["families"].([]any)
 	assert.Len(t, families, 1)
 	assert.Equal(t, "rev-family", families[0])
@@ -558,7 +559,7 @@ func TestTaskDefinition_Deregister_Specific_Revision(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	td := descOut["taskDefinition"].(map[string]any)
 	rev1Arn := td["taskDefinitionArn"].(string)
 	require.NotEmpty(t, rev1Arn)
@@ -569,7 +570,7 @@ func TestTaskDefinition_Deregister_Specific_Revision(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, deregResp.Code)
 	var deregOut map[string]any
-	require.NoError(t, json.Unmarshal(deregResp.Body.Bytes(), &deregOut))
+	require.NoError(t, json.Unmarshal(deregResp.Body.Bytes(), &deregOut, jsonx.V1()))
 	deregTd := deregOut["taskDefinition"].(map[string]any)
 	assert.Equal(t, "INACTIVE", deregTd["status"])
 
@@ -580,7 +581,7 @@ func TestTaskDefinition_Deregister_Specific_Revision(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	arns := listOut["taskDefinitionArns"].([]any)
 	assert.Len(t, arns, 2)
 }
@@ -597,7 +598,7 @@ func TestTaskDefinition_DeleteDefinitions_Batch(t *testing.T) {
 			"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 		})
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 		// Deregister first (required before delete)
 		td := out["taskDefinition"].(map[string]any)
 		arn := td["taskDefinitionArn"].(string)
@@ -611,7 +612,7 @@ func TestTaskDefinition_DeleteDefinitions_Batch(t *testing.T) {
 	require.Equal(t, http.StatusOK, deleteResp.Code)
 
 	var deleteOut map[string]any
-	require.NoError(t, json.Unmarshal(deleteResp.Body.Bytes(), &deleteOut))
+	require.NoError(t, json.Unmarshal(deleteResp.Body.Bytes(), &deleteOut, jsonx.V1()))
 	deleted := deleteOut["taskDefinitions"].([]any)
 	assert.Len(t, deleted, 3)
 }
@@ -640,7 +641,7 @@ func TestTaskDefinition_ListByStatus_Active_Inactive(t *testing.T) {
 		"status":       "ACTIVE",
 	})
 	var activeOut map[string]any
-	require.NoError(t, json.Unmarshal(activeResp.Body.Bytes(), &activeOut))
+	require.NoError(t, json.Unmarshal(activeResp.Body.Bytes(), &activeOut, jsonx.V1()))
 	assert.Len(t, activeOut["taskDefinitionArns"].([]any), 1)
 
 	// List INACTIVE
@@ -649,7 +650,7 @@ func TestTaskDefinition_ListByStatus_Active_Inactive(t *testing.T) {
 		"status":       "INACTIVE",
 	})
 	var inactiveOut map[string]any
-	require.NoError(t, json.Unmarshal(inactiveResp.Body.Bytes(), &inactiveOut))
+	require.NoError(t, json.Unmarshal(inactiveResp.Body.Bytes(), &inactiveOut, jsonx.V1()))
 	assert.Len(t, inactiveOut["taskDefinitionArns"].([]any), 1)
 }
 
@@ -676,7 +677,7 @@ func TestTaskDefinitionFamilies_MultipleStatus(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	families := out["families"].([]any)
 	famNames := make([]string, 0, len(families))
 	for _, f := range families {
@@ -707,7 +708,7 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var r map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r, jsonx.V1()))
 				arn := r["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 				doECSRequest(
@@ -733,7 +734,7 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var r map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r, jsonx.V1()))
 
 				return r["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 			},
@@ -781,7 +782,7 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			deleted := resp["taskDefinitions"].([]any)
 			failures := resp["failures"].([]any)
@@ -828,7 +829,7 @@ func TestHandler_ListTaskDefinitions_StatusFilter(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec1.Code)
 			var out1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 			arn1 := out1["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
 
 			rec2 := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
@@ -852,7 +853,7 @@ func TestHandler_ListTaskDefinitions_StatusFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listOut map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 			arns := listOut["taskDefinitionArns"].([]any)
 			require.Len(t, arns, 1)
 			assert.Contains(t, arns[0].(string), tt.wantContains)
@@ -906,7 +907,7 @@ func TestECS_ListTaskDefinitionFamilies(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			families, ok := resp["families"].([]any)
 			require.True(t, ok)

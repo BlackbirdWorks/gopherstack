@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -43,7 +45,7 @@ type createTrainingJobFullRequest struct {
 
 func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req createTrainingJobFullRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.TrainingJobName == "" {
@@ -110,7 +112,7 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created training job (full)", "name", tj.TrainingJobName)
 
-	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
+	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn}, jsonx.V1())
 }
 
 // describeTrainingJobInput mirrors DescribeTrainingJobInput (api_op_DescribeTrainingJob.go:29-36).
@@ -127,18 +129,18 @@ func trainingJobPassthroughKeys() []string {
 	}
 }
 
-func trainingJobPassthroughConfigs(body []byte) (map[string]json.RawMessage, error) {
-	var all map[string]json.RawMessage
-	if err := json.Unmarshal(body, &all); err != nil {
+func trainingJobPassthroughConfigs(body []byte) (map[string]jsontext.Value, error) {
+	var all map[string]jsontext.Value
+	if err := json.Unmarshal(body, &all, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	var out map[string]json.RawMessage
+	var out map[string]jsontext.Value
 
 	for _, k := range trainingJobPassthroughKeys() {
 		if v, ok := all[k]; ok && string(v) != "null" {
 			if out == nil {
-				out = make(map[string]json.RawMessage)
+				out = make(map[string]jsontext.Value)
 			}
 
 			out[k] = v
@@ -150,7 +152,7 @@ func trainingJobPassthroughConfigs(body []byte) (map[string]json.RawMessage, err
 
 func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTrainingJobInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.TrainingJobName == "" {
@@ -181,7 +183,7 @@ func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte
 	}
 	addTrainingJobOptionalFields(resp, tj)
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func addTrainingJobOptionalFields(resp map[string]any, tj *TrainingJob) {
@@ -252,7 +254,7 @@ type stopTrainingJobInput struct {
 
 func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) error {
 	var req stopTrainingJobInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.TrainingJobName == "" {
@@ -287,7 +289,7 @@ type listTrainingJobsInput struct {
 
 func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTrainingJobsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -328,7 +330,7 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +358,7 @@ type deleteTrainingJobInput struct {
 func (h *Handler) handleDeleteTrainingJob(ctx context.Context, body []byte) error {
 	var req deleteTrainingJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -392,15 +394,15 @@ type resourceConfigForUpdate struct {
 type updateTrainingJobInput struct {
 	ResourceConfig             *resourceConfigForUpdate `json:"ResourceConfig"`
 	TrainingJobName            string                   `json:"TrainingJobName"`
-	ProfilerConfig             json.RawMessage          `json:"ProfilerConfig"`
-	ProfilerRuleConfigurations json.RawMessage          `json:"ProfilerRuleConfigurations"`
-	RemoteDebugConfig          json.RawMessage          `json:"RemoteDebugConfig"`
+	ProfilerConfig             jsontext.Value           `json:"ProfilerConfig"`
+	ProfilerRuleConfigurations jsontext.Value           `json:"ProfilerRuleConfigurations"`
+	RemoteDebugConfig          jsontext.Value           `json:"RemoteDebugConfig"`
 }
 
 func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateTrainingJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -421,5 +423,5 @@ func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]b
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: updated training job", "name", req.TrainingJobName)
 
-	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
+	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn}, jsonx.V1())
 }
