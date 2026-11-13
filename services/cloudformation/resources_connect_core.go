@@ -13,6 +13,7 @@ func connectTypes() map[string]connectOps {
 	out := connectCoreTypes()
 	maps.Copy(out, connectPeopleTypes())
 	maps.Copy(out, connectLinkTypes())
+	maps.Copy(out, connectVersionedTypes())
 
 	return out
 }
@@ -146,7 +147,7 @@ func connectImmutableProps() map[string][]string {
 		resTypeConnectPredefinedAttribute:      {connectInstanceArnProp, attrNameName},
 		resTypeConnectViewVersion:              {"ViewArn", connectViewSha, "VersionDescription"},
 		resTypeConnectInstanceStorageConfig:    {connectInstanceArnProp, "ResourceType"},
-		resTypeConnectTrafficDistributionGroup: {attrNameName, "Description"},
+		resTypeConnectTrafficDistributionGroup: {attrNameName, samKeyDesc},
 		resTypeConnectWorkspace:                {connectInstanceArnProp},
 		resTypeConnectDataTable:                {connectStatusProp, connectInstanceArnProp},
 		resTypeConnectDataTableAttribute:       {connectInstanceArnProp, "DataTableArn", attrNameName},
@@ -164,6 +165,10 @@ func connectTagsOnlyUpdate() []string {
 func connectRecreation(resourceType, propName string) string {
 	if slices.Contains(connectTagsOnlyUpdate(), resourceType) && propName != connectTagsProp {
 		return recreateAlways
+	}
+
+	if props, ok := connectVersionedImmutableProps()[resourceType]; ok {
+		return alwaysIfOneOf(propName, props...)
 	}
 
 	return alwaysIfOneOf(propName, connectImmutableProps()[resourceType]...)
@@ -206,9 +211,9 @@ func createConnectInstance(c *connectCall) (string, error) {
 	}
 
 	c.stash(map[string]string{
-		"ServiceRole":    inst.ServiceRole,
-		"InstanceStatus": inst.InstanceStatus,
-		"CreatedTime":    connectTime(&inst.CreatedTime),
+		"ServiceRole":      inst.ServiceRole,
+		"InstanceStatus":   inst.InstanceStatus,
+		connectCreatedTime: connectTime(&inst.CreatedTime),
 	})
 
 	return inst.Arn, nil

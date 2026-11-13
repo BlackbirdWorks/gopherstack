@@ -789,6 +789,11 @@ func validateHistoricalMetrics(in *GetMetricDataInput) error {
 	return nil
 }
 
+const (
+	agentContactConnected = "CONNECTED"
+	agentContactEnded     = "ENDED"
+)
+
 // UserDataFilters selects the agents of GetCurrentUserData.
 type UserDataFilters struct {
 	ContactFilter *struct {
@@ -889,10 +894,9 @@ func (b *Backend) GetCurrentUserData(in *GetCurrentUserDataInput) (*userDataOut,
 		)
 	}
 
-	showContacts := true
-
+	states := []string{agentContactConnected}
 	if f.ContactFilter != nil && len(f.ContactFilter.ContactStates) > 0 {
-		showContacts = slices.Contains(f.ContactFilter.ContactStates, "CONNECTED")
+		states = f.ContactFilter.ContactStates
 	}
 
 	b.mu.RLock("GetCurrentUserData")
@@ -910,7 +914,7 @@ func (b *Backend) GetCurrentUserData(in *GetCurrentUserDataInput) (*userDataOut,
 
 	for _, a := range b.agentRows(inst) {
 		if b.userSelected(inst, f, a) {
-			all = append(all, b.userData(inst, a, showContacts))
+			all = append(all, b.userData(inst, a, states))
 		}
 	}
 
@@ -924,7 +928,7 @@ func (b *Backend) GetCurrentUserData(in *GetCurrentUserDataInput) (*userDataOut,
 	return &userDataOut{UserDataList: orEmpty(items), NextToken: next, ApproximateTotalCount: int64(len(all))}, nil
 }
 
-func (b *Backend) userData(inst string, a agentRow, showContacts bool) UserData {
+func (b *Backend) userData(inst string, a agentRow, states []string) UserData {
 	u := a.user.User
 	d := UserData{
 		User:                    &Reference{ID: u.ID, Arn: u.Arn},
@@ -964,24 +968,58 @@ func (b *Backend) userData(inst string, a agentRow, showContacts bool) UserData 
 		}
 	}
 
-	if showContacts {
+	if slices.Contains(states, agentContactConnected) {
 		for _, c := range a.active {
-			ref := AgentContactReference{
-				ConnectedToAgentTimestamp: c.Contact.AgentInfo.ConnectedToAgentTimestamp,
-				StateStartTimestamp:       c.Contact.AgentInfo.ConnectedToAgentTimestamp,
-				AgentContactState:         "CONNECTED", Channel: c.Contact.Channel, ContactID: c.Contact.ID,
-				InitiationMethod: c.Contact.InitiationMethod,
-			}
+			d.Contacts = append(d.Contacts, b.agentContactRef(inst, c, agentContactConnected,
+				c.Contact.AgentInfo.ConnectedToAgentTimestamp))
+		}
+	}
 
-			if q, ok := b.queues.table.Get(inst + "/" + c.queueID()); ok {
-				ref.Queue = &Reference{ID: q.Queue.QueueID, Arn: q.Queue.QueueArn}
-			}
-
-			d.Contacts = append(d.Contacts, ref)
+	if slices.Contains(states, agentContactEnded) {
+		for _, c := range b.endedContactsOf(inst, u.ID) {
+			d.Contacts = append(
+				d.Contacts,
+				b.agentContactRef(inst, c, agentContactEnded, c.Contact.DisconnectTimestamp),
+			)
 		}
 	}
 
 	return d
+}
+
+func (b *Backend) agentContactRef(
+	inst string, c *contactRec, state string, since *awstime.EpochTime,
+) AgentContactReference {
+	ref := AgentContactReference{
+		ConnectedToAgentTimestamp: c.Contact.AgentInfo.ConnectedToAgentTimestamp,
+		StateStartTimestamp:       since,
+		AgentContactState:         state, Channel: c.Contact.Channel, ContactID: c.Contact.ID,
+		InitiationMethod: c.Contact.InitiationMethod,
+	}
+
+	if q, ok := b.queues.table.Get(inst + "/" + c.queueID()); ok {
+		ref.Queue = &Reference{ID: q.Queue.QueueID, Arn: q.Queue.QueueArn}
+	}
+
+	return ref
+}
+
+// endedContactsOf lists the contacts a user handled that ended and are still in the agent's CCP, oldest first.
+func (b *Backend) endedContactsOf(inst, userID string) []*contactRec {
+	var out []*contactRec
+
+	for _, c := range b.contacts.in(inst) {
+		if c.Contact.DisconnectTimestamp != nil && c.Contact.AgentInfo != nil && c.Contact.AgentInfo.ID == userID &&
+			!slices.Contains(c.DismissedBy, userID) {
+			out = append(out, c)
+		}
+	}
+
+	slices.SortFunc(out, func(a, c *contactRec) int {
+		return a.Contact.DisconnectTimestamp.Time.Compare(c.Contact.DisconnectTimestamp.Time)
+	})
+
+	return out
 }
 
 func refPath(p *HierarchyPath) *hierarchyPathRef {

@@ -87,6 +87,7 @@ func (b *InMemoryBackend) executeStatement(
 	}
 
 	applyBooleanTypes(rs, query)
+	applyIntervalTypes(rs, query)
 	rs.scanned = scanned
 	rs.tables = len(tables)
 

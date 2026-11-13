@@ -95,7 +95,9 @@ func (f *fixture) newInstance(t *testing.T, alias string) string {
 func (f *fixture) defaultQueue(t *testing.T, inst string) (string, string, string) {
 	t.Helper()
 
-	qs, err := f.client.ListQueues(t.Context(), &sdk.ListQueuesInput{InstanceId: aws.String(inst)})
+	qs, err := f.client.ListQueues(t.Context(), &sdk.ListQueuesInput{
+		InstanceId: aws.String(inst), QueueTypes: []types.QueueType{types.QueueTypeStandard},
+	})
 	require.NoError(t, err)
 	require.Len(t, qs.QueueSummaryList, 1)
 

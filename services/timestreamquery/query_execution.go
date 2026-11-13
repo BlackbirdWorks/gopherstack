@@ -2,6 +2,7 @@ package timestreamquery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 	}
 
 	if opts.NextToken != "" {
-		pg, resolveErr := b.pageStore.resolve(opts.NextToken, maxRows, b.clock())
+		pg, resolveErr := b.pageStore.resolve(opts, maxRows, b.clock())
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
@@ -55,14 +56,8 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 	}
 
 	if opts.ClientToken != "" {
-		b.clientTokens.sweep()
-		if cachedID := b.clientTokens.get(opts.ClientToken); cachedID != "" {
-			pg, resumeErr := b.pageStore.restart(cachedID, maxRows, b.clock())
-			if resumeErr == nil {
-				return &QueryPage{
-					QueryID: cachedID, Rows: pg.rows, Columns: pg.cols, QueryStatus: pg.status, NextToken: pg.next,
-				}, nil
-			}
+		if page, replayed, rerr := b.replayClientToken(opts, maxRows); rerr != nil || replayed {
+			return page, rerr
 		}
 	}
 
@@ -92,7 +87,10 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		b.clientTokens.set(opts.ClientToken, queryID)
 	}
 
-	pg := b.pageStore.store(queryID, rs.rows, rs.cols, status, maxRows, b.clock())
+	pg, err := b.pageStore.store(queryID, opts, rs, status, maxRows, b.clock())
+	if err != nil {
+		return nil, err
+	}
 
 	var insights *QueryInsightsResponse
 	if opts.InsightsMode != "DISABLED" {
@@ -108,6 +106,29 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		Insights:    insights,
 		NextToken:   pg.next,
 	}, nil
+}
+
+// replayClientToken answers a repeated Query ClientToken with the first page of the original run.
+func (b *InMemoryBackend) replayClientToken(opts QueryOptions, maxRows int) (*QueryPage, bool, error) {
+	if err := validateQueryClientToken(opts.ClientToken); err != nil {
+		return nil, false, err
+	}
+
+	b.clientTokens.sweep()
+
+	cachedID := b.clientTokens.get(opts.ClientToken)
+	if cachedID == "" {
+		return nil, false, nil
+	}
+
+	pg, found, err := b.pageStore.restart(cachedID, opts.QueryString, maxRows, b.clock())
+	if err != nil || !found {
+		return nil, false, err
+	}
+
+	return &QueryPage{
+		QueryID: cachedID, Rows: pg.rows, Columns: pg.cols, QueryStatus: pg.status, NextToken: pg.next,
+	}, true, nil
 }
 
 // Query runs a query and returns its full result (legacy path); a failing query yields an empty result.
@@ -343,15 +364,28 @@ const (
 	pageTokenMaxUses = 5
 )
 
+// maxPageBytes is the documented 1 MB cap on one Query response.
+const maxPageBytes = 1 << 20
+
+const (
+	minClientTokenLen = 32
+	maxClientTokenLen = 128
+)
+
+var errInvalidPaginationToken = fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+
 // pagedQueryResult stores the full result set for a query awaiting paging.
 type pagedQueryResult struct {
-	createdAt time.Time
-	uses      map[int]int
-	queryID   string
-	rows      []Row
-	columns   []ColumnInfo
-	status    QueryStatusDetail
-	cancelled bool
+	createdAt   time.Time
+	uses        map[int]int
+	queryID     string
+	queryString string
+	principal   string
+	rows        []Row
+	columns     []ColumnInfo
+	status      QueryStatusDetail
+	highest     int
+	cancelled   bool
 }
 
 // pageOut is one served page.
@@ -363,15 +397,58 @@ type pageOut struct {
 	status  QueryStatusDetail
 }
 
-func (r *pagedQueryResult) slice(offset, maxRows int) pageOut {
-	end := min(offset+maxRows, len(r.rows))
+func wireSize(v any) int {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return 0
+	}
+
+	return len(raw)
+}
+
+// slice serves up to maxRows rows from offset, stopping before the page would pass 1 MB (the column metadata counts).
+func (r *pagedQueryResult) slice(offset, maxRows int) (pageOut, error) {
+	used := wireSize(marshalColumnInfos(r.columns))
+	end := offset
+
+	for end < len(r.rows) && end-offset < maxRows {
+		size := wireSize(marshalRows(r.rows[end : end+1]))
+		if used+size > maxPageBytes {
+			if end == offset {
+				return pageOut{}, fmt.Errorf(
+					"%w: Query aborted as max page response size has been exceeded by the output result row",
+					ErrQueryExecution,
+				)
+			}
+
+			break
+		}
+
+		used += size
+		end++
+	}
+
 	out := pageOut{queryID: r.queryID, rows: r.rows[offset:end], cols: r.columns, status: r.status}
 
 	if end < len(r.rows) {
 		out.next = r.queryID + ":" + strconv.Itoa(end)
 	}
 
-	return out
+	return out, nil
+}
+
+// validateQueryClientToken enforces the documented 32-128 character length of Query.ClientToken.
+func validateQueryClientToken(token string) error {
+	if len(token) < minClientTokenLen || len(token) > maxClientTokenLen {
+		return fmt.Errorf(
+			"%w: ClientToken must be %d-%d characters",
+			ErrValidation,
+			minClientTokenLen,
+			maxClientTokenLen,
+		)
+	}
+
+	return nil
 }
 
 // nextTokenStore manages paged query results.
@@ -394,32 +471,39 @@ func (s *nextTokenStore) sweepLocked(now time.Time) {
 
 // store saves a materialised result and returns its first page.
 func (s *nextTokenStore) store(
-	queryID string, rows []Row, cols []ColumnInfo, status QueryStatusDetail, maxRows int, now time.Time,
-) pageOut {
+	queryID string, opts QueryOptions, rs *resultSet, status QueryStatusDetail, maxRows int, now time.Time,
+) (pageOut, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.sweepLocked(now)
 
 	r := &pagedQueryResult{
-		queryID: queryID, rows: rows, columns: cols, status: status, createdAt: now, uses: map[int]int{},
+		queryID: queryID, rows: rs.rows, columns: rs.cols, status: status, createdAt: now, uses: map[int]int{},
+		queryString: opts.QueryString, principal: opts.Principal,
 	}
 	s.results[queryID] = r
 
 	return r.slice(0, maxRows)
 }
 
-// restart returns the first page of a stored result (ClientToken replay).
-func (s *nextTokenStore) restart(queryID string, maxRows int, now time.Time) (pageOut, error) {
+// restart returns the first page of a stored result (ClientToken replay); the query string must be the original.
+func (s *nextTokenStore) restart(queryID, queryString string, maxRows int, now time.Time) (pageOut, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	r, ok := s.results[queryID]
 	if !ok || now.Sub(r.createdAt) > pageTokenTTL {
-		return pageOut{}, fmt.Errorf("%w: query %q not found in page store", ErrNotFound, queryID)
+		return pageOut{}, false, nil
 	}
 
-	return r.slice(0, maxRows), nil
+	if r.queryString != queryString {
+		return pageOut{}, false, fmt.Errorf("%w: the ClientToken was used with a different query", ErrValidation)
+	}
+
+	pg, err := r.slice(0, maxRows)
+
+	return pg, err == nil, err
 }
 
 // cancel invalidates further paging of queryID.
@@ -432,24 +516,31 @@ func (s *nextTokenStore) cancel(queryID string) {
 	}
 }
 
-// resolve serves the page named by a continuation token ("queryID:offset").
-func (s *nextTokenStore) resolve(token string, maxRows int, now time.Time) (pageOut, error) {
+// resolve serves the page named by a continuation token ("queryID:offset"). Per the Query API doc a token serves
+// five invocations or an hour, a newer token invalidates the older ones, and the reader must be the initiator
+// sending the same query string.
+func (s *nextTokenStore) resolve(opts QueryOptions, maxRows int, now time.Time) (pageOut, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	queryID, offStr, ok := strings.Cut(token, ":")
+	queryID, offStr, ok := strings.Cut(opts.NextToken, ":")
 	if !ok {
-		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+		return pageOut{}, errInvalidPaginationToken
 	}
 
 	offset, err := strconv.Atoi(offStr)
 	if err != nil || offset < 0 {
-		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+		return pageOut{}, errInvalidPaginationToken
 	}
 
 	r, ok := s.results[queryID]
-	if !ok || now.Sub(r.createdAt) > pageTokenTTL || offset > len(r.rows) {
-		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+	if !ok || now.Sub(r.createdAt) > pageTokenTTL || offset > len(r.rows) || offset < r.highest {
+		return pageOut{}, errInvalidPaginationToken
+	}
+
+	if (opts.QueryString != "" && opts.QueryString != r.queryString) ||
+		(opts.Principal != "" && r.principal != "" && opts.Principal != r.principal) {
+		return pageOut{}, errInvalidPaginationToken
 	}
 
 	if r.cancelled {
@@ -458,10 +549,12 @@ func (s *nextTokenStore) resolve(token string, maxRows int, now time.Time) (page
 
 	r.uses[offset]++
 	if r.uses[offset] > pageTokenMaxUses {
-		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+		return pageOut{}, errInvalidPaginationToken
 	}
 
-	return r.slice(offset, maxRows), nil
+	r.highest = offset
+
+	return r.slice(offset, maxRows)
 }
 
 // newQueryID returns a new unique query ID.

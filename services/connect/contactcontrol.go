@@ -524,3 +524,41 @@ func (b *Backend) finishContactLocked(c *contactRec, t awstime.EpochTime) {
 		}
 	}
 }
+
+// DismissUserContactInput is the DismissUserContact request.
+type DismissUserContactInput struct {
+	ContactID string `json:"ContactId"`
+	UserID    string `json:"-"         path:"UserId"`
+	instPath
+}
+
+// DismissUserContact clears an ended contact from an agent's CCP; GetCurrentUserData stops listing it as ENDED.
+func (b *Backend) DismissUserContact(in *DismissUserContactInput) (*empty, error) {
+	return writeInstance(b, "DismissUserContact", in.InstanceID, func(inst string) (*empty, error) {
+		u, err := b.users.get(inst, in.UserID)
+		if err != nil {
+			return nil, err
+		}
+
+		c, err := b.contacts.get(inst, in.ContactID)
+		if err != nil {
+			return nil, err
+		}
+
+		if c.Contact.AgentInfo == nil || c.Contact.AgentInfo.ID != u.User.ID {
+			return nil, invalidRequestErr("contact %q is not in the CCP of user %q", in.ContactID, in.UserID)
+		}
+
+		if c.Contact.DisconnectTimestamp == nil || slices.Contains(c.DismissedBy, u.User.ID) {
+			return nil, invalidRequestErr(
+				"contact %q is not in a MISSED, ERROR, ENDED or REJECTED state in the CCP of user %q",
+				in.ContactID, in.UserID,
+			)
+		}
+
+		c.DismissedBy = append(c.DismissedBy, u.User.ID)
+		b.touch(c)
+
+		return &empty{}, nil
+	})
+}

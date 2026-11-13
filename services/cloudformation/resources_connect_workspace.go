@@ -187,7 +187,7 @@ func (c *connectCall) stashDataTable(tableARN string) {
 	}
 
 	attrs := map[string]string{
-		"CreatedTime":        connectTime(&t.CreatedTime),
+		connectCreatedTime:   connectTime(&t.CreatedTime),
 		connectLastModified:  connectTime(t.LastModifiedTime),
 		connectLastModRegion: t.LastModifiedRegion,
 	}

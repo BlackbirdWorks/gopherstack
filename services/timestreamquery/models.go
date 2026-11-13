@@ -128,6 +128,7 @@ type QueryOptions struct {
 	ClientToken  string
 	NextToken    string
 	InsightsMode string
+	Principal    string
 	MaxRows      int32
 }
 

@@ -111,7 +111,7 @@ func createConnectViewVersion(c *connectCall) (string, error) {
 	}
 
 	version := strconv.Itoa(int(v.Version))
-	c.stash(map[string]string{"Version": version})
+	c.stash(map[string]string{samKeyVersion: version})
 
 	return v.Arn + ":" + version, nil
 }

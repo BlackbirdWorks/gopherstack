@@ -143,7 +143,7 @@ func TestQuery_ClientTokenIdempotency(t *testing.T) {
 	h := newTestHandler()
 	body := map[string]any{
 		"QueryString": "SELECT * FROM db.table",
-		"ClientToken": "unique-token-abc",
+		"ClientToken": "unique-token-abc-0123456789-abcdef",
 	}
 
 	rec1 := doRequest(t, h, "Query", body)
@@ -163,8 +163,8 @@ func TestQuery_DifferentClientTokensDifferentQueryIds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	body1 := map[string]any{"QueryString": "SELECT 1", "ClientToken": "token-1"}
-	body2 := map[string]any{"QueryString": "SELECT 1", "ClientToken": "token-2"}
+	body1 := map[string]any{"QueryString": "SELECT 1", "ClientToken": "token-1-0123456789-0123456789-ab"}
+	body2 := map[string]any{"QueryString": "SELECT 1", "ClientToken": "token-2-0123456789-0123456789-ab"}
 
 	rec1 := doRequest(t, h, "Query", body1)
 	rec2 := doRequest(t, h, "Query", body2)

@@ -1068,6 +1068,8 @@ func (b *InMemoryBackend) applyTemplateToStack(
 		physicalIDs[logicalID] = res.PhysicalID
 	}
 
+	maps.Copy(physicalIDs, stack.ResourceAttrs)
+
 	uc := newUpdateContext(oldTemplateBody, oldParams, physicalIDs)
 
 	// Side channel for property-time Fn::GetAtt during update -- see the

@@ -103,6 +103,7 @@ type contactRec struct {
 	Participants     []participantRec     `json:"participants,omitempty"`
 	Emails           []emailMessageRec    `json:"emails,omitempty"`
 	MonitorCaps      []string             `json:"monitorCapabilities,omitempty"`
+	DismissedBy      []string             `json:"dismissedBy,omitempty"`
 	Contact          Contact              `json:"contact"`
 }
 

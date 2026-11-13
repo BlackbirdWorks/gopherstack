@@ -451,3 +451,15 @@ func (b *Backend) SearchTestCases(in *SearchRequest) (*SearchResult, error) {
 			return r.view(v, status)
 		})
 }
+
+// DescribeTestCaseVersion returns the saved or published version of a test case; an empty status picks the default.
+func (b *Backend) DescribeTestCaseVersion(inst, id, status string) (*TestCase, error) {
+	out, err := b.DescribeTestCase(&testCaseQuery{
+		Status: status, TestCaseID: id, InstanceID: inst,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &out.TestCase, nil
+}

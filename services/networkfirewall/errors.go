@@ -67,10 +67,6 @@ func fmtInvalidToken() error {
 	return fmt.Errorf("%w: The token you provided is stale or is not valid for the resource", ErrInvalidToken)
 }
 
-func unsupported(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", ErrUnsupportedOperation, fmt.Sprintf(format, args...))
-}
-
 func invalidResourcePolicy(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidResourcePolicy, fmt.Sprintf(format, args...))
 }

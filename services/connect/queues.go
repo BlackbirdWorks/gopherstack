@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -140,6 +141,30 @@ func (b *Backend) CreateQueue(ctx context.Context, in *CreateQueueInput) (*queue
 	return &queueOut{QueueArn: rec.Queue.QueueArn, QueueID: id}, nil
 }
 
+// agentQueueID is the identifier of the agent queue Connect creates for a user.
+func agentQueueID(userID string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("agent-queue/"+userID)).String()
+}
+
+func agentQueueARN(userARN, queueID string) string {
+	base, _, _ := strings.Cut(userARN, "/agent/")
+
+	return base + "/queue/" + queueID
+}
+
+// agentQueueLocked finds the agent queue id belongs to; agent queues exist for every user and carry no name.
+func (b *Backend) agentQueueLocked(inst, id string) (*Queue, bool) {
+	for _, u := range b.users.in(inst) {
+		if agentQueueID(u.User.ID) == id {
+			return &Queue{
+				Stamp: u.User.Stamp, QueueArn: agentQueueARN(u.User.Arn, id), QueueID: id, Status: queueEnabled,
+			}, true
+		}
+	}
+
+	return nil, false
+}
+
 // DescribeQueue returns a queue.
 func (b *Backend) DescribeQueue(inst, id string) (*Queue, error) {
 	b.mu.RLock("DescribeQueue")
@@ -148,6 +173,10 @@ func (b *Backend) DescribeQueue(inst, id string) (*Queue, error) {
 	r, err := b.instanceLocked(inst)
 	if err != nil {
 		return nil, err
+	}
+
+	if agent, ok := b.agentQueueLocked(r.Instance.ID, id); ok {
+		return agent, nil
 	}
 
 	q, err := b.queues.get(r.Instance.ID, id)
@@ -197,6 +226,15 @@ func (b *Backend) ListQueues(
 					QueueType: queueStandard,
 				},
 			)
+		}
+	}
+
+	if len(types) == 0 || slices.Contains(types, queueAgent) {
+		for _, u := range b.users.in(r.Instance.ID) {
+			id := agentQueueID(u.User.ID)
+			all = append(all, QueueSummary{
+				Stamp: u.User.Stamp, Arn: agentQueueARN(u.User.Arn, id), ID: id, QueueType: queueAgent,
+			})
 		}
 	}
 

@@ -3,10 +3,10 @@ service: networkfirewall
 sdk_module: aws-sdk-go-v2/service/networkfirewall@v1.76.1
 last_audit_commit: 8e8351102
 last_audit_date: 2026-10-17
-overall: B            # B: all 85 SDK ops implemented and verified through the real client; no packets flow, so flow/analysis results are empty, and NAT gateway mappings and VpcEndpoint on CreateFirewall stay unsupported.
+overall: B            # B: all 85 SDK ops implemented and verified through the real client; no packets flow, so flow/analysis results are empty, and proxy-mode firewalls, transit gateway and NAT gateway lookups and prefix-list CIDR counts go through EC2 when wired.
 ops:
-  CreateFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "VPC firewalls only; PROVISIONING for the transition window then READY/IN_SYNC; one subnet per zone; subnets and VPC checked against EC2 when wired"}
-  DescribeFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns Firewall, FirewallStatus (SyncStates keyed by zone, Config keyed by policy and rule group ARNs) and UpdateToken"}
+  CreateFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "VPC, transit gateway and proxy-mode (NoSourcePreservation) firewalls; PROVISIONING for the transition window then READY/IN_SYNC; one subnet per zone; subnets, VPC, transit gateway and NAT gateways checked against EC2 when wired. Proxy mode (API_CreateFirewall) takes NatGatewayMappings and VpcEndpoint instead of VpcId, SubnetMappings and TransitGatewayId, and NatGatewayMappings/VpcEndpoint need NoSourcePreservation (InvalidRequestException; message texts unverified); each NAT gateway must exist and sit in the VpcEndpoint VPC (VPC check unverified) and shows as a NatGatewayAttachment in the SyncState of its zone, CREATING then READY, DnsName never set (format not documented)"}
+  DescribeFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns Firewall, FirewallStatus (SyncStates keyed by zone, Config keyed by policy and rule group ARNs; CapacityUsageSummary.CIDRs counts the entries of the managed prefix lists referenced by the policy's stateful rule groups, UtilizedCIDRCount summed over distinct ReferenceArn keys, AvailableCIDRCount = 1,000,000 minus that, the per-firewall limit of rule-groups-ip-set-references; the IPSetReferences key being the reference ARN is unverified) and UpdateToken"}
   DescribeFirewallMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "SupportedAvailabilityZones and TransitGatewayAttachmentId are transit-gateway-only; see items_still_open"}
   ListFirewalls: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpcIds filter; opaque NextToken via pkgs/page"}
   DeleteFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "DeleteProtection returns InvalidOperationException; otherwise DELETING until the window passes, then removed"}
@@ -42,7 +42,7 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "firewalls, policies, rule groups and TLS configurations; 50-tag limit"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "NatGatewayId not checked against EC2; TLS ENABLED needs PcaArn; ATTACHING then ATTACHED"}
+  CreateProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "NatGatewayId must exist in EC2 when wired; TLS ENABLED needs PcaArn; ATTACHING then ATTACHED"}
   DescribeProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "PrivateDNSName and VpcEndpointServiceName are minted at creation"}
   UpdateProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "UpdateToken required; MODIFYING then COMPLETED"}
   DeleteProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "DETACHING until the window passes, then removed"}
@@ -100,11 +100,10 @@ families:
   Tags: {status: ok, note: "Shared by all four taggable resource kinds."}
 gaps: []
 items_still_open:
-  - CreateFirewall NatGatewayMappings and VpcEndpoint: UnsupportedOperationException (bd: gopherstack-cefu7.79)
-  - Transit gateway attachments start PENDING_ACCEPTANCE only when a TransitGatewayResolver reports another owner account; internal/app does not wire one to EC2, so standalone attachments auto-accept (bd: gopherstack-cefu7.79)
-  - FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.79)
-  - Firewall, VPC endpoint association and proxy endpoints are generated IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.79)
+  - CapacityUsageSummary resolves only managed prefix list references; resource group, address list and container association references count 0 CIDRs because no Resource Groups, address list or container runtime backs them (bd: gopherstack-cefu7.79)
+  - Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)
 structural_gaps:
+  - "Transit gateways shared from another account cannot exist: EC2 is single-account, so PENDING_ACCEPTANCE is reachable only when a TransitGatewayResolver reports a foreign owner (unit-tested with a fake resolver)."
   - "Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic."
   - "AnalysisResults on DescribeRuleGroup need a rule-analysis engine; none exists."
   - "Managed rule groups (AWS_MANAGED_*, partner) have no catalog to list."

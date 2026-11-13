@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 369 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 33 are unrouted and listed in items_still_open.
+overall: B            # 370 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 32 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -172,7 +172,7 @@ ops:
   DeleteWorkspaceMedia: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteWorkspacePage: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAgentStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeContact: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "ContactAssociationId is the InitialContactId (the root of the contact tree, API_Contact); TaskTemplateInfo (Arn, Name) comes from the task template; ContactEvaluations is keyed by FormId (API_ContactEvaluation) with the latest evaluation of each form, IN_PROGRESS for a draft and COMPLETE with EndTimestamp once submitted (deleted evaluations are removed, so DELETED never appears)"}
   DescribeContactFlow: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContactFlowAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContactFlowModule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -189,7 +189,7 @@ ops:
   DescribePhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePredefinedAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePrompt: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeQueue: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "also describes a user's agent queue: enabled, no name or hours (the shape of an agent queue is not documented)"}
   DescribeQuickConnect: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRoutingProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -223,7 +223,8 @@ ops:
   FlowVersions: {status: ok, note: "Flows and flow modules snapshot on CreateContactFlowVersion; aliases point at a version and block its deletion."}
   GetContactAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCurrentMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "derived from stored contacts, users and routing profiles: CONTACTS_IN_QUEUE, OLDEST_CONTACT_AGE, CONTACTS_SCHEDULED, AGENTS_ONLINE/AVAILABLE/ON_CALL/STAFFED/ON_CONTACT, SLOTS_ACTIVE/AVAILABLE; other metrics are refused"}
-  GetCurrentUserData: {wire: ok, errors: ok, state: ok, persist: ok, note: "status, slots and CONNECTED contacts per agent; filters Agents, Queues, RoutingProfiles, UserHierarchyGroups"}
+  GetCurrentUserData: {wire: ok, errors: ok, state: ok, persist: ok, note: "status, slots and CONNECTED contacts per agent (ContactFilter.ContactStates also selects ENDED: contacts the agent handled that ended and were not dismissed, StateStartTimestamp = DisconnectTimestamp; MISSED, ERROR and REJECTED never occur); filters Agents, Queues, RoutingProfiles, UserHierarchyGroups"}
+  DismissUserContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "API_DismissUserContact allows MISSED, ERROR, ENDED or REJECTED contacts; the emulator only has ENDED (a disconnected contact of that agent), anything else (still connected, other agent's contact, already dismissed) is InvalidRequestException with message texts unverified; unknown user or contact is ResourceNotFoundException; the dismissal is stored on the contact"}
   GetEffectiveHoursOfOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "resolved from the base schedule and overrides over at most 92 days; recurrence patterns are stored but not expanded"}
   GetEvaluationFormValidation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFlowAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -267,7 +268,7 @@ ops:
   ListPrompts: {wire: ok, errors: ok, state: ok, persist: ok}
   ListQueueEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok, note: "the queue default outbound address comes first with IsDefaultOutboundEmail"}
   ListQueueQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListQueues: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "STANDARD queues plus one AGENT queue per user (concepts-queues-standard-and-agent: created automatically with the agent); the agent queue id and ARN are derived from the user id and the summary carries no Name, which the docs do not specify for agent queues; no QueueTypes lists both"}
   ListQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRoutingProfileQueues: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRoutingProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -395,23 +396,21 @@ families:
 gaps: []
 items_still_open:
   - "Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)"
-  - "EvaluationForms: ListEvaluationFormAIVersions is not routed; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation"
+  - "EvaluationForms: ListEvaluationFormAIVersions is not routed: the AI version catalog is service-owned and API_ListEvaluationFormAIVersions shows only one sample response (AGENT_EVALUATION_2025-11-12 and 2025-09-01), so a catalog would be fabricated; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation"
   - "TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated"
   - "Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated"
   - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
   - "AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked"
   - "Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed: associations are RAM resource shares and the dataset catalog is not published"
-  - "DismissUserContact is not routed: the emulator keeps no per-agent contact state (MISSED, ERROR, REJECTED) for a dismissal to clear"
   - "Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)"
   - "Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed (no chat message plane, no queue-position model for routing data)"
   - "Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model"
   - "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated"
   - "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated"
   - "Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled"
-  - "Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ContactEvaluations, NextContacts, QueuePriority and the other contact analytics members are never populated; Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated"
-  - "ListQueues QueueTypes=AGENT: per-agent queues are not modeled"
+  - "Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ConnectedToSystemTimestamp, NextContacts (the NextContactEntry types are not documented), QueuePriority, QueueTimeAdjustmentSeconds, RoutingCriteria, ContactDetails, WisdomInfo, GlobalResiliencyMetadata, Cases and the other contact analytics members are never populated (ContactAssociationId, TaskTemplateInfo and ContactEvaluations are); Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated"
   - "CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced"
-  - "CloudFormation: AWS::Connect::AWSManagedView, ContactFlowVersion, ContactFlowModuleVersion, ContactFlowModuleAlias, DataLakeAssociation, DataTableRecord, Metric, Notification, TestCase and UserHierarchyStructure are not provisioned; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
+  - "CloudFormation: AWS::Connect::AWSManagedView is not provisioned (no page for it exists in the CloudFormation resource reference, so its properties and attributes cannot be verified) and AWS::Connect::DataLakeAssociation is not provisioned (it is a RAM share of an analytics dataset and the analytics association operations above are unrouted); AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
   - "Lex bot associations are shape-checked only: no Lex service exists in the emulator"
 structural_gaps:
   - "No telephony or media plane: outbound calls are never placed, no audio flows, and contacts only change state through StopContact and UpdateContact because no agent softphone or customer endpoint exists."
@@ -435,3 +434,4 @@ Emulator choices the SDK does not document:
 - Data tables: lock versions are opaque UUIDs. Updates honor them only at the table's `ValueLockLevel` (DATA_TABLE, PRIMARY_VALUE, ATTRIBUTE, VALUE compare the matching member; NONE ignores them) and an unset member never conflicts. Batch value operations fail per item; `UpdateDataTablePrimaryValues` answers `ConditionalOperationFailedException`. List values (`TEXT_LIST`, `NUMBER_LIST`) are JSON arrays; `MinValues`/`MaxValues` bound their length. A `Validation` field of 0 means unset (the SDK cannot tell 0 from absent). No version aliases beyond `$LATEST`/`$SAVED` exist and both read the live table.
 - `CreateQueue` and `UpdateQueueOutboundEmailConfig` now require the outbound email address to exist in the instance (ResourceNotFoundException).
 - Workspaces: the theme and media are stored exactly as sent; the emulator does not render them or fetch media URLs. `Visibility` of a new workspace is ASSIGNED.
+- CloudFormation (docs: AWS CloudFormation Template Reference, AWS::Connect::*): ContactFlowVersion and ContactFlowModuleVersion Ref `<ARN>:<version>` with GetAtt Version and the content SHA-256; ContactFlowModuleAlias Ref `<instance ID>|<module ID>|<alias ID>` (the pages state no Ref) with GetAtt AliasId and ContactFlowModuleAliasARN; DataTableRecord Ref `<instance ID>|<table ID>|<record ID>` with GetAtt RecordId, an update replaces the record's primary and other values (values left out are removed, an emulator reading of the declarative resource); Notification Ref/Arn the notification ARN, Content keys EnUS...ZhTW map to the LocaleCode values (en_US...zh_TW), ExpiresAt is read as epoch seconds (the pattern is digits only); TestCase and Metric Ref the ARN (the pages state no Ref); UserHierarchyStructure Ref and GetAtt UserHierarchyStructureArn are the instance ARN (the API has no identifier for the structure) and deleting it leaves the levels, since no delete operation exists.

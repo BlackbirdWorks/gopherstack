@@ -217,12 +217,14 @@ type AliasInfo map[string]any
 
 type versionOut struct {
 	Arn     string `json:"-"`
+	Sha     string `json:"-"`
 	Version int64  `json:"Version"`
 }
 
 type aliasOut struct {
-	Arn string `json:"-"`
-	ID  string `json:"Id"`
+	Arn      string `json:"-"`
+	AliasArn string `json:"-"`
+	ID       string `json:"Id"`
 }
 
 func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInput) (*versionOut, error) {
@@ -269,7 +271,7 @@ func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInp
 		b.snapshotVersion(ctx, inst, kind, parent, p, next, in.Description)
 		*p.version = next
 
-		return &versionOut{Arn: p.arn, Version: next}, nil
+		return &versionOut{Arn: p.arn, Sha: p.sha, Version: next}, nil
 	})
 }
 
@@ -370,7 +372,7 @@ func (b *Backend) createAlias(ctx context.Context, kind string, in *AliasInput) 
 		}
 		b.flowAliases.put(rec)
 
-		return &aliasOut{Arn: p.arn, ID: rec.AliasID}, nil
+		return &aliasOut{Arn: p.arn, AliasArn: rec.Arn, ID: rec.AliasID}, nil
 	})
 }
 
@@ -531,4 +533,44 @@ func (b *Backend) snapshotInitial(ctx context.Context, inst, kind, id, status st
 	if p, err := b.versionedParent(kind, inst, id); err == nil {
 		b.snapshotVersion(ctx, inst, kind, id, p, 1, "")
 	}
+}
+
+// CreateFlowVersion publishes a version of a flow.
+func (b *Backend) CreateFlowVersion(ctx context.Context, in *VersionInput) (*versionOut, error) {
+	return b.createVersion(ctx, kindFlow, in)
+}
+
+// DeleteFlowVersion deletes a flow version that no alias uses.
+func (b *Backend) DeleteFlowVersion(in *VersionInput) (*empty, error) {
+	return b.deleteVersion(kindFlow, in)
+}
+
+// CreateModuleVersion publishes a version of a flow module.
+func (b *Backend) CreateModuleVersion(ctx context.Context, in *VersionInput) (*versionOut, error) {
+	return b.createVersion(ctx, kindModule, in)
+}
+
+// DeleteModuleVersion deletes a flow module version that no alias uses.
+func (b *Backend) DeleteModuleVersion(in *VersionInput) (*empty, error) {
+	return b.deleteVersion(kindModule, in)
+}
+
+// CreateModuleAlias names a version of a flow module.
+func (b *Backend) CreateModuleAlias(ctx context.Context, in *AliasInput) (*aliasOut, error) {
+	return b.createAlias(ctx, kindModule, in)
+}
+
+// UpdateModuleAlias renames or repoints a flow module alias.
+func (b *Backend) UpdateModuleAlias(ctx context.Context, in *AliasInput) (*empty, error) {
+	return b.updateAlias(ctx, kindModule, in)
+}
+
+// DeleteModuleAlias deletes a flow module alias.
+func (b *Backend) DeleteModuleAlias(in *AliasInput) (*empty, error) {
+	return b.deleteAlias(kindModule, in)
+}
+
+// ListModuleAliases lists the aliases of a flow module.
+func (b *Backend) ListModuleAliases(in *AliasInput) ([]AliasSummary, string, error) {
+	return b.listAliases(kindModule, in)
 }

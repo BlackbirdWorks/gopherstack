@@ -479,8 +479,54 @@ func (b *Backend) DescribeContact(inst, id string) (*Contact, error) {
 	out := c.Contact
 	out.Attributes, out.Tags = cloneTags(out.Attributes), cloneTags(out.Tags)
 	out.Recordings = slices.Clone(out.Recordings)
+	out.ContactAssociationID = out.InitialContactID
+	out.TaskTemplateInfo = b.taskTemplateInfoLocked(c)
+	out.ContactEvaluations = b.contactEvaluationsLocked(c)
 
 	return &out, nil
+}
+
+func (b *Backend) taskTemplateInfoLocked(c *contactRec) *TaskTemplateInfo {
+	if c.TaskTemplateID == "" {
+		return nil
+	}
+
+	t, err := b.taskTemplates.get(c.InstanceID, c.TaskTemplateID)
+	if err != nil {
+		return nil
+	}
+
+	return &TaskTemplateInfo{Arn: t.Template.Arn, Name: t.Template.Name}
+}
+
+// contactEvaluationsLocked keys the contact's evaluations by form; the latest evaluation of a form wins.
+func (b *Backend) contactEvaluationsLocked(c *contactRec) map[string]ContactEvalInfo {
+	var out map[string]ContactEvalInfo
+
+	latest := map[string]awstime.EpochTime{}
+
+	for _, e := range b.evaluations.in(c.InstanceID) {
+		if e.ContactID != c.Contact.ID || e.CreatedTime.Time.Before(latest[e.FormID].Time) {
+			continue
+		}
+
+		start := e.CreatedTime
+		info := ContactEvalInfo{
+			StartTimestamp: &start, EvaluationArn: e.Arn, FormID: e.FormID, Status: "IN_PROGRESS",
+		}
+		if e.Status == evalSubmitted {
+			end := e.LastModified
+			info.EndTimestamp, info.Status = &end, "COMPLETE"
+		}
+
+		if out == nil {
+			out = map[string]ContactEvalInfo{}
+		}
+
+		out[e.FormID], latest[e.FormID] = info, e.CreatedTime
+	}
+
+	return out
 }
 
 // StopContact ends a contact that is still active.

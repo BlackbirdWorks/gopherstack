@@ -668,3 +668,47 @@ func TestContactControlStateSurvivesRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestDismissUserContact(t *testing.T) {
+	t.Parallel()
+
+	e := newContactEnv(t)
+	inst, user := aws.String(e.inst), aws.String(e.user)
+
+	ended := func() []types.AgentContactReference {
+		out, err := e.f.client.GetCurrentUserData(t.Context(), &sdk.GetCurrentUserDataInput{
+			InstanceId: inst,
+			Filters: &types.UserDataFilters{
+				Agents:        []string{e.user},
+				ContactFilter: &types.ContactFilter{ContactStates: []types.ContactState{types.ContactStateEnded}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.UserDataList, 1)
+
+		return out.UserDataList[0].Contacts
+	}
+
+	dismiss := func(contact string) error {
+		_, err := e.f.client.DismissUserContact(t.Context(), &sdk.DismissUserContactInput{
+			InstanceId: inst, UserId: user, ContactId: aws.String(contact),
+		})
+
+		return err
+	}
+
+	contact := e.connectedVoice(t)
+	assert.Equal(t, "InvalidRequestException", apiCode(dismiss(contact)), "still connected")
+
+	e.stop(t, contact)
+	require.Len(t, ended(), 1)
+	assert.EqualValues(t, "ENDED", ended()[0].AgentContactState)
+
+	other := e.task(t)
+	assert.Equal(t, "InvalidRequestException", apiCode(dismiss(other)), "not the agent's contact")
+	assert.Equal(t, "ResourceNotFoundException", apiCode(dismiss("missing")))
+
+	require.NoError(t, dismiss(contact))
+	assert.Empty(t, ended())
+	assert.Equal(t, "InvalidRequestException", apiCode(dismiss(contact)), "already dismissed")
+}

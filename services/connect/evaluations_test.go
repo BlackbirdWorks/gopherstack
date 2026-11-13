@@ -348,3 +348,72 @@ func TestContactEvaluationsSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"batch": "1"}, tags.Tags)
 }
+
+func TestContactEvaluationsOnContact(t *testing.T) {
+	t.Parallel()
+
+	e := newEvalEnv(t, true)
+	inst := aws.String(e.inst)
+
+	contact := func() *types.Contact {
+		return e.describe(t, e.contact)
+	}
+
+	assert.Empty(t, contact().ContactEvaluations)
+	assert.Equal(t, aws.ToString(contact().InitialContactId), aws.ToString(contact().ContactAssociationId))
+	assert.NotEmpty(t, aws.ToString(contact().ContactAssociationId))
+
+	started := e.start(t)
+
+	got := contact().ContactEvaluations[e.form]
+	assert.Equal(t, types.StatusInProgress, got.Status)
+	assert.Equal(t, aws.ToString(started.EvaluationArn), aws.ToString(got.EvaluationArn))
+	assert.Equal(t, e.form, aws.ToString(got.FormId))
+	assert.NotNil(t, got.StartTimestamp)
+	assert.Nil(t, got.EndTimestamp)
+
+	_, err := e.f.client.SubmitContactEvaluation(t.Context(), &sdk.SubmitContactEvaluationInput{
+		InstanceId: inst, EvaluationId: started.EvaluationId,
+		Answers: map[string]types.EvaluationAnswerInput{"greet": str("yes"), "wait": num(30), "comment": str("ok")},
+	})
+	require.NoError(t, err)
+
+	got = contact().ContactEvaluations[e.form]
+	assert.Equal(t, types.StatusComplete, got.Status)
+	assert.NotNil(t, got.EndTimestamp)
+
+	_, err = e.f.client.DeleteContactEvaluation(t.Context(), &sdk.DeleteContactEvaluationInput{
+		InstanceId: inst, EvaluationId: started.EvaluationId,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, contact().ContactEvaluations)
+}
+
+func TestTaskTemplateInfoOnContact(t *testing.T) {
+	t.Parallel()
+
+	e := newContactEnv(t)
+
+	tmpl, err := e.f.client.CreateTaskTemplate(t.Context(), &sdk.CreateTaskTemplateInput{
+		InstanceId: aws.String(e.inst), Name: aws.String("followup"), Status: types.TaskTemplateStatusActive,
+		Fields: []types.TaskTemplateField{tmplField("Description", types.TaskTemplateFieldTypeDescription)},
+	})
+	require.NoError(t, err)
+
+	out, err := e.f.client.StartTaskContact(t.Context(), &sdk.StartTaskContactInput{
+		InstanceId: aws.String(
+			e.inst,
+		),
+		TaskTemplateId: tmpl.Id,
+		Name:           aws.String("t"),
+		ContactFlowId:  aws.String(e.flow),
+	})
+	require.NoError(t, err)
+
+	got := e.describe(t, aws.ToString(out.ContactId))
+	require.NotNil(t, got.TaskTemplateInfo)
+	assert.Equal(t, aws.ToString(tmpl.Arn), aws.ToString(got.TaskTemplateInfo.Arn))
+	assert.Equal(t, "followup", aws.ToString(got.TaskTemplateInfo.Name))
+
+	assert.Nil(t, e.describe(t, e.task(t)).TaskTemplateInfo)
+}

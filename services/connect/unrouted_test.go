@@ -7,7 +7,6 @@ func notImplemented() []string {
 		"BatchAssociateAnalyticsDataSet",
 		"BatchDisassociateAnalyticsDataSet",
 		"DisassociateAnalyticsDataSet",
-		"DismissUserContact",
 		"GetCrossRegionRouting",
 		"GetFederationToken",
 		"GetPromptFile",

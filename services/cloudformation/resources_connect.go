@@ -49,6 +49,7 @@ const (
 	connectViewSha         = "ViewContentSha256"
 	connectTagsProp        = "Tags"
 	connectStatusProp      = "Status"
+	connectCreatedTime     = "CreatedTime"
 	connectLastModified    = "LastModifiedTime"
 	connectLastModRegion   = "LastModifiedRegion"
 	connectStateActive     = hsmStateActive

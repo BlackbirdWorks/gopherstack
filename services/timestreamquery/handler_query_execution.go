@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) {
@@ -36,6 +38,7 @@ func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) 
 		NextToken:    req.NextToken,
 		MaxRows:      req.MaxRows,
 		InsightsMode: insightsMode,
+		Principal:    awsmeta.AccessKeyID(ctx),
 	})
 	if err != nil {
 		return nil, err

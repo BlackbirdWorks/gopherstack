@@ -301,3 +301,53 @@ func TestQuickConnectConfigs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list.QuickConnectSummaryList)
 }
+
+func TestAgentQueues(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	instID := f.newInstance(t, "agentq")
+	inst := aws.String(instID)
+	_, _, profile := f.defaultQueue(t, instID)
+	ada := f.newUser(t, instID, "ada", profile)
+	f.newUser(t, instID, "grace", profile)
+
+	list := func(kinds ...types.QueueType) []types.QueueSummary {
+		out, err := f.client.ListQueues(t.Context(), &sdk.ListQueuesInput{InstanceId: inst, QueueTypes: kinds})
+		require.NoError(t, err)
+
+		return out.QueueSummaryList
+	}
+
+	agents := list(types.QueueTypeAgent)
+	require.Len(t, agents, 2)
+
+	for _, q := range agents {
+		assert.Equal(t, types.QueueTypeAgent, q.QueueType)
+		assert.Nil(t, q.Name)
+		assert.Contains(t, aws.ToString(q.Arn), ":instance/"+instID+"/queue/"+aws.ToString(q.Id))
+	}
+
+	assert.Len(t, list(types.QueueTypeStandard), 1)
+	assert.Len(t, list(), 3)
+	assert.Len(t, list(types.QueueTypeStandard, types.QueueTypeAgent), 3)
+
+	desc, err := f.client.DescribeQueue(t.Context(), &sdk.DescribeQueueInput{InstanceId: inst, QueueId: agents[0].Id})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(agents[0].Arn), aws.ToString(desc.Queue.QueueArn))
+	assert.Equal(t, types.QueueStatusEnabled, desc.Queue.Status)
+
+	_, err = f.client.DeleteUser(t.Context(), &sdk.DeleteUserInput{InstanceId: inst, UserId: ada.UserId})
+	require.NoError(t, err)
+
+	left := list(types.QueueTypeAgent)
+	require.Len(t, left, 1)
+
+	gone := agents[0]
+	if aws.ToString(left[0].Id) == aws.ToString(agents[0].Id) {
+		gone = agents[1]
+	}
+
+	_, err = f.client.DescribeQueue(t.Context(), &sdk.DescribeQueueInput{InstanceId: inst, QueueId: gone.Id})
+	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
+}

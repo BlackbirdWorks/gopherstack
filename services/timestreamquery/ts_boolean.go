@@ -277,13 +277,13 @@ func isBooleanExpr(expr string) bool {
 	return slices.ContainsFunc(toks, isBooleanKeyword)
 }
 
-func booleanAliases(lists []selectList) map[string]bool {
+func typedAliases(lists []selectList, is func(string) bool) map[string]bool {
 	out := map[string]bool{}
 
 	for _, l := range lists {
 		for _, it := range l.items {
 			expr, alias := stripAlias(it)
-			if alias != "" && isBooleanExpr(expr) {
+			if alias != "" && is(expr) {
 				out[strings.ToLower(alias)] = true
 			}
 		}
@@ -303,9 +303,9 @@ func outermostSelect(lists []selectList) selectList {
 	return top
 }
 
-// booleanColumnPlan decides which result columns of query are BOOLEAN.
-// Plain references to an alias that names a boolean expression in any SELECT inherit the type.
-func booleanColumnPlan(query string, names []string) []bool {
+// typedColumnPlan decides which result columns of query hold an expression accepted by is.
+// Plain references to an alias that names such an expression in any SELECT inherit the type.
+func typedColumnPlan(query string, names []string, is func(string) bool) []bool {
 	lists := scanSelectLists(query)
 	plan := make([]bool, len(names))
 
@@ -313,7 +313,7 @@ func booleanColumnPlan(query string, names []string) []bool {
 		return plan
 	}
 
-	boolAlias := booleanAliases(lists)
+	boolAlias := typedAliases(lists, is)
 	top := outermostSelect(lists)
 
 	positional := len(top.items) == len(names)
@@ -332,7 +332,7 @@ func booleanColumnPlan(query string, names []string) []bool {
 		}
 
 		expr, _ := stripAlias(top.items[i])
-		plan[i] = isBooleanExpr(expr) || (isPlainColumnRef(expr) && byAlias)
+		plan[i] = is(expr) || (isPlainColumnRef(expr) && byAlias)
 	}
 
 	return plan
@@ -345,7 +345,7 @@ func applyBooleanTypes(rs *resultSet, query string) {
 		names[i] = c.Name
 	}
 
-	plan := booleanColumnPlan(query, names)
+	plan := typedColumnPlan(query, names, isBooleanExpr)
 
 	for i, isBool := range plan {
 		if !isBool || (rs.cols[i].Type.ScalarType != ScalarTypeBigint && len(rs.rows) != 0) {
@@ -363,6 +363,30 @@ func applyBooleanTypes(rs *resultSet, query string) {
 			b := *d.ScalarValue != "0"
 			s := strconv.FormatBool(b)
 			d.ScalarValue = &s
+		}
+	}
+}
+
+// isIntervalExpr reports whether a SQL expression is a parse_duration call, whose result is INTERVAL DAY TO SECOND.
+func isIntervalExpr(expr string) bool {
+	e := stripOuterParens(expr)
+
+	m := reCallHead.FindStringSubmatch(e)
+
+	return m != nil && strings.EqualFold(m[1], "parse_duration") && matchParen(e, len(m[0])-1) == len(e)-1
+}
+
+// applyIntervalTypes reports parse_duration columns as INTERVAL_DAY_TO_SECOND; the engine renders the value as
+// "d hh:mm:ss.nnnnnnnnn" already.
+func applyIntervalTypes(rs *resultSet, query string) {
+	names := make([]string, len(rs.cols))
+	for i, c := range rs.cols {
+		names[i] = c.Name
+	}
+
+	for i, isInterval := range typedColumnPlan(query, names, isIntervalExpr) {
+		if isInterval {
+			rs.cols[i].Type.ScalarType = ScalarTypeIntervalDayToSecond
 		}
 	}
 }
