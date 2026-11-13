@@ -50,6 +50,6 @@ def test_root_user_keeps_earlier_kwargs(method, tmp_path):
     assert c._kwargs == {"mem_limit": "256m", "user": "0:0"}
 
 
-def test_with_user_overrides_and_merges():
-    c = GopherstackContainer(IMAGE, mem_limit="256m").with_persistence("/tmp/x").with_user("1000:1000")
+def test_with_user_overrides_and_merges(tmp_path):
+    c = GopherstackContainer(IMAGE, mem_limit="256m").with_persistence(str(tmp_path)).with_user("1000:1000")
     assert c._kwargs == {"mem_limit": "256m", "user": "1000:1000"}
