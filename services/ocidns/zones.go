@@ -484,7 +484,20 @@ type UpdateZoneIn struct {
 	ExternalDownstreams []ExtServer `json:"externalDownstreams"`
 }
 
+type zoneAttrs struct {
+	resolutionMode      string
+	dnssecState         string
+	externalMasters     []ExtServer
+	externalDownstreams []ExtServer
+}
+
+// applyZoneUpdate validates the whole update on a copy and commits it only when every field passes.
 func (b *InMemoryBackend) applyZoneUpdate(z *Zone, in UpdateZoneIn) *APIError {
+	next := zoneAttrs{
+		resolutionMode: z.ResolutionMode, dnssecState: z.DnssecState,
+		externalMasters: z.ExternalMasters, externalDownstreams: z.ExternalDownstreams,
+	}
+
 	if m := strings.ToUpper(in.ResolutionMode); m != "" {
 		switch {
 		case m != modeStatic && m != "TRANSPARENT" && m != "RTYPE_TRANSPARENT":
@@ -493,7 +506,7 @@ func (b *InMemoryBackend) applyZoneUpdate(z *Zone, in UpdateZoneIn) *APIError {
 			return errParam("resolutionMode other than STATIC is only valid for PRIVATE zones")
 		}
 
-		z.ResolutionMode = m
+		next.resolutionMode = m
 	}
 
 	if d := strings.ToUpper(in.DnssecState); d != "" {
@@ -505,13 +518,20 @@ func (b *InMemoryBackend) applyZoneUpdate(z *Zone, in UpdateZoneIn) *APIError {
 			return errParam("DNSSEC can only be enabled on GLOBAL PRIMARY zones")
 		}
 
-		z.DnssecState = d
+		next.dnssecState = d
 	}
 
-	return b.applyExternals(z, in)
+	if err := b.applyExternals(z, in, &next); err != nil {
+		return err
+	}
+
+	z.ResolutionMode, z.DnssecState = next.resolutionMode, next.dnssecState
+	z.ExternalMasters, z.ExternalDownstreams = next.externalMasters, next.externalDownstreams
+
+	return nil
 }
 
-func (b *InMemoryBackend) applyExternals(z *Zone, in UpdateZoneIn) *APIError {
+func (b *InMemoryBackend) applyExternals(z *Zone, in UpdateZoneIn, next *zoneAttrs) *APIError {
 	if in.ExternalMasters != nil {
 		if err := b.checkExternal(in.ExternalMasters, "externalMasters"); err != nil {
 			return err
@@ -525,7 +545,7 @@ func (b *InMemoryBackend) applyExternals(z *Zone, in UpdateZoneIn) *APIError {
 			return errMissing("externalMasters is required for a SECONDARY zone")
 		}
 
-		z.ExternalMasters = in.ExternalMasters
+		next.externalMasters = in.ExternalMasters
 	}
 
 	if in.ExternalDownstreams != nil {
@@ -537,7 +557,7 @@ func (b *InMemoryBackend) applyExternals(z *Zone, in UpdateZoneIn) *APIError {
 			return errParam("externalDownstreams is not supported for SECONDARY or PRIVATE zones")
 		}
 
-		z.ExternalDownstreams = in.ExternalDownstreams
+		next.externalDownstreams = in.ExternalDownstreams
 	}
 
 	return nil

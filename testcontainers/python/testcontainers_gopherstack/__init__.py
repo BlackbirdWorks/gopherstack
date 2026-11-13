@@ -85,6 +85,14 @@ class GopherstackContainer(DockerContainer):
         for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values(), *OCI_PORTS.values()]:
             self.with_exposed_ports(port)
 
+    def with_user(self, user: str) -> GopherstackContainer:
+        """Run the container as user (e.g. "1000:1000"), keeping every other container kwarg.
+
+        testcontainers' with_kwargs replaces the whole kwargs dict, so merge instead.
+        """
+        self.with_kwargs(**{**self._kwargs, "user": user})
+        return self
+
     def with_services(self, *names: str) -> GopherstackContainer:
         """Restrict the emulator to the named services (GOPHERSTACK_SERVICES)."""
         self._services.extend(names)
@@ -96,7 +104,7 @@ class GopherstackContainer(DockerContainer):
 
         The image runs as UID 65532; a host bind mount is rarely writable by it, so the container runs as root.
         """
-        self.with_kwargs(user="0:0")
+        self.with_user("0:0")
         self.with_env("PERSIST", "true")
         self.with_env("GOPHERSTACK_DATA_DIR", DATA_DIR)
         self.with_volume_mapping(host_dir, DATA_DIR, "rw")
@@ -108,7 +116,7 @@ class GopherstackContainer(DockerContainer):
         This gives the emulator control of the host Docker daemon; use only in
         trusted test environments. The container runs as root to open the socket.
         """
-        self.with_kwargs(user="0:0")
+        self.with_user("0:0")
         self.with_volume_mapping(DOCKER_SOCK, DOCKER_SOCK, "rw")
         return self
 

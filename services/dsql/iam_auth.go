@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"github.com/blackbirdworks/gopherstack/services/iam"
@@ -242,9 +243,11 @@ func (c IAMAuthConfig) principalFor(t *authToken) (*authPrincipal, error) {
 		docs, _ := c.Identities.GetPoliciesForUser(user.UserName)
 		p := &authPrincipal{arn: user.Arn, secret: ak.SecretAccessKey, policies: docs}
 
-		if pb, ok := c.Identities.(interface{ PermissionsBoundaryDocForUser(string) string }); ok {
-			p.boundary = pb.PermissionsBoundaryDocForUser(user.UserName)
+		if parsed, perr := awsarn.Parse(user.Arn); perr == nil {
+			p.account = parsed.AccountID
 		}
+
+		p.boundary = c.userBoundary(user.UserName)
 
 		return p, nil
 	}
@@ -264,11 +267,25 @@ func (c IAMAuthConfig) sessionPrincipal(s *sts.SessionInfo) (*authPrincipal, err
 	case s.IsAssumedRole && strings.HasPrefix(resource, "assumed-role/"):
 		role, _, _ := strings.Cut(strings.TrimPrefix(resource, "assumed-role/"), "/")
 		p.policies, _ = c.Identities.GetPoliciesForRole(role)
+
+		if pb, ok := c.Identities.(interface{ PermissionsBoundaryDocForRole(string) string }); ok {
+			p.boundary = pb.PermissionsBoundaryDocForRole(role)
+		}
 	case strings.HasPrefix(resource, "user/"):
-		p.policies, _ = c.Identities.GetPoliciesForUser(strings.TrimPrefix(resource, "user/"))
+		name := strings.TrimPrefix(resource, "user/")
+		p.policies, _ = c.Identities.GetPoliciesForUser(name)
+		p.boundary = c.userBoundary(name)
 	}
 
 	return p, nil
+}
+
+func (c IAMAuthConfig) userBoundary(userName string) string {
+	if pb, ok := c.Identities.(interface{ PermissionsBoundaryDocForUser(string) string }); ok {
+		return pb.PermissionsBoundaryDocForUser(userName)
+	}
+
+	return ""
 }
 
 func arnResource(a string) string {

@@ -9,6 +9,8 @@ import (
 	dsqlauth "github.com/aws/aws-sdk-go-v2/feature/dsql/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 func TestAuthenticateToken(t *testing.T) {
@@ -150,6 +152,77 @@ func TestGrantARN(t *testing.T) {
 			t.Parallel()
 
 			assert.Equal(t, tt.want, (&authPrincipal{arn: tt.arn}).grantARN())
+		})
+	}
+}
+
+func TestEnforcedPrincipalAttributes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		endpoint = "abcdefghijklmnopqrstuvwxyz.dsql.us-east-1.on.aws"
+		region   = "us-east-1"
+		roleARN  = "arn:aws:sts::123456789012:assumed-role/dbrole/sess"
+		sessTok  = "session-token"
+	)
+
+	target := authTarget{
+		endpoint: endpoint, region: region, port: 49152,
+		arn: "arn:aws:dsql:us-east-1:123456789012:cluster/abcdefghijklmnopqrstuvwxyz",
+	}
+	accountOnly := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dsql:DbConnectAdmin",` +
+		`"Resource":"*","Condition":{"StringEquals":{"aws:PrincipalAccount":"123456789012"}}}]}`
+	allowAdmin := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dsql:DbConnectAdmin","Resource":"*"}]}`
+	denyAdmin := `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"dsql:DbConnectAdmin","Resource":"*"}]}`
+	session := &sts.SessionInfo{
+		AssumedRoleArn: roleARN, AccountID: "123456789012", SecretAccessKey: fakeSecretKey,
+		SessionToken: sessTok, AccessKeyID: fakeAccessKey, IsAssumedRole: true,
+	}
+
+	tests := []struct {
+		name     string
+		ids      fakeIdentities
+		viaRole  bool
+		wantDeny bool
+	}{
+		{name: "user in matching account", ids: fakeIdentities{policies: []string{accountOnly}}},
+		{
+			name: "user in other account", wantDeny: true,
+			ids: fakeIdentities{policies: []string{accountOnly}, userARN: "arn:aws:iam::210987654321:user/alice"},
+		},
+		{name: "role without boundary", viaRole: true, ids: fakeIdentities{rolePolicies: []string{allowAdmin}}},
+		{
+			name: "role boundary denies", viaRole: true, wantDeny: true,
+			ids: fakeIdentities{rolePolicies: []string{allowAdmin}, boundary: denyAdmin},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := IAMAuthConfig{Identities: tt.ids, Enforce: true}
+			sessionToken := ""
+
+			if tt.viaRole {
+				cfg.Sessions = fakeSessions{info: session}
+				sessionToken = sessTok
+			}
+
+			creds := credentials.NewStaticCredentialsProvider(fakeAccessKey, fakeSecretKey, sessionToken)
+
+			tok, err := dsqlauth.GenerateDBConnectAdminAuthToken(t.Context(), endpoint, region, creds)
+			require.NoError(t, err)
+
+			sess, err := authenticateToken(cfg, target, "admin", tok, "127.0.0.1", time.Now(), nil)
+			if tt.wantDeny {
+				require.ErrorIs(t, err, errTokenDenied)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "admin", sess.role)
 		})
 	}
 }

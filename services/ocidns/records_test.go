@@ -727,3 +727,47 @@ func TestZoneRecordsConditionalGet(t *testing.T) {
 	status, _, _ = rawGet(t, url, map[string]string{"If-None-Match": etag})
 	assert.Equal(t, http.StatusOK, status, "records changed, so the etag moved")
 }
+
+func TestPatchDomainRdataNeedsRtype(t *testing.T) {
+	t.Parallel()
+
+	req := ocidnssdk.RecordOperationOperationRequire
+
+	tests := []struct {
+		name string
+		op   ocidnssdk.RecordOperation
+	}{
+		{name: "remove", op: ocidnssdk.RecordOperation{
+			Operation: ocidnssdk.RecordOperationOperationRemove, Rdata: new("192.0.2.1"),
+		}},
+		{name: "require", op: ocidnssdk.RecordOperation{Operation: req, Rdata: new("192.0.2.1")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newZoneEnv(t)
+			e.mustPatch(
+				t,
+				zoneName,
+				add("a.rec.example", "A", "192.0.2.1", 300),
+				add("a.rec.example", "TXT", `"t"`, 60),
+			)
+
+			_, err := e.client.PatchDomainRecords(t.Context(), ocidnssdk.PatchDomainRecordsRequest{
+				ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Items: []ocidnssdk.RecordOperation{tt.op},
+			})
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+
+			assert.ElementsMatch(
+				t,
+				[]string{
+					"a.rec.example A 300 192.0.2.1",
+					`a.rec.example TXT 60 "t"`,
+				},
+				userRecords(e.records(t, zoneName)),
+			)
+		})
+	}
+}

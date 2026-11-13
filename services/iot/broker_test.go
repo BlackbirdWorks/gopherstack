@@ -143,19 +143,25 @@ func startTestBroker(t *testing.T, backend *iot.InMemoryBackend) *iot.Broker {
 	broker := iot.NewBroker(backend, 0)
 
 	runCtx, cancelRun := context.WithCancel(t.Context())
-	done := make(chan error, 1)
+	exited := make(chan struct{})
 
-	go func() { done <- broker.Start(runCtx) }()
+	var startErr error
+
+	go func() {
+		startErr = broker.Start(runCtx)
+
+		close(exited)
+	}()
 
 	t.Cleanup(func() {
 		cancelRun()
-		<-done
+		<-exited
 	})
 
 	select {
 	case <-broker.Ready():
-	case err := <-done:
-		require.FailNow(t, "broker exited before ready", "%v", err)
+	case <-exited:
+		require.FailNow(t, "broker exited before ready", "%v", startErr)
 	}
 
 	return broker

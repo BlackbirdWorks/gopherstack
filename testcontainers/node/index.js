@@ -31,6 +31,7 @@ export class GopherstackContainer {
   #env = {};
   #binds = [];
   #root = false;
+  #user;
 
   constructor(image = DEFAULT_IMAGE) {
     this.#image = image;
@@ -57,6 +58,12 @@ export class GopherstackContainer {
     return this;
   }
 
+  /** Runs the container as this user (e.g. "1000:1000"), overriding the root default of withPersistence/withDockerSocket. */
+  withUser(user) {
+    this.#user = user;
+    return this;
+  }
+
   withEnv(key, value) {
     this.#env[key] = value;
     return this;
@@ -67,7 +74,8 @@ export class GopherstackContainer {
     if (this.#services.length > 0) env.GOPHERSTACK_SERVICES = this.#services.join(",");
     const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS), ...Object.values(OCI_PORTS)];
     let container = new GenericContainer(this.#image);
-    if (this.#root) container = container.withUser("0:0");
+    const user = this.#user ?? (this.#root ? "0:0" : undefined);
+    if (user !== undefined) container = container.withUser(user);
     const started = await container
       .withExposedPorts(...ports)
       .withEnvironment(env)

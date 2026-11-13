@@ -37,17 +37,28 @@ func transcodes(r *http.Request, o *Object) bool {
 	return !strings.Contains(strings.ToLower(o.CacheControl), "no-transform")
 }
 
-// serveTranscoded writes o gunzipped without Content-Encoding or Content-Length and ignores Range.
-func serveTranscoded(c *echo.Context, o *Object) {
-	zr, err := gzip.NewReader(bytes.NewReader(o.Data))
-	if err != nil {
-		http.ServeContent(c.Response(), c.Request(), "", o.Updated, bytes.NewReader(o.Data))
+// maxTranscodedBytes caps the decompressed size of a transcoded read; larger objects are served as stored.
+const maxTranscodedBytes = 256 << 20
 
-		return
+// gunzipCapped inflates data; ok is false for a corrupt stream or one inflating past limit bytes.
+func gunzipCapped(data []byte, limit int64) ([]byte, bool) {
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
 	}
 
-	plain, err := io.ReadAll(zr)
-	if err != nil {
+	plain, err := io.ReadAll(io.LimitReader(zr, limit+1))
+	if err != nil || int64(len(plain)) > limit {
+		return nil, false
+	}
+
+	return plain, true
+}
+
+// serveTranscoded writes o gunzipped without Content-Encoding or Content-Length and ignores Range.
+func serveTranscoded(c *echo.Context, o *Object) {
+	plain, ok := gunzipCapped(o.Data, maxTranscodedBytes)
+	if !ok {
 		http.ServeContent(c.Response(), c.Request(), "", o.Updated, bytes.NewReader(o.Data))
 
 		return

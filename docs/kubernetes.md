@@ -8,12 +8,12 @@ From a checkout:
 
 ```bash
 helm install gopherstack ./charts/gopherstack
-kubectl port-forward svc/gopherstack-gopherstack 8000:8000
+kubectl port-forward svc/gopherstack 8000:8000
 AWS_ENDPOINT_URL=http://localhost:8000 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
   aws s3 mb s3://demo
 ```
 
-The image is `ghcr.io/blackbirdworks/gopherstack`, tagged with the chart `appVersion` unless `image.tag` is set. In-cluster clients use `http://<release>-gopherstack.<namespace>.svc.cluster.local:8000`.
+The image is `ghcr.io/blackbirdworks/gopherstack`, tagged with the chart `appVersion` unless `image.tag` is set. The Service is named after the release when the release name already contains `gopherstack`, otherwise `<release>-gopherstack` (or `fullnameOverride`); in-cluster clients use `http://<service>.<namespace>.svc.cluster.local:8000`.
 
 ## Common values
 

@@ -2,6 +2,7 @@ package dsql
 
 import (
 	"github.com/blackbirdworks/gopherstack/services/iam"
+	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 const (
@@ -11,7 +12,10 @@ const (
 )
 
 type fakeIdentities struct {
-	policies []string
+	userARN      string
+	boundary     string
+	policies     []string
+	rolePolicies []string
 }
 
 func (f fakeIdentities) ListAllAccessKeys() []iam.AccessKey {
@@ -19,9 +23,22 @@ func (f fakeIdentities) ListAllAccessKeys() []iam.AccessKey {
 }
 
 func (f fakeIdentities) GetUserByAccessKeyID(string) (*iam.User, error) {
-	return &iam.User{UserName: "alice", Arn: fakeUserARN}, nil
+	arn := f.userARN
+	if arn == "" {
+		arn = fakeUserARN
+	}
+
+	return &iam.User{UserName: "alice", Arn: arn}, nil
 }
+
+func (f fakeIdentities) PermissionsBoundaryDocForUser(string) string { return f.boundary }
+
+func (f fakeIdentities) PermissionsBoundaryDocForRole(string) string { return f.boundary }
 
 func (f fakeIdentities) GetPoliciesForUser(string) ([]string, error) { return f.policies, nil }
 
-func (f fakeIdentities) GetPoliciesForRole(string) ([]string, error) { return nil, nil }
+func (f fakeIdentities) GetPoliciesForRole(string) ([]string, error) { return f.rolePolicies, nil }
+
+type fakeSessions struct{ info *sts.SessionInfo }
+
+func (f fakeSessions) LookupSession(string, string) *sts.SessionInfo { return f.info }

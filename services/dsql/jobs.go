@@ -3,6 +3,8 @@ package dsql
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,7 +16,24 @@ const (
 	jobChannel    = "gs_dsql_jobs"
 	uniqueFailure = "Found duplicate key while validating index for UCVs"
 	pgUniqueCode  = "23505"
+	rejectedDDL   = "only a single CREATE INDEX statement is allowed"
 )
+
+var (
+	indexDDLRE   = regexp.MustCompile(`(?is)^\s*create\s+(unique\s+)?index\s`)
+	quotedPartRE = regexp.MustCompile(`'[^']*'|"[^"]*"`)
+)
+
+// validIndexDDL admits exactly one CREATE [UNIQUE] INDEX statement. Backslash, dollar quoting and comments are
+// refused outright because they can hide a separator from the quote-aware scan below.
+func validIndexDDL(ddl string) bool {
+	if !indexDDLRE.MatchString(ddl) || strings.ContainsAny(ddl, `\$`) ||
+		strings.Contains(ddl, "--") || strings.Contains(ddl, "/*") {
+		return false
+	}
+
+	return !strings.Contains(quotedPartRE.ReplaceAllString(ddl, ""), ";")
+}
 
 type indexJob struct {
 	id    string
@@ -98,15 +117,15 @@ func (i *dockerInstance) buildIndex(ctx context.Context, status *pgx.Conn, j ind
 }
 
 func (i *dockerInstance) runDDL(ctx context.Context, j indexJob) string {
-	conn, err := i.superConn(ctx)
+	if !validIndexDDL(j.ddl) {
+		return rejectedDDL
+	}
+
+	conn, err := i.roleConn(ctx, j.owner)
 	if err != nil {
 		return "index build could not start"
 	}
 	defer conn.Close(context.WithoutCancel(ctx))
-
-	if _, err = conn.Exec(ctx, "SET SESSION AUTHORIZATION "+pgengine.Ident(j.owner)); err != nil {
-		return "index build could not start"
-	}
 
 	if _, err = conn.Exec(ctx, j.ddl); err != nil {
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {

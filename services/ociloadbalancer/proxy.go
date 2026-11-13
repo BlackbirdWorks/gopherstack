@@ -582,7 +582,7 @@ func (d *dataPlane) handleTCP(ctx context.Context, s portSpec, c net.Conn) {
 }
 
 func (d *dataPlane) dialBackend(ctx context.Context, lb *LoadBalancer, bs *BackendSet, be Backend) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	ctx, cancel := context.WithTimeout(ctx, d.dialTimeout())
 	defer cancel()
 
 	conn, err := d.dialer.DialContext(ctx, "tcp", net.JoinHostPort(be.IPAddress, itoa(be.Port)))

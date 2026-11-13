@@ -248,6 +248,27 @@ func (i *dockerInstance) superConn(ctx context.Context) (*pgx.Conn, error) {
 	return i.connect(ctx, pgengine.Superuser, i.rootPW)
 }
 
+// roleConn connects as the job owner itself, so queued DDL never runs with superuser rights.
+func (i *dockerInstance) roleConn(ctx context.Context, role string) (*pgx.Conn, error) {
+	if role == adminRole {
+		return i.connect(ctx, adminRole, i.adminPW)
+	}
+
+	super, err := i.superConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer super.Close(context.WithoutCancel(ctx))
+
+	var secret string
+	if err = super.QueryRow(ctx, "SELECT secret FROM sys.gs_role_secrets WHERE role_name = $1", role).
+		Scan(&secret); err != nil {
+		return nil, errDataPlane
+	}
+
+	return i.connect(ctx, role, secret)
+}
+
 // roleLogin returns the engine-private password of a role mapped by AWS IAM GRANT.
 func (i *dockerInstance) roleLogin(ctx context.Context, role, principalARN string) (string, bool) {
 	conn, err := i.superConn(ctx)

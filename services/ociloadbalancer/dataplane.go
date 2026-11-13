@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -63,6 +64,7 @@ type dataPlane struct {
 	transports map[string]*transportEntry
 	dialer     *net.Dialer
 	baseCtx    context.Context //nolint:containedctx // process-lifetime context for accepted connections
+	dialLimit  time.Duration
 }
 
 func newDataPlane(b *InMemoryBackend) *dataPlane {
@@ -484,9 +486,20 @@ func backendTLSFor(base *tls.Config, s *SSLConfig, host string) *tls.Config {
 	return cfg
 }
 
+func (d *dataPlane) dialTimeout() time.Duration {
+	if d.dialLimit > 0 {
+		return d.dialLimit
+	}
+
+	return dialTimeout
+}
+
 func (d *dataPlane) dialTLS(
 	ctx context.Context, network, addr string, base *tls.Config, s *SSLConfig,
 ) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, d.dialTimeout())
+	defer cancel()
+
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("backend address: %w", err)

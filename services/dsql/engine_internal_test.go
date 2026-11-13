@@ -211,7 +211,6 @@ func TestEngineDeleteWhileLaunching(t *testing.T) {
 	_, err = b.DeleteCluster(c.Identifier)
 	require.NoError(t, err)
 
-	close(l.gate)
 	b.Close()
 	assert.Empty(t, l.closed, "a cancelled launch leaves nothing to close")
 }

@@ -295,7 +295,7 @@ func TestSignedURLHMAC(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		mutate   func(s *signEnv, key *gcpstorage.HMACKey) (accessID, secret string)
+		mutate   func(t *testing.T, s *signEnv, key *gcpstorage.HMACKey) (accessID, secret string)
 		name     string
 		wantCode string
 		expires  int
@@ -304,35 +304,37 @@ func TestSignedURLHMAC(t *testing.T) {
 	}{
 		{
 			name: "valid",
-			mutate: func(_ *signEnv, k *gcpstorage.HMACKey) (string, string) {
+			mutate: func(_ *testing.T, _ *signEnv, k *gcpstorage.HMACKey) (string, string) {
 				return k.AccessID, k.Secret
 			},
 			expires: 600, want: http.StatusOK,
 		},
 		{
 			name: "expired",
-			mutate: func(_ *signEnv, k *gcpstorage.HMACKey) (string, string) {
+			mutate: func(_ *testing.T, _ *signEnv, k *gcpstorage.HMACKey) (string, string) {
 				return k.AccessID, k.Secret
 			},
 			expires: 600, age: time.Hour, want: http.StatusBadRequest, wantCode: "ExpiredToken",
 		},
 		{
 			name: "wrong secret",
-			mutate: func(_ *signEnv, k *gcpstorage.HMACKey) (string, string) {
+			mutate: func(_ *testing.T, _ *signEnv, k *gcpstorage.HMACKey) (string, string) {
 				return k.AccessID, k.Secret + "x"
 			},
 			expires: 600, want: http.StatusForbidden, wantCode: "SignatureDoesNotMatch",
 		},
 		{
 			name: "unknown key",
-			mutate: func(_ *signEnv, k *gcpstorage.HMACKey) (string, string) {
+			mutate: func(_ *testing.T, _ *signEnv, k *gcpstorage.HMACKey) (string, string) {
 				return "GOOG1Eghost", k.Secret
 			},
 			expires: 600, want: http.StatusForbidden, wantCode: "InvalidSecurity",
 		},
 		{
 			name: "inactive key",
-			mutate: func(s *signEnv, k *gcpstorage.HMACKey) (string, string) {
+			mutate: func(t *testing.T, s *signEnv, k *gcpstorage.HMACKey) (string, string) {
+				t.Helper()
+
 				_, err := s.backend.UpdateHMACKey(sdkProject, k.AccessID, "INACTIVE")
 				require.NoError(t, err)
 
@@ -350,7 +352,7 @@ func TestSignedURLHMAC(t *testing.T) {
 			key, err := s.backend.CreateHMACKey(sdkProject, saA)
 			require.NoError(t, err)
 
-			id, secret := tt.mutate(s, key)
+			id, secret := tt.mutate(t, s, key)
 			u := s.signV4HMAC(http.MethodGet, id, secret, time.Now().UTC(), tt.expires)
 
 			if tt.age != 0 {

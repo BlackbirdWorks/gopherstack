@@ -124,6 +124,18 @@ func newDataPlane(t *testing.T) *dataPlane {
 	return dp
 }
 
+func (dp *dataPlane) instance(t *testing.T) *dockerInstance {
+	t.Helper()
+
+	dp.b.mu.RLock("test")
+	defer dp.b.mu.RUnlock()
+
+	inst, ok := dp.b.engine.units[dp.c.Identifier].inst.(*dockerInstance)
+	require.True(t, ok)
+
+	return inst
+}
+
 func (dp *dataPlane) token(t *testing.T, admin bool) string {
 	t.Helper()
 
@@ -452,6 +464,76 @@ func TestDockerDataPlane(t *testing.T) {
 			assert.Equal(t, pgNoDatabaseCode, pgErr.Code)
 		})
 
+		t.Run("admin creates schemas", func(t *testing.T) {
+			t.Parallel()
+
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+			_, err := admin.Exec(ctx, "CREATE SCHEMA admin_made")
+			require.NoError(t, err)
+		})
+
+		t.Run("async index jobs run as the owner", func(t *testing.T) {
+			t.Parallel()
+
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+			for _, stmt := range []string{
+				"CREATE ROLE esc WITH LOGIN",
+				"CREATE SCHEMA escs",
+				"GRANT ALL ON SCHEMA escs TO esc",
+				"AWS IAM GRANT esc TO '" + fakeUserARN + "'",
+			} {
+				_, err := admin.Exec(ctx, stmt)
+				require.NoError(t, err, stmt)
+			}
+
+			esc := dp.mustOpen(t, "esc", dp.token(t, false), pgx.QueryExecModeSimpleProtocol)
+
+			_, err := esc.Exec(ctx, "CREATE TABLE escs.t (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
+
+			var job string
+
+			require.NoError(t, esc.QueryRow(ctx, "CREATE INDEX ASYNC t_v ON escs.t (v)").Scan(&job))
+
+			var ok bool
+
+			require.NoError(t, esc.QueryRow(ctx, "SELECT sys.wait_for_job('"+job+"')").Scan(&ok))
+			assert.True(t, ok)
+
+			payload := "RESET SESSION AUTHORIZATION; ALTER ROLE esc SUPERUSER"
+			_, err = esc.Exec(ctx, "SELECT sys.gs_create_index_async("+quoteLiteral(payload)+")")
+			require.Error(t, err, "the submit function refuses anything but one CREATE INDEX")
+
+			super, err := dp.instance(t).superConn(ctx)
+			require.NoError(t, err)
+
+			t.Cleanup(func() { _ = super.Close(context.WithoutCancel(t.Context())) })
+
+			const forged = "forgedjob00000000000000000a"
+
+			_, err = super.Exec(ctx, `INSERT INTO sys.gs_jobs (job_id, status, job_type, update_time, ddl, owner)
+				VALUES ($1, 'submitted', 'INDEX_BUILD', now(), $2, 'esc')`, forged, payload)
+			require.NoError(t, err)
+
+			_, err = super.Exec(ctx, "NOTIFY "+jobChannel)
+			require.NoError(t, err)
+
+			var status, details string
+
+			require.Eventually(t, func() bool {
+				return super.QueryRow(ctx, "SELECT status, coalesce(details, '') FROM sys.jobs WHERE job_id = $1",
+					forged).Scan(&status, &details) == nil && status == "failed"
+			}, dockerEngineWait, 100*time.Millisecond)
+			assert.Equal(t, rejectedDDL, details)
+
+			var super2 bool
+
+			require.NoError(t, super.QueryRow(ctx, "SELECT rolsuper FROM pg_roles WHERE rolname = 'esc'").Scan(&super2))
+			assert.False(t, super2)
+		})
+
 		t.Run("iam granted role", func(t *testing.T) {
 			t.Parallel()
 
@@ -465,8 +547,11 @@ func TestDockerDataPlane(t *testing.T) {
 
 			var arn, role string
 
-			require.NoError(t, admin.QueryRow(ctx, "SELECT arn, pg_role_name FROM sys.iam_pg_role_mappings").
-				Scan(&arn, &role))
+			require.NoError(
+				t,
+				admin.QueryRow(ctx, "SELECT arn, pg_role_name FROM sys.iam_pg_role_mappings WHERE pg_role_name = 'app'").
+					Scan(&arn, &role),
+			)
 			assert.Equal(t, fakeUserARN, arn)
 			assert.Equal(t, "app", role)
 

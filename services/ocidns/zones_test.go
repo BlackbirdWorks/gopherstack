@@ -518,3 +518,39 @@ func TestUnknownRoute(t *testing.T) {
 	assert.Contains(t, body, `"code":"NotFound"`)
 	assert.NotEmpty(t, hdr.Get("Opc-Request-Id"))
 }
+
+func TestZoneUpdateIsAtomic(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		update ocidnssdk.UpdateZoneRequest
+		name   string
+	}{
+		{
+			name: "valid dnssec then invalid masters",
+			update: ocidnssdk.UpdateZoneRequest{
+				DnssecState:     ocidnssdk.ZoneDnssecStateEnabled,
+				ExternalMasters: []ocidnssdk.ExternalMaster{{Address: new("192.0.2.1")}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			z := e.createZone(t, "atomic.example", nil)
+			before := e.getZone(t, *z.Name).Zone
+
+			tt.update.ZoneNameOrId = z.Name
+			_, err := e.client.UpdateZone(t.Context(), tt.update)
+			assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
+
+			after := e.getZone(t, *z.Name).Zone
+			assert.Equal(t, before.DnssecState, after.DnssecState)
+			assert.Equal(t, before.ExternalMasters, after.ExternalMasters)
+			assert.Equal(t, before.Version, after.Version)
+		})
+	}
+}

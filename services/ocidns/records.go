@@ -346,7 +346,11 @@ func (z *Zone) spec(in RecordIn, scopeDomain, scopeRtype string, needData bool) 
 		return z.completeSpec(s, in)
 	}
 
-	if in.Rdata != nil && s.domain != "" && s.rtype != "" && s.rtype != rtypeSOA {
+	if in.Rdata != nil && s.rtype == "" {
+		return s, errMissing("rtype is required when rdata is given")
+	}
+
+	if in.Rdata != nil && s.domain != "" && s.rtype != rtypeSOA {
 		rd, rerr := normRdata(s.domain, s.rtype, *in.Rdata, cmp.Or(s.ttl, soaTTL))
 		if rerr != nil {
 			return s, rerr

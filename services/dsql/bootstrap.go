@@ -49,6 +49,10 @@ DECLARE
 	id text := '';
 	obj text;
 BEGIN
+	IF ddl !~* '^\s*create\s+(unique\s+)?index\s' OR ddl ~ '[\\$]' OR ddl LIKE '%--%' OR ddl LIKE '%/*%'
+		OR regexp_replace(ddl, '''[^'']*''|"[^"]*"', '', 'g') LIKE '%;%' THEN
+		RAISE EXCEPTION 'only a single CREATE INDEX statement is allowed' USING ERRCODE = 'feature_not_supported';
+	END IF;
 	FOR i IN 1..26 LOOP
 		id := id || substr(alphabet, 1 + floor(random() * 32)::int, 1);
 	END LOOP;
@@ -218,4 +222,5 @@ CREATE EVENT TRIGGER gs_ddl_start ON ddl_command_start EXECUTE FUNCTION sys.gs_d
 CREATE EVENT TRIGGER gs_ddl_end ON ddl_command_end
 	WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') EXECUTE FUNCTION sys.gs_ddl_end();
 ALTER SCHEMA public OWNER TO admin;
+GRANT CREATE ON DATABASE postgres TO admin;
 `
