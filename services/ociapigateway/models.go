@@ -56,6 +56,7 @@ type Gateway struct {
 	State         string         `json:"state"`
 	Etag          string         `json:"etag"`
 	NSGs          []string       `json:"networkSecurityGroupIds,omitempty"`
+	IPs           []string       `json:"ipAddresses,omitempty"`
 }
 
 // Deployment is an API deployment on a gateway.

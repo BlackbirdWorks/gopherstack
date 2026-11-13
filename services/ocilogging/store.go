@@ -33,18 +33,19 @@ const (
 
 // InMemoryBackend holds every log group, log, agent configuration, work request and ingested entry under one lock.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	now        func() time.Time
-	groups     map[string]*LogGroup
-	logs       map[string]*Log
-	agents     map[string]*AgentConfig
-	workReqs   map[string]*WorkRequest
-	entries    map[string][]*Entry
-	Auth       *ociauth.Registry
-	retry      *ociretry.Store
-	tagLookup  ocitags.Lookup
-	transition time.Duration
-	seq        int64
+	mu            *lockmetrics.RWMutex
+	now           func() time.Time
+	groups        map[string]*LogGroup
+	logs          map[string]*Log
+	agents        map[string]*AgentConfig
+	savedSearches map[string]*SavedSearch
+	workReqs      map[string]*WorkRequest
+	entries       map[string][]*Entry
+	Auth          *ociauth.Registry
+	retry         *ociretry.Store
+	tagLookup     ocitags.Lookup
+	transition    time.Duration
+	seq           int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -59,6 +60,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.groups, b.logs, b.agents = map[string]*LogGroup{}, map[string]*Log{}, map[string]*AgentConfig{}
 	b.workReqs, b.entries = map[string]*WorkRequest{}, map[string][]*Entry{}
+	b.savedSearches = map[string]*SavedSearch{}
 	b.retry = ociretry.New()
 }
 

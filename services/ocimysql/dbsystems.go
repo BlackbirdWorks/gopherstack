@@ -773,14 +773,26 @@ func (b *InMemoryBackend) channelsOf(id string) []Doc {
 
 func (b *InMemoryBackend) systemBase(s *DBSystem) Doc {
 	d := Doc{
-		"id": s.ID, keyDisplayName: s.Name, keyCompartment: s.CompartmentID, keyLifecycle: s.State,
-		"mysqlVersion": s.Version, keyTimeCreated: s.TimeCreated, keyTimeUpdated: s.TimeUpdated,
-		"databaseMode": s.DatabaseMode, "accessMode": s.AccessMode, "isHighlyAvailable": s.HA,
-		"isHeatWaveClusterAttached": false, "availabilityDomain": s.AD, "faultDomain": s.FD, "shapeName": s.Shape,
-		"currentPlacement": Doc{"availabilityDomain": s.AD, "faultDomain": s.FD},
-		"endpoints":        []Doc{b.endpointDoc(s)}, "deletionPolicy": b.deletionDoc(s.Deletion),
-		"backupPolicy": b.policyDoc(s.BackupPolicy), "crashRecovery": s.CrashRecovery,
-		"databaseManagement": s.DBManagement,
+		"id":                        s.ID,
+		keyDisplayName:              s.Name,
+		keyCompartment:              s.CompartmentID,
+		keyLifecycle:                s.State,
+		"mysqlVersion":              s.Version,
+		keyTimeCreated:              s.TimeCreated,
+		keyTimeUpdated:              s.TimeUpdated,
+		"databaseMode":              s.DatabaseMode,
+		"accessMode":                s.AccessMode,
+		"isHighlyAvailable":         s.HA,
+		"isHeatWaveClusterAttached": s.HeatWave != nil,
+		"availabilityDomain":        s.AD,
+		"faultDomain":               s.FD,
+		keyShapeName:                s.Shape,
+		"currentPlacement":          Doc{"availabilityDomain": s.AD, "faultDomain": s.FD},
+		"endpoints":                 []Doc{b.endpointDoc(s)},
+		"deletionPolicy":            b.deletionDoc(s.Deletion),
+		"backupPolicy":              b.policyDoc(s.BackupPolicy),
+		"crashRecovery":             s.CrashRecovery,
+		"databaseManagement":        s.DBManagement,
 	}
 	putTags(d, s.Tags)
 
@@ -808,6 +820,10 @@ func (b *InMemoryBackend) systemDoc(s *DBSystem) Doc {
 	d["maintenance"], d["source"] = s.Maintenance, b.sourceDoc(s.Source)
 	d["configurationId"], d["ipAddress"], d["port"], d["portX"] = s.ConfigID, ip, port, s.PortX
 	d["channels"] = b.channelsOf(s.ID)
+
+	if s.HeatWave != nil {
+		d["heatWaveCluster"] = b.heatWaveSummary(s)
+	}
 
 	if s.Hostname != "" {
 		d["hostnameLabel"] = s.Hostname
@@ -859,7 +875,7 @@ type DBSystemListIn struct {
 func (in DBSystemListIn) matches(s *DBSystem) bool {
 	if s.CompartmentID != in.Compartment || (in.ID != "" && s.ID != in.ID) ||
 		(in.Name != "" && s.Name != in.Name) || (in.ConfigurationID != "" && s.ConfigID != in.ConfigurationID) ||
-		(in.HeatWave != nil && *in.HeatWave) {
+		(in.HeatWave != nil && *in.HeatWave != (s.HeatWave != nil)) {
 		return false
 	}
 

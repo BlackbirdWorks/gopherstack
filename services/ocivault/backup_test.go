@@ -417,3 +417,60 @@ func TestBackupRestrictions(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 	})
 }
+
+func TestKeyBackupExcludesDeletedVersions(t *testing.T) {
+	t.Parallel()
+
+	be := newBackupEnv(t)
+	ctx := t.Context()
+	key := be.e.mkKey(t, be.m, "k", aes256(), "")
+
+	v2, err := be.m.CreateKeyVersion(ctx, keymanagement.CreateKeyVersionRequest{KeyId: key.Id})
+	require.NoError(t, err)
+	be.e.settle()
+
+	list, err := be.m.ListKeyVersions(ctx, keymanagement.ListKeyVersionsRequest{KeyId: key.Id})
+	require.NoError(t, err)
+	require.Len(t, list.Items, 2)
+
+	var old *string
+
+	for _, it := range list.Items {
+		if *it.Id != *v2.Id {
+			old = it.Id
+		}
+	}
+
+	_, err = be.m.ScheduleKeyVersionDeletion(ctx, keymanagement.ScheduleKeyVersionDeletionRequest{
+		KeyId: key.Id, KeyVersionId: old,
+	})
+	require.NoError(t, err)
+	be.e.settle()
+
+	vLoc, kLoc := be.loc(t, "bucket", "vault.bk"), be.loc(t, "bucket", "key.bk")
+
+	_, err = be.e.vaults.BackupVault(ctx, keymanagement.BackupVaultRequest{VaultId: be.v.Id, BackupLocation: vLoc})
+	require.NoError(t, err)
+	be.e.settle()
+
+	_, err = be.m.BackupKey(ctx, keymanagement.BackupKeyRequest{KeyId: key.Id, BackupLocation: kLoc})
+	require.NoError(t, err)
+	be.e.settle()
+
+	vBlob, err := be.os.GetBlob(be.os.Namespace(), backupBucket, "vault.bk")
+	require.NoError(t, err)
+
+	kBlob, err := be.os.GetBlob(be.os.Namespace(), backupBucket, "key.bk")
+	require.NoError(t, err)
+
+	be.deleteVault(t)
+	restoreVault(t, be, "file", vLoc, vBlob)
+	be.e.settle()
+	restoreKey(t, be, "file", kLoc, kBlob)
+	be.e.settle()
+
+	got, err := be.m.ListKeyVersions(ctx, keymanagement.ListKeyVersionsRequest{KeyId: key.Id})
+	require.NoError(t, err)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, *v2.Id, *got.Items[0].Id)
+}

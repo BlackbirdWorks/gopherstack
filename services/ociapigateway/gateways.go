@@ -1,7 +1,9 @@
 package ociapigateway
 
 import (
+	"encoding/binary"
 	"encoding/json/jsontext"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +15,11 @@ import (
 )
 
 func (i *createGatewayIn) setRetryToken(t string) { i.RetryToken = t }
+
+const (
+	gatewayPoolBase  = "198.18.0.0"
+	gatewayPoolFirst = 4
+)
 
 type createGatewayIn struct {
 	Tags
@@ -64,6 +71,11 @@ type GatewayWire struct {
 	IPMode         string                    `json:"ipMode,omitempty"`
 	LifecycleState string                    `json:"lifecycleState"`
 	NSGs           []string                  `json:"networkSecurityGroupIds,omitempty"`
+	IPAddresses    []ipAddressWire           `json:"ipAddresses,omitempty"`
+}
+
+type ipAddressWire struct {
+	IPAddress string `json:"ipAddress"`
 }
 
 func gatewayView(g *Gateway) GatewayWire {
@@ -72,7 +84,39 @@ func gatewayView(g *Gateway) GatewayWire {
 		FreeformTags: g.Tags.FreeformTags, Locks: g.Locks, CaBundles: g.CaBundles, ResponseCache: g.ResponseCache,
 		ID: g.ID, CompartmentID: g.CompartmentID, EndpointType: g.EndpointType, DisplayName: g.DisplayName,
 		SubnetID: g.SubnetID, Hostname: g.Hostname, CertificateID: g.CertificateID, IPMode: g.IPMode,
-		LifecycleState: g.State, NSGs: g.NSGs,
+		LifecycleState: g.State, NSGs: g.NSGs, IPAddresses: ipWires(g.IPs),
+	}
+}
+
+func ipWires(ips []string) []ipAddressWire {
+	out := make([]ipAddressWire, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, ipAddressWire{IPAddress: ip})
+	}
+
+	return out
+}
+
+// allocateIP returns the lowest free host address of the emulator pool 198.18.0.0/15.
+func (b *InMemoryBackend) allocateIP() string {
+	used := map[string]bool{}
+
+	for _, g := range b.gateways {
+		for _, ip := range g.IPs {
+			used[ip] = true
+		}
+	}
+
+	base := netip.MustParseAddr(gatewayPoolBase).As4()
+	start := binary.BigEndian.Uint32(base[:])
+
+	for off := uint32(gatewayPoolFirst); ; off++ {
+		var raw [4]byte
+		binary.BigEndian.PutUint32(raw[:], start+off)
+
+		if ip := netip.AddrFrom4(raw).String(); !used[ip] {
+			return ip
+		}
 	}
 }
 
@@ -181,7 +225,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 		DisplayName: name, SubnetID: in.SubnetID, Hostname: newHostname(), CertificateID: in.CertificateID,
 		IPMode: in.IPMode, NSGs: in.NSGs, Locks: locks, CaBundles: nullRaw(in.CaBundles),
 		ResponseCache: nullRaw(in.ResponseCache), State: stateCreating, TransitionAt: b.transitionAt(),
-		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
+		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags, IPs: []string{b.allocateIP()},
 	}
 	b.gateways[g.ID] = g
 	wr := b.newWR(wrCreateGateway, g.CompartmentID, entityGateway, g.ID, actionCreated, *g.TransitionAt)

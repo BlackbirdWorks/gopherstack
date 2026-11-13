@@ -15,7 +15,6 @@
 
 ### Known gaps
 
-- Log saved searches (CreateLogSavedSearch, GetLogSavedSearch, ListLogSavedSearches, UpdateLogSavedSearch, DeleteLogSavedSearch, ChangeLogSavedSearchCompartment) are not routed.
 - The query language lacks select, extend, dedup, summarize, timestats, joins and functions; see families.query_language.
 - The service catalog is a fixed list of six services, and only OCI Functions feeds SERVICE logs; Object Storage, Load Balancer, API Gateway, Events and flow logs never emit entries.
 - Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries.

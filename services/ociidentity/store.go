@@ -146,6 +146,12 @@ func (b *InMemoryBackend) Sweep() {
 		}
 	}
 
+	for _, n := range b.tagNS {
+		if n.LifecycleState == stateDeleting && n.Internal.TransitionAt != nil && !n.Internal.TransitionAt.After(now) {
+			n.LifecycleState, n.Internal.TransitionAt = stateDeleted, nil
+		}
+	}
+
 	for _, d := range b.tagDefs {
 		if d.LifecycleState == stateDeleting && d.Internal.TransitionAt != nil && !d.Internal.TransitionAt.After(now) {
 			d.LifecycleState, d.Internal.TransitionAt = stateDeleted, nil

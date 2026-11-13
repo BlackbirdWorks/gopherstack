@@ -18,6 +18,7 @@ type backendSnapshot struct {
 	Groups   map[string]*LogGroup      `json:"logGroups"`
 	Logs     map[string]*Log           `json:"logs"`
 	Agents   map[string]*AgentConfig   `json:"agentConfigurations"`
+	Saved    map[string]*SavedSearch   `json:"logSavedSearches"`
 	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
 	Entries  map[string][]*Entry       `json:"entries"`
 	Retry    map[string]ociretry.Entry `json:"retryTokens"`
@@ -34,8 +35,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocilogging", backendSnapshot{
-		Version: snapshotVersion, Groups: b.groups, Logs: b.logs, Agents: b.agents, WorkReqs: b.workReqs,
-		Entries: b.entries, Retry: b.retry.Entries(), Auth: keys, Seq: b.seq,
+		Version:  snapshotVersion,
+		Groups:   b.groups,
+		Logs:     b.logs,
+		Agents:   b.agents,
+		Saved:    b.savedSearches,
+		WorkReqs: b.workReqs,
+		Entries:  b.entries,
+		Retry:    b.retry.Entries(),
+		Auth:     keys,
+		Seq:      b.seq,
 	})
 }
 
@@ -63,7 +72,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.groups, b.logs, b.agents, b.workReqs = snap.Groups, snap.Logs, snap.Agents, snap.WorkReqs
-	b.entries, b.seq = snap.Entries, snap.Seq
+	b.entries, b.seq, b.savedSearches = snap.Entries, snap.Seq, snap.Saved
 	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
@@ -88,6 +97,7 @@ func checkSnapshot(snap *backendSnapshot) error {
 	for _, err := range []error{
 		nullCheck("log group", &snap.Groups), nullCheck("log", &snap.Logs),
 		nullCheck("agent configuration", &snap.Agents), nullCheck("work request", &snap.WorkReqs),
+		nullCheck("saved search", &snap.Saved),
 	} {
 		if err != nil {
 			return err

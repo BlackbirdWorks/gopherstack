@@ -21,7 +21,7 @@
 - Key version states are not transitional, and replica endpoints share the primary state: a key is readable there before its replication operation reports REPLICATED.
 - The plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here) are unverified.
 - Several error codes and statuses are unverified against the live service: 409 Conflict for a duplicate secret name, 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key.
-- Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are unverified against the live service; key backups still include key versions that are deleted or pending deletion, which Oracle excludes, and restores are not limited to the original compartment.
+- Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are unverified against the live service; vault restores are not limited to the original compartment (the documentation restricts them to the original tenancy and compartment).
 - Service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
 - Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client.
 - Resource principal and instance principal tokens are not understood; only API-key signatures are verified.

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"net/http"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
@@ -284,6 +285,9 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	}
 
 	kc, vc := *k, *v
+	kc.Versions = slices.DeleteFunc(slices.Clone(k.Versions), func(kv *KeyVersion) bool {
+		return kv.State == statePendingDeletion || kv.State == stateSchedulingDelete || kv.State == stateDeleted
+	})
 	kc.transition, kc.Etag, vc.transition, vc.Etag = transition{}, "", transition{}, ""
 	prev := k.State
 

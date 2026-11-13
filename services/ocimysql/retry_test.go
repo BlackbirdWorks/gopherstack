@@ -155,3 +155,98 @@ func (e *env) createDBWithToken(t *testing.T, token string) my.CreateDbSystemRes
 
 	return r
 }
+
+func TestActionRetryToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		call      func(t *testing.T, e *env, id *string, token string) (string, error)
+		name      string
+		isChannel bool
+	}{
+		{
+			name: "stop",
+			call: func(t *testing.T, e *env, id *string, token string) (string, error) {
+				t.Helper()
+
+				r, err := e.db.StopDbSystem(t.Context(), my.StopDbSystemRequest{
+					DbSystemId: id, OpcRetryToken: new(token),
+					ShutdownType: my.InnoDbShutdownModeFast,
+				})
+				if err != nil {
+					return "", err
+				}
+
+				return *r.OpcWorkRequestId, nil
+			},
+		},
+		{
+			name: "restart",
+			call: func(t *testing.T, e *env, id *string, token string) (string, error) {
+				t.Helper()
+
+				r, err := e.db.RestartDbSystem(t.Context(), my.RestartDbSystemRequest{
+					DbSystemId: id, OpcRetryToken: new(token),
+					ShutdownType: my.InnoDbShutdownModeFast,
+				})
+				if err != nil {
+					return "", err
+				}
+
+				return *r.OpcWorkRequestId, nil
+			},
+		},
+		{
+			name:      "channel reset",
+			isChannel: true,
+			call: func(t *testing.T, e *env, id *string, token string) (string, error) {
+				t.Helper()
+
+				r, err := e.ch.ResetChannel(
+					t.Context(),
+					my.ResetChannelRequest{ChannelId: id, OpcRetryToken: new(token)},
+				)
+				if err != nil {
+					return "", err
+				}
+
+				return *r.OpcWorkRequestId, nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			db := e.mkDB(t, "act", nil)
+			id := db.Id
+
+			if tt.isChannel {
+				ch, err := e.ch.CreateChannel(
+					t.Context(),
+					my.CreateChannelRequest{CreateChannelDetails: channelDetails(db.Id)},
+				)
+				require.NoError(t, err)
+				e.settle()
+
+				_, err = e.ch.UpdateChannel(
+					t.Context(),
+					my.UpdateChannelRequest{ChannelId: ch.Id, IsEnabled: new(false)},
+				)
+				require.NoError(t, err)
+				e.settle()
+
+				id = ch.Id
+			}
+
+			first, err := tt.call(t, e, id, "tok")
+			require.NoError(t, err)
+
+			second, err := tt.call(t, e, id, "tok")
+			require.NoError(t, err)
+			assert.Equal(t, first, second)
+		})
+	}
+}

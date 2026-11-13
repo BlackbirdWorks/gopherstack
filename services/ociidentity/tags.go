@@ -485,7 +485,7 @@ func (b *InMemoryBackend) DeleteTag(nsID, name, ifMatch string) (string, error) 
 	finish := b.nowUTC().Add(transitionWindow)
 	d.LifecycleState, d.Internal.TransitionAt, d.IsCostTrack = stateDeleting, &finish, false
 
-	return b.newWR("DELETE_TAG_DEFINITION", n.CompartmentID, "tag", d.ID, "DELETED", finish), nil
+	return b.newWR(wrDeleteTagDef, n.CompartmentID, "tag", d.ID, "DELETED", finish), nil
 }
 
 func (t *TagDefault) view() tagDefaultWire {

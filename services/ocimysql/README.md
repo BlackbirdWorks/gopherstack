@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- HeatWave cluster operations (AddHeatWaveCluster, GetHeatWaveCluster, UpdateHeatWaveCluster, DeleteHeatWaveCluster, Start/Stop/RestartHeatWaveCluster, the memory estimate operations) are not routed; isHeatWaveClusterAttached is always false.
+- HeatWave memory estimates (GenerateHeatWaveClusterMemoryEstimate, GetHeatWaveClusterMemoryEstimate) are not routed: the estimate lists per-table memory of the live schemas, which only a running MySQL engine could supply (oci-go-sdk mysql/heat_wave_cluster_memory_estimate.go); Stop/Start of the DB system does not change the HeatWave cluster state.
 - Read replicas (CreateReplica and friends), blue/green deployments, ControlledUpdateDbSystem, GenerateDbSystemStatus/GetDbSystemStatus, ListMaintenanceEvents, CopyBackup, ExportBackup, ValidateBackup, GenerateChannelStatus/GetChannelStatus and CancelWorkRequest are not routed.
 - Source types PITR and IMPORTURL for CreateDbSystem are rejected 400; the PITR policy flag is stored and pointInTimeRecoveryDetails reports creation time to now, but no point-in-time restore exists.
 - Channels are state only: no replication is configured on the target server, the source is never contacted and statuses are not generated.
@@ -23,7 +23,7 @@
 - Backups are logical dumps (mysqldump of user schemas, no accounts) held in the service state and in persistence snapshots, not in Object Storage; INCREMENTAL backups are full dumps; CancelBackupDeletion restarts the retention window because the documentation only says the state reverts to ACTIVE; a backup taken before the docker engine was enabled restores to an empty server.
 - Under the docker engine the endpoint is 127.0.0.1 with a random published port; portX (X protocol) is not published and the configured port/portX only apply to the state-only endpoint.
 - MySQL versions are a static representative set (8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0, default 8.4.6) while the documentation lists availability by date (8.0 closed to new systems, 8.4.9 and 9.7.0 LTS current); dataStorageSizeInGBs is accepted from 50 to 131072 where the documentation says greater than 50 and less than 131072; root is reserved here but is not on the documented reserved list; default ordering, DELETED visibility in lists and the exact 400 versus 404 for dangling references are unverified.
-- opc-retry-token replay covers CreateDbSystem, CreateBackup, CreateChannel and CreateConfiguration only, not Start/Stop/RestartDbSystem, UpdateChannel, ResumeChannel or ResetChannel; service limits, IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
+- Service limits, IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 

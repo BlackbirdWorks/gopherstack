@@ -72,6 +72,8 @@ func (b *InMemoryBackend) settleID(id string) {
 }
 
 func settleSystem(s *DBSystem, now time.Time) {
+	settleHeatWave(s, now)
+
 	if !due(s.TransitionAt, now) {
 		return
 	}
@@ -541,9 +543,13 @@ func parseShutdown(q *req) error {
 }
 
 // StopDBSystem stops an ACTIVE DB system; data is kept.
-func (b *InMemoryBackend) StopDBSystem(id, ifMatch string) (string, error) {
+func (b *InMemoryBackend) StopDBSystem(id, ifMatch, token string) (string, error) {
 	b.mu.Lock("StopDbSystem")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("StopDbSystem/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	s, aerr := b.mutable(id, ifMatch, stateActive)
 	if aerr != nil {
@@ -562,13 +568,19 @@ func (b *InMemoryBackend) StopDBSystem(id, ifMatch string) (string, error) {
 		}, func(s *DBSystem) { s.State = stateInactive })
 	}
 
+	b.retry.Remember("StopDbSystem/"+id, token, wr, b.nowUTC())
+
 	return wr, nil
 }
 
 // StartDBSystem starts an INACTIVE DB system.
-func (b *InMemoryBackend) StartDBSystem(id, ifMatch string) (string, error) {
+func (b *InMemoryBackend) StartDBSystem(id, ifMatch, token string) (string, error) {
 	b.mu.Lock("StartDbSystem")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("StartDbSystem/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	s, aerr := b.mutable(id, ifMatch, stateInactive)
 	if aerr != nil {
@@ -580,6 +592,8 @@ func (b *InMemoryBackend) StartDBSystem(id, ifMatch string) (string, error) {
 	if b.eng != nil {
 		b.spawn(id, wr, b.startWork(s), func(s *DBSystem) { s.State = stateActive })
 	}
+
+	b.retry.Remember("StartDbSystem/"+id, token, wr, b.nowUTC())
 
 	return wr, nil
 }
@@ -598,9 +612,13 @@ func (b *InMemoryBackend) startWork(s *DBSystem) func(ctx context.Context) error
 }
 
 // RestartDBSystem restarts an ACTIVE DB system.
-func (b *InMemoryBackend) RestartDBSystem(id, ifMatch string) (string, error) {
+func (b *InMemoryBackend) RestartDBSystem(id, ifMatch, token string) (string, error) {
 	b.mu.Lock("RestartDbSystem")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("RestartDbSystem/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	s, aerr := b.mutable(id, ifMatch, stateActive)
 	if aerr != nil {
@@ -622,6 +640,8 @@ func (b *InMemoryBackend) RestartDBSystem(id, ifMatch string) (string, error) {
 			return start(ctx)
 		}, func(s *DBSystem) { s.State = stateActive })
 	}
+
+	b.retry.Remember("RestartDbSystem/"+id, token, wr, b.nowUTC())
 
 	return wr, nil
 }
@@ -727,7 +747,7 @@ func (h *Handler) deleteDBSystem(q *req) error {
 }
 
 func (h *Handler) startDBSystem(q *req) error {
-	wr, err := h.Backend.StartDBSystem(q.param(paramDBSystem), q.ifMatch())
+	wr, err := h.Backend.StartDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }
@@ -737,7 +757,7 @@ func (h *Handler) stopDBSystem(q *req) error {
 		return err
 	}
 
-	wr, err := h.Backend.StopDBSystem(q.param(paramDBSystem), q.ifMatch())
+	wr, err := h.Backend.StopDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }
@@ -747,7 +767,7 @@ func (h *Handler) restartDBSystem(q *req) error {
 		return err
 	}
 
-	wr, err := h.Backend.RestartDBSystem(q.param(paramDBSystem), q.ifMatch())
+	wr, err := h.Backend.RestartDBSystem(q.param(paramDBSystem), q.ifMatch(), q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }

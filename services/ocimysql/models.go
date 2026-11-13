@@ -71,6 +71,7 @@ type DBSystem struct {
 	Tags           Tags                      `json:"tags"`
 	TransitionAt   *time.Time                `json:"transitionAt,omitempty"`
 	Source         *Source                   `json:"source,omitempty"`
+	HeatWave       *HeatWaveCluster          `json:"heatWaveCluster,omitempty"`
 	Extra          map[string]jsontext.Value `json:"extra,omitempty"`
 	Maintenance    map[string]any            `json:"maintenance,omitempty"`
 	FD             string                    `json:"faultDomain"`

@@ -277,3 +277,12 @@ func stockSpec(status int, body string) string {
 }
 
 const time1s = time.Second
+
+func (e *env) mkGatewayByID(t *testing.T, id string) apigateway.Gateway {
+	t.Helper()
+
+	resp, err := e.gw.GetGateway(t.Context(), apigateway.GetGatewayRequest{GatewayId: &id})
+	require.NoError(t, err)
+
+	return resp.Gateway
+}

@@ -81,7 +81,7 @@ func coerceVariable(kind string, v any) (any, bool) {
 
 func (b *InMemoryBackend) configDoc(c *Configuration, full bool) Doc {
 	d := Doc{
-		"id": c.ID, keyCompartment: c.CompartmentID, "shapeName": c.Shape, "type": c.Type,
+		"id": c.ID, keyCompartment: c.CompartmentID, keyShapeName: c.Shape, "type": c.Type,
 		keyLifecycle: c.State, keyDisplayName: c.Name, keyTimeCreated: c.TimeCreated, keyTimeUpdated: c.TimeUpdated,
 	}
 	if c.Description != "" {

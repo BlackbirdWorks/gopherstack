@@ -104,6 +104,20 @@ type AgentConfig struct {
 	Enabled       bool           `json:"isEnabled"`
 }
 
+// SavedSearch is a stored log saved search.
+type SavedSearch struct {
+	TimeCreated   time.Time `json:"timeCreated"`
+	TimeModified  time.Time `json:"timeModified"`
+	Tags          Tags      `json:"tags"`
+	ID            string    `json:"id"`
+	CompartmentID string    `json:"compartmentId"`
+	Name          string    `json:"name"`
+	Query         string    `json:"query"`
+	Description   string    `json:"description,omitempty"`
+	Etag          string    `json:"etag"`
+	Seq           int64     `json:"seq"`
+}
+
 // Entry is one ingested log record.
 type Entry struct {
 	Time     time.Time `json:"time"`
