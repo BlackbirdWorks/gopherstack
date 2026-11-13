@@ -29,12 +29,18 @@ var keyNames = []struct { //nolint:gochecknoglobals // fixed credential names, r
 type InMemoryBackend struct {
 	mu     *lockmetrics.RWMutex
 	stores map[string]*store
+	trash  map[string]*store
 	now    func() time.Time
 }
 
 // NewInMemoryBackend returns an empty backend using the wall clock.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{mu: lockmetrics.New("azureappconfig"), stores: map[string]*store{}, now: time.Now}
+	return &InMemoryBackend{
+		mu:     lockmetrics.New("azureappconfig"),
+		stores: map[string]*store{},
+		trash:  map[string]*store{},
+		now:    time.Now,
+	}
 }
 
 // Reset drops all state.
@@ -43,6 +49,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.stores = map[string]*store{}
+	b.trash = map[string]*store{}
 }
 
 // ValidStoreName reports whether name is a legal store name (5-50 letters, digits, hyphens).
@@ -116,7 +123,12 @@ func (b *InMemoryBackend) PutStore(name string) (StoreInfo, error) {
 
 	s, ok := b.stores[strs.Fold(name)]
 	if !ok {
-		s = newStore(strs.Fold(name), b.now())
+		if s, ok = b.trash[strs.Fold(name)]; ok {
+			delete(b.trash, strs.Fold(name))
+		} else {
+			s = newStore(strs.Fold(name), b.now())
+		}
+
 		b.stores[s.Name] = s
 	}
 
@@ -133,6 +145,8 @@ func (b *InMemoryBackend) EnsureStore(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.stores[strs.Fold(name)]; !ok {
+		delete(b.trash, strs.Fold(name))
+
 		s := newStore(strs.Fold(name), b.now())
 		b.stores[s.Name] = s
 	}
@@ -163,18 +177,44 @@ func (b *InMemoryBackend) Store(name string) (StoreInfo, error) {
 	return StoreInfo{Name: s.Name, Created: s.Created}, nil
 }
 
-// DeleteStore removes a store with all its key-values and snapshots.
+// DeleteStore soft-deletes a store: the data plane stops serving it but its key-values and
+// snapshots are kept until PurgeStore, so PutStore (recover) restores them.
 func (b *InMemoryBackend) DeleteStore(name string) error {
 	b.mu.Lock("DeleteStore")
 	defer b.mu.Unlock()
 
-	if _, err := b.storeLocked(name); err != nil {
+	s, err := b.storeLocked(name)
+	if err != nil {
 		return err
 	}
 
+	b.trash[strs.Fold(name)] = s
 	delete(b.stores, strs.Fold(name))
 
 	return nil
+}
+
+// SetRevisionRetention sets how many days ListRevisions reports history for; days <= 0 restores the default.
+func (b *InMemoryBackend) SetRevisionRetention(name string, days int) error {
+	b.mu.Lock("SetRevisionRetention")
+	defer b.mu.Unlock()
+
+	s, err := b.storeLocked(name)
+	if err != nil {
+		return err
+	}
+
+	s.Retention = max(days, 0)
+
+	return nil
+}
+
+// PurgeStore permanently discards a soft-deleted store's data; unknown names are a no-op.
+func (b *InMemoryBackend) PurgeStore(name string) {
+	b.mu.Lock("PurgeStore")
+	defer b.mu.Unlock()
+
+	delete(b.trash, strs.Fold(name))
 }
 
 // AccessKeys returns the store's four credentials.

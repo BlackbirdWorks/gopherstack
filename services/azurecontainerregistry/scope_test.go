@@ -118,3 +118,89 @@ func TestTokenScopeDoesNotLimitCredentials(t *testing.T) {
 	del := c.Do(http.MethodDelete, "/v2/app/manifests/"+img.Digest, nil, nil)
 	assert.Equal(t, http.StatusAccepted, del.Status)
 }
+
+func TestAnonymousPull(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		want      int
+		anonymous bool
+	}{
+		{
+			name:   "disabled refuses pull",
+			method: http.MethodGet,
+			path:   "/v2/app/manifests/v1",
+			want:   http.StatusUnauthorized,
+		},
+		{name: "enabled allows pull", anonymous: true, method: http.MethodGet, path: "/v2/app/manifests/v1",
+			want: http.StatusOK},
+		{name: "enabled allows head", anonymous: true, method: http.MethodHead, path: "/v2/app/manifests/v1",
+			want: http.StatusOK},
+		{name: "enabled refuses push", anonymous: true, method: http.MethodPost, path: "/v2/app/blobs/uploads/",
+			want: http.StatusUnauthorized},
+		{name: "enabled refuses delete", anonymous: true, method: http.MethodDelete, path: "/v2/app/manifests/v1",
+			want: http.StatusUnauthorized},
+		{name: "enabled refuses catalog", anonymous: true, method: http.MethodGet, path: "/v2/_catalog",
+			want: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			creds := e.registry(t, "anonreg", true)
+			e.client(t, "anonreg", basic(creds.Username, creds.Password1)).PushImage("app", "v1")
+			require.NoError(t, e.h.Backend.SetAnonymousPull("anonreg", tt.anonymous))
+
+			resp := e.client(t, "anonreg", nil).Do(tt.method, tt.path, nil, nil)
+			require.Equal(t, tt.want, resp.Status)
+		})
+	}
+}
+
+func TestAnonymousTokenEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		scope     string
+		want      int
+		anonymous bool
+		wantPull  bool
+	}{
+		{name: "disabled refuses", scope: "repository:app:pull", want: http.StatusUnauthorized},
+		{name: "enabled issues pull token", anonymous: true, scope: "repository:app:pull,push", want: http.StatusOK,
+			wantPull: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			creds := e.registry(t, "anonreg", true)
+			admin := e.client(t, "anonreg", basic(creds.Username, creds.Password1))
+			admin.PushImage("app", "v1")
+			require.NoError(t, e.h.Backend.SetAnonymousPull("anonreg", tt.anonymous))
+
+			anon := e.client(t, "anonreg", nil)
+			resp := anon.Do(http.MethodGet, "/oauth2/token?service=anonreg.azurecr.localhost&scope="+tt.scope, nil, nil)
+			require.Equal(t, tt.want, resp.Status)
+
+			if !tt.wantPull {
+				return
+			}
+
+			tok := decode(t, resp.Body)["access_token"].(string)
+			bearerClient := e.client(t, "anonreg", bearer(tok))
+
+			assert.Equal(t, http.StatusOK, bearerClient.Do(http.MethodGet, "/v2/app/manifests/v1", nil, nil).Status)
+			assert.Equal(t, http.StatusUnauthorized,
+				bearerClient.Do(http.MethodPost, "/v2/app/blobs/uploads/", nil, nil).Status)
+		})
+	}
+}

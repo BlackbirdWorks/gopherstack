@@ -26,23 +26,23 @@ families:
   store_resolution: {status: ok, note: "/stores/{name}/... path prefix, then the first host label when it names an existing store, then the store that owns the HMAC credential, then the auto-created default store (--azure-appconfig-auto-create)."}
 gaps:
   - "Bearer tokens are accepted when JWT-shaped; AAD token validation and RBAC data roles are not implemented."
-  - "Revision retention (7 or 30 days) is not enforced; history is capped at 50000 entries per store."
+  - "History is capped at 50000 entries per store."
   - "Snapshots are ready as soon as they are created; there is no provisioning or failed status."
   - "Replicas are ARM metadata only; their data is the store's data."
-  - "Soft-deleted stores keep only ARM metadata; recovering one yields an empty store."
   - "Customer-managed key encryption, private endpoint connections and SKU quotas are not modelled."
 deferred: []
 items_still_open:
   - "Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification."
-  - "Revision retention windows are not enforced and history is capped at 50000 entries per store."
+  - "History is capped at 50000 entries per store (the real limit is the tier storage quota, not an entry count)."
   - "Snapshots complete synchronously: no provisioning or failed state, and composition_type key keeps the later filter's key-value when filters select several labels of one key (behaviour inferred, not verified)."
   - "Replicas are metadata only and do not replicate or serve a separate data set."
-  - "Soft-deleted stores lose their key-values; recovery restores an empty store."
-  - "Customer-managed key encryption, private endpoint connections, SKU request quotas and ARM store updates through PATCH are not modelled."
+  - "Customer-managed key encryption, private endpoint connections, and SKU request quotas are not modelled."
 leaks: {status: clean, note: "Shutdown closes the HTTPS server and waits for the serve goroutine; there are no background workers."}
 ---
 
 ## Notes
+
+Soft delete keeps the store's key-values, snapshots and keys until purge; createMode Recover restores them. ARM PATCH of a configuration store applies tags, sku, identity and properties (ConfigurationStoreUpdateParameters, 200: learn.microsoft.com/en-us/rest/api/appconfiguration/configuration-stores/update?view=rest-appconfiguration-2023-03-01). `/revisions` hides history older than the tier window (Free and Developer 7 days, Standard and Premium 30: learn.microsoft.com/en-us/azure/azure-app-configuration/faq).
 
 One data plane serves every store; the store is resolved from the path prefix, the host label or the HMAC credential, so a single listener works with the ARM-advertised `{store}.azconfig.<host>:<port>` endpoint and with the plain `Endpoint=` of a connection string.
 

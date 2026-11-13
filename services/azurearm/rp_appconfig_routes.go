@@ -46,6 +46,14 @@ func isAppConfigStoreAction(segs []string, r *http.Request, method, action strin
 var appConfigRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPatch && len(segs) == acStoreLen && isSubscriptionScoped(segs) &&
+				segAt(segs, providerNamespaceActionIdx, providersSegment) &&
+				segAt(segs, acStoreNsIdx, namespaceMicrosoftAppConfig) && segAt(segs, acStoreTypeIdx, acStoresType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAppConfigPatch(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && isAppConfigSub(segs, acSubCheckLen) &&
 				segAt(segs, acSubLocationsIdx, acActionCheckName)
 		},

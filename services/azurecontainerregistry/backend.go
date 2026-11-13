@@ -51,6 +51,7 @@ type registry struct {
 	Password1 string `json:"password1"`
 	Password2 string `json:"password2"`
 	Admin     bool   `json:"admin"`
+	Anonymous bool   `json:"anonymousPull,omitempty"`
 }
 
 // InMemoryBackend holds every registry's control-plane state under one lock; blobs and manifests live in
@@ -125,6 +126,30 @@ func (b *InMemoryBackend) PutRegistry(name string, adminEnabled bool) (RegistryI
 	r.Admin = adminEnabled
 
 	return r.info(), nil
+}
+
+// SetAnonymousPull allows or refuses unauthenticated GET and HEAD of repository content.
+func (b *InMemoryBackend) SetAnonymousPull(name string, enabled bool) error {
+	b.mu.Lock("SetAnonymousPull")
+	defer b.mu.Unlock()
+
+	r, ok := b.regs[strs.Fold(name)]
+	if !ok {
+		return ErrRegistryNotFound
+	}
+
+	r.Anonymous = enabled
+
+	return nil
+}
+
+func (b *InMemoryBackend) anonymousPull(name string) bool {
+	b.mu.RLock("anonymousPull")
+	defer b.mu.RUnlock()
+
+	r, ok := b.regs[strs.Fold(name)]
+
+	return ok && r.Anonymous
 }
 
 // Registry returns the registry named name.

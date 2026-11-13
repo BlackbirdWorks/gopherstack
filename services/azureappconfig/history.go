@@ -29,6 +29,12 @@ func (s *store) asOf(at time.Time) []KeyValue {
 	return out
 }
 
+func (s *store) isLive(kv KeyValue) bool {
+	cur, ok := s.KVs[kvID(kv.Key, kv.Label)]
+
+	return ok && cur.ETag == kv.ETag
+}
+
 func (s *store) current() []KeyValue {
 	out := make([]KeyValue, 0, len(s.KVs))
 
@@ -91,7 +97,18 @@ func (b *InMemoryBackend) ListRevisions(storeName string, sel Selector, at time.
 
 	var out []KeyValue
 
+	days := s.Retention
+	if days <= 0 {
+		days = defaultRetentionDays
+	}
+
+	cutoff := b.now().AddDate(0, 0, -days)
+
 	for _, e := range s.History {
+		if e.At.Before(cutoff) && !s.isLive(e.KV) {
+			continue
+		}
+
 		if e.Deleted || (!at.IsZero() && e.At.After(at)) || !sel.matches(e.KV) {
 			continue
 		}

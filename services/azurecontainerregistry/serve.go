@@ -219,7 +219,7 @@ func v2Needs(r *http.Request) []need {
 		}
 
 		action, hint := actionsFor(r.Method)
-		out := []need{{typ: "repository", name: rest[:i], action: action, hint: hint}}
+		out := []need{{typ: scopeRepo, name: rest[:i], action: action, hint: hint}}
 
 		if from := r.URL.Query().Get("from"); r.Method == http.MethodPost && from != "" {
 			out = append(out, need{typ: "repository", name: from, action: actionPull, hint: actionPull})
@@ -263,6 +263,10 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	who, ok := h.authenticate(r, reg)
+	if !ok && h.anonymousAllowed(r, reg) {
+		who, ok = principal{scoped: true, access: anonymousAccess(v2Needs(r))}, true
+	}
+
 	if !ok {
 		challenge(w, r, v2Scope(r))
 
@@ -283,6 +287,28 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ociregistry.ServeObserved(app, w, r, h.observer(reg, app, r))
+}
+
+// anonymousAllowed reports whether an unauthenticated request is a repository read on a registry with
+// anonymous pull enabled; the catalog and every write still need credentials.
+func (h *Handler) anonymousAllowed(r *http.Request, reg string) bool {
+	if r.Header.Get("Authorization") != "" || (r.Method != http.MethodGet && r.Method != http.MethodHead) ||
+		!h.Backend.anonymousPull(reg) {
+		return false
+	}
+
+	needs := v2Needs(r)
+
+	return len(needs) > 0 && !slices.ContainsFunc(needs, func(n need) bool { return n.typ != scopeRepo })
+}
+
+func anonymousAccess(needs []need) []tokenAccess {
+	out := make([]tokenAccess, 0, len(needs))
+	for _, n := range needs {
+		out = append(out, tokenAccess{Type: n.typ, Name: n.name, Actions: []string{actionPull}})
+	}
+
+	return out
 }
 
 func (p principal) allowsAll(needs []need) bool {

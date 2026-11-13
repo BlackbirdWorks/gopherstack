@@ -40,9 +40,9 @@ deferred: []
 items_still_open:
   - "Access-token scopes are enforced on /v2 only; the /acr/v1 metadata API accepts any valid token."
   - "The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry."
-  - "Anonymous pull, repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled."
+  - "Repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled."
   - "ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect."
-  - "Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events, and ARM webhook PATCH is not implemented (PUT replaces)."
+  - "Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events."
   - "Replications are metadata only: there is one copy of the data."
   - "Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered."
   - "Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false."
@@ -51,3 +51,7 @@ leaks: {status: partial, note: "Shutdown closes the HTTP server and every regist
 ---
 
 Initial implementation (2026-10-22): data plane verified against the Docker Registry v2 conformance calls in pkgs/ociregistry/ocitest, ARM against armcontainerregistry v1.2.0 (internal/app/registry_wiring_test.go), and against hashicorp/azurerm (azurerm_container_registry) in test/terraform/azure.
+
+ARM PATCH of webhooks and replications merges WebhookUpdateParameters (tags; properties serviceUri, customHeaders, status, scope, actions): Azure/azure-rest-api-specs containerregistry 2023-07-01 containerregistry.json.
+
+Anonymous pull (properties.anonymousPullEnabled via ARM) allows unauthenticated GET/HEAD of repository content and an anonymous pull-only /oauth2/token grant; push, delete and the catalog still need credentials (learn.microsoft.com/en-us/azure/container-registry/anonymous-pull-access). The Standard/Premium-only restriction on that page is not enforced for Basic registries.

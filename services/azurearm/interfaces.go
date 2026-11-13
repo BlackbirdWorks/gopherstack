@@ -514,6 +514,8 @@ type AppConfig interface {
 	PutStore(name string) (time.Time, error)
 	StoreCreated(name string) (time.Time, bool)
 	DeleteStore(name string) error
+	PurgeStore(name string)
+	SetRevisionRetention(name string, days int) error
 	StoreKeys(name string) ([]AppConfigKey, error)
 	RegenerateStoreKey(name, keyID string) (AppConfigKey, error)
 
@@ -525,9 +527,11 @@ type AppConfig interface {
 
 type noopAppConfig struct{}
 
-func (noopAppConfig) PutStore(string) (time.Time, error)    { return time.Time{}, ErrAppConfigUnavailable }
-func (noopAppConfig) StoreCreated(string) (time.Time, bool) { return time.Time{}, false }
-func (noopAppConfig) DeleteStore(string) error              { return nil }
+func (noopAppConfig) PutStore(string) (time.Time, error)     { return time.Time{}, ErrAppConfigUnavailable }
+func (noopAppConfig) StoreCreated(string) (time.Time, bool)  { return time.Time{}, false }
+func (noopAppConfig) DeleteStore(string) error               { return nil }
+func (noopAppConfig) PurgeStore(string)                      {}
+func (noopAppConfig) SetRevisionRetention(string, int) error { return nil }
 func (noopAppConfig) StoreKeys(string) ([]AppConfigKey, error) {
 	return nil, ErrAppConfigUnavailable
 }
@@ -566,6 +570,7 @@ type ContainerRegistries interface {
 	PutRegistry(name string, adminEnabled bool) (ContainerRegistryInfo, error)
 	RegistryInfo(name string) (ContainerRegistryInfo, bool)
 	DeleteRegistry(name string) error
+	SetAnonymousPull(name string, enabled bool) error
 	Credentials(name string) (ContainerRegistryCredentials, error)
 	RegenerateCredential(name, which string) (ContainerRegistryCredentials, error)
 	SetWebhook(registry string, w ContainerRegistryWebhook) error
@@ -595,6 +600,8 @@ func (noopContainerRegistries) RegistryInfo(string) (ContainerRegistryInfo, bool
 }
 
 func (noopContainerRegistries) DeleteRegistry(string) error { return nil }
+
+func (noopContainerRegistries) SetAnonymousPull(string, bool) error { return nil }
 
 func (noopContainerRegistries) Credentials(string) (ContainerRegistryCredentials, error) {
 	return ContainerRegistryCredentials{}, ErrACRUnavailable

@@ -63,6 +63,10 @@ func (a *azureContainerRegistryAdapter) DeleteRegistry(name string) error {
 	return ignoreMissing(a.backend.DeleteRegistry(name), acr.ErrRegistryNotFound)
 }
 
+func (a *azureContainerRegistryAdapter) SetAnonymousPull(name string, enabled bool) error {
+	return mapRegistryError(a.backend.SetAnonymousPull(name, enabled))
+}
+
 func (a *azureContainerRegistryAdapter) Credentials(name string) (azurearm.ContainerRegistryCredentials, error) {
 	creds, err := a.backend.Credentials(name)
 

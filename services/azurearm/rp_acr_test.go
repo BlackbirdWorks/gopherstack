@@ -2,6 +2,7 @@ package azurearm_test
 
 import (
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type fakeReg struct {
 	hooks    map[string]azurearm.ContainerRegistryWebhook
 	pw1, pw2 string
 	admin    bool
+	anon     bool
 }
 
 func newFakeRegistries() *fakeRegistries { return &fakeRegistries{regs: map[string]*fakeReg{}} }
@@ -54,6 +56,17 @@ func (f *fakeRegistries) RegistryInfo(name string) (azurearm.ContainerRegistryIn
 	}
 
 	return azurearm.ContainerRegistryInfo{CreatedAt: time.Unix(1700000000, 0), AdminEnabled: r.admin}, true
+}
+
+func (f *fakeRegistries) SetAnonymousPull(name string, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if r, ok := f.regs[name]; ok {
+		r.anon = on
+	}
+
+	return nil
 }
 
 func (f *fakeRegistries) DeleteRegistry(name string) error {
@@ -157,7 +170,16 @@ const (
 func newACRHandler(t *testing.T, premium bool) *azurearm.Handler {
 	t.Helper()
 
-	h := azurearm.NewTestHandlerWithContainerRegistry(newFakeRegistries(), azurearm.DefaultSettings())
+	h, _ := newACRHandlerWithFake(t, premium)
+
+	return h
+}
+
+func newACRHandlerWithFake(t *testing.T, premium bool) (*azurearm.Handler, *fakeRegistries) {
+	t.Helper()
+
+	fake := newFakeRegistries()
+	h := azurearm.NewTestHandlerWithContainerRegistry(fake, azurearm.DefaultSettings())
 
 	st, _ := doRequest(t, h, http.MethodPut, "/subscriptions/sub/resourceGroups/rg", []byte(`{"location":"local"}`))
 	require.Equal(t, http.StatusCreated, st)
@@ -172,7 +194,7 @@ func newACRHandler(t *testing.T, premium bool) *azurearm.Handler {
 	st, out := doRequest(t, h, http.MethodPut, acrBase+acrVersion, []byte(body))
 	require.Equal(t, http.StatusOK, st, "%v", out)
 
-	return h
+	return h, fake
 }
 
 func TestContainerRegistryRegistryCRUD(t *testing.T) {
@@ -502,4 +524,69 @@ func TestContainerRegistryNoDataPlane(t *testing.T) {
 
 func acrProviderPath(group, name string) string {
 	return "/subscriptions/sub/resourceGroups/" + group + "/providers/Microsoft.ContainerRegistry/registries/" + name
+}
+
+func TestContainerRegistryWebhookPatch(t *testing.T) {
+	t.Parallel()
+
+	hook := acrBase + "/webhooks/deployhook"
+	good := `{"location":"local","properties":{"serviceUri":"https://example.com/h","actions":["push"],` +
+		`"customHeaders":{"Authorization":"secret"},"scope":"app:*"}}`
+
+	tests := []struct {
+		name   string
+		path   string
+		body   string
+		status int
+	}{
+		{
+			name:   "disable",
+			path:   hook,
+			body:   `{"tags":{"a":"b"},"properties":{"status":"disabled"}}`,
+			status: http.StatusOK,
+		},
+		{name: "missing", path: acrBase + "/webhooks/nothere", body: `{}`, status: http.StatusNotFound},
+		{name: "empty actions", path: hook, body: `{"properties":{"actions":[]}}`, status: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACRHandler(t, false)
+			st, _ := doRequest(t, h, http.MethodPut, hook+acrVersion, []byte(good))
+			require.Equal(t, http.StatusOK, st)
+
+			st, out := doRequest(t, h, http.MethodPatch, tt.path+acrVersion, []byte(tt.body))
+			require.Equal(t, tt.status, st, "%v", out)
+
+			if tt.status != http.StatusOK {
+				return
+			}
+
+			assert.Equal(t, "disabled", props(out)["status"])
+			assert.Equal(t, "app:*", props(out)["scope"])
+
+			_, cfg := doRequest(t, h, http.MethodPost, hook+"/getCallbackConfig"+acrVersion, nil)
+			assert.Equal(t, map[string]any{"Authorization": "secret"}, cfg["customHeaders"])
+		})
+	}
+}
+
+func TestContainerRegistryAnonymousPullReachesDataPlane(t *testing.T) {
+	t.Parallel()
+
+	h, fake := newACRHandlerWithFake(t, false)
+
+	for _, want := range []bool{true, false} {
+		body := `{"properties":{"anonymousPullEnabled":` + strconv.FormatBool(want) + `}}`
+		st, out := doRequest(t, h, http.MethodPatch, acrBase+acrVersion, []byte(body))
+		require.Equal(t, http.StatusOK, st, "%v", out)
+
+		fake.mu.Lock()
+		got := fake.regs["gopherreg"].anon
+		fake.mu.Unlock()
+
+		assert.Equal(t, want, got)
+	}
 }

@@ -241,6 +241,10 @@ func (p *AppConfigProvider) putStore(ctx context.Context, id ResourceID, body ma
 		return nil, badAppConfigRequest(err)
 	}
 
+	if err = p.dataPlane.SetRevisionRetention(rec.name, acRetentionDays(rec.sku)); err != nil {
+		return nil, badAppConfigRequest(err)
+	}
+
 	rec.createdAt = created
 	p.res[acKey(id.ResourceGroup, acKindStore, rec.name)] = rec
 
