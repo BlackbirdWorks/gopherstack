@@ -12,7 +12,11 @@ func buildOps() map[string]opFunc {
 		opListAlarmsStatus: (*Handler).listAlarmsStatus, opUpdateAlarm: (*Handler).updateAlarm,
 		opDeleteAlarm: (*Handler).deleteAlarm, opChangeAlarmComp: (*Handler).changeAlarmCompartment,
 		opGetAlarmHistory: (*Handler).getAlarmHistory, opPostMetricData: (*Handler).postMetricData,
-		opListMetrics: (*Handler).listMetrics, opSummarizeMetrics: (*Handler).summarizeMetricsData,
+		opCreateSuppression: (*Handler).createSuppression, opGetSuppression: (*Handler).getSuppression,
+		opListSuppressions: (*Handler).listSuppressions, opDeleteSuppression: (*Handler).deleteSuppression,
+		opRemoveSuppression: (*Handler).removeSuppression, opSuppressionHist: (*Handler).suppressionHistory,
+		opDimensionStates: (*Handler).dimensionStates,
+		opListMetrics:     (*Handler).listMetrics, opSummarizeMetrics: (*Handler).summarizeMetricsData,
 	}
 }
 

@@ -83,6 +83,7 @@ type Table struct {
 	Indexes       map[string]*Index `json:"indexes,omitempty"`
 	Usage         map[int64]*Usage  `json:"usage,omitempty"`
 	Identity      *Identity         `json:"identity,omitempty"`
+	Replicas      []*Replica        `json:"replicas,omitempty"`
 	CompartmentID string            `json:"compartmentId"`
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
@@ -96,6 +97,28 @@ type Table struct {
 	TTLHours      int               `json:"ttlHours"`
 	RowSeq        int64             `json:"rowSeq"`
 	AutoReclaim   bool              `json:"autoReclaimable,omitempty"`
+	SchemaFrozen  bool              `json:"schemaFrozen,omitempty"`
+}
+
+// Replica is a remote-region copy of a table; the emulator records its metadata only.
+type Replica struct {
+	TransitionAt *time.Time `json:"transitionAt,omitempty"`
+	Region       string     `json:"region"`
+	TableID      string     `json:"tableId"`
+	Mode         string     `json:"mode"`
+	State        string     `json:"state"`
+	WriteUnits   int        `json:"writeUnits"`
+}
+
+// Configuration is the service-level configuration of a hosted environment.
+type Configuration struct {
+	KmsCreated   *time.Time `json:"kmsCreated,omitempty"`
+	KmsUpdated   *time.Time `json:"kmsUpdated,omitempty"`
+	TransitionAt *time.Time `json:"transitionAt,omitempty"`
+	KmsKeyID     string     `json:"kmsKeyId,omitempty"`
+	KmsVaultID   string     `json:"kmsVaultId,omitempty"`
+	KmsState     string     `json:"kmsState"`
+	Etag         string     `json:"etag"`
 }
 
 // WorkRequest records an asynchronous admin operation.
@@ -107,5 +130,7 @@ type WorkRequest struct {
 	CompartmentID string    `json:"compartmentId"`
 	EntityID      string    `json:"entityId"`
 	Action        string    `json:"action"`
+	EntityType    string    `json:"entityType,omitempty"`
 	Seq           int64     `json:"seq"`
+	Canceled      bool      `json:"canceled,omitempty"`
 }

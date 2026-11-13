@@ -42,6 +42,7 @@ type InMemoryBackend struct {
 	now          func() time.Time
 	streams      map[string]*Stream
 	alarms       map[string]*Alarm
+	suppressions map[string]*AlarmSuppression
 	Auth         *ociauth.Registry
 	publisher    Publisher
 	streamPub    StreamPublisher
@@ -65,6 +66,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.streams, b.alarms = map[string]*Stream{}, map[string]*Alarm{}
+	b.suppressions = map[string]*AlarmSuppression{}
 	b.retry = ociretry.New()
 }
 

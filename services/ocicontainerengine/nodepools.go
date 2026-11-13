@@ -707,6 +707,12 @@ func (b *InMemoryBackend) allocIP(subnetID string) string {
 		}
 	}
 
+	for _, vp := range b.vpools {
+		for _, n := range vp.Nodes {
+			used[n.PrivateIP] = true
+		}
+	}
+
 	a4 := p.Masked().Addr().As4()
 	base := binary.BigEndian.Uint32(a4[:])
 	last := base | (^uint32(0) >> p.Bits())

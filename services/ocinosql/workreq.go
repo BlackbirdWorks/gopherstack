@@ -13,6 +13,9 @@ const (
 	wrCreate     = "CREATE_TABLE"
 	wrUpdate     = "UPDATE_TABLE"
 	wrDelete     = "DELETE_TABLE"
+	wrConfig     = "UPDATE_CONFIGURATION"
+	entityConfig = "configuration"
+	statusCancel = "CANCELED"
 )
 
 type wrResourceWire struct {
@@ -53,13 +56,23 @@ func (b *InMemoryBackend) newWR(op, compartment, id, action string, finish time.
 
 func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	now := b.nowUTC()
+	res := wrResourceWire{EntityType: entityTable, ActionType: "IN_PROGRESS", Identifier: wr.EntityID,
+		EntityURI: base + "/tables/" + wr.EntityID}
+
+	if wr.EntityType != "" {
+		res.EntityType, res.EntityURI = wr.EntityType, base+"/"+wr.EntityType
+	}
+
 	out := WorkRequestWire{
 		OperationType: wr.Operation, ID: wr.ID, CompartmentID: wr.CompartmentID, TimeAccepted: wr.Accepted,
 		Status: "IN_PROGRESS", PercentComplete: halfComplete, TimeStarted: &wr.Accepted,
-		Resources: []wrResourceWire{{
-			EntityType: entityTable, ActionType: "IN_PROGRESS", Identifier: wr.EntityID,
-			EntityURI: base + "/tables/" + wr.EntityID,
-		}},
+		Resources: []wrResourceWire{res},
+	}
+
+	if wr.Canceled {
+		out.Status, out.TimeFinished = statusCancel, &wr.FinishAt
+
+		return out
 	}
 
 	if !wr.FinishAt.After(now) {
@@ -68,6 +81,29 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	}
 
 	return out
+}
+
+// DeleteWorkRequest cancels an unfinished work request; the resource transition it describes still completes.
+func (b *InMemoryBackend) DeleteWorkRequest(id, ifMatch string) (string, error) {
+	b.mu.Lock("DeleteWorkRequest")
+	defer b.mu.Unlock()
+
+	wr, ok := b.workReqs[id]
+	if !ok {
+		return "", errNotFound(id)
+	}
+
+	if ifMatch != "" {
+		return "", errEtag()
+	}
+
+	if wr.Canceled || !wr.FinishAt.After(b.nowUTC()) {
+		return "", errState("Work request " + id + " has already finished and cannot be canceled")
+	}
+
+	wr.Canceled, wr.FinishAt = true, b.nowUTC()
+
+	return id, nil
 }
 
 // GetWorkRequest returns one work request.
@@ -167,4 +203,10 @@ func (h *Handler) listWorkRequestErrors(q *req) error {
 	}
 
 	return q.json(http.StatusOK, map[string]any{itemsKey: []struct{}{}}, "")
+}
+
+func (h *Handler) deleteWorkRequest(q *req) error {
+	id, err := h.Backend.DeleteWorkRequest(q.param("workRequestId"), q.ifMatch())
+
+	return acceptedWR(q, id, err)
 }

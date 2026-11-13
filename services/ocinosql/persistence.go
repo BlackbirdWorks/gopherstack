@@ -17,6 +17,7 @@ type backendSnapshot struct {
 	Tables   map[string]*Table         `json:"tables"`
 	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
 	Retry    map[string]ociretry.Entry `json:"retryTokens"`
+	Config   *Configuration            `json:"configuration,omitempty"`
 	Auth     []ociauth.KeyRecord       `json:"authKeys"`
 	Version  int                       `json:"version"`
 	Seq      int64                     `json:"seq"`
@@ -34,6 +35,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:   b.tables,
 		WorkReqs: b.workReqs,
 		Auth:     keys,
+		Config:   b.config,
 		Seq:      b.seq,
 		Retry:    b.retry.Entries(),
 	})
@@ -63,6 +65,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.tables, b.workReqs, b.seq = snap.Tables, snap.WorkReqs, snap.Seq
+	b.config = snap.Config
 	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 

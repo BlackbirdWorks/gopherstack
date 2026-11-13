@@ -81,6 +81,8 @@ type InMemoryBackend struct {
 	clusters    map[string]*Cluster
 	pools       map[string]*NodePool
 	workReqs    map[string]*WorkRequest
+	vpools      map[string]*VirtualNodePool
+	mappings    map[string]*WorkloadMapping
 	Auth        *ociauth.Registry
 	net         Network
 	keyChecker  KeyChecker
@@ -110,6 +112,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.clusters, b.pools, b.workReqs = map[string]*Cluster{}, map[string]*NodePool{}, map[string]*WorkRequest{}
+	b.vpools, b.mappings = map[string]*VirtualNodePool{}, map[string]*WorkloadMapping{}
 	b.retry = ociretry.New()
 }
 

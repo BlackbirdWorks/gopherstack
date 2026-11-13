@@ -685,6 +685,7 @@ func (b *InMemoryBackend) DeleteCluster(id, ifMatch string) (string, error) {
 		}
 	}
 
+	b.cascadeClusterDelete(id, c.TransitionAt)
 	b.reapLocked(id)
 
 	return wr, nil

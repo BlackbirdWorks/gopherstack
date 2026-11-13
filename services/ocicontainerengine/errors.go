@@ -34,6 +34,11 @@ func errParam(msg string) *APIError { return newErr(http.StatusBadRequest, "Inva
 
 func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "MissingParameter", msg) }
 
+func errExists(what string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists",
+		"Authorization failed or requested resource ("+what+") already exists.")
+}
+
 func errState(msg string) *APIError { return newErr(http.StatusConflict, "IncorrectState", msg) }
 
 func errEtag() *APIError {

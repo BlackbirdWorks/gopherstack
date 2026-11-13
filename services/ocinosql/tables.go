@@ -185,11 +185,25 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 
 	now := b.nowUTC()
 	t := &Table{
-		ID: newOCID("nosqltable"), CompartmentID: in.CompartmentID, Name: in.Name, State: stateCreating,
-		Etag: newEtag(), Limits: lim, Columns: spec.cols, PrimaryKey: spec.pk,
-		ShardKey: spec.shard, Identity: spec.identity, AutoReclaim: reclaim, TimeCreated: now, TimeUpdated: now,
-		Rows: map[string]*Row{}, Indexes: map[string]*Index{}, Usage: map[int64]*Usage{}, Tags: in.Tags,
-		TransitionAt: b.transitionAt(),
+		ID:            newOCID("nosqltable"),
+		CompartmentID: in.CompartmentID,
+		Name:          in.Name,
+		State:         stateCreating,
+		Etag:          newEtag(),
+		Limits:        lim,
+		Columns:       spec.cols,
+		PrimaryKey:    spec.pk,
+		ShardKey:      spec.shard,
+		Identity:      spec.identity,
+		AutoReclaim:   reclaim,
+		SchemaFrozen:  spec.frozen,
+		TimeCreated:   now,
+		TimeUpdated:   now,
+		Rows:          map[string]*Row{},
+		Indexes:       map[string]*Index{},
+		Usage:         map[int64]*Usage{},
+		Tags:          in.Tags,
+		TransitionAt:  b.transitionAt(),
 	}
 
 	if len(t.ShardKey) == 0 {
@@ -305,6 +319,11 @@ func (b *InMemoryBackend) DeleteTable(ref, compartment, ifMatch string, ifExists
 		return "", aerr
 	}
 
+	if len(t.Replicas) > 0 {
+		return "", errState("The table named " + t.Name + " can't be deleted, because it belongs to a set of " +
+			"replicas. A replica table cannot be deleted before its replicas are deleted.")
+	}
+
 	t.State, t.TransitionAt, t.TimeUpdated = stateDeleting, b.transitionAt(), b.nowUTC()
 
 	return b.newWR(wrDelete, t.CompartmentID, t.ID, "DELETED", b.finishAt(t)), nil
@@ -384,12 +403,14 @@ type TableWire struct {
 	Schema            *schemaWire               `json:"schema,omitempty"`
 	FreeformTags      map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags       map[string]map[string]any `json:"definedTags,omitempty"`
-	DDLStatement      string                    `json:"ddlStatement,omitempty"`
-	ID                string                    `json:"id"`
-	CompartmentID     string                    `json:"compartmentId"`
+	LocalReplicaInit  *int                      `json:"localReplicaInitializationInPercent,omitempty"`
 	Name              string                    `json:"name"`
+	CompartmentID     string                    `json:"compartmentId"`
+	ID                string                    `json:"id"`
 	LifecycleState    string                    `json:"lifecycleState"`
 	SchemaState       string                    `json:"schemaState"`
+	DDLStatement      string                    `json:"ddlStatement,omitempty"`
+	Replicas          []replicaWire             `json:"replicas,omitempty"`
 	TableLimits       limitsWire                `json:"tableLimits"`
 	IsAutoReclaimable bool                      `json:"isAutoReclaimable"`
 	IsMultiRegion     bool                      `json:"isMultiRegion"`
@@ -435,8 +456,17 @@ func tableView(t *Table, full bool) TableWire {
 		IsAutoReclaimable: t.AutoReclaim, FreeformTags: t.Tags.FreeformTags, DefinedTags: t.Tags.DefinedTags,
 	}
 
+	if t.SchemaFrozen {
+		w.SchemaState = "FROZEN"
+	}
+
 	if full {
 		w.Schema, w.DDLStatement = schemaView2(t), t.DDL
+		w.Replicas = replicasView(t)
+
+		if w.IsMultiRegion = len(w.Replicas) > 0; w.IsMultiRegion {
+			w.LocalReplicaInit = new(percentDone)
+		}
 	}
 
 	return w

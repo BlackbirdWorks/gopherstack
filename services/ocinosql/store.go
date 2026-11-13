@@ -35,9 +35,11 @@ type InMemoryBackend struct {
 	Auth        *ociauth.Registry
 	compartment func(string) bool
 	retry       *ociretry.Store
+	config      *Configuration
 	tagLookup   ocitags.Lookup
 	transition  time.Duration
 	seq         int64
+	multiTenant bool
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -52,6 +54,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.tables, b.workReqs = map[string]*Table{}, map[string]*WorkRequest{}
 	b.retry = ociretry.New()
+	b.config = nil
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
@@ -215,6 +218,8 @@ func settle(t *Table, now time.Time) {
 			t.Rows, t.Indexes, t.Usage = nil, nil, nil
 		}
 	}
+
+	settleReplicas(t, now)
 
 	for name, ix := range t.Indexes {
 		if !due(ix.TransitionAt, now) {

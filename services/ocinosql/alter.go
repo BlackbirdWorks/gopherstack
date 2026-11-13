@@ -19,6 +19,10 @@ func (b *InMemoryBackend) applyAlter(t *Table, ddl string) *APIError {
 		return errParam("ALTER TABLE names table '" + spec.name + "' but the request addresses '" + t.Name + "'")
 	}
 
+	if aerr = checkFrozenAlter(t, spec); aerr != nil {
+		return aerr
+	}
+
 	cols := append([]Column{}, t.Columns...)
 
 	var removed []string
@@ -52,6 +56,15 @@ func (b *InMemoryBackend) applyAlter(t *Table, ddl string) *APIError {
 	}
 
 	t.Columns = cols
+	applySettings(t, spec, removed)
+
+	reshapeRows(t, removed, added)
+	t.DDL = renderDDL(t)
+
+	return nil
+}
+
+func applySettings(t *Table, spec *alterSpec, removed []string) {
 	if spec.identity != nil {
 		t.Identity = spec.identity
 	}
@@ -60,16 +73,15 @@ func (b *InMemoryBackend) applyAlter(t *Table, ddl string) *APIError {
 		t.TTLHours = *spec.ttlHours
 	}
 
+	if spec.freeze != nil {
+		t.SchemaFrozen = *spec.freeze
+	}
+
 	for _, c := range removed {
 		if t.Identity != nil && strs.Equal(t.Identity.Column, c) {
 			t.Identity = nil
 		}
 	}
-
-	reshapeRows(t, removed, added)
-	t.DDL = renderDDL(t)
-
-	return nil
 }
 
 func indexOfColumn(cols []Column, name string) int {
@@ -199,6 +211,10 @@ func renderDDL(t *Table) string {
 
 	if t.TTLHours > 0 {
 		out += " USING TTL " + strconv.Itoa(t.TTLHours) + " HOURS"
+	}
+
+	if t.SchemaFrozen {
+		out += " WITH SCHEMA FROZEN"
 	}
 
 	return out
