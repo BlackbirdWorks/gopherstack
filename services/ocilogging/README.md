@@ -21,8 +21,8 @@
 - Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries.
 - Archiving (Object Storage export of logs) is stored on the configuration but nothing is exported.
 - Retention, the 1 MiB request limit, the 10000 character data truncation and the log naming rules are recalled from the Oracle documentation and SDK comments, not verified against the live service; the per-compartment uniqueness of log group names is an emulator choice.
-- isCompartmentIdInSubtree is ignored, and opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set.
+- isCompartmentIdInSubtree is ignored, and IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- systemTags are never set.
 
 ## More
 

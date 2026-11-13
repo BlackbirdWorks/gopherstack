@@ -49,6 +49,7 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 	if identityH, found := byName["OCIIdentity"].(*ociidentitybackend.Handler); found {
 		gwH.Backend.Auth.Link(identityH.Backend.Auth)
 		gwH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		gwH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {

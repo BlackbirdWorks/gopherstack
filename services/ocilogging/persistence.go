@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -14,14 +15,15 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Groups   map[string]*LogGroup    `json:"logGroups"`
-	Logs     map[string]*Log         `json:"logs"`
-	Agents   map[string]*AgentConfig `json:"agentConfigurations"`
-	WorkReqs map[string]*WorkRequest `json:"workRequests"`
-	Entries  map[string][]*Entry     `json:"entries"`
-	Auth     []ociauth.KeyRecord     `json:"authKeys"`
-	Version  int                     `json:"version"`
-	Seq      int64                   `json:"seq"`
+	Groups   map[string]*LogGroup      `json:"logGroups"`
+	Logs     map[string]*Log           `json:"logs"`
+	Agents   map[string]*AgentConfig   `json:"agentConfigurations"`
+	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
+	Entries  map[string][]*Entry       `json:"entries"`
+	Retry    map[string]ociretry.Entry `json:"retryTokens"`
+	Auth     []ociauth.KeyRecord       `json:"authKeys"`
+	Version  int                       `json:"version"`
+	Seq      int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -33,7 +35,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ocilogging", backendSnapshot{
 		Version: snapshotVersion, Groups: b.groups, Logs: b.logs, Agents: b.agents, WorkReqs: b.workReqs,
-		Entries: b.entries, Auth: keys, Seq: b.seq,
+		Entries: b.entries, Retry: b.retry.Entries(), Auth: keys, Seq: b.seq,
 	})
 }
 
@@ -62,6 +64,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.groups, b.logs, b.agents, b.workReqs = snap.Groups, snap.Logs, snap.Agents, snap.WorkReqs
 	b.entries, b.seq = snap.Entries, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

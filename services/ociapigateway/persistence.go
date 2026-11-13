@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,18 +14,19 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Gateways     map[string]*Gateway     `json:"gateways"`
-	Deployments  map[string]*Deployment  `json:"deployments"`
-	Certificates map[string]*Certificate `json:"certificates"`
-	WorkReqs     map[string]*WorkRequest `json:"workRequests"`
-	APIs         map[string]*API         `json:"apis"`
-	Sdks         map[string]*SDK         `json:"sdks"`
-	UsagePlans   map[string]*UsagePlan   `json:"usagePlans"`
-	Subscribers  map[string]*Subscriber  `json:"subscribers"`
-	CaPEMs       map[string]string       `json:"caBundlePems"`
-	Auth         []ociauth.KeyRecord     `json:"authKeys"`
-	Version      int                     `json:"version"`
-	Seq          int64                   `json:"seq"`
+	Gateways     map[string]*Gateway       `json:"gateways"`
+	Deployments  map[string]*Deployment    `json:"deployments"`
+	Certificates map[string]*Certificate   `json:"certificates"`
+	WorkReqs     map[string]*WorkRequest   `json:"workRequests"`
+	APIs         map[string]*API           `json:"apis"`
+	Sdks         map[string]*SDK           `json:"sdks"`
+	UsagePlans   map[string]*UsagePlan     `json:"usagePlans"`
+	Subscribers  map[string]*Subscriber    `json:"subscribers"`
+	CaPEMs       map[string]string         `json:"caBundlePems"`
+	Retry        map[string]ociretry.Entry `json:"retryTokens"`
+	Auth         []ociauth.KeyRecord       `json:"authKeys"`
+	Version      int                       `json:"version"`
+	Seq          int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -37,7 +39,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "ociapigateway", backendSnapshot{
 		Version: snapshotVersion, Gateways: b.gateways, Deployments: b.deployments, Certificates: b.certificates,
 		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, APIs: b.apis, Sdks: b.sdks, UsagePlans: b.usagePlans,
-		Subscribers: b.subscribers, CaPEMs: b.caPEMs,
+		Subscribers: b.subscribers, CaPEMs: b.caPEMs, Retry: b.retry.Entries(),
 	})
 }
 
@@ -78,6 +80,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.caPEMs = snap.CaPEMs
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

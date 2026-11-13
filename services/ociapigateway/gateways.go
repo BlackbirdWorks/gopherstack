@@ -6,12 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
+func (i *createGatewayIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createGatewayIn struct {
 	Tags
+	RetryToken    string          `json:"-"`
 	Locks         []lockIn        `json:"locks"`
 	CaBundles     json.RawMessage `json:"caBundles"`
 	ResponseCache json.RawMessage `json:"responseCacheDetails"`
@@ -133,6 +138,20 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	b.mu.Lock("CreateGateway")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateGateway", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		g, live := b.gateways[id]
+		if !live || g.State == stateDeleting || g.State == stateDeleted {
+			return GatewayWire{}, "", "", errInvalidatedToken()
+		}
+
+		return gatewayView(g), wr, g.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return GatewayWire{}, "", "", err
+	}
+
 	if err := b.validateGateway(&in); err != nil {
 		return GatewayWire{}, "", "", err
 	}
@@ -163,6 +182,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	}
 	b.gateways[g.ID] = g
 	wr := b.newWR(wrCreateGateway, g.CompartmentID, entityGateway, g.ID, actionCreated, *g.TransitionAt)
+	b.retry.Remember("CreateGateway", in.RetryToken, ociretry.Join(g.ID, wr), now)
 
 	return gatewayView(g), wr, g.Etag, nil
 }
@@ -234,6 +254,10 @@ func stateMatches(have, want string) bool {
 func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) (string, error) {
 	b.mu.Lock("UpdateGateway")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
 
 	g, err := b.liveGateway(id)
 	if err != nil {

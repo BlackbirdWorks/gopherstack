@@ -184,6 +184,10 @@ func (b *InMemoryBackend) CreateFunction(in fnIn, endpoint string) (fnWire, stri
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return fnWire{}, "", "", aerr
+	}
+
 	app, aerr := b.activeApp(in.AppID)
 	if aerr != nil {
 		return fnWire{}, "", "", aerr
@@ -282,6 +286,10 @@ func (b *InMemoryBackend) UpdateFunction(id, ifMatch string, in fnIn) (string, e
 	f, aerr := b.activeFn(id)
 	if aerr == nil {
 		aerr = checkEtag(f.Etag, ifMatch)
+	}
+
+	if aerr == nil {
+		aerr = b.checkTags(in.Tags)
 	}
 
 	if aerr != nil {

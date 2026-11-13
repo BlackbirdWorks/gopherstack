@@ -22,6 +22,7 @@ type readmeIn struct {
 
 type createRepoIn struct {
 	Tags
+	RetryToken    string    `json:"-"`
 	IsImmutable   *bool     `json:"isImmutable"`
 	IsPublic      *bool     `json:"isPublic"`
 	Readme        *readmeIn `json:"readme"`
@@ -177,7 +178,16 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 	b.mu.Lock("CreateContainerRepository")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateContainerRepository", in.RetryToken, b.nowUTC()); ok {
+		r, live := b.repos[id]
+		if !live {
+			return repoWire{}, "", errInvalidatedToken()
+		}
+
+		return b.repoView(r), r.Etag, nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return repoWire{}, "", err
 	}
 
@@ -196,6 +206,7 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 	r := b.newRepo(in.DisplayName, in.CompartmentID, createdBy)
 	r.IsImmutable, r.IsPublic = in.IsImmutable != nil && *in.IsImmutable, in.IsPublic != nil && *in.IsPublic
 	r.Readme, r.Tags = readme, in.Tags
+	b.retry.Remember("CreateContainerRepository", in.RetryToken, r.ID, r.TimeCreated)
 
 	return b.repoView(r), r.Etag, nil
 }
@@ -300,7 +311,7 @@ func (b *InMemoryBackend) UpdateContainerRepository(id, ifMatch string, in updat
 		return repoWire{}, "", err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(r.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return repoWire{}, "", err
 	}
 

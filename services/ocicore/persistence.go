@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -48,6 +49,7 @@ type backendSnapshot struct {
 	VolGroups    map[string]*VolumeGroup            `json:"volumeGroups"`
 	GroupBackups map[string]*VolumeGroupBackup      `json:"volumeGroupBackups"`
 	Replicas     map[string]*BlockVolumeReplica     `json:"blockVolumeReplicas"`
+	Retry        map[string]ociretry.Entry          `json:"retryTokens"`
 	Auth         []ociauth.KeyRecord                `json:"authKeys"`
 	Version      int                                `json:"version"`
 	Seq          int64                              `json:"seq"`
@@ -113,6 +115,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Replicas:     typed[*BlockVolumeReplica](b.res),
 		WorkReqs:     b.workReqs,
 		IPInvReqs:    b.ipInvReqs,
+		Retry:        b.retry.Entries(),
 		Auth:         keys,
 		Seq:          b.seq,
 		IPSeq:        b.ipSeq,
@@ -178,6 +181,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.ipInvReqs = snap.IPInvReqs
 	b.res, b.nsgRules, b.workReqs = res, snap.NSGRules, snap.WorkReqs
 	b.seq, b.ipSeq, b.ipv6Seq = snap.Seq, snap.IPSeq, snap.IPv6Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

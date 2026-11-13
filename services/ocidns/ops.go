@@ -162,6 +162,8 @@ func (h *Handler) createZone(q *req) error {
 		in.Scope = cmp.Or(in.Scope, q.query("scope"))
 		in.ViewID = cmp.Or(in.ViewID, q.query("viewId"))
 
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, t, err := h.Backend.CreateZone(in)
 
 		return q.accepted(w, t, w.Self, err)
@@ -174,7 +176,7 @@ func (h *Handler) createZoneFromFile(q *req) error {
 	}
 
 	w, t, err := h.Backend.CreateZoneFromFile(q.query("compartmentId"), q.query("scope"), q.query("viewId"),
-		string(q.body))
+		string(q.body), q.r.Header.Get(headerRetry))
 
 	return q.accepted(w, t, w.Self, err)
 }
@@ -287,6 +289,8 @@ func (h *Handler) deleteRecords(q *req) error {
 
 func (h *Handler) createView(q *req) error {
 	return withBody(q, func(in CreateViewIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, t, err := h.Backend.CreateView(in)
 
 		return q.accepted(w, t, w.Self, err)
@@ -359,6 +363,8 @@ func (h *Handler) changeResolverCompartment(q *req) error {
 
 func (h *Handler) createEndpoint(q *req) error {
 	return withBody(q, func(in CreateEndpointIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, t, err := h.Backend.CreateEndpoint(q.param("resolverId"), in)
 
 		return q.accepted(w, t, w.Self, err)
@@ -433,6 +439,8 @@ func (h *Handler) changeTsigKeyCompartment(q *req) error {
 
 func (h *Handler) createPolicy(q *req) error {
 	return withBody(q, func(in CreatePolicyIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, t, err := h.Backend.CreateSteeringPolicy(in)
 
 		return q.accepted(w, t, w.Self, err)
@@ -476,6 +484,8 @@ func (h *Handler) changePolicyCompartment(q *req) error {
 
 func (h *Handler) createAttachment(q *req) error {
 	return withBody(q, func(in CreateAttachmentIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, t, err := h.Backend.CreateAttachment(in)
 
 		return q.accepted(w, t, w.Self, err)

@@ -242,7 +242,7 @@ func (b *InMemoryBackend) UpdateContainerImage(id, ifMatch string, in updateTags
 		return imageWire{}, "", err
 	}
 
-	if err = checkEtag(im.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(im.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return imageWire{}, "", err
 	}
 

@@ -76,6 +76,10 @@ func created[I, W any](q *req, path string, id func(W) string, fn func(I) (W, st
 		return err
 	}
 
+	if r, ok := any(&in).(interface{ setRetryToken(string) }); ok {
+		r.setRetryToken(q.r.Header.Get(headerRetry))
+	}
+
 	w, wr, etag, err := fn(in)
 	if err != nil {
 		return err

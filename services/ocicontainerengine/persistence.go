@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,12 +14,13 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Clusters map[string]*Cluster     `json:"clusters"`
-	Pools    map[string]*NodePool    `json:"nodePools"`
-	WorkReqs map[string]*WorkRequest `json:"workRequests"`
-	Auth     []ociauth.KeyRecord     `json:"authKeys"`
-	Version  int                     `json:"version"`
-	Seq      int64                   `json:"seq"`
+	Clusters map[string]*Cluster       `json:"clusters"`
+	Pools    map[string]*NodePool      `json:"nodePools"`
+	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
+	Retry    map[string]ociretry.Entry `json:"retryTokens"`
+	Auth     []ociauth.KeyRecord       `json:"authKeys"`
+	Version  int                       `json:"version"`
+	Seq      int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -30,6 +32,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ocicontainerengine", backendSnapshot{
 		Version: snapshotVersion, Clusters: b.clusters, Pools: b.pools, WorkReqs: b.workReqs, Auth: keys, Seq: b.seq,
+		Retry: b.retry.Entries(),
 	})
 }
 
@@ -60,6 +63,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	lcs := b.detachAllLocked()
 	b.clusters, b.pools, b.workReqs, b.seq = snap.Clusters, snap.Pools, snap.WorkReqs, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 	b.relaunchLocked()
 	e := b.engine

@@ -3,6 +3,8 @@ package ociapigateway
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -32,8 +34,11 @@ type SDK struct {
 	Locks          []Lock            `json:"locks,omitempty"`
 }
 
+func (i *createSdkIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createSdkIn struct {
 	Tags
+	RetryToken     string            `json:"-"`
 	Parameters     map[string]string `json:"parameters"`
 	TargetLanguage string            `json:"targetLanguage"`
 	APIID          string            `json:"apiId"`
@@ -117,6 +122,20 @@ func (b *InMemoryBackend) CreateSDK(in createSdkIn) (SdkWire, string, string, er
 	b.mu.Lock("CreateSDK")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateSDK", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		s, live := b.sdks[id]
+		if !live || s.State == stateDeleting || s.State == stateDeleted {
+			return SdkWire{}, "", "", errInvalidatedToken()
+		}
+
+		return sdkView(s), wr, s.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return SdkWire{}, "", "", err
+	}
+
 	if in.TargetLanguage == "" || in.APIID == "" {
 		return SdkWire{}, "", "", errMissing("targetLanguage and apiId are required")
 	}
@@ -145,6 +164,7 @@ func (b *InMemoryBackend) CreateSDK(in createSdkIn) (SdkWire, string, string, er
 	}
 	b.sdks[s.ID] = s
 	wr := b.newWR(wrCreateSdk, s.Compartment, entitySdk, s.ID, actionCreated, *s.TransitionAt)
+	b.retry.Remember("CreateSDK", in.RetryToken, ociretry.Join(s.ID, wr), now)
 
 	return sdkView(s), wr, s.Etag, nil
 }
@@ -186,6 +206,10 @@ func (b *InMemoryBackend) ListSDKs(sdkID, apiID, name, state string, o ListOpts)
 func (b *InMemoryBackend) UpdateSDK(id, ifMatch string, in updateSdkIn) (SdkWire, string, error) {
 	b.mu.Lock("UpdateSDK")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return SdkWire{}, "", err
+	}
 
 	s, err := b.liveSDK(id)
 	if err != nil {

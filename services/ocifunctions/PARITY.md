@@ -5,7 +5,7 @@ last_audit_commit: bfe657153
 last_audit_date: 2026-10-25
 overall: B
 ops:
-  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "compartmentId, displayName and non-empty subnetIds required; shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or https), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
+  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "No opc-retry-token: no functions request struct in the pinned SDK carries OpcRetryToken. Free-form and defined tags are validated against the documented limits and the OCI Identity tag definitions. compartmentId, displayName and non-empty subnetIds required; shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or https), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
   GetApplication: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; DELETED applications answer 404."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; id, displayName, lifecycleState filters; sortBy timeCreated (default, newest first), displayName or id; sortOrder; paged with opc-next-page. Summaries omit config and syslogUrl as in the SDK."}
   UpdateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body, as the SDK response declares. config, networkSecurityGroupIds, syslogUrl, traceConfig, logging, imagePolicyConfig and tags replace the stored value when supplied; If-Match gives 412 NoEtagMatch. Applies immediately (no UPDATING state). A config change makes the next invocation start fresh containers."}
@@ -39,6 +39,5 @@ items_still_open:
   - "The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon)."
   - "Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent."
   - "Subnet, network security group, KMS key and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull."
-  - "Application and function name syntax, per-tenancy limits, opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace."
+  - "Application and function name syntax, per-tenancy limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---

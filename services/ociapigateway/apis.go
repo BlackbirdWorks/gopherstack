@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -46,8 +48,11 @@ type API struct {
 	Locks        []Lock     `json:"locks,omitempty"`
 }
 
+func (i *createAPIIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createAPIIn struct {
 	Tags
+	RetryToken    string   `json:"-"`
 	Content       *string  `json:"content"`
 	DisplayName   string   `json:"displayName"`
 	CompartmentID string   `json:"compartmentId"`
@@ -240,6 +245,20 @@ func (b *InMemoryBackend) CreateAPI(in createAPIIn) (APIWire, string, string, er
 	b.mu.Lock("CreateAPI")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateAPI", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		a, live := b.apis[id]
+		if !live || a.State == stateDeleting || a.State == stateDeleted {
+			return APIWire{}, "", "", errInvalidatedToken()
+		}
+
+		return apiView(a), wr, a.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return APIWire{}, "", "", err
+	}
+
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return APIWire{}, "", "", err
 	}
@@ -271,6 +290,7 @@ func (b *InMemoryBackend) CreateAPI(in createAPIIn) (APIWire, string, string, er
 
 	b.apis[a.ID] = a
 	wr := b.newWR(wrCreateAPI, a.Compartment, entityAPI, a.ID, actionCreated, *a.TransitionAt)
+	b.retry.Remember("CreateAPI", in.RetryToken, ociretry.Join(a.ID, wr), now)
 
 	return apiView(a), wr, a.Etag, nil
 }
@@ -337,6 +357,10 @@ func (b *InMemoryBackend) activeAPI(id, ifMatch string, deleting bool) (*API, *A
 func (b *InMemoryBackend) UpdateAPI(id, ifMatch string, in updateAPIIn) (string, error) {
 	b.mu.Lock("UpdateAPI")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
 
 	a, err := b.activeAPI(id, ifMatch, false)
 	if err != nil {

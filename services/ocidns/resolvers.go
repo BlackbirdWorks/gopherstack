@@ -407,7 +407,7 @@ func (b *InMemoryBackend) UpdateResolver(id string, c cond, in UpdateResolverIn)
 		return ResolverWire{}, tag{}, err
 	}
 
-	if err = c.check(r.ID, r.meta); err != nil {
+	if err = firstAPIErr(c.check(r.ID, r.meta), b.checkTags(in.Tags)); err != nil {
 		return ResolverWire{}, tag{}, err
 	}
 
@@ -486,6 +486,7 @@ func (b *InMemoryBackend) ChangeResolverCompartment(id string, c cond, in Change
 // CreateEndpointIn is the body of CreateResolverEndpoint.
 type CreateEndpointIn struct {
 	Tags
+	RetryToken        string   `json:"-"`
 	IsForwarding      *bool    `json:"isForwarding"`
 	IsListening       *bool    `json:"isListening"`
 	Name              string   `json:"name"`
@@ -619,6 +620,19 @@ func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn)
 		return EndpointWire{}, tag{}, err
 	}
 
+	if id, ok := b.retry.Lookup("CreateResolverEndpoint/"+resolverID, in.RetryToken, b.nowUTC()); ok {
+		e, live := b.endpoints[id]
+		if !live {
+			return EndpointWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.endpointWire(e), tagOf(e.ID, e.meta), nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return EndpointWire{}, tag{}, aerr
+	}
+
 	prefix, aerr := b.validateEndpoint(r, in)
 	if aerr != nil {
 		return EndpointWire{}, tag{}, aerr
@@ -652,6 +666,7 @@ func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn)
 	e.Created, e.Updated = now, now
 	e.touch(now)
 	b.endpoints[e.ID] = e
+	b.retry.Remember("CreateResolverEndpoint/"+resolverID, in.RetryToken, e.ID, now)
 
 	return b.endpointWire(e), tagOf(e.ID, e.meta), nil
 }
@@ -738,7 +753,7 @@ func (b *InMemoryBackend) UpdateEndpoint(
 		return EndpointWire{}, tag{}, err
 	}
 
-	if err = c.check(e.ID, e.meta); err != nil {
+	if err = firstAPIErr(c.check(e.ID, e.meta), b.checkTags(in.Tags)); err != nil {
 		return EndpointWire{}, tag{}, err
 	}
 

@@ -95,6 +95,7 @@ func wireOCIEvents(byName map[string]service.Registerable) {
 		evH.Backend.Auth.Link(identityH.Backend.Auth)
 		evH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 		evH.Backend.SetCompartmentTree(identityH.Backend.CompartmentWithin)
+		evH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCINotifications"].(*ocinotifications.Handler); found {

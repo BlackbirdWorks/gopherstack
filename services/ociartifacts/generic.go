@@ -20,6 +20,7 @@ const (
 
 type createGenericRepoIn struct {
 	Tags
+	RetryToken     string  `json:"-"`
 	IsImmutable    *bool   `json:"isImmutable"`
 	DisplayName    *string `json:"displayName"`
 	Description    *string `json:"description"`
@@ -86,7 +87,16 @@ func (b *InMemoryBackend) CreateRepository(in createGenericRepoIn) (genericRepoW
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateRepository", in.RetryToken, b.nowUTC()); ok {
+		r, live := b.gens[id]
+		if !live {
+			return genericRepoWire{}, "", errInvalidatedToken()
+		}
+
+		return r.view(), r.Etag, nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return genericRepoWire{}, "", err
 	}
 
@@ -106,6 +116,7 @@ func (b *InMemoryBackend) CreateRepository(in createGenericRepoIn) (genericRepoW
 	}
 
 	b.gens[r.ID] = r
+	b.retry.Remember("CreateRepository", in.RetryToken, r.ID, r.TimeCreated)
 
 	return r.view(), r.Etag, nil
 }
@@ -182,7 +193,7 @@ func (b *InMemoryBackend) UpdateRepository(
 		return genericRepoWire{}, "", err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(r.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return genericRepoWire{}, "", err
 	}
 
@@ -465,7 +476,7 @@ func (b *InMemoryBackend) artifactMatch(a *GenericArtifact, repo *GenericRepo, f
 func (b *InMemoryBackend) updateArtifact(
 	a *GenericArtifact, repo *GenericRepo, ifMatch string, in updateTagsIn,
 ) (genericArtifactWire, string, error) {
-	if err := checkEtag(a.Etag, ifMatch); err != nil {
+	if err := firstAPIErr(checkEtag(a.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return genericArtifactWire{}, "", err
 	}
 

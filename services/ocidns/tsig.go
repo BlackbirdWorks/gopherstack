@@ -113,7 +113,7 @@ func (b *InMemoryBackend) CreateTsigKey(in CreateTsigKeyIn) (TsigKeyWire, tag, e
 	b.mu.Lock("CreateTsigKey")
 	defer b.mu.Unlock()
 
-	if err := b.validateTsig(&in); err != nil {
+	if err := firstAPIErr(b.validateTsig(&in), b.checkTags(in.Tags)); err != nil {
 		return TsigKeyWire{}, tag{}, err
 	}
 
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) UpdateTsigKey(id string, c cond, in UpdateTsigKeyIn) (
 		return TsigKeyWire{}, tag{}, err
 	}
 
-	if err = c.check(k.ID, k.meta); err != nil {
+	if err = firstAPIErr(c.check(k.ID, k.meta), b.checkTags(in.Tags)); err != nil {
 		return TsigKeyWire{}, tag{}, err
 	}
 

@@ -38,6 +38,7 @@ var e164 = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
 // CreateSubscriptionIn is the CreateSubscription request body.
 type CreateSubscriptionIn struct {
 	Tags
+	RetryToken  string  `json:"-"`
 	Metadata    *string `json:"metadata"`
 	TopicID     string  `json:"topicId"`
 	Compartment string  `json:"compartmentId"`
@@ -222,6 +223,19 @@ func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL st
 	b.mu.Lock("CreateSubscription")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateSubscription", in.RetryToken, b.nowUTC()); ok {
+		s, live := b.subs[v]
+		if !live {
+			return SubWire{}, errInvalidatedToken()
+		}
+
+		return subView(s), nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return SubWire{}, aerr
+	}
+
 	topic, aerr := b.activeTopic(in.TopicID)
 	if aerr != nil {
 		return SubWire{}, aerr
@@ -249,6 +263,7 @@ func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL st
 	}
 
 	b.subs[s.ID] = s
+	b.retry.Remember("CreateSubscription", in.RetryToken, s.ID, s.TimeCreated)
 
 	return subView(s), nil
 }
@@ -339,6 +354,10 @@ func (b *InMemoryBackend) UpdateSubscription(
 		return UpdateSubscriptionIn{}, "", aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return UpdateSubscriptionIn{}, "", aerr
+	}
+
 	if in.DeliveryPolicy != nil && in.DeliveryPolicy.BackoffRetryPolicy != nil {
 		s.MaxRetryMs = in.DeliveryPolicy.BackoffRetryPolicy.MaxRetryDuration
 	}
@@ -380,13 +399,18 @@ func (b *InMemoryBackend) DeleteSubscription(id, ifMatch string) error {
 }
 
 // ChangeSubscriptionCompartment moves a subscription to another compartment.
-func (b *InMemoryBackend) ChangeSubscriptionCompartment(id, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeSubscriptionCompartment(id, ifMatch, compartment, token string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
 
 	b.mu.Lock("ChangeSubscriptionCompartment")
 	defer b.mu.Unlock()
+
+	scope := "ChangeSubscriptionCompartment/" + id
+	if _, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		return nil
+	}
 
 	s, aerr := b.sub(id)
 	if aerr != nil {
@@ -398,6 +422,7 @@ func (b *InMemoryBackend) ChangeSubscriptionCompartment(id, ifMatch, compartment
 	}
 
 	s.CompartmentID, s.Etag = compartment, newEtag()
+	b.retry.Remember(scope, token, id, b.nowUTC())
 
 	return nil
 }
@@ -509,6 +534,8 @@ func (h *Handler) createSubscription(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	v, err := h.Backend.CreateSubscription(in, q.endpoint())
 	if err != nil {
 		return err
@@ -573,6 +600,7 @@ func (h *Handler) changeSubscriptionCompartment(q *req) error {
 		q.param("subscriptionId"),
 		q.ifMatch(),
 		in.CompartmentID,
+		q.r.Header.Get(headerRetry),
 	); err != nil {
 		return err
 	}

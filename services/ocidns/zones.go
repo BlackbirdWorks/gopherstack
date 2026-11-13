@@ -187,6 +187,7 @@ func (b *InMemoryBackend) findZone(r ZoneRef) (*Zone, *APIError) {
 // CreateZoneIn is the body of CreateZone.
 type CreateZoneIn struct {
 	Tags
+	RetryToken          string      `json:"-"`
 	Name                string      `json:"name"`
 	CompartmentID       string      `json:"compartmentId"`
 	ViewID              string      `json:"viewId"`
@@ -304,6 +305,10 @@ func (b *InMemoryBackend) validateZoneIn(in *CreateZoneIn) *APIError {
 		return err
 	}
 
+	if err := b.checkTags(in.Tags); err != nil {
+		return err
+	}
+
 	name, ok := normName(in.Name, false)
 	if !ok {
 		return errParam("name is not a valid zone name")
@@ -374,11 +379,21 @@ func (b *InMemoryBackend) CreateZone(in CreateZoneIn) (ZoneWire, tag, error) {
 	b.mu.Lock("CreateZone")
 	defer b.mu.Unlock()
 
+	if id, ok := b.retry.Lookup("CreateZone", in.RetryToken, b.nowUTC()); ok {
+		z, live := b.zones[id]
+		if !live {
+			return ZoneWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.zoneWire(z), tagOf(z.ID, z.meta), nil
+	}
+
 	if err := b.validateZoneIn(&in); err != nil {
 		return ZoneWire{}, tag{}, err
 	}
 
 	z := b.newZone(in)
+	b.retry.Remember("CreateZone", in.RetryToken, z.ID, b.nowUTC())
 
 	return b.zoneWire(z), tagOf(z.ID, z.meta), nil
 }
@@ -573,7 +588,7 @@ func (b *InMemoryBackend) UpdateZone(r ZoneRef, c cond, in UpdateZoneIn) (ZoneWi
 		return ZoneWire{}, tag{}, err
 	}
 
-	if err = c.check(z.ID, z.meta); err != nil {
+	if err = firstAPIErr(c.check(z.ID, z.meta), b.checkTags(in.Tags)); err != nil {
 		return ZoneWire{}, tag{}, err
 	}
 

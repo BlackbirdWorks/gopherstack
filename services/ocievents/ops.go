@@ -18,6 +18,8 @@ func (h *Handler) createRule(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	w, etag, err := h.Backend.CreateRule(in)
 	if err != nil {
 		return err
@@ -76,6 +78,8 @@ func (h *Handler) changeRuleCompartment(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	if err := h.Backend.ChangeRuleCompartment(q.ruleID(), q.ifMatch(), in); err != nil {
 		return err

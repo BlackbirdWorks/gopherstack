@@ -42,6 +42,7 @@ func (b *InMemoryBackend) viewByID(id string) (*View, *APIError) {
 // CreateViewIn is the body of CreateView.
 type CreateViewIn struct {
 	Tags
+	RetryToken    string `json:"-"`
 	CompartmentID string `json:"compartmentId"`
 	DisplayName   string `json:"displayName"`
 }
@@ -63,7 +64,16 @@ func (b *InMemoryBackend) CreateView(in CreateViewIn) (ViewWire, tag, error) {
 	b.mu.Lock("CreateView")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateView", in.RetryToken, b.nowUTC()); ok {
+		v, live := b.views[id]
+		if !live {
+			return ViewWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.viewWire(v), tagOf(v.ID, v.meta), nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return ViewWire{}, tag{}, err
 	}
 
@@ -73,6 +83,7 @@ func (b *InMemoryBackend) CreateView(in CreateViewIn) (ViewWire, tag, error) {
 	}
 
 	v := b.newView(in.CompartmentID, name, false, in.Tags)
+	b.retry.Remember("CreateView", in.RetryToken, v.ID, b.nowUTC())
 
 	return b.viewWire(v), tagOf(v.ID, v.meta), nil
 }
@@ -150,7 +161,7 @@ func (b *InMemoryBackend) UpdateView(id string, c cond, in UpdateViewIn) (ViewWi
 		return ViewWire{}, tag{}, err
 	}
 
-	if err = c.check(v.ID, v.meta); err != nil {
+	if err = firstAPIErr(c.check(v.ID, v.meta), b.checkTags(in.Tags)); err != nil {
 		return ViewWire{}, tag{}, err
 	}
 

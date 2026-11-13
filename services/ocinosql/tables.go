@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -31,6 +32,7 @@ type limitsIn struct {
 
 type createTableIn struct {
 	Tags
+	RetryToken    string    `json:"-"`
 	TableLimits   *limitsIn `json:"tableLimits"`
 	AutoReclaim   *bool     `json:"isAutoReclaimable"`
 	Name          string    `json:"name"`
@@ -46,6 +48,7 @@ type updateTableIn struct {
 }
 
 type changeCompartmentIn struct {
+	RetryToken        string `json:"-"`
 	ToCompartmentID   string `json:"toCompartmentId"`
 	FromCompartmentID string `json:"fromCompartmentId"`
 }
@@ -139,6 +142,19 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateTable", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if b.tableGone(id) {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return "", aerr
 	}
@@ -186,8 +202,10 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 
 	t.DDL = renderDDL(t)
 	b.tables[t.ID] = t
+	wr := b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.finishAt(t))
+	b.retry.Remember("CreateTable", in.RetryToken, ociretry.Join(t.ID, wr), now)
 
-	return b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.finishAt(t)), nil
+	return wr, nil
 }
 
 func (b *InMemoryBackend) createExisting(in createTableIn, spec *createSpec) (string, error) {
@@ -201,6 +219,12 @@ func (b *InMemoryBackend) createExisting(in createTableIn, spec *createSpec) (st
 	}
 
 	return b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.nowUTC()), nil
+}
+
+func (b *InMemoryBackend) tableGone(id string) bool {
+	t, live := b.tables[id]
+
+	return !live || t.State == stateDeleting || t.State == stateDeleted
 }
 
 func (b *InMemoryBackend) modifiable(t *Table) *APIError {
@@ -227,6 +251,10 @@ func (b *InMemoryBackend) UpdateTable(ref, ifMatch string, in updateTableIn) (st
 
 	if in.DDL != "" && in.TableLimits != nil {
 		return "", errParam("ddlStatement and tableLimits cannot both be specified in one update")
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
 	}
 
 	changed := false
@@ -287,6 +315,15 @@ func (b *InMemoryBackend) ChangeTableCompartment(ref, ifMatch string, in changeC
 	b.mu.Lock("ChangeTableCompartment")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("ChangeTableCompartment", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if b.tableGone(id) {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
 	t, aerr := b.resolve(ref, in.FromCompartmentID)
 	if aerr != nil {
 		return "", aerr
@@ -302,8 +339,10 @@ func (b *InMemoryBackend) ChangeTableCompartment(ref, ifMatch string, in changeC
 	}
 
 	t.CompartmentID, t.Etag, t.TimeUpdated = in.ToCompartmentID, newEtag(), b.nowUTC()
+	wr := b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", b.nowUTC())
+	b.retry.Remember("ChangeTableCompartment", in.RetryToken, ociretry.Join(t.ID, wr), t.TimeUpdated)
 
-	return b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", b.nowUTC()), nil
+	return wr, nil
 }
 
 // Table wire types.
@@ -491,6 +530,8 @@ func (h *Handler) createTable(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	wr, err := h.Backend.CreateTable(in)
 
 	return acceptedWR(q, wr, err)
@@ -543,6 +584,8 @@ func (h *Handler) changeTableCompartment(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.ChangeTableCompartment(q.param("tableNameOrId"), q.ifMatch(), in)
 

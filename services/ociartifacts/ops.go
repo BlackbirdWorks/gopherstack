@@ -87,6 +87,8 @@ func okEmpty(q *req, err error) error {
 
 func (h *Handler) createContainerRepo(q *req) error {
 	return withBody(q, func(in createRepoIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, etag, err := h.Backend.CreateContainerRepository(in, q.user())
 
 		return respond(q, w, etag, err)
@@ -200,6 +202,8 @@ func (h *Handler) lookupImage(q *req) error {
 
 func (h *Handler) createSignature(q *req) error {
 	return withBody(q, func(in createSignatureIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, etag, err := h.Backend.CreateContainerImageSignature(in, q.user())
 
 		return respond(q, w, etag, err)
@@ -257,6 +261,8 @@ func (h *Handler) updateConfig(q *req) error {
 
 func (h *Handler) createGenericRepo(q *req) error {
 	return withBody(q, func(in createGenericRepoIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, etag, err := h.Backend.CreateRepository(in)
 
 		return respond(q, w, etag, err)

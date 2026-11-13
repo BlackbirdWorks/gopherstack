@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -18,6 +19,7 @@ type indexKeyIn struct {
 }
 
 type createIndexIn struct {
+	RetryToken    string       `json:"-"`
 	IfNotExists   *bool        `json:"isIfNotExists"`
 	Name          string       `json:"name"`
 	CompartmentID string       `json:"compartmentId"`
@@ -89,6 +91,15 @@ func (b *InMemoryBackend) CreateIndex(ref string, in createIndexIn) (string, err
 		return "", aerr
 	}
 
+	if v, ok := b.retry.Lookup("CreateIndex", in.RetryToken, b.nowUTC()); ok {
+		key, wr := ociretry.Split(v)
+		if _, live := t.Indexes[key]; !live {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
 	if aerr = b.modifiable(t); aerr != nil {
 		return "", aerr
 	}
@@ -119,8 +130,10 @@ func (b *InMemoryBackend) CreateIndex(ref string, in createIndexIn) (string, err
 		Name: in.Name, State: stateCreating, Keys: keys, TransitionAt: at, Created: b.nowUTC(),
 	}
 	t.Etag, t.TimeUpdated = newEtag(), b.nowUTC()
+	wr := b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", *at)
+	b.retry.Remember("CreateIndex", in.RetryToken, ociretry.Join(strs.Fold(in.Name), wr), t.TimeUpdated)
 
-	return b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", *at), nil
+	return wr, nil
 }
 
 // DeleteIndex removes an index; ifExists turns a missing index into a no-op (empty work request id).
@@ -236,6 +249,8 @@ func (h *Handler) createIndex(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateIndex(q.param("tableNameOrId"), in)
 

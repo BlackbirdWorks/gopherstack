@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -38,6 +39,7 @@ type NodeConfigIn struct {
 // CreateNodePoolIn is the CreateNodePool request body.
 type CreateNodePoolIn struct {
 	Tags
+	RetryToken     string            `json:"-"`
 	Version        *string           `json:"kubernetesVersion"`
 	ImageName      *string           `json:"nodeImageName"`
 	Source         *NodeSource       `json:"nodeSourceDetails"`
@@ -484,7 +486,16 @@ func (b *InMemoryBackend) CreateNodePool(in CreateNodePoolIn) (string, error) {
 
 	b.settleAll()
 
-	if aerr := firstErr(b.checkCompartment(in.Compartment), validateName(in.Name),
+	if v, ok := b.retry.Lookup("CreateNodePool", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if np, live := b.pools[id]; !live || np.State == stateDeleting || np.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := firstErr(b.checkCompartment(in.Compartment), validateName(in.Name), b.checkTags(in.Tags),
 		rejectUnsupported(in.SecondaryVnics, in.PrimaryVnic, in.LaunchType), checkLabels(in.Labels)); aerr != nil {
 		return "", aerr
 	}
@@ -504,7 +515,10 @@ func (b *InMemoryBackend) CreateNodePool(in CreateNodePoolIn) (string, error) {
 	b.pools[np.ID] = np
 	b.growPool(np, c, b.targetSize(np))
 
-	return b.newWR(wrNodePoolCreate, np.CompartmentID, entityNodePool, np.ID, actionCreated, np.TransitionAt), nil
+	wr := b.newWR(wrNodePoolCreate, np.CompartmentID, entityNodePool, np.ID, actionCreated, np.TransitionAt)
+	b.retry.Remember("CreateNodePool", in.RetryToken, ociretry.Join(np.ID, wr), b.nowUTC())
+
+	return wr, nil
 }
 
 func (b *InMemoryBackend) buildPool(in CreateNodePoolIn, c *Cluster) (*NodePool, *APIError) {
@@ -824,7 +838,7 @@ func (b *InMemoryBackend) UpdateNodePool(id, ifMatch string, in UpdateNodePoolIn
 
 	next := *np
 	if aerr = firstErr(rejectUnsupported(in.SecondaryVnics, in.PrimaryVnic, in.LaunchType), checkLabels(in.Labels),
-		b.applyPoolUpdate(&next, in, c)); aerr != nil {
+		b.checkTags(in.Tags), b.applyPoolUpdate(&next, in, c)); aerr != nil {
 		return "", aerr
 	}
 
@@ -1020,6 +1034,8 @@ func (h *Handler) createNodePool(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateNodePool(in)
 

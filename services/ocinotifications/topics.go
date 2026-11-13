@@ -12,6 +12,7 @@ import (
 // CreateTopicIn is the CreateTopic request body.
 type CreateTopicIn struct {
 	Tags
+	RetryToken  string  `json:"-"`
 	Description *string `json:"description"`
 	Name        string  `json:"name"`
 	Compartment string  `json:"compartmentId"`
@@ -101,6 +102,19 @@ func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (TopicW
 
 	b.sweepLocked()
 
+	if v, ok := b.retry.Lookup("CreateTopic", in.RetryToken, b.nowUTC()); ok {
+		t, live := b.topics[v]
+		if !live || t.State == stateDeleting {
+			return TopicWire{}, errInvalidatedToken()
+		}
+
+		return topicView(t, endpoint), nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return TopicWire{}, aerr
+	}
+
 	for _, t := range b.topics {
 		if t.Name == in.Name {
 			return TopicWire{}, errExists("A topic named " + in.Name + " already exists")
@@ -119,6 +133,7 @@ func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (TopicW
 	at := b.nowUTC().Add(b.transition)
 	t.TransitionAt = &at
 	b.topics[t.ID] = t
+	b.retry.Remember("CreateTopic", in.RetryToken, t.ID, t.TimeCreated)
 
 	return topicView(t, endpoint), nil
 }
@@ -184,6 +199,10 @@ func (b *InMemoryBackend) UpdateTopic(id, ifMatch, endpoint string, in UpdateTop
 		return TopicWire{}, aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return TopicWire{}, aerr
+	}
+
 	if in.Description != nil {
 		t.Description = *in.Description
 	}
@@ -215,13 +234,18 @@ func (b *InMemoryBackend) DeleteTopic(id, ifMatch string) error {
 }
 
 // ChangeTopicCompartment moves a topic to another compartment.
-func (b *InMemoryBackend) ChangeTopicCompartment(id, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeTopicCompartment(id, ifMatch, compartment, token string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
 
 	b.mu.Lock("ChangeTopicCompartment")
 	defer b.mu.Unlock()
+
+	scope := "ChangeTopicCompartment/" + id
+	if _, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		return nil
+	}
 
 	t, aerr := b.activeTopic(id)
 	if aerr != nil {
@@ -233,6 +257,7 @@ func (b *InMemoryBackend) ChangeTopicCompartment(id, ifMatch, compartment string
 	}
 
 	t.CompartmentID, t.Etag = compartment, newEtag()
+	b.retry.Remember(scope, token, id, b.nowUTC())
 
 	return nil
 }
@@ -246,6 +271,8 @@ func (h *Handler) createTopic(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	v, err := h.Backend.CreateTopic(in, q.endpoint())
 	if err != nil {
@@ -306,7 +333,9 @@ func (h *Handler) changeTopicCompartment(q *req) error {
 		return err
 	}
 
-	if err := h.Backend.ChangeTopicCompartment(q.param("topicId"), q.ifMatch(), in.CompartmentID); err != nil {
+	if err := h.Backend.ChangeTopicCompartment(
+		q.param("topicId"), q.ifMatch(), in.CompartmentID, q.r.Header.Get(headerRetry),
+	); err != nil {
 		return err
 	}
 

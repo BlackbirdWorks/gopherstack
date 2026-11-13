@@ -89,5 +89,5 @@ items_still_open:
   - "OAuth2 login/logout backends, REMOTE_DISCOVERY with VALIDATION_BLOCK client or source details, body validationType other than NONE and JSON-schema body validation are rejected with 400; access and execution log policies are stored but nothing is written to OCI Logging."
   - "Cancelling a work request marks it CANCELED but does not stop the resource transition it describes."
   - "No separate connect/send timeout enforcement, no retries, no streaming flush; request bodies are buffered up to 10 MiB."
-  - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. Tag values are stored verbatim and systemTags are never set."
+  - "opc-retry-token is not tracked on CreateSubscriber (its response carries the client tokens), the compartment moves and CancelWorkRequest; IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set."
   - "The dashboard has no OCI API Gateway page."

@@ -19,5 +19,6 @@ func wireOCINoSQL(byName map[string]service.Registerable) {
 	if h, found := byName["OCINoSQL"].(*ocinosql.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 }

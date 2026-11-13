@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -20,6 +21,7 @@ type backendSnapshot struct {
 	TsigKeys    map[string]*TsigKey        `json:"tsigKeys"`
 	Policies    map[string]*SteeringPolicy `json:"steeringPolicies"`
 	Attachments map[string]*Attachment     `json:"steeringPolicyAttachments"`
+	Retry       map[string]ociretry.Entry  `json:"retryTokens"`
 	Auth        []ociauth.KeyRecord        `json:"authKeys"`
 	Version     int                        `json:"version"`
 	Seq         int64                      `json:"seq"`
@@ -34,7 +36,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ocidns", backendSnapshot{
 		Version: snapshotVersion, Zones: b.zones, Views: b.views, Resolvers: b.resolvers, Endpoints: b.endpoints,
-		TsigKeys: b.tsigs, Policies: b.policies, Attachments: b.attachments, Auth: keys, Seq: b.seq,
+		TsigKeys: b.tsigs, Policies: b.policies, Attachments: b.attachments, Retry: b.retry.Entries(), Auth: keys,
+		Seq: b.seq,
 	})
 }
 
@@ -63,6 +66,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.zones, b.views, b.resolvers, b.endpoints = snap.Zones, snap.Views, snap.Resolvers, snap.Endpoints
 	b.tsigs, b.policies, b.attachments, b.seq = snap.TsigKeys, snap.Policies, snap.Attachments, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

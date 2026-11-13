@@ -26,11 +26,11 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-monitoring-port / OCI_MONITORING_PORT (default 8161); never on the shared AWS router; cli.go reserves the port in the shared pool. The telemetry and telemetry-ingestion endpoints are the same host."}
 items_still_open:
-  - "Alarm suppressions (CreateAlarmSuppression, GetAlarmSuppression, ListAlarmSuppressions, DeleteAlarmSuppression, RemoveAlarmSuppression, SummarizeAlarmSuppressionHistory) and RetrieveDimensionStates are not routed; only the suppression property on the alarm itself is honoured."
+  - "Alarm suppressions (CreateAlarmSuppression, GetAlarmSuppression, ListAlarmSuppressions, DeleteAlarmSuppression, RemoveAlarmSuppression, SummarizeAlarmSuppressionHistory) and RetrieveDimensionStates are not routed, so CreateAlarmSuppression's opc-retry-token is not applicable; only the suppression property on the alarm itself is honoured."
   - "Alarm evaluation is per alarm, not per metric stream: isNotificationsPerMetricDimensionEnabled is stored but notifications are always grouped, and alarm overrides, ruleName rules and evaluationSlackDuration are stored but not evaluated."
   - "MQL lacks grouping(), joins, arithmetic and nested queries; see families.mql. Metrics emitted by other OCI services (oci_computeagent and so on) do not exist, only posted custom metrics."
   - "The notification JSON layout follows the documented alarm message format only approximately; the SDK does not document its fields."
   - "Datapoints are held in memory and in snapshots, so heavy ingestion grows the snapshot; there is no per-stream cap."
-  - "opc-retry-token idempotency, content-encoding gzip request bodies, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set."
+  - "Content-encoding gzip request bodies, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "systemTags are never set."
 ---

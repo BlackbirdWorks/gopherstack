@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -23,6 +24,7 @@ type groupAssociationWire struct {
 // CreateAgentConfigIn is the CreateUnifiedAgentConfiguration request body.
 type CreateAgentConfigIn struct {
 	Tags
+	RetryToken    string                `json:"-"`
 	Enabled       *bool                 `json:"isEnabled"`
 	Description   *string               `json:"description"`
 	GroupAssoc    *groupAssociationWire `json:"groupAssociation"`
@@ -163,6 +165,19 @@ func (b *InMemoryBackend) CreateAgentConfig(in CreateAgentConfigIn) (string, err
 
 	b.settleAll()
 
+	if v, ok := b.retry.Lookup("CreateUnifiedAgentConfiguration", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if a, live := b.agents[id]; !live || a.State == stateDeleting || a.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	cfgType, aerr := b.validateServiceConfig(in.ServiceConfig)
 	if aerr != nil {
 		return "", aerr
@@ -181,8 +196,11 @@ func (b *InMemoryBackend) CreateAgentConfig(in CreateAgentConfigIn) (string, err
 
 	b.agents[a.ID] = a
 
-	return b.newWR("CREATE_CONFIGURATION", "unifiedagentconfiguration", a.CompartmentID, a.ID, "CREATED",
-		*a.TransitionAt), nil
+	wr := b.newWR("CREATE_CONFIGURATION", "unifiedagentconfiguration", a.CompartmentID, a.ID, "CREATED",
+		*a.TransitionAt)
+	b.retry.Remember("CreateUnifiedAgentConfiguration", in.RetryToken, ociretry.Join(a.ID, wr), now)
+
+	return wr, nil
 }
 
 func (b *InMemoryBackend) mutableAgent(id string) (*AgentConfig, *APIError) {
@@ -332,7 +350,7 @@ func (b *InMemoryBackend) DeleteAgentConfig(id, ifMatch string) (string, error) 
 }
 
 // ChangeAgentConfigCompartment moves an agent configuration to another compartment.
-func (b *InMemoryBackend) ChangeAgentConfigCompartment(id, ifMatch, compartment string) (string, error) {
+func (b *InMemoryBackend) ChangeAgentConfigCompartment(id, ifMatch, compartment, token string) (string, error) {
 	if compartment == "" {
 		return "", errMissing("compartmentId is required")
 	}
@@ -341,6 +359,11 @@ func (b *InMemoryBackend) ChangeAgentConfigCompartment(id, ifMatch, compartment 
 	defer b.mu.Unlock()
 
 	b.settleAll()
+
+	scope := "ChangeUnifiedAgentConfigurationCompartment/" + id
+	if v, ok := b.retry.Lookup(scope, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	a, aerr := b.mutableAgent(id)
 	if aerr != nil {
@@ -353,7 +376,10 @@ func (b *InMemoryBackend) ChangeAgentConfigCompartment(id, ifMatch, compartment 
 
 	a.CompartmentID, a.Etag, a.TimeModified = compartment, newEtag(), b.nowUTC()
 
-	return b.newWR("MOVE_CONFIGURATION", "unifiedagentconfiguration", compartment, a.ID, "UPDATED", b.nowUTC()), nil
+	wr := b.newWR("MOVE_CONFIGURATION", "unifiedagentconfiguration", compartment, a.ID, "UPDATED", b.nowUTC())
+	b.retry.Remember(scope, token, wr, a.TimeModified)
+
+	return wr, nil
 }
 
 func (h *Handler) createAgentConfig(q *req) error {
@@ -361,6 +387,8 @@ func (h *Handler) createAgentConfig(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateAgentConfig(in)
 
@@ -416,7 +444,7 @@ func (h *Handler) changeAgentConfigCompartment(q *req) error {
 	}
 
 	id := q.param("unifiedAgentConfigurationId")
-	wr, err := h.Backend.ChangeAgentConfigCompartment(id, q.ifMatch(), in.CompartmentID)
+	wr, err := h.Backend.ChangeAgentConfigCompartment(id, q.ifMatch(), in.CompartmentID, q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 57 (28 ok, 29 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -23,10 +23,9 @@
 - Several error codes and statuses are unverified against the live service: 409 Conflict for a duplicate secret name, 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key.
 - Backup and restore: the 200 statuses, the BackupLocation required rule, the key-state rule and the 409 for existing resources are unverified against the live service; software-protected keys are backed up too.
 - Rotation payload ({secretId, step, currentVersionNumber}) and the four step names are unverified against the live docs; the rotationInterval 1-360 day range comes from the SDK doc comment.
-- opc-retry-token idempotency, service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
+- opc-retry-token on CreateKeyVersion, ImportKey, ImportKeyVersion, CreateVaultReplica, RotateSecret and the compartment moves and lifecycle actions, service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
 - Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client.
 - Resource principal and instance principal tokens are not understood; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace.
 
 ## More
 

@@ -22,6 +22,7 @@ type actionsIn struct {
 
 type createRuleIn struct {
 	Tags
+	RetryToken    string     `json:"-"`
 	IsEnabled     *bool      `json:"isEnabled"`
 	Actions       *actionsIn `json:"actions"`
 	DisplayName   string     `json:"displayName"`
@@ -40,6 +41,7 @@ type updateRuleIn struct {
 }
 
 type changeCompartmentIn struct {
+	RetryToken    string `json:"-"`
 	CompartmentID string `json:"compartmentId"`
 }
 
@@ -157,7 +159,16 @@ func (b *InMemoryBackend) CreateRule(in createRuleIn) (RuleWire, string, error) 
 	b.mu.Lock("CreateRule")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateRule", in.RetryToken, b.nowUTC()); ok {
+		r, live := b.rules[id]
+		if !live || r.State == stateDeleted {
+			return RuleWire{}, "", errInvalidatedToken()
+		}
+
+		return ruleView(r), r.Etag, nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return RuleWire{}, "", err
 	}
 
@@ -188,6 +199,7 @@ func (b *InMemoryBackend) CreateRule(in createRuleIn) (RuleWire, string, error) 
 		TimeCreated: b.nowUTC(), Etag: newEtag(), Tags: in.Tags, Seq: b.nextSeq(),
 	}
 	b.rules[r.ID] = r
+	b.retry.Remember("CreateRule", in.RetryToken, r.ID, r.TimeCreated)
 
 	return ruleView(r), r.Etag, nil
 }
@@ -271,7 +283,7 @@ func (b *InMemoryBackend) UpdateRule(id, ifMatch string, in updateRuleIn) (RuleW
 		return RuleWire{}, "", err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(r.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return RuleWire{}, "", err
 	}
 
@@ -356,6 +368,11 @@ func (b *InMemoryBackend) ChangeRuleCompartment(id, ifMatch string, in changeCom
 	b.mu.Lock("ChangeRuleCompartment")
 	defer b.mu.Unlock()
 
+	scope := "ChangeRuleCompartment/" + id
+	if _, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
+		return nil
+	}
+
 	r, err := b.activeRule(id)
 	if err != nil {
 		return err
@@ -370,6 +387,7 @@ func (b *InMemoryBackend) ChangeRuleCompartment(id, ifMatch string, in changeCom
 	}
 
 	r.CompartmentID, r.Etag = in.CompartmentID, newEtag()
+	b.retry.Remember(scope, in.RetryToken, id, b.nowUTC())
 
 	return nil
 }

@@ -42,8 +42,23 @@ func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }
 
+func errInvalidatedToken() *APIError {
+	return newErr(http.StatusConflict, "InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted")
+}
+
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
 func errTooLarge() *APIError {
 	return newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable")
+}
+
+func firstAPIErr(errs ...*APIError) *APIError {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+
+	return nil
 }

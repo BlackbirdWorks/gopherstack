@@ -21,7 +21,7 @@
 - The publish rate (60 messages per minute per topic) and per-subscription delivery rates are not enforced; SMS is not restricted to Announcements, Monitoring and Connector Hub messages.
 - The maxRetryDuration range (10 s to 24 h), topic name rules, the status codes for DeleteSubscription (204) and DeleteTopic (202), and the error codes for bad confirmation tokens are unverified.
 - Deleted topics and unsubscribed subscriptions disappear instead of passing through a DELETED state.
-- Topic and subscription tagging is stored verbatim; opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
 

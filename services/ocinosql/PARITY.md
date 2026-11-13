@@ -42,7 +42,7 @@ items_still_open:
   - "The 50/50/25 auto-reclaimable (Always Free) defaults and the minimum of 1 unit are not found in any primary source reached; the documented region-level limits (30 tables, 3 on-demand tables, 4 DDL operations per minute, 100 schema updates per table, 4 limit decreases per day, once-a-day capacity mode change, 10000/5000 on-demand ceiling) are not enforced."
   - "The REST error code for oversize keys, rows and query strings is LimitExceeded (400) by inference from the OCI error reference; the NoSQL REST reference page itself could not be fetched. Key and row size are approximated from string and number bytes, not the server's serialized form."
   - "Queries scan all rows of a table; indexes only validate and order ORDER BY clauses, there is no index selection, and maxReadInKBs is accepted but not used to cut a batch."
-  - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
   - "The dashboard has no OCI NoSQL page."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set."
+  - "systemTags are never set."
 ---

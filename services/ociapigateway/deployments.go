@@ -4,12 +4,17 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
+func (i *createDeploymentIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createDeploymentIn struct {
 	Tags
+	RetryToken    string          `json:"-"`
 	GatewayID     string          `json:"gatewayId"`
 	CompartmentID string          `json:"compartmentId"`
 	PathPrefix    string          `json:"pathPrefix"`
@@ -72,26 +77,49 @@ func (b *InMemoryBackend) prefixTaken(gatewayID, prefix, except string) bool {
 	return false
 }
 
+func (b *InMemoryBackend) deployTarget(id string) (*Gateway, *APIError) {
+	if id == "" {
+		return nil, errMissing("gatewayId is required")
+	}
+
+	g, ok := b.gateways[id]
+	if !ok || g.State == stateDeleted {
+		return nil, errNotFound(id)
+	}
+
+	if g.State == stateDeleting {
+		return nil, errState("gateway " + g.ID + " is being deleted")
+	}
+
+	return g, nil
+}
+
 // CreateDeployment creates a deployment in CREATING state.
 func (b *InMemoryBackend) CreateDeployment(in createDeploymentIn) (DeploymentWire, string, string, error) {
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateDeployment", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		d, live := b.deployments[id]
+		if !live || d.State == stateDeleting || d.State == stateDeleted {
+			return DeploymentWire{}, "", "", errInvalidatedToken()
+		}
+
+		return b.deploymentView(d, true), wr, d.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return DeploymentWire{}, "", "", err
+	}
+
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return DeploymentWire{}, "", "", err
 	}
 
-	if in.GatewayID == "" {
-		return DeploymentWire{}, "", "", errMissing("gatewayId is required")
-	}
-
-	g, ok := b.gateways[in.GatewayID]
-	if !ok || g.State == stateDeleted {
-		return DeploymentWire{}, "", "", errNotFound(in.GatewayID)
-	}
-
-	if g.State == stateDeleting {
-		return DeploymentWire{}, "", "", errState("gateway " + g.ID + " is being deleted")
+	g, gerr := b.deployTarget(in.GatewayID)
+	if gerr != nil {
+		return DeploymentWire{}, "", "", gerr
 	}
 
 	if err := validatePathPrefix(in.PathPrefix); err != nil {
@@ -130,6 +158,7 @@ func (b *InMemoryBackend) CreateDeployment(in createDeploymentIn) (DeploymentWir
 	b.deployments[d.ID] = d
 	b.specs[d.ID] = cs
 	wr := b.newWR(wrCreateDeploy, d.CompartmentID, entityDeploy, d.ID, actionCreated, *d.TransitionAt)
+	b.retry.Remember("CreateDeployment", in.RetryToken, ociretry.Join(d.ID, wr), now)
 
 	return b.deploymentView(d, true), wr, d.Etag, nil
 }
@@ -193,6 +222,10 @@ func (b *InMemoryBackend) ListDeployments(
 func (b *InMemoryBackend) UpdateDeployment(id, ifMatch string, in updateDeploymentIn) (string, error) {
 	b.mu.Lock("UpdateDeployment")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
 
 	d, err := b.liveDeployment(id)
 	if err != nil {

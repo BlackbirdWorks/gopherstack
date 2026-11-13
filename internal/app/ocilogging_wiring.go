@@ -35,11 +35,13 @@ func wireOCILoggingMonitoring(byName map[string]service.Registerable) {
 	if identityH, ok := byName["OCIIdentity"].(*ociidentitybackend.Handler); ok {
 		if logH != nil {
 			logH.Backend.Auth.Link(identityH.Backend.Auth)
+			logH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 		}
 
 		if monH != nil {
 			monH.Backend.Auth.Link(identityH.Backend.Auth)
 			monH.Backend.SetCompartmentTree(ociidentitybackend.TenancyID, identityH.Backend.CompartmentWithin)
+			monH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 		}
 	}
 

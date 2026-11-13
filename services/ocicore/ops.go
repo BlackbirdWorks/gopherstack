@@ -55,7 +55,20 @@ func createOp[In any](fn func(*InMemoryBackend, In) (resource, string, *APIError
 			return err
 		}
 
+		if aerr := h.Backend.checkTags(in); aerr != nil {
+			return aerr
+		}
+
+		scope, token := q.r.Method+" "+q.r.URL.Path, q.r.Header.Get(headerRetry)
+
+		if v, etag, hit, aerr := h.Backend.replayCreate(scope, token); hit {
+			return send(q, v, etag, aerr)
+		}
+
 		v, etag, aerr := fn(h.Backend, in)
+		if aerr == nil {
+			h.Backend.rememberCreate(scope, token, v)
+		}
 
 		return send(q, v, etag, aerr)
 	}
@@ -68,6 +81,10 @@ func updateOp[In any](
 		var in In
 		if err := q.decode(&in); err != nil {
 			return err
+		}
+
+		if aerr := h.Backend.checkTags(in); aerr != nil {
+			return aerr
 		}
 
 		v, etag, aerr := fn(h.Backend, q.param(param), q.ifMatch(), in)

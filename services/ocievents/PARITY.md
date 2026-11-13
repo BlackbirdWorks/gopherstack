@@ -28,5 +28,5 @@ items_still_open:
   - "Unverified, chosen by the emulator: case-sensitive value comparison; numbers and booleans compared by their text form; unknown top-level condition keys are accepted and matched against the whole envelope; no rejection of conditions that can never match; rule displayName limit of 255 and no uniqueness rule."
   - "Unverified, from memory: the 400 LimitExceeded code for the 50-rule limit, the eventrule/eventaction OCID prefixes, rules going ACTIVE with no CREATING state, 404 for a missing action target, lifecycleMessage always empty, and DELETE answering 204."
   - "Delivery is best effort and unordered across events with no retry on Events' side; Oracle's real at-least-once and retry behaviour is not documented on the pages reached and is not reproduced. Delivery to ONS, OSS and FAAS in other compartments is not restricted."
-  - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set. The dashboard has no OCI Events page."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set. The dashboard has no OCI Events page."
 ---

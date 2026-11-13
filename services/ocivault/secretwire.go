@@ -161,15 +161,11 @@ func (s *Secret) currentExpiry() *time.Time {
 	return nil
 }
 
-func secretView(s *Secret, state string) secretWire {
-	if state == "" {
-		state = s.State
-	}
-
+func secretView(s *Secret) secretWire {
 	w := secretWire{
 		TimeCreated: s.TimeCreated, TimeOfDeletion: s.TimeOfDeletion, TimeOfCurrentExp: s.currentExpiry(),
 		FreeformTags: s.FreeformTags, DefinedTags: s.DefinedTags, Metadata: s.Metadata,
-		CompartmentID: s.CompartmentID, ID: s.ID, LifecycleState: state, SecretName: s.Name, VaultID: s.VaultID,
+		CompartmentID: s.CompartmentID, ID: s.ID, LifecycleState: s.State, SecretName: s.Name, VaultID: s.VaultID,
 		KeyID: s.KeyID, Description: s.Description, SecretRules: s.Rules,
 	}
 

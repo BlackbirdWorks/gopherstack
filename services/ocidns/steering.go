@@ -104,6 +104,7 @@ func (b *InMemoryBackend) policyByID(id string) (*SteeringPolicy, *APIError) {
 // CreatePolicyIn is the body of CreateSteeringPolicy.
 type CreatePolicyIn struct {
 	Tags
+	RetryToken           string           `json:"-"`
 	TTL                  *int             `json:"ttl"`
 	CompartmentID        string           `json:"compartmentId"`
 	DisplayName          string           `json:"displayName"`
@@ -173,7 +174,16 @@ func (b *InMemoryBackend) CreateSteeringPolicy(in CreatePolicyIn) (SteeringPolic
 	b.mu.Lock("CreateSteeringPolicy")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateSteeringPolicy", in.RetryToken, b.nowUTC()); ok {
+		p, live := b.policies[id]
+		if !live {
+			return SteeringPolicyWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.policyWire(p), tagOf(p.ID, p.meta), nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return SteeringPolicyWire{}, tag{}, err
 	}
 
@@ -204,6 +214,7 @@ func (b *InMemoryBackend) CreateSteeringPolicy(in CreatePolicyIn) (SteeringPolic
 	}
 	p.touch(now)
 	b.policies[p.ID] = p
+	b.retry.Remember("CreateSteeringPolicy", in.RetryToken, p.ID, now)
 
 	return b.policyWire(p), tagOf(p.ID, p.meta), nil
 }
@@ -306,7 +317,7 @@ func (b *InMemoryBackend) UpdateSteeringPolicy(id string, c cond, in UpdatePolic
 		return SteeringPolicyWire{}, tag{}, err
 	}
 
-	if err = c.check(p.ID, p.meta); err != nil {
+	if err = firstAPIErr(c.check(p.ID, p.meta), b.checkTags(in.Tags)); err != nil {
 		return SteeringPolicyWire{}, tag{}, err
 	}
 
@@ -430,6 +441,7 @@ func policyRtypes(p *SteeringPolicy) []string {
 
 // CreateAttachmentIn is the body of CreateSteeringPolicyAttachment.
 type CreateAttachmentIn struct {
+	RetryToken       string `json:"-"`
 	SteeringPolicyID string `json:"steeringPolicyId"`
 	ZoneID           string `json:"zoneId"`
 	DomainName       string `json:"domainName"`
@@ -474,6 +486,15 @@ func (b *InMemoryBackend) CreateAttachment(in CreateAttachmentIn) (AttachmentWir
 	b.mu.Lock("CreateAttachment")
 	defer b.mu.Unlock()
 
+	if id, ok := b.retry.Lookup("CreateSteeringPolicyAttachment", in.RetryToken, b.nowUTC()); ok {
+		a, live := b.attachments[id]
+		if !live {
+			return AttachmentWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.attachmentWire(a), tagOf(a.ID, a.meta), nil
+	}
+
 	p, domain, err := b.validateAttachment(in)
 	if err != nil {
 		return AttachmentWire{}, tag{}, err
@@ -488,6 +509,7 @@ func (b *InMemoryBackend) CreateAttachment(in CreateAttachmentIn) (AttachmentWir
 	}
 	a.touch(now)
 	b.attachments[a.ID] = a
+	b.retry.Remember("CreateSteeringPolicyAttachment", in.RetryToken, a.ID, now)
 
 	return b.attachmentWire(a), tagOf(a.ID, a.meta), nil
 }

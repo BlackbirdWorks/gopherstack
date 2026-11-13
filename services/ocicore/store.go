@@ -11,9 +11,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
+
+const headerRetry = "Opc-Retry-Token"
 
 const (
 	// RegionKey is the three letter key of the emulated region.
@@ -36,6 +40,8 @@ type InMemoryBackend struct {
 	ipInvReqs   map[string]*IPInventoryRequest
 	compartment func(string) bool
 	keyState    func(string) (string, bool)
+	retry       *ociretry.Store
+	tagLookup   ocitags.Lookup
 	// Auth is the API-key registry shared with the other OCI services.
 	Auth    *ociauth.Registry
 	seq     int64
@@ -56,6 +62,7 @@ func (b *InMemoryBackend) initMaps() {
 	b.nsgRules = map[string]*NSGRule{}
 	b.workReqs = map[string]*WorkRequest{}
 	b.ipInvReqs = map[string]*IPInventoryRequest{}
+	b.retry = ociretry.New()
 }
 
 // SetClock injects the time source used for lifecycle transitions.
@@ -129,6 +136,62 @@ func (b *InMemoryBackend) moveTo(r resource, interim, final string) {
 type TagsIn struct {
 	FreeformTags map[string]string         `json:"freeformTags"`
 	DefinedTags  map[string]map[string]any `json:"definedTags"`
+}
+
+func (t TagsIn) tagSet() TagsIn { return t }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+// checkTags validates the tags of a request body that embeds TagsIn.
+func (b *InMemoryBackend) checkTags(in any) *APIError {
+	t, ok := in.(interface{ tagSet() TagsIn })
+	if !ok {
+		return nil
+	}
+
+	b.mu.RLock("checkTags")
+	lookup := b.tagLookup
+	b.mu.RUnlock()
+
+	set := t.tagSet()
+	if err := ocitags.Validate(set.FreeformTags, set.DefinedTags, lookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+// replayCreate answers a create whose retry token was seen before with the resource it made.
+func (b *InMemoryBackend) replayCreate(scope, token string) (resource, string, bool, *APIError) {
+	if token == "" {
+		return nil, "", false, nil
+	}
+
+	b.mu.RLock("replayCreate")
+	defer b.mu.RUnlock()
+
+	id, ok := b.retry.Lookup(scope, token, b.nowUTC())
+	if !ok {
+		return nil, "", false, nil
+	}
+
+	r, found := b.res[id]
+	if !found || !live(r) {
+		return nil, "", true, errInvalidatedToken()
+	}
+
+	return r.view(), r.base().Internal.Etag, true, nil
+}
+
+func (b *InMemoryBackend) rememberCreate(scope, token string, r resource) {
+	b.mu.Lock("rememberCreate")
+	b.retry.Remember(scope, token, r.base().ID, b.nowUTC())
+	b.mu.Unlock()
 }
 
 func (b *InMemoryBackend) newBase(kind, compartment, name string, tags TagsIn) Base {

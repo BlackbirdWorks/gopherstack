@@ -42,5 +42,5 @@ items_still_open:
   - "OpenID Connect token authentication and discovery, secondaryVnics, primaryVnic, networkLaunchType, computeClusterId, preemptible/capacity-reservation scheduling effects, node eviction and cycling settings (stored and echoed only) are not applied."
   - "Kubernetes version catalogue (v1.34.1, v1.34.2, v1.34.10, v1.35.2, v1.36.1, v1.36.4) is taken from the Oracle supported-versions page on 2026-10-29; the one-minor-ahead upgrade rule, the three-minor node pool skew and the node pool size cap of 1000 are recalled, not verified."
   - "Default list ordering (newest first), the cascade deletion of node pools with their cluster, whether DELETED resources are listed by default, and the NODEPOOL_UPDATE operation type for DeleteNode are unverified against the live service."
-  - "opc-retry-token idempotency, service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "Service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---

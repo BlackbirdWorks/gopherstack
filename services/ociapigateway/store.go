@@ -13,6 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -40,6 +42,8 @@ type InMemoryBackend struct {
 	usagePlans    map[string]*UsagePlan
 	subscribers   map[string]*Subscriber
 	caPEMs        map[string]string
+	retry         *ociretry.Store
+	tagLookup     ocitags.Lookup
 	specs         map[string]*compiledSpec
 	Auth          *ociauth.Registry
 	compartment   func(string) bool
@@ -79,7 +83,25 @@ func (b *InMemoryBackend) resetMaps() {
 	b.apis, b.sdks = map[string]*API{}, map[string]*SDK{}
 	b.usagePlans, b.subscribers = map[string]*UsagePlan{}, map[string]*Subscriber{}
 	b.caPEMs = map[string]string{}
+	b.retry = ociretry.New()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 // newBackendClient builds the data-plane HTTP client. The dial guard rejects non-loopback peers
 // unless external backends are allowed, and redirects are returned to the caller rather than followed.

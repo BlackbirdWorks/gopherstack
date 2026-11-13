@@ -20,6 +20,7 @@ func wireOCILoadBalancer(byName map[string]service.Registerable) {
 	if identityH, found := byName["OCIIdentity"].(*ociidentitybackend.Handler); found {
 		lbH.Backend.Auth.Link(identityH.Backend.Auth)
 		lbH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		lbH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {

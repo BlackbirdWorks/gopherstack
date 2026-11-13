@@ -21,6 +21,7 @@ const (
 
 // CreateKeyIn is the CreateKey request body.
 type CreateKeyIn struct {
+	RetryToken             string                    `json:"-"`
 	FreeformTags           map[string]string         `json:"freeformTags"`
 	DefinedTags            map[string]map[string]any `json:"definedTags"`
 	AutoKeyRotationDetails *RotationDetails          `json:"autoKeyRotationDetails"`
@@ -139,10 +140,25 @@ func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, st
 		return keyWire{}, "", aerr
 	}
 
+	if id, ok := b.retry.Lookup("CreateKey/"+vaultID, in.RetryToken, b.nowUTC()); ok {
+		k, live := b.keys[id]
+		if !live || k.State == stateDeleted {
+			return keyWire{}, "", errInvalidatedToken()
+		}
+
+		return keyView(k), k.Etag, nil
+	}
+
+	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+		return keyWire{}, "", aerr
+	}
+
 	k, aerr := b.storeKey(v, in, material, originInternal)
 	if aerr != nil {
 		return keyWire{}, "", aerr
 	}
+
+	b.retry.Remember("CreateKey/"+vaultID, in.RetryToken, k.ID, k.TimeCreated)
 
 	return keyView(k), k.Etag, nil
 }
@@ -238,6 +254,10 @@ func (b *InMemoryBackend) UpdateKey(vaultID, keyID, ifMatch string, in UpdateKey
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
+		return keyWire{}, "", aerr
+	}
+
+	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
 		return keyWire{}, "", aerr
 	}
 

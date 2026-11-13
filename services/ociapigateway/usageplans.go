@@ -4,6 +4,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -97,8 +99,11 @@ type Subscriber struct {
 	Locks        []Lock     `json:"locks,omitempty"`
 }
 
+func (i *createUsagePlanIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createUsagePlanIn struct {
 	Tags
+	RetryToken    string        `json:"-"`
 	CompartmentID string        `json:"compartmentId"`
 	DisplayName   string        `json:"displayName"`
 	Entitlements  []Entitlement `json:"entitlements"`
@@ -298,6 +303,20 @@ func (b *InMemoryBackend) CreateUsagePlan(in createUsagePlanIn) (UsagePlanWire, 
 	b.mu.Lock("CreateUsagePlan")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateUsagePlan", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		p, live := b.usagePlans[id]
+		if !live || p.State == stateDeleting || p.State == stateDeleted {
+			return UsagePlanWire{}, "", "", errInvalidatedToken()
+		}
+
+		return usagePlanView(p), wr, p.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return UsagePlanWire{}, "", "", err
+	}
+
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return UsagePlanWire{}, "", "", err
 	}
@@ -325,6 +344,7 @@ func (b *InMemoryBackend) CreateUsagePlan(in createUsagePlanIn) (UsagePlanWire, 
 	}
 	b.usagePlans[p.ID] = p
 	wr := b.newWR(wrCreateUsagePlan, p.Compartment, entityUsagePlan, p.ID, actionCreated, *p.TransitionAt)
+	b.retry.Remember("CreateUsagePlan", in.RetryToken, ociretry.Join(p.ID, wr), now)
 
 	return usagePlanView(p), wr, p.Etag, nil
 }
@@ -395,6 +415,10 @@ func (b *InMemoryBackend) UpdateUsagePlan(id, ifMatch string, in updateUsagePlan
 	b.mu.Lock("UpdateUsagePlan")
 	defer b.mu.Unlock()
 
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
+
 	p, err := b.activeUsagePlan(id, ifMatch, false)
 	if err != nil {
 		return "", err
@@ -462,6 +486,10 @@ func (b *InMemoryBackend) ChangeUsagePlanCompartment(id, ifMatch string, in chan
 func (b *InMemoryBackend) CreateSubscriber(in createSubscriberIn) (SubscriberWire, string, string, error) {
 	b.mu.Lock("CreateSubscriber")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return SubscriberWire{}, "", "", err
+	}
 
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return SubscriberWire{}, "", "", err
@@ -559,6 +587,10 @@ func (b *InMemoryBackend) activeSubscriber(id, ifMatch string, deleting bool) (*
 func (b *InMemoryBackend) UpdateSubscriber(id, ifMatch string, in updateSubscriberIn) (string, error) {
 	b.mu.Lock("UpdateSubscriber")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
 
 	s, err := b.activeSubscriber(id, ifMatch, false)
 	if err != nil {

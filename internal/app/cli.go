@@ -3943,6 +3943,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
@@ -3952,11 +3953,13 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCICore"].(*ocicorebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIQueue"].(*ociqueuebackend.Handler); found {
@@ -3966,11 +3969,13 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIMySQL"].(*ocimysqlbackend.Handler); found {
@@ -8578,6 +8583,13 @@ func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) er
 	}
 
 	return nil
+}
+
+func (a *cwLogsAdapter) LogGroupExists(groupName string) bool {
+	groups, _, err := a.backend.DescribeLogGroupsFiltered(a.ctx(), groupName, "", "", 1,
+		func(g cwlogsbackend.LogGroup) bool { return g.LogGroupName == groupName })
+
+	return err == nil && len(groups) > 0
 }
 
 func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []string) error {

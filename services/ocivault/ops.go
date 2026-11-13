@@ -185,6 +185,8 @@ func (h *Handler) createVault(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	w, etag, err := h.Backend.CreateVault(in, q.hostPort())
 
 	return reply(q, w, etag, err)
@@ -255,6 +257,8 @@ func (h *Handler) createKey(q *req) error {
 	if err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	w, etag, err := h.Backend.CreateKey(vid, in)
 
@@ -480,6 +484,8 @@ func (h *Handler) createSecret(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	w, etag, err := h.Backend.CreateSecret(in)
 

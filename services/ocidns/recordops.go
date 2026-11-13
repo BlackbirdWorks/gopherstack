@@ -132,7 +132,7 @@ func (b *InMemoryBackend) ZoneContent(r ZoneRef) (string, tag, error) {
 }
 
 // CreateZoneFromFile creates a PRIMARY zone from an RFC 1035 master file.
-func (b *InMemoryBackend) CreateZoneFromFile(compartment, scope, viewID, text string) (ZoneWire, tag, error) {
+func (b *InMemoryBackend) CreateZoneFromFile(compartment, scope, viewID, text, token string) (ZoneWire, tag, error) {
 	recs, name, perr := parseZoneFile(text)
 	if perr != nil {
 		return ZoneWire{}, tag{}, perr
@@ -140,6 +140,15 @@ func (b *InMemoryBackend) CreateZoneFromFile(compartment, scope, viewID, text st
 
 	b.mu.Lock("CreateZoneFromFile")
 	defer b.mu.Unlock()
+
+	if id, ok := b.retry.Lookup("CreateZoneFromFile", token, b.nowUTC()); ok {
+		z, live := b.zones[id]
+		if !live {
+			return ZoneWire{}, tag{}, errInvalidatedToken()
+		}
+
+		return b.zoneWire(z), tagOf(z.ID, z.meta), nil
+	}
 
 	in := CreateZoneIn{Name: name, CompartmentID: compartment, Scope: scope, ViewID: viewID}
 	if err := b.validateZoneIn(&in); err != nil {

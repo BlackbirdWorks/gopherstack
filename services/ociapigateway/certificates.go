@@ -6,12 +6,17 @@ import (
 	"encoding/pem"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
+func (i *createCertificateIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createCertificateIn struct {
 	Tags
+	RetryToken    string   `json:"-"`
 	CompartmentID string   `json:"compartmentId"`
 	DisplayName   string   `json:"displayName"`
 	PrivateKey    string   `json:"privateKey"`
@@ -129,6 +134,20 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	b.mu.Lock("CreateCertificate")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateCertificate", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		c, live := b.certificates[id]
+		if !live || c.State == stateDeleting || c.State == stateDeleted {
+			return CertificateWire{}, "", "", errInvalidatedToken()
+		}
+
+		return certificateView(c, true), wr, c.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return CertificateWire{}, "", "", err
+	}
+
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return CertificateWire{}, "", "", err
 	}
@@ -176,6 +195,7 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 	b.certificates[c.ID] = c
 	wr := b.newWR(wrCreateCert, c.CompartmentID, entityCert, c.ID, actionCreated, *c.TransitionAt)
+	b.retry.Remember("CreateCertificate", in.RetryToken, ociretry.Join(c.ID, wr), now)
 
 	return certificateView(c, true), wr, c.Etag, nil
 }
@@ -239,6 +259,10 @@ func (b *InMemoryBackend) ListCertificates(
 func (b *InMemoryBackend) UpdateCertificate(id, ifMatch string, in updateCertificateIn) (string, error) {
 	b.mu.Lock("UpdateCertificate")
 	defer b.mu.Unlock()
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
 
 	c, err := b.liveCertificate(id)
 	if err != nil {

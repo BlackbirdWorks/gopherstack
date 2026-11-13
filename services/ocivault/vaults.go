@@ -12,6 +12,7 @@ const maxDisplayName = 255
 
 // CreateVaultIn is the CreateVault request body.
 type CreateVaultIn struct {
+	RetryToken    string                    `json:"-"`
 	FreeformTags  map[string]string         `json:"freeformTags"`
 	DefinedTags   map[string]map[string]any `json:"definedTags"`
 	CompartmentID string                    `json:"compartmentId"`
@@ -70,6 +71,19 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 	b.mu.Lock("CreateVault")
 	defer b.mu.Unlock()
 
+	if id, ok := b.retry.Lookup("CreateVault", in.RetryToken, b.nowUTC()); ok {
+		v, live := b.vaults[id]
+		if !live || v.State == stateDeleted {
+			return vaultWire{}, "", errInvalidatedToken()
+		}
+
+		return vaultView(v, hostPort), v.Etag, nil
+	}
+
+	if aerr := b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+		return vaultWire{}, "", aerr
+	}
+
 	prefix := b.newPrefix()
 	v := &Vault{
 		ID: newOCID("vault", prefix), Prefix: prefix, CompartmentID: in.CompartmentID, DisplayName: in.DisplayName,
@@ -79,6 +93,7 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 	}
 	b.begin(&v.State, &v.transition, stateCreating, stateActive)
 	b.vaults[v.ID] = v
+	b.retry.Remember("CreateVault", in.RetryToken, v.ID, v.TimeCreated)
 
 	return vaultView(v, hostPort), v.Etag, nil
 }
@@ -135,6 +150,10 @@ func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVau
 	}
 
 	if aerr = checkEtag(v.Etag, ifMatch); aerr != nil {
+		return vaultWire{}, "", aerr
+	}
+
+	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
 		return vaultWire{}, "", aerr
 	}
 

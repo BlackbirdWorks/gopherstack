@@ -199,6 +199,10 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return appWire{}, "", "", aerr
+	}
+
 	if b.appNameTaken(in.Compartment, in.Name, "") {
 		return appWire{}, "", "", errExists("An application named " + in.Name + " already exists in the compartment")
 	}
@@ -282,6 +286,10 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 	}
 
 	if aerr = checkEtag(a.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 

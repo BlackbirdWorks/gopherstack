@@ -33,6 +33,7 @@ type SecretContent struct {
 
 // CreateSecretIn is the CreateSecret request body.
 type CreateSecretIn struct {
+	RetryToken              string                    `json:"-"`
 	FreeformTags            map[string]string         `json:"freeformTags"`
 	DefinedTags             map[string]map[string]any `json:"definedTags"`
 	Metadata                map[string]any            `json:"metadata"`
@@ -336,6 +337,19 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 		return secretWire{}, "", verr
 	}
 
+	if id, ok := b.retry.Lookup("CreateSecret", in.RetryToken, b.nowUTC()); ok {
+		s, live := b.secrets[id]
+		if !live || s.State == stateDeleted {
+			return secretWire{}, "", errInvalidatedToken()
+		}
+
+		return secretView(s), s.Etag, nil
+	}
+
+	if terr := b.checkTags(in.FreeformTags, in.DefinedTags); terr != nil {
+		return secretWire{}, "", terr
+	}
+
 	if _, kerr := b.secretKey(in.VaultID, in.KeyID); kerr != nil {
 		return secretWire{}, "", kerr
 	}
@@ -362,8 +376,9 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 
 	b.begin(&s.State, &s.transition, stateCreating, stateActive)
 	b.secrets[s.ID] = s
+	b.retry.Remember("CreateSecret", in.RetryToken, s.ID, s.TimeCreated)
 
-	return secretView(s, ""), s.Etag, nil
+	return secretView(s), s.Etag, nil
 }
 
 func (b *InMemoryBackend) secretByID(id string) (*Secret, *APIError) {
@@ -398,7 +413,7 @@ func (b *InMemoryBackend) GetSecret(id string) (secretWire, string, error) {
 		return secretWire{}, "", aerr
 	}
 
-	return secretView(s, ""), s.Etag, nil
+	return secretView(s), s.Etag, nil
 }
 
 // SecretFilter narrows ListSecrets.
@@ -466,6 +481,10 @@ func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (s
 		return secretWire{}, "", aerr
 	}
 
+	if aerr = b.checkTags(in.FreeformTags, in.DefinedTags); aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
 	if aerr = b.setGeneration(s, gen, in.EnableAutoGeneration); aerr != nil {
 		return secretWire{}, "", aerr
 	}
@@ -478,7 +497,7 @@ func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (s
 
 	s.Etag = newEtag()
 
-	return secretView(s, ""), s.Etag, nil
+	return secretView(s), s.Etag, nil
 }
 
 func (b *InMemoryBackend) applySecretUpdate(s *Secret, in UpdateSecretIn) *APIError {

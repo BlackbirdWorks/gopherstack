@@ -251,7 +251,7 @@ items_still_open:
   - "Security rules are validated structurally and CanReach evaluates security lists and NSGs (stateful and stateless rules, the reply path, a stateful rule winning over a stateless one) for a flow inside one VCN, but no emulated service calls it and nothing enforces traffic; overlapping or duplicate rules are accepted because the documentation does not say they are refused (unverified)."
   - "Availability domain names are checked for shape (<4 letters>:US-ASHBURN-AD-<1-3>) rather than against the tenancy's list."
   - "Error codes and statuses for limits (400 LimitExceeded), duplicate dnsLabel and delete-in-use (409 Conflict) are unverified against the live service; default DHCP domainNameType for custom option sets is assumed CUSTOM_DOMAIN."
-  - "opc-retry-token idempotency, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "Resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
 
 ## 2026-11-05 evidence
