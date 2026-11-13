@@ -48,6 +48,8 @@ type cleanupVersion struct {
 	pkg     string
 	version string
 	tags    []string
+	// child is set for a Docker manifest that an existing index still lists.
+	child bool
 }
 
 func hasPrefixIn(s string, prefixes []string) bool {
@@ -124,7 +126,7 @@ func selectForDeletion(
 	var out []cleanupVersion
 
 	for _, v := range versions {
-		if immutable && len(v.tags) > 0 || kept[v.leaf.pkg.full()+"/versions/"+v.version] {
+		if v.child || immutable && len(v.tags) > 0 || kept[v.leaf.pkg.full()+"/versions/"+v.version] {
 			continue
 		}
 
@@ -167,9 +169,11 @@ func (b *InMemoryBackend) cleanupCandidates(
 		var out []cleanupVersion
 
 		for _, s := range b.imageSnaps(ref, "") {
+			children := b.indexChildren(ctx, ref, s)
+
 			for d, m := range s.manifests {
 				out = append(out, cleanupVersion{
-					created: m.Created, pkg: s.image, version: d, tags: s.tagsOf(d),
+					created: m.Created, pkg: s.image, version: d, tags: s.tagsOf(d), child: children[d],
 					leaf: leafRef{pkg: pkgRef{repo: ref, image: s.image}, leaf: d},
 				})
 			}

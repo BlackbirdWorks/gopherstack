@@ -17,17 +17,19 @@ const (
 )
 
 type lifecycleCondition struct {
-	Age                     *int64   `json:"age"`
-	IsLive                  *bool    `json:"isLive"`
-	NumNewerVersions        *int64   `json:"numNewerVersions"`
-	DaysSinceCustomTime     *int64   `json:"daysSinceCustomTime"`
-	DaysSinceNoncurrentTime *int64   `json:"daysSinceNoncurrentTime"`
-	CreatedBefore           string   `json:"createdBefore"`
-	CustomTimeBefore        string   `json:"customTimeBefore"`
-	NoncurrentTimeBefore    string   `json:"noncurrentTimeBefore"`
-	MatchesPrefix           []string `json:"matchesPrefix"`
-	MatchesSuffix           []string `json:"matchesSuffix"`
-	MatchesStorageClass     []string `json:"matchesStorageClass"`
+	NumNewerVersions        *int64       `json:"numNewerVersions"`
+	SizeAboveBytes          *json.Number `json:"sizeAboveBytes"`
+	SizeBelowBytes          *json.Number `json:"sizeBelowBytes"`
+	IsLive                  *bool        `json:"isLive"`
+	DaysSinceCustomTime     *int64       `json:"daysSinceCustomTime"`
+	DaysSinceNoncurrentTime *int64       `json:"daysSinceNoncurrentTime"`
+	Age                     *int64       `json:"age"`
+	CustomTimeBefore        string       `json:"customTimeBefore"`
+	NoncurrentTimeBefore    string       `json:"noncurrentTimeBefore"`
+	CreatedBefore           string       `json:"createdBefore"`
+	MatchesSuffix           []string     `json:"matchesSuffix"`
+	MatchesStorageClass     []string     `json:"matchesStorageClass"`
+	MatchesPrefix           []string     `json:"matchesPrefix"`
 }
 
 type lifecycleRule struct {
@@ -65,6 +67,16 @@ func daysSince(t, now time.Time, n int64) bool {
 	return !t.IsZero() && now.Sub(t) >= time.Duration(n)*day
 }
 
+func sizeCompare(limit *json.Number, size int64, cmp func(size, limit int64) bool) bool {
+	if limit == nil {
+		return false
+	}
+
+	n, err := limit.Int64()
+
+	return err == nil && cmp(size, n)
+}
+
 func matchesAny(s string, subs []string, match func(string, string) bool) bool {
 	return slices.ContainsFunc(subs, func(p string) bool { return match(s, p) })
 }
@@ -94,6 +106,14 @@ func (c lifecycleCondition) matches(o *Object, newer int, now time.Time) bool {
 		{len(c.MatchesPrefix) > 0, matchesAny(o.Name, c.MatchesPrefix, strings.HasPrefix)},
 		{len(c.MatchesSuffix) > 0, matchesAny(o.Name, c.MatchesSuffix, strings.HasSuffix)},
 		{len(c.MatchesStorageClass) > 0, slices.Contains(c.MatchesStorageClass, o.StorageClass)},
+		{
+			c.SizeAboveBytes != nil,
+			sizeCompare(c.SizeAboveBytes, o.Size(), func(size, limit int64) bool { return size > limit }),
+		},
+		{
+			c.SizeBelowBytes != nil,
+			sizeCompare(c.SizeBelowBytes, o.Size(), func(size, limit int64) bool { return size < limit }),
+		},
 	}
 
 	for _, ck := range checks {

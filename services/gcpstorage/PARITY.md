@@ -60,16 +60,18 @@ families:
 items_still_open:
   - "ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id."
   - "No bucket relocation, soft-deleted bucket restore, restoreToken or the project serviceAccount endpoint."
-  - "Notification error shapes are unverified: the exact 400/403 body for a missing topic or a missing publish grant is recalled, not documented; no publish permission check; notification payloads lack retentionExpirationTime."
-  - "HMAC error shapes are unverified: the exact status and message for deleting an ACTIVE key, updating a DELETED key and exceeding five keys per service account, and the 61 char access id / 40 char secret lengths, are recalled, not documented; the service account is not checked against Cloud IAM."
-  - "Signed URL gaps: RequestTimeTooSkewed for a future X-Goog-Date is recalled, not documented; virtual-hosted-style hosts and POST policy documents are not verified; bearer tokens are never validated."
-  - "Lifecycle gaps: AbortIncompleteMultipartUpload, matchesPattern and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (unverified); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced."
+  - "Notification error bodies for a missing topic or a missing publish grant are not documented (notifications.insert lists no errors) and the status/message used are the emulator's choice; there is no publish permission check."
+  - "HMAC error status and message for deleting an ACTIVE key, updating a DELETED key and exceeding the per-service-account key limit are not documented (the hmacKeys reference lists none) and are the emulator's choice; the service account is not checked against Cloud IAM."
+  - "Signed URL gaps: the canonical-requests page says X-Goog-Date is when the URL becomes usable but names no error code, so RequestTimeTooSkewed for a future date is the emulator's choice; POST policy documents are not verified; bearer tokens are never validated."
+  - "Lifecycle gaps: AbortIncompleteMultipartUpload (XML multipart is not served), matchesPattern (absent from the buckets reference and the Go client, so its semantics are undocumented) and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (the pubsub-notifications page does not say whether it should); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced."
   - "Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported."
   - "Customer-supplied and KMS encryption keys are accepted but not applied."
-  - "includeFoldersAsPrefixes is not supported on ListObjects; matchGlob combined with prefix applies the glob to the full name."
+  - "Managed and hierarchical-namespace folders are not modelled, so includeFoldersAsPrefixes (validated: delimiter must be '/') adds no prefixes; the docs do not say whether matchGlob with prefix matches the full name or the remainder, and the emulator matches the full name."
 leaks: {status: clean, note: "The background resources are the http.Server and the lifecycle janitor goroutine, both stopped by Shutdown. Abandoned resumable sessions are purged when a new session starts once older than 7 days, and by Reset."}
 ---
 
 Initial implementation (2026-10-18): Cloud Storage JSON and XML APIs verified against cloud.google.com/go/storage v1.65.1 through the official client in sdk_test.go.
+
+Verified 2026-11-13: HMAC limit is 10 keys per service account, access id 61 and secret 40 characters (docs.cloud.google.com/storage/docs/authentication/hmackeys, /storage/quotas); lifecycle sizeAboveBytes and sizeBelowBytes (docs.cloud.google.com/storage/docs/json_api/v1/buckets); notification payload is the object resource, which carries retentionExpirationTime (docs.cloud.google.com/storage/docs/pubsub-notifications); includeFoldersAsPrefixes requires delimiter '/' (json_api/v1/objects/list).
 
 Pass (2026-11-01): bucket notificationConfigs delivered to Pub/Sub, HMAC keys, signed URL verification, retention and hold enforcement, lifecycle janitor, decompressive transcoding and soft delete, tested through cloud.google.com/go/storage v1.69.0 and raw HTTP.

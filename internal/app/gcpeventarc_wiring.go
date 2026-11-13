@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -123,6 +124,10 @@ func wireGCPAudit(byName map[string]service.Registerable, ea *gcpeventarcbackend
 	}
 
 	if h, isH := byName["GCPBigQuery"].(*gcpbigquerybackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPArtifactRegistry"].(*gcpartifactregistrybackend.Handler); isH {
 		h.Backend.Audit.SetSink(lg.Backend)
 	}
 

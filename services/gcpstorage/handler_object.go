@@ -27,6 +27,7 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 		Versions:                 q.Get("versions") == valTrue,
 		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == valTrue,
 		MatchGlob:                q.Get("matchGlob"),
+		IncludeFolders:           q.Get("includeFoldersAsPrefixes") == valTrue,
 		SoftDeleted:              q.Get("softDeleted") == valTrue,
 	})
 	if err != nil {

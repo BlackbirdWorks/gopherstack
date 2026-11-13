@@ -30,7 +30,8 @@ func TestRESTFlow(t *testing.T) {
 			Status: 200, Contains: []string{`"name":"s1"`, `gcp-sa-logging.iam.gserviceaccount.com`},
 		},
 		{
-			Name: "patch sink", Method: http.MethodPatch, Path: "/v2/projects/p/sinks/s1?updateMask=filter",
+			Name: "patch sink", Method: http.MethodPatch,
+			Path: "/v2/projects/p/sinks/s1?updateMask=filter&uniqueWriterIdentity=true",
 			Body: `{"filter":"severity>=WARNING"}`, Status: 200, Contains: []string{`"filter":"severity>=WARNING"`},
 		},
 		{

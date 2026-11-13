@@ -178,6 +178,24 @@ func TestInstanceDuplicateAndDeletionProtection(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 }
 
+func TestInstanceNameReusableAfterDelete(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	ctx := t.Context()
+	e.createInstance(t, "again", "MYSQL_8_4", nil)
+
+	_, err := e.svc.Instances.Insert(project, &sqladmin.DatabaseInstance{
+		Name: "again", DatabaseVersion: "MYSQL_8_4", Settings: &sqladmin.Settings{Tier: "db-f1-micro"},
+	}).Context(ctx).Do()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "week")
+
+	op, err := e.svc.Instances.Delete(project, "again").Context(ctx).Do()
+	e.mustWait(t, op, err)
+	e.createInstance(t, "again", "MYSQL_8_4", nil)
+}
+
 func TestStopAndStartViaActivationPolicy(t *testing.T) {
 	t.Parallel()
 

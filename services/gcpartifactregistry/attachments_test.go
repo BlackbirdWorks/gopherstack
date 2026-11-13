@@ -13,6 +13,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
@@ -303,4 +304,54 @@ func TestCancelPendingOperation(t *testing.T) {
 
 	require.NoError(t, e.client.LROClient.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: op.Name()}),
 		"cancelling a finished operation is a no-op")
+}
+
+func TestWaitOperationBlocksUntilDone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		timeout  time.Duration
+		advance  time.Duration
+		wantDone bool
+	}{
+		{name: "finishes while waiting", timeout: time.Minute, advance: 2 * time.Minute, wantDone: true},
+		{name: "times out pending", timeout: 50 * time.Millisecond, advance: 0, wantDone: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clock := newFakeClock(epochTime())
+			e, version, file := attachEnv(t, func(b *gcpartifactregistry.InMemoryBackend) {
+				b.SetClock(clock.now)
+				b.SetOperationDelay(time.Minute)
+			})
+			ctx := t.Context()
+
+			op, err := e.client.CreateAttachment(ctx, &artifactregistrypb.CreateAttachmentRequest{
+				Parent: repoName("gen"), AttachmentId: "waited",
+				Attachment: &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
+			})
+			require.NoError(t, err)
+			require.False(t, op.Done())
+
+			got := make(chan *longrunningpb.Operation, 1)
+
+			go func() {
+				res, waitErr := e.client.LROClient.WaitOperation(ctx, &longrunningpb.WaitOperationRequest{
+					Name: op.Name(), Timeout: durationpb.New(tt.timeout),
+				})
+				if waitErr == nil {
+					got <- res
+				}
+			}()
+
+			clock.advance(tt.advance)
+
+			res := <-got
+			assert.Equal(t, tt.wantDone, res.GetDone())
+		})
+	}
 }

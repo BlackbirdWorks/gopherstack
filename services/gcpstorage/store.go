@@ -621,6 +621,7 @@ type ListOptions struct {
 	Versions                 bool
 	SoftDeleted              bool
 	IncludeTrailingDelimiter bool
+	IncludeFolders           bool
 }
 
 func collapsedPrefix(name string, opts ListOptions) string {

@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
-| Feature families | 13 (5 ok, 7 partial, 1 gap) |
+| Feature families | 13 (6 ok, 7 partial) |
 | Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,8 +19,8 @@
 - GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build are not implemented.
 - Audit-log and custom-channel (Eventarc) event types are rejected; Storage and Firestore events are delivered in-process, not through an Eventarc trigger or a Pub/Sub transport topic.
 - available_memory and available_cpu are validated but not enforced on containers; vpc_connector is stored but not applied; ingress internal is an explicit header marker, not network provenance.
-- Functions IAM policy RPCs and the Locations service are not served.
-- GetFunction does not support the revision field; ListFunctions rejects filter and order_by; there is no unreachable list.
+- The Locations service is not served: the REST reference publishes no region catalogue for functions (docs.cloud.google.com/functions/docs/locations covers Cloud Run only), so a location list would be invented.
+- GetFunction rejects the revision field, which the reference limits to 1st gen functions (not implemented); ListFunctions rejects filter and order_by because the reference only says AIP-160 and a comma separated field list without naming the filterable or sortable fields.
 - URLs are http .localhost addresses, not https://*.cloudfunctions.net or *.run.app, and the upload bucket is synthetic rather than a GCS bucket.
 - The container build path (npm/pip/go get at start) needs network access and has only been exercised against a fake runtime.
 

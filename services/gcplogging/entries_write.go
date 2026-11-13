@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
@@ -21,6 +23,10 @@ const (
 	maxEntriesPerWrite = 10000
 	maxEntryBytes      = 256 << 10
 	maxLabelsPerEntry  = 64
+	maxAuditEntryBytes = 512 << 10
+	maxLabelKeyBytes   = 512
+	maxLabelValueBytes = 64 << 10
+	maxFutureSkew      = 24 * time.Hour
 )
 
 func newInsertID() string {
@@ -60,13 +66,19 @@ func (b *InMemoryBackend) normalizeEntry(
 		return nil, err
 	}
 
-	if proto.Size(e) > maxEntryBytes {
-		return nil, errInvalid("Log entry exceeds the maximum size of %d bytes.", maxEntryBytes)
+	truncateLabels(e)
+
+	if limit := entryLimit(e); proto.Size(e) > limit {
+		return nil, errInvalid("Log entry exceeds the maximum size of %d bytes.", limit)
 	}
 
 	now := b.now()
 	if e.GetTimestamp() == nil {
 		e.Timestamp = timestamppb.New(now)
+	}
+
+	if e.GetTimestamp().AsTime().After(now.Add(maxFutureSkew)) {
+		return nil, errInvalid("Log entry timestamp is more than 1 day in the future.")
 	}
 
 	if e.GetInsertId() == "" {
@@ -76,6 +88,38 @@ func (b *InMemoryBackend) normalizeEntry(
 	e.ReceiveTimestamp = timestamppb.New(now)
 
 	return e, nil
+}
+
+// truncateLabels shortens oversized label keys and values as Cloud Logging does on write
+// (docs.cloud.google.com/logging/quotas).
+func truncateLabels(e *loggingpb.LogEntry) {
+	for k, v := range e.GetLabels() {
+		nk, nv := truncateBytes(k, maxLabelKeyBytes), truncateBytes(v, maxLabelValueBytes)
+		if nk == k && nv == v {
+			continue
+		}
+
+		labels := e.GetLabels()
+		delete(labels, k)
+
+		labels[nk] = nv
+	}
+}
+
+func truncateBytes(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+
+	return strings.ToValidUTF8(s[:limit], "")
+}
+
+func entryLimit(e *loggingpb.LogEntry) int {
+	if strings.HasSuffix(e.GetProtoPayload().GetTypeUrl(), "google.cloud.audit.AuditLog") {
+		return maxAuditEntryBytes
+	}
+
+	return maxEntryBytes
 }
 
 func mergeLabels(e *loggingpb.LogEntry, defaults map[string]string) error {

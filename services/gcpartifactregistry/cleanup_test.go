@@ -1,6 +1,8 @@
 package gcpartifactregistry_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
 
@@ -339,4 +342,48 @@ func TestCleanupDockerTagState(t *testing.T) {
 	}
 
 	assert.Len(t, names, 2, "app was deleted; the release-tagged and the fresh images stay")
+}
+
+func TestCleanupKeepsImagesReferencedByParentManifest(t *testing.T) {
+	t.Parallel()
+
+	clock := newFakeClock(epochTime())
+	e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) { b.SetClock(clock.now) })
+
+	repo := dockerRepo()
+	repo.CleanupPolicies = map[string]*artifactregistrypb.CleanupPolicy{
+		"all": del("all", &artifactregistrypb.CleanupPolicyCondition{OlderThan: durationpb.New(day)}),
+	}
+	e.createRepo(t, "multi", repo)
+
+	c := e.docker(t)
+	amd := pushTo(c, "multi", "app", "amd")
+	arm := pushTo(c, "multi", "app", "arm")
+
+	manifests := make([]map[string]any, 0, 2)
+	for _, img := range []ocitest.Image{amd, arm} {
+		manifests = append(manifests, map[string]any{
+			"mediaType": ocitest.ManifestMediaType, "digest": img.Digest, "size": len(img.Body),
+		})
+	}
+
+	index, err := json.Marshal(map[string]any{
+		"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": manifests,
+	})
+	require.NoError(t, err)
+
+	put := c.Do(http.MethodPut, "/v2/"+project+"/multi/app/manifests/multi", index,
+		map[string]string{"Content-Type": "application/vnd.oci.image.index.v1+json"})
+	require.Equal(t, http.StatusCreated, put.Status, string(put.Body))
+
+	clock.advance(2 * day)
+
+	first := e.handler.Backend.RunCleanup(t.Context())
+	require.Len(t, first, 1)
+	require.Len(t, first[0].Versions, 1, "only the index goes while it references the others")
+	assert.Contains(t, first[0].Versions[0], ocitest.Digest(index))
+
+	second := e.handler.Backend.RunCleanup(t.Context())
+	require.Len(t, second, 1)
+	assert.Len(t, second[0].Versions, 2, "the children go on the next run")
 }

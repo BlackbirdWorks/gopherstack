@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
@@ -31,6 +32,8 @@ type repoRec struct {
 // InMemoryBackend holds all Artifact Registry state under one lock. Docker images live in one embedded
 // registry whose repositories are named <project>/<repository>/<image>.
 type InMemoryBackend struct {
+	// Audit records Cloud Audit Logs entries for repository and artifact changes.
+	Audit    gcpaudit.Emitter
 	now      func() time.Time
 	ctx      context.Context //nolint:containedctx // lifetime of the lazily built registry
 	mu       *lockmetrics.RWMutex

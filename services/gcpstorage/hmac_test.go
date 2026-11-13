@@ -93,7 +93,7 @@ func TestHMACKeyLimitsAndFilters(t *testing.T) {
 
 	e := newSDK(t)
 
-	for range 5 {
+	for range 10 {
 		_, err := e.client.CreateHMACKey(t.Context(), sdkProject, saA)
 		require.NoError(t, err)
 	}
@@ -108,7 +108,7 @@ func TestHMACKeyLimitsAndFilters(t *testing.T) {
 	_, err = e.client.CreateHMACKey(t.Context(), sdkProject, saB)
 	require.NoError(t, err)
 
-	assert.Len(t, listHMAC(t, e), 6)
+	assert.Len(t, listHMAC(t, e), 11)
 	assert.Len(t, listHMAC(t, e, storage.ForHMACKeyServiceAccountEmail(saB)), 1)
 	assert.Empty(t, listHMAC(t, e, storage.ForHMACKeyServiceAccountEmail("c@x.iam.gserviceaccount.com")))
 }

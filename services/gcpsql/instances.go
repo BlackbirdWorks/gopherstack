@@ -138,8 +138,7 @@ func (b *InMemoryBackend) InsertInstance(project string, in InstanceInput) (*Ope
 
 	if _, exists := b.instances[instKey(project, in.Name)]; exists {
 		return nil, errConflict("instanceAlreadyExists",
-			"The Cloud SQL instance already exists. When you delete an instance, you can't reuse the name of the "+
-				"deleted instance until one week from the deletion date.")
+			"The Cloud SQL instance already exists.")
 	}
 
 	b.instances[instKey(project, in.Name)] = rec
@@ -363,7 +362,9 @@ func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, erro
 	}
 
 	if len(rec.Inst.ReplicaNames) > 0 {
-		return nil, errInvalid("The instance has read replicas; delete them before deleting the primary.")
+		return nil, errInvalid(
+			"You cannot delete an instance that has any replicas. You must delete all replicas first.",
+		)
 	}
 
 	b.unlinkReplicaLocked(rec)

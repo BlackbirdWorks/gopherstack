@@ -23,7 +23,7 @@ const (
 	hmacAccessPrefix  = "GOOG1E"
 	hmacAccessLen     = 61
 	hmacSecretBytes   = 30
-	maxHMACKeysPerSA  = 5
+	maxHMACKeysPerSA  = 10
 	hmacKeyIDRandSize = hmacAccessLen - len(hmacAccessPrefix)
 )
 
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) CreateHMACKey(project, email string) (*HMACKey, error)
 	}
 
 	if n >= maxHMACKeysPerSA {
-		return nil, errInvalid("The service account has reached the maximum number of HMAC keys (5).")
+		return nil, errInvalid("The service account has reached the maximum number of HMAC keys (10).")
 	}
 
 	now := b.now().UTC()

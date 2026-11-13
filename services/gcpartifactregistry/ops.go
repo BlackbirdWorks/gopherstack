@@ -16,6 +16,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 )
 
+const waitPollInterval = 10 * time.Millisecond
+
 // pendingOp is an operation that has not finished yet; finish produces its result once the clock reaches at.
 type pendingOp struct {
 	at         time.Time
@@ -157,9 +159,30 @@ func (s opsServer) WaitOperation(
 	ctx context.Context,
 	in *longrunningpb.WaitOperationRequest,
 ) (*longrunningpb.Operation, error) {
-	s.b.settle()
+	if d := in.GetTimeout(); d != nil {
+		var cancel context.CancelFunc
 
-	return s.Store.WaitOperation(ctx, in)
+		ctx, cancel = context.WithTimeout(ctx, d.AsDuration())
+		defer cancel()
+	}
+
+	ticker := time.NewTicker(waitPollInterval)
+	defer ticker.Stop()
+
+	for {
+		s.b.settle()
+
+		op, err := s.Store.WaitOperation(ctx, in)
+		if err != nil || op.GetDone() {
+			return op, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return op, nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s opsServer) ListOperations(
