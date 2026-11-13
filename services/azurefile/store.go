@@ -21,6 +21,7 @@ const (
 	maxSDDLLen     = 8192
 	maxNameLen     = 255
 	maxPathDepth   = 250
+	maxPathLen     = 2048
 	maxMetadataLen = 8192
 )
 
@@ -137,7 +138,18 @@ func validSegment(s string) bool {
 		}
 	}
 
-	return true
+	return !reservedName(s)
+}
+
+func reservedName(s string) bool {
+	switch strs.Fold(s) {
+	case "prn", "aux", "nul", "con", "clock$":
+		return true
+	}
+
+	f := strs.Fold(s)
+
+	return len(f) == 4 && (f[:3] == "lpt" || f[:3] == "com") && f[3] >= '1' && f[3] <= '9'
 }
 
 // splitFilePath splits "a/b/c" into validated segments; "" yields none.
@@ -145,6 +157,10 @@ func splitFilePath(p string) ([]string, *apiError) {
 	p = strings.Trim(p, "/")
 	if p == "" {
 		return nil, nil
+	}
+
+	if len(p) > maxPathLen {
+		return nil, errInvalidPath()
 	}
 
 	segs := strings.Split(p, "/")

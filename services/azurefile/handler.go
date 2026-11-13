@@ -231,6 +231,33 @@ func errResp(e *apiError) *resp {
 	return rs.xml(azureError{Code: e.Code, Message: e.Message})
 }
 
+// trimTrailingDots drops trailing dots from every path component on SMB shares unless x-ms-allow-trailing-dot is true.
+func (h *Handler) trimTrailingDots(rc *reqCtx) {
+	if rc.path == "" || strings.EqualFold(rc.hdr("x-ms-allow-trailing-dot"), "true") {
+		return
+	}
+
+	b := h.Backend
+	b.mu.RLock("TrimTrailingDots")
+	sh, aerr := b.peek(rc.acct).findShare(rc.share, "", false)
+	nfs := aerr == nil && sh.isNFS()
+	b.mu.RUnlock()
+
+	if nfs {
+		return
+	}
+
+	segs := strings.Split(rc.path, "/")
+
+	for i, s := range segs {
+		if t := strings.TrimRight(s, "."); t != "" {
+			segs[i] = t
+		}
+	}
+
+	rc.path = strings.Join(segs, "/")
+}
+
 type opFn func(*reqCtx) (*resp, *apiError)
 
 // Handler returns the Echo handler for Azure Files requests.
@@ -265,6 +292,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if aerr := h.authenticate(rc, name); aerr != nil {
 			return h.write(c, errResp(aerr))
 		}
+
+		h.trimTrailingDots(rc)
 
 		rs, aerr := fn(rc)
 		if aerr != nil {

@@ -223,3 +223,101 @@ func TestScoringBoostSizes(t *testing.T) {
 	)
 	assert.InDelta(t, 3.0, scoreOf(t, r, 0)/scoreOf(t, r, 1), 0.0001, "top of the range gets the full boost")
 }
+
+func TestScoringProfileValidation(t *testing.T) {
+	t.Parallel()
+
+	base := func(profile map[string]any) map[string]any {
+		return map[string]any{
+			"name": "scored",
+			"fields": []any{
+				map[string]any{"name": "id", "type": "Edm.String", "key": true},
+				map[string]any{"name": "title", "type": "Edm.String", "searchable": true},
+				map[string]any{"name": "rating", "type": "Edm.Int32", "filterable": true},
+				map[string]any{"name": "hidden", "type": "Edm.Int32", "filterable": false},
+				map[string]any{"name": "tags", "type": "Collection(Edm.String)", "filterable": true},
+			},
+			"scoringProfiles": []any{profile},
+		}
+	}
+	mag := func(field, interp string) map[string]any {
+		return map[string]any{
+			"name": "p", "functions": []any{map[string]any{
+				"type": "magnitude", "fieldName": field, "boost": 2, "interpolation": interp,
+				"magnitude": map[string]any{"boostingRangeStart": 1, "boostingRangeEnd": 5},
+			}},
+		}
+	}
+
+	tests := []struct {
+		profile map[string]any
+		name    string
+		status  int
+	}{
+		{name: "valid magnitude", profile: mag("rating", "quadratic"), status: http.StatusCreated},
+		{name: "non filterable field", profile: mag("hidden", "linear"), status: http.StatusBadRequest},
+		{name: "wrong field type", profile: mag("title", "linear"), status: http.StatusBadRequest},
+		{name: "unknown interpolation", profile: mag("rating", "cubic"), status: http.StatusBadRequest},
+		{name: "tag quadratic", status: http.StatusBadRequest, profile: map[string]any{
+			"name": "p", "functions": []any{map[string]any{
+				"type": "tag", "fieldName": "tags", "boost": 2, "interpolation": "quadratic",
+				"tag": map[string]any{"tagsParameter": "t"},
+			}},
+		}},
+		{name: "tag linear", status: http.StatusCreated, profile: map[string]any{
+			"name": "p", "functions": []any{map[string]any{
+				"type": "tag", "fieldName": "tags", "boost": 2, "tag": map[string]any{"tagsParameter": "t"},
+			}},
+		}},
+		{name: "unknown aggregation", status: http.StatusBadRequest, profile: map[string]any{
+			"name": "p", "functionAggregation": "median",
+		}},
+		{name: "zero weight", status: http.StatusBadRequest, profile: map[string]any{
+			"name": "p", "text": map[string]any{"weights": map[string]any{"title": 0}},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newStack(t, "standard")
+			r := s.admin2(t, http.MethodPost, "/indexes?"+apiVer, base(tt.profile))
+			assert.Equal(t, tt.status, r.status, string(r.raw))
+		})
+	}
+}
+
+func TestScoringFunctionAggregationProduct(t *testing.T) {
+	t.Parallel()
+
+	s := newStack(t, "standard")
+	fn := func(field string, boost int) map[string]any {
+		return map[string]any{
+			"type": "magnitude", "fieldName": field, "boost": boost,
+			"magnitude": map[string]any{"boostingRangeStart": 1, "boostingRangeEnd": 5},
+		}
+	}
+
+	s.must(t, http.MethodPost, "/indexes?"+apiVer, map[string]any{
+		"name": "hotels",
+		"fields": []any{
+			map[string]any{"name": "HotelId", "type": "Edm.String", "key": true},
+			map[string]any{"name": "Body", "type": "Edm.String", "searchable": true},
+			map[string]any{"name": "Rating", "type": "Edm.Double", "filterable": true},
+			map[string]any{"name": "Rate", "type": "Edm.Double", "filterable": true},
+		},
+		"scoringProfiles": []any{map[string]any{
+			"name": "both", "functionAggregation": "product", "functions": []any{fn("Rating", 2), fn("Rate", 3)},
+		}},
+		"defaultScoringProfile": "both",
+	}, http.StatusCreated)
+	s.must(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, map[string]any{"value": []any{
+		map[string]any{"HotelId": "low", "Body": "x", "Rating": 1, "Rate": 1},
+		map[string]any{"HotelId": "high", "Body": "x", "Rating": 5, "Rate": 5},
+	}}, http.StatusOK)
+
+	r := searchGet(t, s, url.Values{"search": {"x"}})
+	require.Equal(t, http.StatusOK, r.status, string(r.raw))
+	assert.InDelta(t, 6.0, scoreOf(t, r, 0)/scoreOf(t, r, 1), 0.0001, "boosts multiply under product")
+}

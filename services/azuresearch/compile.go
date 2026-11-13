@@ -2,6 +2,7 @@ package azuresearch
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 )
@@ -142,6 +143,27 @@ func (c *compiler) analyzer(name string) (Analyzer, error) {
 	return nil, badf("The request is invalid. Details: The analyzer '%s' was not found.", name)
 }
 
+// checkHNSWParams enforces the HnswParameters ranges of the 2025-09-01 searchservice.json.
+func checkHNSWParams(p map[string]any) error {
+	for _, b := range []struct {
+		name     string
+		min, max float64
+	}{{"m", 4, 10}, {"efConstruction", 100, 1000}, {"efSearch", 100, 1000}} {
+		v, set := p[b.name]
+		if !set || v == nil {
+			continue
+		}
+
+		n, ok := v.(float64)
+		if !ok || n != math.Trunc(n) || n < b.min || n > b.max {
+			return badf("The request is invalid. Details: hnswParameters.%s must be an integer between %d and %d.",
+				b.name, int(b.min), int(b.max))
+		}
+	}
+
+	return nil
+}
+
 func (c *compiler) vectorSearch(def map[string]any) error {
 	vs := objOf(def["vectorSearch"])
 	if vs == nil {
@@ -156,6 +178,10 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 
 		if kind != "hnsw" && kind != "exhaustiveKnn" {
 			return badf("The request is invalid. Details: unsupported vector search algorithm kind '%s'.", kind)
+		}
+
+		if err := checkHNSWParams(objOf(a["hnswParameters"])); err != nil {
+			return err
 		}
 
 		metric := strOf(objOf(a[kind+"Parameters"]), "metric")

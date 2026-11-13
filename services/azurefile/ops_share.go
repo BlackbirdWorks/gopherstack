@@ -157,6 +157,10 @@ func (o shareOptions) applyTo(sh *share, now time.Time) *apiError {
 		return errInvalidHeader("x-ms-root-squash")
 	}
 
+	if (o.Extra.BurstIops != nil || o.Extra.BurstBandwidth != nil) && !o.burstingEnabled(sh) {
+		return errInvalidHeader("x-ms-share-paid-bursting-enabled")
+	}
+
 	if o.Quota != nil {
 		sh.Quota = *o.Quota
 	}
@@ -173,6 +177,14 @@ func (o shareOptions) applyTo(sh *share, now time.Time) *apiError {
 	mergeExtra(&sh.Extra, o.Extra)
 
 	return nil
+}
+
+func (o shareOptions) burstingEnabled(sh *share) bool {
+	if o.Extra.PaidBursting != nil {
+		return *o.Extra.PaidBursting
+	}
+
+	return sh.Extra.PaidBursting != nil && *sh.Extra.PaidBursting
 }
 
 func mergeExtra(dst *shareExtra, src shareExtra) {

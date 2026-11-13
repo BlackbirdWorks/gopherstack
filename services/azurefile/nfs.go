@@ -205,6 +205,10 @@ func linkResp(n *node) *resp {
 }
 
 func (h *Handler) createHardLink(rc *reqCtx) (*resp, *apiError) {
+	if rc.q.Get("sharesnapshot") != "" {
+		return nil, errInvalidQuery("sharesnapshot")
+	}
+
 	target := strings.Trim(rc.hdr("x-ms-file-target-file"), "/")
 	if target == "" {
 		return nil, errMissingHeader("x-ms-file-target-file")
@@ -252,6 +256,10 @@ func (h *Handler) createHardLink(rc *reqCtx) (*resp, *apiError) {
 }
 
 func (h *Handler) createSymLink(rc *reqCtx) (*resp, *apiError) {
+	if rc.q.Get("sharesnapshot") != "" {
+		return nil, errInvalidQuery("sharesnapshot")
+	}
+
 	text := rc.hdr("x-ms-link-text")
 	if text == "" {
 		return nil, errMissingHeader("x-ms-link-text")

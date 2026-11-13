@@ -52,6 +52,34 @@ func isSearchAction(segs []string, r *http.Request, method, action string, withA
 //nolint:gochecknoglobals // static route table, read-only after init
 var searchRoutes = []armRoute{
 	{
+		match:  isSearchOperations,
+		handle: func(h *Handler, c *echo.Context, _ []string) error { return h.handleSearchOperations(c) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isSearchLinks(segs, r, http.MethodGet, srchLinkListLen)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchLinkList(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isSearchLinks(segs, r, http.MethodGet, srchLinkItemLen)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchLinkGet(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isSearchLinks(segs, r, http.MethodPut, srchLinkItemLen)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchLinkPut(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isSearchLinks(segs, r, http.MethodDelete, srchLinkItemLen)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchLinkDelete(c, segs) },
+	},
+	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && isSearchSub(segs, srchSubLen) &&
 				segAt(segs, srchSubLen-1, srchActCheckName)

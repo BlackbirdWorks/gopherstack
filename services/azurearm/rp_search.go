@@ -82,6 +82,7 @@ type storedSearch struct {
 	createdAt     time.Time
 	tags          map[string]string
 	extra         map[string]any
+	links         map[string]*storedSearchLink
 	authOptions   map[string]any
 	identity      map[string]any
 	name          string
@@ -436,7 +437,7 @@ func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 		srchFieldReplicas: rec.replicas, srchFieldPartitions: rec.partitions, srchFieldHosting: rec.hostingMode,
 		srchFieldPublicAccess: rec.publicAccess, srchFieldStatus: "running", "statusDetails": "",
 		fieldProvisioningState: "succeeded", srchFieldEndpoint: p.endpointFor(rec.name, rec.host),
-		srchFieldPEC: []any{}, "sharedPrivateLinkResources": []any{},
+		srchFieldPEC: []any{}, "sharedPrivateLinkResources": p.linkBodies(id, rec),
 	})
 
 	if rec.authOptions != nil {
@@ -587,6 +588,7 @@ func searchErrorDetails(err error) (errorEntry, bool) {
 	}{
 		{ErrSearchServiceNotFound, notFoundEntry("The search service was not found.")},
 		{ErrSearchQueryKeyNotFound, notFoundEntry("The query key was not found.")},
+		{ErrSearchLinkNotFound, notFoundEntry("The shared private link resource was not found.")},
 		{
 			ErrSearchNameTaken,
 			errorEntry{"NameAlreadyExists", "The search service name is already in use.", http.StatusConflict},

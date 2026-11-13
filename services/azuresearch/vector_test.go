@@ -263,3 +263,52 @@ func TestVectorIndexValidation(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, r.status, name+": "+string(r.raw))
 	}
 }
+
+func TestVectorHNSWParameterRanges(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params map[string]any
+		name   string
+		status int
+	}{
+		{
+			name:   "defaults",
+			params: map[string]any{"m": 4, "efConstruction": 400, "efSearch": 500},
+			status: http.StatusCreated,
+		},
+		{name: "nulls", params: map[string]any{"m": nil, "efSearch": nil}, status: http.StatusCreated},
+		{
+			name: "upper bounds", params: map[string]any{"m": 10, "efConstruction": 1000, "efSearch": 1000},
+			status: http.StatusCreated,
+		},
+		{name: "m low", params: map[string]any{"m": 3}, status: http.StatusBadRequest},
+		{name: "m high", params: map[string]any{"m": 11}, status: http.StatusBadRequest},
+		{name: "ef construction low", params: map[string]any{"efConstruction": 99}, status: http.StatusBadRequest},
+		{name: "ef search high", params: map[string]any{"efSearch": 1001}, status: http.StatusBadRequest},
+		{name: "fractional", params: map[string]any{"m": 4.5}, status: http.StatusBadRequest},
+		{name: "wrong type", params: map[string]any{"efSearch": "500"}, status: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newStack(t, "standard")
+			def := vectorIndex()
+			vs, ok := def["vectorSearch"].(map[string]any)
+			require.True(t, ok)
+
+			algs, ok := vs["algorithms"].([]any)
+			require.True(t, ok)
+
+			first, ok := algs[0].(map[string]any)
+			require.True(t, ok)
+
+			first["hnswParameters"] = tt.params
+
+			r := s.admin2(t, http.MethodPost, "/indexes?"+apiVer, def)
+			assert.Equal(t, tt.status, r.status, string(r.raw))
+		})
+	}
+}

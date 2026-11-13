@@ -2,10 +2,22 @@ package azuresearch
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
+)
+
+const (
+	fnMagnitude     = "magnitude"
+	fnFreshness     = "freshness"
+	fnDistance      = "distance"
+	fnTag           = "tag"
+	interpLog       = "logarithmic"
+	interpQuadratic = "quadratic"
+	aggSum          = "sum"
+	aggProduct      = "product"
 )
 
 type scoreFunc struct {
@@ -31,35 +43,9 @@ type scoringProfile struct {
 
 func (c *compiler) scoring(def map[string]any) error {
 	for _, raw := range listOf(def, "scoringProfiles") {
-		p := objOf(raw)
-		sp := &scoringProfile{
-			Name: strOf(p, "name"), Weights: map[string]float64{}, Aggregation: strOf(p, "functionAggregation"),
-		}
-
-		if sp.Aggregation == "" {
-			sp.Aggregation = "sum"
-		}
-
-		for field, w := range objOf(objOf(p["text"])["weights"]) {
-			fd, ok := c.comp.byPath[field]
-			if !ok || !fd.Searchable {
-				return badf(
-					"The request is invalid. Details: scoring profile '%s' weights unknown or non-searchable field '%s'.",
-					sp.Name,
-					field,
-				)
-			}
-
-			sp.Weights[field], _ = w.(float64)
-		}
-
-		for _, fr := range listOf(p, "functions") {
-			sf, err := c.scoreFunc(sp.Name, objOf(fr))
-			if err != nil {
-				return err
-			}
-
-			sp.Funcs = append(sp.Funcs, sf)
+		sp, err := c.scoringProfile(objOf(raw))
+		if err != nil {
+			return err
 		}
 
 		c.comp.profiles[sp.Name] = sp
@@ -76,6 +62,64 @@ func (c *compiler) scoring(def map[string]any) error {
 	return nil
 }
 
+func (c *compiler) scoringProfile(p map[string]any) (*scoringProfile, error) {
+	sp := &scoringProfile{
+		Name: strOf(p, "name"), Weights: map[string]float64{}, Aggregation: strOf(p, "functionAggregation"),
+	}
+
+	if sp.Aggregation == "" {
+		sp.Aggregation = aggSum
+	}
+
+	switch sp.Aggregation {
+	case aggSum, "average", "minimum", "maximum", "firstMatching", aggProduct:
+	default:
+		return nil, badf(
+			"The request is invalid. Details: scoring profile '%s' has unsupported functionAggregation '%s'.",
+			sp.Name,
+			sp.Aggregation,
+		)
+	}
+
+	if err := c.profileWeights(sp, objOf(objOf(p["text"])["weights"])); err != nil {
+		return nil, err
+	}
+
+	for _, fr := range listOf(p, "functions") {
+		sf, err := c.scoreFunc(sp.Name, objOf(fr))
+		if err != nil {
+			return nil, err
+		}
+
+		sp.Funcs = append(sp.Funcs, sf)
+	}
+
+	return sp, nil
+}
+
+func (c *compiler) profileWeights(sp *scoringProfile, weights map[string]any) error {
+	for field, w := range weights {
+		fd, ok := c.comp.byPath[field]
+		if !ok || !fd.Searchable {
+			return badf(
+				"The request is invalid. Details: scoring profile '%s' weights unknown or non-searchable field '%s'.",
+				sp.Name,
+				field,
+			)
+		}
+
+		wt, isNum := w.(float64)
+		if !isNum || wt <= 0 {
+			return badf("The request is invalid. Details: scoring profile '%s' weight for '%s' must be positive.",
+				sp.Name, field)
+		}
+
+		sp.Weights[field] = wt
+	}
+
+	return nil
+}
+
 func (c *compiler) scoreFunc(profile string, f map[string]any) (scoreFunc, error) {
 	sf := scoreFunc{
 		Type: strOf(f, "type"), Field: strOf(f, "fieldName"), Interpolation: strOf(f, "interpolation"),
@@ -86,7 +130,8 @@ func (c *compiler) scoreFunc(profile string, f map[string]any) (scoreFunc, error
 		sf.Interpolation = "linear"
 	}
 
-	if _, ok := c.comp.byPath[sf.Field]; !ok {
+	fd, ok := c.comp.byPath[sf.Field]
+	if !ok {
 		return sf, badf(
 			"The request is invalid. Details: scoring profile '%s' function references unknown field '%s'.",
 			profile,
@@ -94,30 +139,76 @@ func (c *compiler) scoreFunc(profile string, f map[string]any) (scoreFunc, error
 		)
 	}
 
+	if err := checkScoreFunc(profile, sf, fd); err != nil {
+		return sf, err
+	}
+
 	switch sf.Type {
-	case "magnitude":
+	case fnMagnitude:
 		m := objOf(f["magnitude"])
 		sf.RangeStart, _ = m["boostingRangeStart"].(float64)
 		sf.RangeEnd, _ = m["boostingRangeEnd"].(float64)
 		sf.ConstBeyond = boolOf(m, "constantBoostBeyondRange", false)
-	case "freshness":
+	case fnFreshness:
 		d, err := iso8601.Parse(strOf(objOf(f["freshness"]), "boostingDuration"))
 		if err != nil {
 			return sf, badf("The request is invalid. Details: invalid freshness boostingDuration.")
 		}
 
 		sf.Duration = d
-	case "distance":
+	case fnDistance:
 		d := objOf(f["distance"])
 		sf.RefParam = strOf(d, "referencePointParameter")
 		sf.Distance, _ = d["boostingDistance"].(float64)
-	case "tag":
+	case fnTag:
 		sf.TagsParam = strOf(objOf(f["tag"]), "tagsParameter")
 	default:
 		return sf, badf("The request is invalid. Details: unsupported scoring function type '%s'.", sf.Type)
 	}
 
 	return sf, nil
+}
+
+func scoreFuncFieldTypes(kind string) []string {
+	switch kind {
+	case fnMagnitude:
+		return []string{typeInt32, typeInt64, typeDouble}
+	case fnFreshness:
+		return []string{typeDate}
+	case fnDistance:
+		return []string{typeGeo}
+	case fnTag:
+		return []string{typeString}
+	}
+
+	return nil
+}
+
+// checkScoreFunc applies the documented function rules: filterable field, a field type that fits the
+// function, a known interpolation, and no quadratic or logarithmic interpolation on tag.
+func checkScoreFunc(profile string, sf scoreFunc, fd *fieldDef) error {
+	if types := scoreFuncFieldTypes(sf.Type); types != nil && !slices.Contains(types, fd.Base) {
+		return badf(
+			"The request is invalid. Details: scoring profile '%s' %s function cannot use field '%s' of type %s.",
+			profile,
+			sf.Type,
+			fd.Name,
+			fd.Type,
+		)
+	}
+
+	if !fd.Filterable {
+		return badf("The request is invalid. Details: scoring profile '%s' function field '%s' must be filterable.",
+			profile, fd.Name)
+	}
+
+	if !slices.Contains([]string{"constant", "linear", interpQuadratic, interpLog}, sf.Interpolation) ||
+		(sf.Type == fnTag && (sf.Interpolation == interpQuadratic || sf.Interpolation == interpLog)) {
+		return badf("The request is invalid. Details: scoring profile '%s' interpolation '%s' is not allowed for %s.",
+			profile, sf.Interpolation, sf.Type)
+	}
+
+	return nil
 }
 
 // interpolate maps a 0..1 position (1 = full boost) through the interpolation curve.
@@ -127,9 +218,9 @@ func interpolate(kind string, x float64) float64 {
 	switch kind {
 	case "constant":
 		return 1
-	case "quadratic":
+	case interpQuadratic:
 		return x * x
-	case "logarithmic":
+	case interpLog:
 		return math.Log1p(x*(math.E-1)) / 1
 	}
 
@@ -174,12 +265,25 @@ func (sp *scoringProfile) functionBoost(doc *Doc, params scoreParams, now time.T
 		return 1
 	}
 
+	if sp.Aggregation == aggProduct {
+		return product(vals)
+	}
+
 	total := 1.0
 	for _, v := range vals {
 		total += v - 1
 	}
 
 	return total
+}
+
+func product(v []float64) float64 {
+	t := 1.0
+	for _, x := range v {
+		t *= x
+	}
+
+	return t
 }
 
 func sum(v []float64) float64 {
@@ -213,13 +317,13 @@ func (f scoreFunc) position(doc *Doc, params scoreParams, now time.Time) (float6
 	val := lookupPath(doc.Fields, f.Field)
 
 	switch f.Type {
-	case "magnitude":
+	case fnMagnitude:
 		return f.magnitudePosition(val)
-	case "freshness":
+	case fnFreshness:
 		return f.freshnessPosition(val, now)
-	case "distance":
+	case fnDistance:
 		return f.distancePosition(val, params)
-	case "tag":
+	case fnTag:
 		return tagPosition(val, params[f.TagsParam])
 	}
 

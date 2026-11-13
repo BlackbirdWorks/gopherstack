@@ -32,14 +32,14 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here) and null ordering in $orderby are recalled, not verified."
+  - "No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here; the Create Index reference lists only 201 and a generic ErrorResponse) and null ordering in $orderby are not documented anywhere fetched."
   - "Semantic ranking, spell correction, answers/captions, vectorizers (text/image vector queries), vector thresholds and compression, debug subscores and maxTextRecallSize are not implemented."
-  - "HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; euclidean, dotProduct and hamming score formulas are unverified."
+  - "HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; the euclidean, dotProduct and hamming score formulas are not documented (the vector relevance page documents only cosine, which matches)."
   - "Indexers run synchronously inside search.run and do not report inProgress; no document cracking for PDF/Office/images, no AI skills (only Split, Merge, Shaper), no knowledge store, projections or enrichment cache, and no Azure SQL, ADLS Gen2 or Table sources."
   - "Bearer tokens are accepted without validation and data-plane RBAC roles are not modelled."
   - "Language analyzers are approximations (light stemmer, short stop lists), the pattern analyzer ignores its configuration, custom tokenizers/filters are a subset, and character filters, normalizers and the Microsoft language tokenizers are rejected."
-  - "Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters but are not verified against the service."
-  - "ARM: private endpoint connections, shared private link resources, network security perimeter configurations, the upgrade action, customer-managed encryption, semanticSearch and IP rule enforcement are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas); the operations list endpoint is not served."
+  - "Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters, but the docs give no formulas, so they are not verified against the service."
+  - "ARM: private endpoint connections (created by Microsoft.Network), network security perimeter configurations, the upgrade action, customer-managed encryption enforcement, semanticSearch and IP rule enforcement are not implemented (properties round-trip only); usage quotas per SKU are the documented defaults (unverified for raised quotas)."
 leaks: {status: clean, note: "Shutdown cancels the scheduler, closes the HTTPS server and waits for both goroutines."}
 ---
 
@@ -48,3 +48,9 @@ leaks: {status: clean, note: "Shutdown cancels the scheduler, closes the HTTPS s
 Evidence: Azure AI Search REST (data plane 2024-07-01, management 2025-05-01 as pinned by armsearch v1.4.0) and learn.microsoft.com/azure/search pages on vector ranking (cosine range 0.333 to 1.0, score = 1/(1+cosine distance)) and hybrid RRF (1/(rank+60), vector weight as multiplier), consulted 2026-11-05. Anything marked unverified above was written from recollection.
 
 The data plane is multi-tenant: one listener (default 10015) serves every service created through ARM. ARM advertises `https://{name}.search.<host>:<port>`; the host label selects the service, so `{name}.search.windows.net` resolves too when DNS points at the listener.
+
+## 2026-11-13 parity pass (history)
+
+Sources fetched: azure-rest-api-specs search/resource-manager 2025-05-01 (search.json, SearchListOperations.json, SharedPrivateLinkResources examples) and search/data-plane 2025-09-01 searchservice.json (HnswParameters), Microsoft Learn vector-search-ranking and index-add-scoring-profiles.
+- ARM: the operations list (50 entries) is served at /providers/Microsoft.Search/operations; shared private link resources are stored per service (PUT/GET/list/DELETE, status Pending, persisted, shown in the service body).
+- Data plane: hnswParameters m 4-10, efConstruction 100-1000, efSearch 100-1000 are enforced; scoring profiles enforce filterable function fields, field type per function, interpolation values, no quadratic/logarithmic on tag, positive text weights and the functionAggregation enum (product multiplies).

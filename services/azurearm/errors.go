@@ -50,6 +50,7 @@ var (
 	ErrSearchServiceNotFound   = errors.New("azurearm: search service not found")
 	ErrSearchNameTaken         = errors.New("azurearm: search service name is already in use")
 	ErrSearchQueryKeyNotFound  = errors.New("azurearm: search query key not found")
+	ErrSearchLinkNotFound      = errors.New("azurearm: search shared private link resource not found")
 	ErrSearchInvalidConfig     = errors.New("azurearm: invalid search service configuration")
 	ErrSearchUnavailable       = errors.New("azurearm: search data plane is not available")
 	ErrSearchSKUImmutable      = errors.New("azurearm: search service sku cannot be changed")
