@@ -325,6 +325,7 @@ func buildLogicFuncs() map[string]logicFunc {
 	addLogicTimeFuncs(m)
 	addLogicURIFuncs(m)
 	addLogicMoreFuncs(m)
+	addLogicExtFuncs(m)
 	addLogicWorkflowFuncs(m)
 
 	return m

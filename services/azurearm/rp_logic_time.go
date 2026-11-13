@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	logicRoundTrip = "o"
-	widthTwo       = 2
-	widthThree     = 3
-	widthFour      = 4
-	twelve         = 12
+	logicLocaleEnUS = "en-us"
+	logicRoundTrip  = "o"
+	widthTwo        = 2
+	widthThree      = 3
+	widthFour       = 4
+	twelve          = 12
 )
 
 var logicTimeLayouts = []string{ //nolint:gochecknoglobals // static parse layouts
@@ -50,7 +51,7 @@ type logicLocale struct {
 
 //nolint:gochecknoglobals // static locale name tables
 var logicLocales = map[string]logicLocale{
-	"en-us": {
+	logicLocaleEnUS: {
 		months: [12]string{
 			"January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
 			"November", "December",
@@ -81,7 +82,7 @@ func formatLogicTime(ts logicTS, format, locale string) (string, error) {
 			return "", exprErr("the locale %q is not supported", locale)
 		}
 
-		loc = logicLocales["en-us"]
+		loc = logicLocales[logicLocaleEnUS]
 	}
 
 	if format == logicRoundTrip || format == "O" {

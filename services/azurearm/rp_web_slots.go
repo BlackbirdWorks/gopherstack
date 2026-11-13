@@ -241,9 +241,17 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	rec := &storedWebSite{
-		Name: parent.Name, Slot: slot, ResourceGroup: parent.ResourceGroup, Location: parent.Location,
-		Kind: parent.Kind, Created: time.Now().UTC(), Tags: stringTags(body[fieldTags]),
-		Managed: ident, Configs: map[string]map[string]any{}, Extra: webSiteExtra(props),
+		Name:          parent.Name,
+		Sub:           id.SubscriptionID,
+		Slot:          slot,
+		ResourceGroup: parent.ResourceGroup,
+		Location:      parent.Location,
+		Kind:          parent.Kind,
+		Created:       time.Now().UTC(),
+		Tags:          stringTags(body[fieldTags]),
+		Managed:       ident,
+		Configs:       map[string]map[string]any{},
+		Extra:         webSiteExtra(props),
 	}
 	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
 

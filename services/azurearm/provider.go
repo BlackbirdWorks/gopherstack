@@ -307,6 +307,7 @@ func registerLocalProviders(
 	}, nil))
 
 	msi := NewManagedIdentityProvider(settings.TenantID)
+	msi.SetDefaultSubscription(settings.SubscriptionID)
 	ids := newIdentityService(msi, settings.TenantID)
 	network := NewNetworkProvider(backend)
 

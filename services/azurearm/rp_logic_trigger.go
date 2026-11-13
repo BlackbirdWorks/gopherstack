@@ -479,6 +479,10 @@ func readLogicBody(r *http.Request) (any, error) {
 		return string(raw), nil
 	}
 
+	if strings.HasPrefix(mt, "multipart/") {
+		mt = r.Header.Get("Content-Type")
+	}
+
 	return map[string]any{"$content-type": mt, "$content": base64.StdEncoding.EncodeToString(raw)}, nil
 }
 

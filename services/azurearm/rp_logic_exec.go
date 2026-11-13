@@ -56,6 +56,7 @@ type logicFrame struct {
 	item  any
 	name  string
 	index int
+	until bool
 }
 
 // logicEnv is one lexical level of a run: loop iterations get their own so repeated actions do not collide.
@@ -84,6 +85,7 @@ type logicRunState struct {
 	term    *logicTermination
 	clock   func() time.Time
 	def     map[string]any
+	iters   map[string][]*logicEnv
 	wfKey   string
 	wfName  string
 }

@@ -1,6 +1,10 @@
 package azurearm
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 func (rs *logicRunState) lookupAction(env *logicEnv, name string) (*logicActionRec, bool) {
 	rs.p.mu.RLock("lookupAction")
@@ -89,7 +93,10 @@ func ctxLogic(name string, w wfFunc) logicFunc {
 }
 
 func workflowFuncs() map[string]wfFunc {
-	return map[string]wfFunc{
+	m := map[string]wfFunc{
+		"result":           {n: 1, f: wfResult},
+		"iterationindexes": {n: 1, f: wfIterationIndexes},
+		"listcallbackurl":  {n: 0, f: wfListCallbackURL},
 		"outputs": {n: 1, f: func(c *logicEvalCtx, a []any) (any, error) {
 			return c.rs.actionOutputs(c.env, logicString(a[0]))
 		}},
@@ -132,6 +139,10 @@ func workflowFuncs() map[string]wfFunc {
 		}},
 		logicKWorkflow: {n: 0, f: func(c *logicEvalCtx, _ []any) (any, error) { return c.rs.info, nil }},
 	}
+
+	maps.Copy(m, workflowFormFuncs())
+
+	return m
 }
 
 func wfActions(c *logicEvalCtx, a []any) (any, error) {
@@ -142,11 +153,15 @@ func wfActions(c *logicEvalCtx, a []any) (any, error) {
 		return nil, exprErr("the action '%s' has not run or does not exist in this scope", name)
 	}
 
-	c.rs.p.mu.RLock(logicKActions)
-	defer c.rs.p.mu.RUnlock()
+	return c.rs.actionView(rec), nil
+}
+
+func (rs *logicRunState) actionView(rec *logicActionRec) map[string]any {
+	rs.p.mu.RLock(logicKActions)
+	defer rs.p.mu.RUnlock()
 
 	out := map[string]any{
-		fieldName:        name,
+		fieldName:        rec.Name,
 		logicKStatus:     rec.Status,
 		logicKStartTime:  logicTime(rec.Start),
 		logicKTrackingID: rec.Tracking,
@@ -173,7 +188,133 @@ func wfActions(c *logicEvalCtx, a []any) (any, error) {
 		out["outputs"] = o
 	}
 
+	return out
+}
+
+func (rs *logicRunState) recordIterations(name string, envs []*logicEnv) {
+	rs.p.mu.Lock("recordIterations")
+	defer rs.p.mu.Unlock()
+
+	if rs.iters == nil {
+		rs.iters = map[string][]*logicEnv{}
+	}
+
+	rs.iters[name] = envs
+}
+
+func findActionDef(actions map[string]any, name string) map[string]any {
+	for n, v := range actions {
+		def, ok := objectOf(v)
+		if !ok {
+			continue
+		}
+
+		if n == name {
+			return def
+		}
+
+		for _, child := range logicChildScopes(typeOf(def), def) {
+			if found := findActionDef(child, name); found != nil {
+				return found
+			}
+		}
+	}
+
+	return nil
+}
+
+// innerRecords lists the first-level action records of one scope or loop iteration in start order.
+func (rs *logicRunState) innerRecords(lookup func(string) *logicActionRec, inner map[string]any) []*logicActionRec {
+	var recs []*logicActionRec
+
+	for n := range inner {
+		if r := lookup(n); r != nil {
+			recs = append(recs, r)
+		}
+	}
+
+	rs.p.mu.RLock("innerRecords")
+	defer rs.p.mu.RUnlock()
+
+	slices.SortFunc(recs, func(a, b *logicActionRec) int {
+		if c := a.Start.Compare(b.Start); c != 0 {
+			return c
+		}
+
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	return recs
+}
+
+func wfResult(c *logicEvalCtx, a []any) (any, error) {
+	name := logicString(a[0])
+
+	actions, _ := objectOf(c.rs.def[logicKActions])
+
+	def := findActionDef(actions, name)
+	if def == nil {
+		return nil, exprErr("the action '%s' does not exist in the workflow definition", name)
+	}
+
+	typ := typeOf(def)
+	inner, _ := objectOf(def[logicKActions])
+	out := []any{}
+
+	switch {
+	case strings.EqualFold(typ, logicActScope):
+		recs := c.rs.innerRecords(func(n string) *logicActionRec {
+			r, _ := c.rs.lookupAction(c.env, n)
+
+			return r
+		}, inner)
+		for _, r := range recs {
+			out = append(out, c.rs.actionView(r))
+		}
+	case strings.EqualFold(typ, logicActForeach), strings.EqualFold(typ, logicActUntil):
+		c.rs.p.mu.RLock("result")
+		envs := c.rs.iters[name]
+		c.rs.p.mu.RUnlock()
+
+		for _, e := range envs {
+			if e == nil {
+				continue
+			}
+
+			recs := c.rs.innerRecords(func(n string) *logicActionRec {
+				c.rs.p.mu.RLock("result")
+				defer c.rs.p.mu.RUnlock()
+
+				return e.local[n]
+			}, inner)
+			for _, r := range recs {
+				out = append(out, c.rs.actionView(r))
+			}
+		}
+	default:
+		return nil, exprErr("the action '%s' is not a scoped action: result() needs Scope, Foreach or Until", name)
+	}
+
 	return out, nil
+}
+
+func wfIterationIndexes(c *logicEvalCtx, a []any) (any, error) {
+	name := logicString(a[0])
+
+	for e := c.env; e != nil; e = e.parent {
+		if f := e.frame; f != nil && f.until && strings.EqualFold(f.name, name) {
+			return int64(f.index), nil
+		}
+	}
+
+	return nil, exprErr("the Until loop '%s' is not running in this scope", name)
+}
+
+func wfListCallbackURL(c *logicEvalCtx, _ []any) (any, error) {
+	return nil, exprErr(
+		"listCallbackUrl() is only valid in HttpWebhook and ApiConnectionWebhook triggers and actions, "+
+			"and workflow '%s' is not evaluating one", c.rs.wfName,
+	)
 }
 
 func wfVariables(c *logicEvalCtx, a []any) (any, error) {

@@ -377,6 +377,7 @@ func (rs *logicRunState) runForeach(env *logicEnv, name string, def map[string]a
 	}
 
 	wg.Wait()
+	rs.recordIterations(name, envs)
 	rs.aggregate(env, inner, envs)
 
 	return foreachOutcome(iterStatus)
@@ -544,7 +545,10 @@ func (rs *logicRunState) runUntil(env *logicEnv, name string, def map[string]any
 
 	var iters []*logicEnv
 
-	defer func() { rs.aggregate(env, inner, iters) }()
+	defer func() {
+		rs.recordIterations(name, iters)
+		rs.aggregate(env, inner, iters)
+	}()
 
 	for i := int64(0); ; i++ {
 		if i >= count || !rs.clock().Before(deadline) {
@@ -555,7 +559,7 @@ func (rs *logicRunState) runUntil(env *logicEnv, name string, def map[string]any
 			return logicOutcome{status: logicStCancelled}
 		}
 
-		e := env.child(&logicFrame{name: name, index: int(i)}, true)
+		e := env.child(&logicFrame{name: name, index: int(i), until: true}, true)
 		iters = append(iters, e)
 
 		st, serr := scopeStatus(inner, rs.execActions(e, inner))

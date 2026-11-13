@@ -80,6 +80,12 @@ var networkRoutes = []armRoute{
 //nolint:gochecknoglobals // static route table, read-only after init
 var managedIdentityRoutes = []armRoute{
 	{
+		match: isMSIAssociatedAction,
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleListAssociated(c, segs)
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return isNamespaceScope(segs, namespaceMicrosoftManagedIdentity)
 		},

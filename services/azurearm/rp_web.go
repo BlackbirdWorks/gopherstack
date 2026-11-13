@@ -65,6 +65,7 @@ type storedWebSite struct {
 	Tags          map[string]string         `json:"tags,omitempty"`
 	LastSwap      *swapStatus               `json:"lastSwap,omitempty"`
 	Name          string                    `json:"name"`
+	Sub           string                    `json:"sub,omitempty"`
 	Slot          string                    `json:"slot,omitempty"`
 	ResourceGroup string                    `json:"resourceGroup"`
 	Location      string                    `json:"location"`
@@ -326,8 +327,9 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	rec := &storedWebSite{
-		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
+		Name: name, Sub: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind,
+		Created: time.Now().UTC(),
+		Tags:    stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
 		Extra: siteExtraWithFlex(props, flex),
 	}
 

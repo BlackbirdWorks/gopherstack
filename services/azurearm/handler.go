@@ -453,7 +453,8 @@ var armResourceRoutes = []armRoute{
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 	for _, table := range [][]armRoute{
-		privateLinkRoutes, authorizationRoutes, eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes,
+		msiScopeRoutes, privateLinkRoutes, authorizationRoutes, eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes,
+		eventGridRoutes,
 		appConfigRoutes, searchRoutes, containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
