@@ -960,13 +960,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 50 | 15 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 7 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 7 gaps |
-| [Cloud Build](services/gcpcloudbuild/README.md) | B | 20 | 9 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 9 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 5 gaps |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
-| [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
-| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 53 | 8 gaps |
+| [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
+| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 8 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 4 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 42 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
@@ -1000,11 +1000,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Events](services/ocievents/README.md) | B | 6 | 5 gaps |
 | [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 7 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 8 gaps |
-| [OCI Identity](services/ociidentity/README.md) | B | 70 | 8 gaps |
+| [OCI Identity](services/ociidentity/README.md) | B | 76 | 8 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 8 gaps |
-| [OCI Logging](services/ocilogging/README.md) | B | 26 | 8 gaps |
+| [OCI Logging](services/ocilogging/README.md) | B | 32 | 7 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 8 gaps |
-| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 33 | 9 gaps |
+| [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 40 | 9 gaps |
 | [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 10 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 7 gaps |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 52 | 8 gaps |
@@ -1026,7 +1026,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 11 gaps; 2 structural gaps |
 | [Budgets](services/budgets/README.md) | B | 26 | 8 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
-| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 7 gaps; 3 structural gaps |
+| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 3 gaps; 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 387 | 17 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
@@ -1045,14 +1045,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Marketplacemetering](services/marketplacemetering/README.md) | B | 4 | 5 gaps; 2 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 2 gaps; 4 structural gaps |
-| [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
+| [Networkmanager](services/networkmanager/README.md) | A | 95 | 3 gaps; 2 structural gaps |
 | [Oam](services/oam/README.md) | B | 15 | 3 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 29 | 11 gaps; 1 structural gap |
 | [Rum](services/rum/README.md) | B | 20 | 6 gaps; 2 structural gaps |
-| [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
+| [S3vectors](services/s3vectors/README.md) | B | 21 | 6 gaps; 1 structural gap |
 | [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 7 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 20 | 1 structural gap; 1 deferred |

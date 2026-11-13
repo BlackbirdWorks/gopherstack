@@ -15,7 +15,7 @@
 ### Known gaps
 
 - The control plane is metadata: without GKE_ENGINE=docker the endpoint is a documentation-range address with a real but unused CA, and node pools never run nodes (the docker engine runs one k3s node regardless of pool sizes). Instance groups named in instanceGroupUrls are not created in gcpcompute.
-- Unimplemented RPCs: CancelOperation, GetJSONWebKeys, ListUsableSubnetworks, CheckAutopilotCompatibility, FetchClusterUpgradeInfo, FetchNodePoolUpgradeInfo, CompleteNodePoolUpgrade, CompleteControlPlaneUpgrade.
+- CheckAutopilotCompatibility is not implemented: it analyses the workloads running in the cluster, and no Kubernetes API server runs for a metadata cluster. FetchClusterUpgradeInfo and FetchNodePoolUpgradeInfo leave end_of_standard_support_timestamp, end_of_extended_support_timestamp, upgrade_details and rollback_safe_upgrade_status unset: the version catalog carries no support dates and no upgrade history; CancelOperation only accepts UPGRADE_MASTER and UPGRADE_NODES operations (the cancellable set is not documented) and cannot revert state already applied.
 - Version catalog and region/zone lists are a fixed representative set; Autopilot being regional-only, error message texts and the PreconditionFailure/BadRequest/ResourceInfo detail payloads were chosen without a production reference (only the cluster name rules were checked against Google docs).
 - createSubnetwork is not honoured (no subnet is created in gcpcompute), pod/service ranges of other clusters are only avoided for auto-allocation, and quotas are not modelled.
 - The emulator does not enforce IAM or return permission errors.

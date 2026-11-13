@@ -79,8 +79,9 @@ func allowedWeakHashFiles() map[string]string {
 
 		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
 		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
-		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
-		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+		"services/azurekeyvault/keycrypto.go":            "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
+		"services/azurekeyvault/certpolicy.go":           "certificate x5t SHA-1 thumbprint, verified",
+		"services/azurearm/rp_containerapps_children.go": "Container Apps certificate SHA-1 thumbprint property",
 
 		// Azure Files Content-MD5 / x-ms-content-md5 headers are defined as the base64 MD5 of the
 		// payload; integrity checksum, never a credential.

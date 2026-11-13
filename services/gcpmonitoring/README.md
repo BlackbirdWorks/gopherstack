@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 53 (45 ok, 7 partial, 1 gap) |
+| PARITY entries audited | 54 (46 ok, 7 partial, 1 gap) |
 | Feature families | 8 (2 ok, 6 partial) |
 | Known gaps | 8 |
 | Deferred items | 0 |
@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no targets, exemplars or buildinfo endpoints, and ignores the timeout parameter.
+- QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no targets or buildinfo endpoints and ignores the timeout parameter: the compatibility list at docs.cloud.google.com/stackdriver/docs/managed-prometheus/query names neither endpoint and documents no timeout.
 - SLO evaluation: BasicSli expansion supports Cloud Run, Cloud Endpoints and App Engine only; Istio and GKE services are not evaluated because their telemetry metric and resource names could not be verified against documentation; the metric names and the non-5xx availability definition are recalled, not verified; calendar WEEK and FORTNIGHT period starts are assumptions; select_slo_budget*, select_slo_compliance and select_slo_counts selectors are not served.
 - Alert conditions condition_monitoring_query_language and condition_sql are stored but never evaluated; metric existence validation for PromQL conditions (disable_metric_validation) has no effect; PromQL label templating supports only {{ $labels.X }} and {{ $value }} and the percentile method of REDUCE_PERCENTILE on numeric series (linear interpolation) is unverified; the forecast model is unverified; the renotify_interval range, the exact auto_close and evaluation_missing_data NO_OP edge behaviour (a series that stops reporting keeps its incident until auto_close) are inferred from the monitoringpb field comments.
 - Incidents are not exposed through a Cloud Monitoring API (the v3 API has none); they are readable only from Go through InMemoryBackend.Incidents, Deliveries and Outbox.

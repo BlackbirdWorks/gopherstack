@@ -9,20 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 8 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Limits: topK 100, batch sizes 500 and 100, metadata byte limits and the 10000 bucket and index quotas come from AWS documentation; the SDK does not encode them
-- Filter semantics: a missing field satisfies $ne and $nin and fails every other operator, and list-valued metadata matches when any element matches; both are taken from the documented operator behaviour, not SDK evidence
-- PutVectors: a key repeated inside one batch keeps the last occurrence; AWS behaviour is unverified
-- Index mode cutoff: the 2026-09-30 rule for CLASSIC comes from SDK documentation text and compares against the emulator clock
-- Encryption: sseType and kmsKeyArn are stored but nothing is encrypted and the KMS key is not looked up, so the Kms*Exception errors are never raised
+- Filter semantics: a missing field satisfies $ne and $nin and fails every other operator; s3-vectors-metadata-filtering.html only says '$ne: Not equal comparison' and '$nin: Match none of the values in array' and does not state how absent fields behave
+- PutVectors: a key repeated inside one batch keeps the last occurrence; API_S3VectorBuckets_PutVectors.html does not state the behaviour
+- Encryption: sseType and kmsKeyArn are stored and the key is checked on data operations, but vector data is not encrypted at rest
 - Bucket policies: stored and returned, not enforced
-- Throttling: TooManyRequestsException and ServiceUnavailableException are never produced
+- ServiceUnavailableException: never produced; the PutVectors page ties it to a request exceeding capacity without publishing a size
 - Memory: vectors live in process memory (4 bytes per dimension plus metadata) with no spill to disk
 
 ### Structural gaps

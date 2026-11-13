@@ -7,15 +7,14 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 40 (35 ok, 3 partial, 2 gap) |
+| PARITY entries audited | 43 (38 ok, 5 partial) |
 | Feature families | 8 (4 ok, 4 partial) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Linked datasets (CreateLink, GetLink, ListLinks, DeleteLink) and CopyLogEntries return UNIMPLEMENTED.
 - Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed.
 - A missing sink destination is not rejected at create time (the sinks.create reference does not say the destination must exist) and only logs a warning when an entry is exported; the live service reports a failed export through the sink writer permission, which is not modelled.
 - Cloud Storage export appends to the hourly object immediately instead of batching with the live service's delay; BigQuery tables use a fixed schema with JSON columns instead of the live typed schema, and partitioned tables are plain tables.
