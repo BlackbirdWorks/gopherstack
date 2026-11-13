@@ -230,6 +230,11 @@ func (h *Handler) serve(q *req) error {
 
 	body, err := io.ReadAll(http.MaxBytesReader(q.w, q.r.Body, maxBodyBytes))
 	if err != nil {
+		if q.rt.op == opInvokeFunction {
+			return newErr(http.StatusRequestEntityTooLarge, "FunctionInvokeRequestContentTooLarge",
+				"Request content too large")
+		}
+
 		return newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable")
 	}
 

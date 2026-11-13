@@ -61,14 +61,9 @@ func createOp[In any](fn func(*InMemoryBackend, In) (resource, string, *APIError
 
 		scope, token := q.r.Method+" "+q.r.URL.Path, q.r.Header.Get(headerRetry)
 
-		if v, etag, hit, aerr := h.Backend.replayCreate(scope, token); hit {
-			return send(q, v, etag, aerr)
-		}
-
-		v, etag, aerr := fn(h.Backend, in)
-		if aerr == nil {
-			h.Backend.rememberCreate(scope, token, v)
-		}
+		v, etag, aerr := h.Backend.createOnce(scope, token, func() (resource, string, *APIError) {
+			return fn(h.Backend, in)
+		})
 
 		return send(q, v, etag, aerr)
 	}

@@ -101,7 +101,7 @@ func (b *InMemoryBackend) validateTsig(in *CreateTsigKeyIn) *APIError {
 
 	for _, k := range b.tsigs {
 		if strs.Equal(k.Name, in.Name) {
-			return errConflict("A TSIG key named " + in.Name + " already exists")
+			return errExists("A TSIG key named " + in.Name + " already exists")
 		}
 	}
 

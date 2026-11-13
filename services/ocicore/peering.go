@@ -28,9 +28,6 @@ type CreateLpgIn struct {
 
 // CreateLocalPeeringGateway creates a local peering gateway.
 func (b *InMemoryBackend) CreateLocalPeeringGateway(in CreateLpgIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateLocalPeeringGateway")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, in.RouteTableID)
 	if aerr == nil {
 		aerr = b.vcnWritable(v.ID)
@@ -153,9 +150,6 @@ type CreatePublicIPIn struct {
 
 // CreatePublicIP allocates a reserved public IP, or an ephemeral one for a private IP.
 func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string, *APIError) {
-	b.mu.Lock("CreatePublicIP")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}

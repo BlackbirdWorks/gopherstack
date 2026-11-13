@@ -114,9 +114,6 @@ func defaultEgress(v6 bool) []EgressRule {
 
 // CreateVcn creates a VCN with its default route table, security list and DHCP options.
 func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVcn")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}

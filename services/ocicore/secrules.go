@@ -198,9 +198,6 @@ type CreateSecurityListIn struct {
 
 // CreateSecurityList creates a security list.
 func (b *InMemoryBackend) CreateSecurityList(in CreateSecurityListIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateSecurityList")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr != nil {
 		return nil, "", aerr
@@ -268,9 +265,6 @@ type CreateNsgIn struct {
 
 // CreateNetworkSecurityGroup creates an NSG.
 func (b *InMemoryBackend) CreateNetworkSecurityGroup(in CreateNsgIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateNetworkSecurityGroup")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr == nil {
 		aerr = gatewayLimit[*NetworkSecurityGroup](b, v.ID, "network security groups", maxNSGs)

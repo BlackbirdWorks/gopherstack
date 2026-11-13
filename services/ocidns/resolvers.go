@@ -604,7 +604,7 @@ func (b *InMemoryBackend) validateEndpoint(r *Resolver, in CreateEndpointIn) (ne
 	}
 
 	if b.endpointByName(r.ID, in.Name) != nil {
-		return netip.Prefix{}, errConflict("An endpoint named " + in.Name + " already exists")
+		return netip.Prefix{}, errExists("An endpoint named " + in.Name + " already exists")
 	}
 
 	return b.endpointSubnet(r, in.SubnetID)

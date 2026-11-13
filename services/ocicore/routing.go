@@ -141,9 +141,6 @@ func (b *InMemoryBackend) validateRules(vcnID string, rules []RouteRule) ([]Rout
 
 // CreateRouteTable creates a route table.
 func (b *InMemoryBackend) CreateRouteTable(in CreateRouteTableIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateRouteTable")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr == nil {
 		aerr = b.vcnWritable(v.ID)
@@ -274,9 +271,6 @@ func validateDhcpOption(o DhcpOption) *APIError {
 
 // CreateDhcpOptions creates a DHCP options set.
 func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDhcpOptions")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr != nil {
 		return nil, "", aerr

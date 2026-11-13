@@ -240,9 +240,6 @@ func agentConfig(in map[string]any) map[string]any {
 
 // LaunchInstance creates an instance with its boot volume and primary VNIC.
 func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (resource, string, *APIError) {
-	b.mu.Lock("LaunchInstance")
-	defer b.mu.Unlock()
-
 	sh, cfg, aerr := b.launchChecks(in)
 	if aerr != nil {
 		return nil, "", aerr
@@ -528,9 +525,6 @@ type CreateImageIn struct {
 
 // CreateImage captures a custom image from an instance's boot volume.
 func (b *InMemoryBackend) CreateImage(in CreateImageIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateImage")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}

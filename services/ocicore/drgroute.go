@@ -43,9 +43,6 @@ func (b *InMemoryBackend) importDistribution(id, drgID string) *APIError {
 
 // CreateDrgRouteTable creates a DRG route table.
 func (b *InMemoryBackend) CreateDrgRouteTable(in CreateDrgRouteTableIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDrgRouteTable")
-	defer b.mu.Unlock()
-
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}
@@ -153,9 +150,6 @@ type CreateDrgRouteDistributionIn struct {
 
 // CreateDrgRouteDistribution creates an import route distribution; the export one is created with the DRG.
 func (b *InMemoryBackend) CreateDrgRouteDistribution(in CreateDrgRouteDistributionIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDrgRouteDistribution")
-	defer b.mu.Unlock()
-
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}

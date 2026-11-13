@@ -44,4 +44,8 @@ func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "Not
 
 func errConflict(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
 
+func errExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
+
 func errLimit(msg string) *APIError { return newErr(http.StatusBadRequest, "LimitExceeded", msg) }

@@ -308,9 +308,6 @@ func prefixStrings(ps []netip.Prefix) []string {
 
 // CreateSubnet creates a subnet in a VCN.
 func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateSubnet")
-	defer b.mu.Unlock()
-
 	v, aerr := b.subnetVcn(in)
 	if aerr != nil {
 		return nil, "", aerr

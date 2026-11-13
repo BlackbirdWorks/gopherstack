@@ -338,7 +338,7 @@ func (b *InMemoryBackend) validateZoneIn(in *CreateZoneIn) *APIError {
 
 	for _, z := range b.zones {
 		if z.Name == in.Name && z.Scope == in.Scope && z.ViewID == in.ViewID {
-			return errConflict("A zone named " + in.Name + " already exists")
+			return errExists("A zone named " + in.Name + " already exists")
 		}
 	}
 

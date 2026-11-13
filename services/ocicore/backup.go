@@ -54,9 +54,6 @@ func availableSource[T resource](b *InMemoryBackend, id, what string) (T, *APIEr
 
 // CreateVolumeBackup snapshots a volume; the first backup of a volume is always FULL.
 func (b *InMemoryBackend) CreateVolumeBackup(in CreateVolumeBackupIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackup")
-	defer b.mu.Unlock()
-
 	if aerr := backupRequest(in.DisplayName, "volumeId", in.VolumeID, in.Type); aerr != nil {
 		return nil, "", aerr
 	}
@@ -183,9 +180,6 @@ type CreateVolumeBackupPolicyIn struct {
 
 // CreateVolumeBackupPolicy stores a user defined policy; its schedules are never executed.
 func (b *InMemoryBackend) CreateVolumeBackupPolicy(in CreateVolumeBackupPolicyIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackupPolicy")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -333,9 +327,6 @@ func (b *InMemoryBackend) dropAssignments(assetID string) {
 
 // CreateVolumeBackupPolicyAssignment assigns a policy to a volume or boot volume (one policy per asset).
 func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignmentIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackupPolicyAssignment")
-	defer b.mu.Unlock()
-
 	if in.AssetID == "" || in.PolicyID == "" {
 		return nil, "", errMissing("assetId and policyId are required")
 	}

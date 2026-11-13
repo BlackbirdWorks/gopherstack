@@ -35,7 +35,7 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-database-port / OCI_DATABASE_PORT (default 8170); never on the shared AWS router; cli.go reserves the port."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Unverified, chosen by the emulator: ECPU range 2 to 512 and OCPU range 1 to 128, storage range 1 to 384 TB or 20 GB to 384 TB, long-term backup minimum of 90 days, 409 Conflict for duplicate dbName, 400 LimitExceeded for the Always Free limit of 2, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes."
+  - "Unverified, chosen by the emulator: ECPU range 2 to 512 and OCPU range 1 to 128, storage range 1 to 384 TB or 20 GB to 384 TB, long-term backup minimum of 90 days, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes."
   - "cwallet.sso, keystore.jks and truststore.jks are not in the wallet zip; ewallet.p12 is encrypted with the modern PKCS#12 scheme, which very old Oracle clients may not read."
   - "Backups and restore are lifecycle only: no data is copied, so restore never changes a database, with or without the docker engine."
   - "Not routed: clones, refreshable clones, Data Guard, disaster recovery, key rotation and Vault keys, secretId, Data Safe, Operations Insights, Database Management, maintenance windows, resource pools, scheduled operations, regional wallets, character set listing, shrink, upgrade and the Exadata, container database and software image families. opc-dry-run is ignored."
@@ -43,3 +43,7 @@ items_still_open:
   - "mTLS support is the TLS handshake level: the listener verifies the wallet client certificate against the database's client CA; Oracle's own wallet-based authentication is not involved."
   - "IAM policy enforcement and quotas are not modelled."
 ---
+
+## Verified against Oracle documentation
+
+- Duplicate dbName on create returns 409 NotAuthorizedOrResourceAlreadyExists and limit breaches 400 LimitExceeded: https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm. Minimum 2 ECPUs and 20 GB storage: https://docs.oracle.com/en-us/iaas/autonomous-database-serverless/doc/autonomous-compute-models.html (maxima are not stated there and stay unverified).

@@ -200,7 +200,7 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 	}
 
 	if b.repoByName(in.DisplayName) != nil {
-		return repoWire{}, "", errConflict("A container repository named " + in.DisplayName + " already exists")
+		return repoWire{}, "", errExists("A container repository named " + in.DisplayName + " already exists")
 	}
 
 	r := b.newRepo(in.DisplayName, in.CompartmentID, createdBy)

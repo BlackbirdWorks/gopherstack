@@ -122,9 +122,6 @@ type CreateInternetGatewayIn struct {
 
 // CreateInternetGateway creates an internet gateway.
 func (b *InMemoryBackend) CreateInternetGateway(in CreateInternetGatewayIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateInternetGateway")
-	defer b.mu.Unlock()
-
 	if in.IsEnabled == nil {
 		return nil, "", errMissing("isEnabled is required")
 	}
@@ -189,9 +186,6 @@ type CreateNatGatewayIn struct {
 
 // CreateNatGateway creates a NAT gateway backed by a reserved or newly allocated public IP.
 func (b *InMemoryBackend) CreateNatGateway(in CreateNatGatewayIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateNatGateway")
-	defer b.mu.Unlock()
-
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, in.RouteTableID)
 	if aerr == nil {
 		aerr = gatewayLimit[*NatGateway](b, v.ID, "NAT gateway", 1)
@@ -320,9 +314,6 @@ type CreateServiceGatewayIn struct {
 
 // CreateServiceGateway creates a service gateway.
 func (b *InMemoryBackend) CreateServiceGateway(in CreateServiceGatewayIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateServiceGateway")
-	defer b.mu.Unlock()
-
 	if len(in.Services) == 0 {
 		return nil, "", errMissing("services is required")
 	}

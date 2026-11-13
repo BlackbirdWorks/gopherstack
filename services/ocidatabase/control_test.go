@@ -576,6 +576,7 @@ func TestRetryToken(t *testing.T) {
 
 	_, err := e.create(t, createOpts{})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "same dbName without the token")
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
 }
 
 func TestFreeTierLimitAndNameReuse(t *testing.T) {

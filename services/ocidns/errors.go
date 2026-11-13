@@ -36,6 +36,10 @@ func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "Mi
 
 func errConflict(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
 
+func errExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
+
 func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }

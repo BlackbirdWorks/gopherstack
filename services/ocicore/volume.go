@@ -187,9 +187,6 @@ func (b *InMemoryBackend) volumeChecks(in CreateVolumeIn) *APIError {
 
 // CreateVolume creates a block volume, optionally from a volume or backup.
 func (b *InMemoryBackend) CreateVolume(in CreateVolumeIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolume")
-	defer b.mu.Unlock()
-
 	if aerr := b.volumeChecks(in); aerr != nil {
 		return nil, "", aerr
 	}
@@ -370,9 +367,6 @@ func (b *InMemoryBackend) newBootSource(in CreateBootVolumeIn) (bootSource, *API
 
 // CreateBootVolume clones a boot volume or restores a boot volume backup.
 func (b *InMemoryBackend) CreateBootVolume(in CreateBootVolumeIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateBootVolume")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -511,9 +505,6 @@ func (b *InMemoryBackend) attachConflicts(in AttachVolumeIn, inst *Instance, vol
 
 // AttachVolume attaches a block volume to an instance.
 func (b *InMemoryBackend) AttachVolume(in AttachVolumeIn) (resource, string, *APIError) {
-	b.mu.Lock("AttachVolume")
-	defer b.mu.Unlock()
-
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}

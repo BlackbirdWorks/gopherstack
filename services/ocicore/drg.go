@@ -217,9 +217,6 @@ func (b *InMemoryBackend) newDrgTable(drg *Drg, name, importID string) *DrgRoute
 
 // CreateDrg creates a DRG with its default route tables and route distributions.
 func (b *InMemoryBackend) CreateDrg(in CreateDrgIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDrg")
-	defer b.mu.Unlock()
-
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -478,9 +475,6 @@ func (b *InMemoryBackend) vcnNetwork(in CreateDrgAttachmentIn) (*DrgNetworkDetai
 
 // CreateDrgAttachment attaches a VCN to a DRG; each VCN attaches to at most one DRG.
 func (b *InMemoryBackend) CreateDrgAttachment(in CreateDrgAttachmentIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDrgAttachment")
-	defer b.mu.Unlock()
-
 	if in.DrgID == "" {
 		return nil, "", errMissing("drgId is required")
 	}

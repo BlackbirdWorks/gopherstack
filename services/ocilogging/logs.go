@@ -246,7 +246,7 @@ func (b *InMemoryBackend) CreateLog(groupID string, in CreateLogIn) (string, err
 		return "", aerr
 	}
 
-	if aerr = firstErr(validateName(in.Name), validRetention(in.Retention)); aerr != nil {
+	if aerr = firstErr(validResourceName(in.Name, false), validRetention(in.Retention)); aerr != nil {
 		return "", aerr
 	}
 
@@ -372,7 +372,7 @@ func (b *InMemoryBackend) ListLogs(groupID string, f LogFilter, o ListOpts) (pag
 // UpdateLog changes the mutable fields of a log; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateLog(groupID, id, ifMatch string, in UpdateLogIn) (string, error) {
 	if in.Name != nil {
-		if aerr := validateName(*in.Name); aerr != nil {
+		if aerr := validResourceName(*in.Name, false); aerr != nil {
 			return "", aerr
 		}
 	}

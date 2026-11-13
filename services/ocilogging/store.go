@@ -24,6 +24,7 @@ const (
 
 	defaultTransition = 2 * time.Second
 	maxName           = 255
+	maxResourceName   = 256
 	maxDescription    = 400
 	retentionStep     = 30
 	maxRetentionDays  = 180
@@ -254,6 +255,30 @@ func validateName(name string) *APIError {
 
 	return nil
 }
+
+func validResourceName(name string, group bool) *APIError {
+	if strings.TrimSpace(name) == "" {
+		return errMissing("displayName is required")
+	}
+
+	if len(name) > maxResourceName {
+		return errParam("displayName must be at most 256 characters")
+	}
+
+	if group && !isASCIILetter(name[0]) {
+		return errParam("a log group displayName must start with a letter")
+	}
+
+	for i := range len(name) {
+		if c := name[i]; !isASCIILetter(c) && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
+			return errParam("displayName may contain only letters, digits, hyphens, underscores and periods")
+		}
+	}
+
+	return nil
+}
+
+func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 func firstErr(errs ...*APIError) *APIError {
 	for _, e := range errs {

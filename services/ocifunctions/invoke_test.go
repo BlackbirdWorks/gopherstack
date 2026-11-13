@@ -392,6 +392,7 @@ func TestInvoke_Outcomes(t *testing.T) {
 			_, _, err := ie.invoke(t, "x", nil)
 			se := svcErr(t, err)
 			assert.Equal(t, http.StatusServiceUnavailable, se.GetHTTPStatusCode())
+			assert.Equal(t, "FunctionInvokeServiceUnavailable", se.GetCode())
 			assert.Contains(t, se.GetMessage(), "disabled")
 			assert.Empty(t, ie.rt.startedSpecs())
 		}},
@@ -467,9 +468,13 @@ func TestInvoke_RawRequests(t *testing.T) {
 			t.Parallel()
 
 			ie := newInvokeEnv(t, nil, nil)
-			status, _, _ := rawDo(t, http.MethodPost,
+			status, body, _ := rawDo(t, http.MethodPost,
 				ie.base+"/20181201/functions/"+*ie.fn.Id+"/actions/invoke", tt.body, tt.hdr)
 			assert.Equal(t, tt.wantStatus, status)
+
+			if tt.wantStatus == http.StatusRequestEntityTooLarge {
+				assert.Contains(t, body, "FunctionInvokeRequestContentTooLarge")
+			}
 		})
 	}
 }

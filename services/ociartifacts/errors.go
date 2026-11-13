@@ -36,6 +36,10 @@ func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "Mi
 
 func errConflict(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
 
+func errExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
+
 func errState(msg string) *APIError { return newErr(http.StatusConflict, "IncorrectState", msg) }
 
 func errEtag() *APIError {

@@ -593,6 +593,7 @@ func TestSteeringPoliciesAndAttachments(t *testing.T) {
 		SteeringPolicyId: p.Id, ZoneId: zone.Id, DomainName: new("www.lb.example"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
 
 	_, err = e.client.CreateSteeringPolicyAttachment(t.Context(), ocidnssdk.CreateSteeringPolicyAttachmentRequest{
 		SteeringPolicyId: p.Id, ZoneId: zone.Id, DomainName: new("www.other.example"),

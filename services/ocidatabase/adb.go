@@ -167,7 +167,7 @@ func (b *InMemoryBackend) checkCreateFields(db *ADB, in createIn) *APIError {
 	}
 
 	if b.nameTaken(db.DBName, "") {
-		return errConflict("An Autonomous Database named " + db.DBName + " already exists in the tenancy")
+		return errExists("An Autonomous Database named " + db.DBName + " already exists in the tenancy")
 	}
 
 	if db.IsFreeTier {

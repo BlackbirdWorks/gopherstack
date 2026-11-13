@@ -166,32 +166,40 @@ func (b *InMemoryBackend) checkTags(in any) *APIError {
 	return nil
 }
 
-// replayCreate answers a create whose retry token was seen before with the resource it made.
-func (b *InMemoryBackend) replayCreate(scope, token string) (resource, string, bool, *APIError) {
-	if token == "" {
-		return nil, "", false, nil
-	}
+// createOnce runs create under the write lock and answers a repeated retry token with the first resource.
+func (b *InMemoryBackend) createOnce(
+	scope, token string, create func() (resource, string, *APIError),
+) (resource, string, *APIError) {
+	b.mu.Lock("createOnce")
+	defer b.mu.Unlock()
 
-	b.mu.RLock("replayCreate")
-	defer b.mu.RUnlock()
+	var (
+		out  resource
+		etag string
+		aerr *APIError
+	)
 
-	id, ok := b.retry.Lookup(scope, token, b.nowUTC())
-	if !ok {
-		return nil, "", false, nil
-	}
+	_ = b.retry.Once(scope, token, b.nowUTC(), func(id string) error {
+		r, found := b.res[id]
+		if !found || !live(r) {
+			aerr = errInvalidatedToken()
 
-	r, found := b.res[id]
-	if !found || !live(r) {
-		return nil, "", true, errInvalidatedToken()
-	}
+			return nil
+		}
 
-	return r.view(), r.base().Internal.Etag, true, nil
-}
+		out, etag = r.view(), r.base().Internal.Etag
 
-func (b *InMemoryBackend) rememberCreate(scope, token string, r resource) {
-	b.mu.Lock("rememberCreate")
-	b.retry.Remember(scope, token, r.base().ID, b.nowUTC())
-	b.mu.Unlock()
+		return nil
+	}, func() (string, error) {
+		out, etag, aerr = create()
+		if aerr != nil {
+			return "", aerr
+		}
+
+		return out.base().ID, nil
+	})
+
+	return out, etag, aerr
 }
 
 func (b *InMemoryBackend) newBase(kind, compartment, name string, tags TagsIn) Base {

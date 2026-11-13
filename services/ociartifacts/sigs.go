@@ -104,7 +104,7 @@ func (b *InMemoryBackend) CreateContainerImageSignature(
 	for _, s := range b.sigs {
 		if s.ImageID == in.ImageID && s.KmsKeyID == in.KmsKeyID && s.KmsKeyVersionID == in.KmsKeyVersionID &&
 			s.Algorithm == in.SigningAlgorithm && s.Signature == in.Signature && s.Message == in.Message {
-			return signatureWire{}, "", errConflict("The image already has an identical signature")
+			return signatureWire{}, "", errExists("The image already has an identical signature")
 		}
 	}
 

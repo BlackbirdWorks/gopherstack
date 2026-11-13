@@ -256,9 +256,6 @@ func (b *InMemoryBackend) cloneBootVolume(g *VolumeGroup, src *BootVolume) *Boot
 
 // CreateVolumeGroup creates a volume group from volumes, a volume group backup or another volume group.
 func (b *InMemoryBackend) CreateVolumeGroup(in CreateVolumeGroupIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeGroup")
-	defer b.mu.Unlock()
-
 	if aerr := b.volumeGroupChecks(in); aerr != nil {
 		return nil, "", aerr
 	}
@@ -409,9 +406,6 @@ type CreateVolumeGroupBackupIn struct {
 
 // CreateVolumeGroupBackup backs up every member of a volume group; the member backups share its lifecycle.
 func (b *InMemoryBackend) CreateVolumeGroupBackup(in CreateVolumeGroupBackupIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeGroupBackup")
-	defer b.mu.Unlock()
-
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}

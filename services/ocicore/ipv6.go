@@ -267,9 +267,6 @@ func (b *InMemoryBackend) newIpv6(in CreateIpv6In) (*Ipv6, *APIError) {
 
 // CreateIpv6 creates an IPv6 for a VNIC, or a reserved unassigned one for a subnet.
 func (b *InMemoryBackend) CreateIpv6(in CreateIpv6In) (resource, string, *APIError) {
-	b.mu.Lock("CreateIpv6")
-	defer b.mu.Unlock()
-
 	ip, aerr := b.newIpv6(in)
 	if aerr != nil {
 		return nil, "", aerr

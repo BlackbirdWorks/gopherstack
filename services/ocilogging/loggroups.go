@@ -91,7 +91,7 @@ func (b *InMemoryBackend) CreateLogGroup(in CreateLogGroupIn) (string, error) {
 		return "", errMissing("compartmentId is required")
 	}
 
-	if aerr := firstErr(validateName(in.Name), validDescription(in.Description)); aerr != nil {
+	if aerr := firstErr(validResourceName(in.Name, true), validDescription(in.Description)); aerr != nil {
 		return "", aerr
 	}
 
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) ListLogGroups(compartment, name string, o ListOpts) (p
 // UpdateLogGroup changes the mutable fields of a log group; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateLogGroup(id, ifMatch string, in UpdateLogGroupIn) (string, error) {
 	if in.Name != nil {
-		if aerr := validateName(*in.Name); aerr != nil {
+		if aerr := validResourceName(*in.Name, true); aerr != nil {
 			return "", aerr
 		}
 	}

@@ -12,9 +12,6 @@ type CreateBootVolumeBackupIn struct {
 
 // CreateBootVolumeBackup snapshots a boot volume; the first backup of a boot volume is always FULL.
 func (b *InMemoryBackend) CreateBootVolumeBackup(in CreateBootVolumeBackupIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateBootVolumeBackup")
-	defer b.mu.Unlock()
-
 	if aerr := backupRequest(in.DisplayName, "bootVolumeId", in.BootVolumeID, in.Type); aerr != nil {
 		return nil, "", aerr
 	}

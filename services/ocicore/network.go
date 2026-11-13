@@ -473,9 +473,6 @@ type AttachVnicIn struct {
 
 // AttachVnic attaches a new secondary VNIC to an instance.
 func (b *InMemoryBackend) AttachVnic(in AttachVnicIn) (resource, string, *APIError) {
-	b.mu.Lock("AttachVnic")
-	defer b.mu.Unlock()
-
 	if in.InstanceID == "" || in.CreateVnicDetails == nil {
 		return nil, "", errMissing("instanceId and createVnicDetails are required")
 	}
@@ -617,9 +614,6 @@ type CreatePrivateIPIn struct {
 
 // CreatePrivateIP adds a secondary private IP to a VNIC, or reserves one in a subnet.
 func (b *InMemoryBackend) CreatePrivateIP(in CreatePrivateIPIn) (resource, string, *APIError) {
-	b.mu.Lock("CreatePrivateIP")
-	defer b.mu.Unlock()
-
 	if aerr := validName(in.DisplayName); aerr != nil {
 		return nil, "", aerr
 	}

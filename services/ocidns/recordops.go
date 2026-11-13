@@ -198,6 +198,8 @@ func (b *InMemoryBackend) CreateZoneFromFile(compartment, scope, viewID, text, t
 		rs.Version = created.Version
 	}
 
+	b.retry.Remember("CreateZoneFromFile", token, created.ID, b.nowUTC())
+
 	return b.zoneWire(created), tagOf(created.ID, created.meta), nil
 }
 

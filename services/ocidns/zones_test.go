@@ -159,7 +159,7 @@ func TestZoneDuplicateName(t *testing.T) {
 	)
 	se := svcErr(t, err)
 	assert.Equal(t, http.StatusConflict, se.GetHTTPStatusCode())
-	assert.Equal(t, "Conflict", se.GetCode())
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", se.GetCode())
 }
 
 func TestZoneGetByNameAndID(t *testing.T) {

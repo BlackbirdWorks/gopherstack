@@ -55,6 +55,25 @@ func (s *Store) Remember(scope, token, value string, now time.Time) {
 	s.m[key(scope, token)] = Entry{At: now, Value: value}
 }
 
+// Once answers a replayed token through replay, or runs create and remembers its value.
+// The caller holds its backend write lock across the whole call so concurrent identical requests create once.
+func (s *Store) Once(
+	scope, token string, now time.Time, replay func(value string) error, create func() (string, error),
+) error {
+	if v, ok := s.Lookup(scope, token, now); ok {
+		return replay(v)
+	}
+
+	v, err := create()
+	if err != nil {
+		return err
+	}
+
+	s.Remember(scope, token, v, now)
+
+	return nil
+}
+
 // Entries returns the stored entries for a snapshot.
 func (s *Store) Entries() map[string]Entry {
 	out := make(map[string]Entry, len(s.m))

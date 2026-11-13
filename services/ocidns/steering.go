@@ -474,7 +474,7 @@ func (b *InMemoryBackend) validateAttachment(in CreateAttachmentIn) (*SteeringPo
 
 	for _, a := range b.attachments {
 		if a.ZoneID == z.ID && a.Domain == domain {
-			return nil, "", errConflict("A steering policy is already attached to " + domain)
+			return nil, "", errExists("A steering policy is already attached to " + domain)
 		}
 	}
 

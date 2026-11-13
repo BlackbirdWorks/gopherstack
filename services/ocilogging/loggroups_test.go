@@ -125,6 +125,12 @@ func TestLogGroupValidation(t *testing.T) {
 			}
 			d.Description = new(string(n))
 		}, "long description", "InvalidParameter", 400},
+		{
+			func(d *logging.CreateLogGroupDetails) { d.DisplayName = new("1group") },
+			"digit first", "InvalidParameter", 400,
+		},
+		{func(d *logging.CreateLogGroupDetails) { d.DisplayName = new("my group") }, "space", "InvalidParameter", 400},
+		{func(d *logging.CreateLogGroupDetails) { d.DisplayName = new("my:group") }, "colon", "InvalidParameter", 400},
 		{func(d *logging.CreateLogGroupDetails) { d.DisplayName = new("dup") }, "duplicate name", "Conflict", 409},
 	}
 

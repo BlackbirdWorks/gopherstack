@@ -47,7 +47,11 @@ items_still_open:
   - "The service catalog is a fixed list of six services, and only OCI Functions feeds SERVICE logs; Object Storage, Load Balancer, API Gateway, Events and flow logs never emit entries."
   - "Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries."
   - "Archiving (Object Storage export of logs) is stored on the configuration but nothing is exported."
-  - "Retention, the 1 MiB request limit, the 10000 character data truncation and the log naming rules are recalled from the Oracle documentation and SDK comments, not verified against the live service; the per-compartment uniqueness of log group names is an emulator choice."
+  - "Retention, the 1 MiB request limit and the 10000 character data truncation are recalled from the Oracle documentation and SDK comments, not verified against the live service; the per-compartment uniqueness of log group names is an emulator choice."
   - "isCompartmentIdInSubtree is ignored, and IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
   - "systemTags are never set."
 ---
+
+## Verified against Oracle documentation
+
+- Log and log group names: 1 to 256 characters of letters, digits, hyphens, underscores and periods, log groups starting with a letter, case-sensitive: https://docs.oracle.com/en-us/iaas/Content/Logging/Task/managinglogs.htm.
