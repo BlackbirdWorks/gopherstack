@@ -421,6 +421,9 @@ export const removeMember = async (
   );
 };
 
+/** The proxy rejects getByIds bodies with more ids than this (graphPxMaxIDs). */
+const GET_BY_IDS_MAX = 100;
+
 /** Resolves directory object ids to names; unknown ids are absent from the result. */
 export async function resolvePrincipals(
   ids: string[],
@@ -429,8 +432,11 @@ export async function resolvePrincipals(
   const unique = [...new Set(ids.filter((i) => isGuid(i)))];
   const out = new Map<string, DirObject>();
   if (unique.length === 0) return out;
-  const r = await graph("POST", "/directoryObjects/getByIds", { ids: unique }, fetchFn);
-  for (const o of list(r.value).map((row) => parseDirObject(row))) out.set(o.id, o);
+  for (let i = 0; i < unique.length; i += GET_BY_IDS_MAX) {
+    const chunk = unique.slice(i, i + GET_BY_IDS_MAX);
+    const r = await graph("POST", "/directoryObjects/getByIds", { ids: chunk }, fetchFn);
+    for (const o of list(r.value).map((row) => parseDirObject(row))) out.set(o.id, o);
+  }
   return out;
 }
 
@@ -513,10 +519,20 @@ export type NewAssignment = {
   principalType?: string;
 };
 
+/** A v4 UUID; crypto.randomUUID is missing on non-secure (plain http) origins. */
+export function newUuid(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export async function createRoleAssignment(
   scope: string,
   a: NewAssignment,
-  name: string = crypto.randomUUID(),
+  name: string = newUuid(),
   fetchFn: FetchFn = fetch,
 ): Promise<void> {
   const properties: Record<string, string> = {

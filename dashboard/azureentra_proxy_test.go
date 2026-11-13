@@ -47,7 +47,7 @@ func newEntraEnv(t *testing.T) *entraEnv {
 
 	armH, ok := armSvc.(*azurearm.Handler)
 	require.True(t, ok)
-	t.Cleanup(func() { armH.Shutdown(context.Background()) })
+	t.Cleanup(func() { armH.Shutdown(context.WithoutCancel(t.Context())) })
 
 	gs := azuregraph.DefaultSettings()
 	graphH := azuregraph.NewHandler(azuregraph.NewBackend(gs), gs)

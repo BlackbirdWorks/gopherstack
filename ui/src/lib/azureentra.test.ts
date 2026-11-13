@@ -20,6 +20,7 @@ import {
   listRoleAssignments,
   listRoleDefinitions,
   mailNicknameFrom,
+  newUuid,
   parseApplication,
   parseApplicationDetail,
   parseDirObject,
@@ -217,6 +218,32 @@ describe("graph calls", () => {
     const none = vi.fn();
     expect((await resolvePrincipals(["x"], asFetch(none))).size).toBe(0);
     expect(none).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolvePrincipals chunking", () => {
+  it("splits more than 100 ids across requests", async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`);
+    const f = vi.fn().mockImplementation((_u: string, init: RequestInit) => {
+      const sent: string[] = JSON.parse(String(init.body)).ids;
+      return Promise.resolve(json({ value: sent.map((id) => ({ id, displayName: id })) }));
+    });
+    const out = await resolvePrincipals(ids, asFetch(f));
+    expect(f).toHaveBeenCalledTimes(3);
+    expect([0, 1, 2].map((i) => bodyOf(f, i).ids.length)).toEqual([100, 100, 50]);
+    expect(out.size).toBe(250);
+  });
+});
+
+describe("newUuid", () => {
+  it("falls back to getRandomValues when randomUUID is unavailable", () => {
+    const real = crypto.randomUUID;
+    Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+    try {
+      expect(newUuid()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally {
+      Object.defineProperty(crypto, "randomUUID", { value: real, configurable: true });
+    }
   });
 });
 

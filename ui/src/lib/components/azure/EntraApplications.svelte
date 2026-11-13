@@ -52,6 +52,7 @@
 	async function loadDetail() {
 		if (!selected) {
 			detail = null;
+			detailError = '';
 			return;
 		}
 		try {
@@ -65,6 +66,7 @@
 	function select(a: Application) {
 		selected = selected === a.id ? '' : a.id;
 		detail = null;
+		detailError = '';
 		void loadDetail();
 	}
 
@@ -148,10 +150,11 @@
 		</div>
 	{/if}
 
+	{#if detailError}<p class="text-sm text-red-600" role="alert" data-testid="entra-app-detail-error">{detailError}</p>{/if}
+
 	{#if detail}
 		<div class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700" data-testid="entra-app-detail">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{detail.displayName}</h2>
-			{#if detailError}<p class="text-sm text-red-600" role="alert">{detailError}</p>{/if}
 			<dl class="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-xs">
 				<dt class="text-gray-500">Object ID</dt><dd class="font-mono">{detail.id}</dd>
 				<dt class="text-gray-500">Redirect URIs</dt>
