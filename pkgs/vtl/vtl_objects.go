@@ -1,4 +1,4 @@
-package apigateway
+package vtl
 
 import (
 	"encoding/base64"
@@ -16,7 +16,7 @@ type vtlObject interface {
 	call(name string, args []any) (any, bool)
 }
 
-func vtlGlobals(ctx VTLContext) map[string]any {
+func vtlGlobals(ctx Context) map[string]any {
 	stage := stringMapToVTL(ctx.StageVariables)
 	stage.emptyForMissing = true
 
@@ -28,7 +28,7 @@ func vtlGlobals(ctx VTLContext) map[string]any {
 	}
 }
 
-func buildContextMap(ctx VTLContext) *vtlMap {
+func buildContextMap(ctx Context) *vtlMap {
 	identity := newVTLMap()
 	identity.put("sourceIp", ctx.SourceIP)
 	identity.put("userAgent", ctx.UserAgent)
@@ -50,6 +50,10 @@ func buildContextMap(ctx VTLContext) *vtlMap {
 	m.put("domainName", ctx.DomainName)
 	m.put("identity", identity)
 	m.put("authorizer", authorizer)
+
+	for _, k := range sortedKeys(ctx.Extra) {
+		m.put(k, fromGo(ctx.Extra[k]))
+	}
 
 	return m
 }
@@ -99,12 +103,12 @@ func fromGo(v any) any {
 
 type vtlInput struct {
 	root   any
-	ctx    VTLContext
+	ctx    Context
 	parsed bool
 }
 
 func (in *vtlInput) property(name string) (any, bool) {
-	if name == exportKeyBody {
+	if name == keyBody {
 		return in.ctx.Body, true
 	}
 
@@ -131,7 +135,7 @@ func (in *vtlInput) call(name string, args []any) (any, bool) {
 		return evalJSONPath(in.rootValue(), argString(args, 0)), true
 	case "params":
 		return in.params(args), true
-	case exportKeyBody:
+	case keyBody:
 		return in.ctx.Body, true
 	}
 
@@ -624,3 +628,24 @@ func recursiveCollect(v any, name string, out *[]any) {
 }
 
 const methodIsEmpty = "isEmpty"
+
+const keyBody = "body"
+
+// ParseOrderedJSON decodes JSON into template values (insertion-ordered maps).
+func ParseOrderedJSON(s string) (any, error) { return parseOrderedJSON(s) }
+
+// JavaString renders a template value the way Java's toString would.
+func JavaString(v any) string { return javaString(v) }
+
+// EvalJSONPath evaluates a JSONPath expression against a ParseOrderedJSON root.
+func EvalJSONPath(root any, path string) any { return evalJSONPath(root, path) }
+
+// MapGet looks key up in a ParseOrderedJSON object; ok is false for non-objects or absent keys.
+func MapGet(root any, key string) (any, bool) {
+	m, ok := root.(*vtlMap)
+	if !ok {
+		return nil, false
+	}
+
+	return m.get(key)
+}

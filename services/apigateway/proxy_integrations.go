@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/vtl"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -785,10 +787,8 @@ func (h *Handler) handleMockIntegration(
 	statusKey := "200"
 
 	if root, err := parseOrderedJSON(string(payload)); err == nil {
-		if m, ok := root.(*vtlMap); ok {
-			if code, found := m.get("statusCode"); found {
-				statusKey = javaString(code)
-			}
+		if code, found := vtl.MapGet(root, "statusCode"); found {
+			statusKey = javaString(code)
 		}
 	}
 

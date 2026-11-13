@@ -1,15 +1,17 @@
-package apigateway
+package vtl
 
 import (
 	"strings"
 )
 
-// VTLContext holds the context variables available during VTL template rendering.
-type VTLContext struct {
+// Context holds the context variables available during VTL template rendering.
+type Context struct {
 	// StageVariables is exposed as $stageVariables.X.
 	StageVariables map[string]string
 	// Authorizer is exposed as $context.authorizer.
 	Authorizer map[string]any
+	// Extra adds further $context.<key> entries (e.g. WebSocket connectionId, routeKey).
+	Extra map[string]any
 	// Headers, QueryParams and PathParams feed $input.params().
 	Headers     map[string]string
 	QueryParams map[string]string
@@ -38,9 +40,9 @@ type VTLContext struct {
 	UserAgent string
 }
 
-// RenderTemplate renders a Velocity template, returning it unchanged when it does not parse.
-func RenderTemplate(tmpl string, ctx VTLContext) string {
-	out, err := RenderTemplateStrict(tmpl, ctx)
+// Render renders a Velocity template, returning it unchanged when it does not parse.
+func Render(tmpl string, ctx Context) string {
+	out, err := RenderStrict(tmpl, ctx)
 	if err != nil {
 		return tmpl
 	}

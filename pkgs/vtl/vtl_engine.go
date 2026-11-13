@@ -1,4 +1,4 @@
-package apigateway
+package vtl
 
 import (
 	"strconv"
@@ -17,10 +17,10 @@ type vtlState struct {
 	broke  bool
 }
 
-// RenderTemplateStrict renders a Velocity template with API Gateway's mapping
+// RenderStrict renders a Velocity template with API Gateway's mapping
 // objects ($input, $context, $stageVariables, $util), returning an error for a
 // template that does not parse.
-func RenderTemplateStrict(tmpl string, ctx VTLContext) (string, error) {
+func RenderStrict(tmpl string, ctx Context) (string, error) {
 	nodes, macros, err := parseVTL(tmpl)
 	if err != nil {
 		return "", err

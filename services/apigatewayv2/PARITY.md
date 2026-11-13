@@ -292,7 +292,7 @@ families:
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps: []
 items_still_open:
-  - "WebSocket data plane serves AWS_PROXY (Lambda) and MOCK integrations only: AWS/HTTP/HTTP_PROXY WebSocket integrations, request/response templates, route-response/integration-response selection beyond $default, and a non-JSON $disconnect-time context are not implemented (gopherstack-49qct.58)."
+  - "WebSocket data plane: AWS-type (non-proxy) integrations support Lambda URIs only (no other AWS service URIs), a $connect route on an HTTP/HTTP_PROXY integration does not reject on a non-2xx upstream status, and a non-JSON $disconnect-time context is not implemented (gopherstack-49qct.58)."
   - "Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the \"Invalid <X> identifier specified\" convention but is not pinned by the SDK; only the API form is certain."
   - "ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0)."
   - "A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1)."
@@ -302,6 +302,14 @@ structural_gaps:
 deferred: []
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## WebSocket integrations, templates and response selection
+
+HTTP_PROXY forwards the client message to the integration URI via pkgs/httpclient and returns the upstream body unmodified, any status. HTTP, AWS (Lambda) and MOCK map the message through `requestTemplates` (VTL via pkgs/vtl; `$context.connectionId`, `routeKey`, `eventType`, `connectedAt` plus `$input`/`$util`) and select an integration response by `integrationResponseKey` (`/regex/` or literal against the status code, or the Lambda `errorMessage` for AWS; `$default` fallback), then a `responseTemplates` entry by the response `templateSelectionExpression`. The result reaches the client only when the route has a `$default` route response.
+
+Sources: docs.aws.amazon.com/apigateway/latest/developerguide/ apigateway-websocket-api-integration-requests.html (integration types); apigateway-websocket-api-integration-responses.html (proxy has no integration response; `$default` plus `/regex/` keys; HTTP matches status code); apigateway-websocket-api-selection-expressions.html (selection grammar, `\$default` escape, route response key is `$default` only); websocket-api-data-transformations.html (supported variables per expression; response key per integration type).
+
+Emulator choices (docs silent): an empty template selection expression selects `$default`; no matching request template follows PassthroughBehavior (WHEN_NO_MATCH default passes the raw body, NEVER and WHEN_NO_TEMPLATES-with-templates fail); no matching response template returns the backend body unchanged; a MOCK integration with request templates takes `statusCode` from the rendered template (default 200); no matching integration response, a failing request/response template or a backend error sends `{"message":"Internal server error","connectionId","requestId"}` on routes with a route response, and nothing otherwise; HTTP calls use POST (or the integration method), `Content-Type: application/json`, and `timeoutInMillis`.
 
 ## 2026-10-07 (items_still_open burn-down)
 
