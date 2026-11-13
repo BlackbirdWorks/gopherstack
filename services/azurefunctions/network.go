@@ -99,5 +99,11 @@ func (b *InMemoryBackend) forContainer(st *appState) *appState {
 		out.Settings[k] = n.rewrite(v, host)
 	}
 
+	out.ConnEnv = make(map[string]string, len(st.ConnEnv))
+
+	for k, v := range st.ConnEnv {
+		out.ConnEnv[k] = n.rewrite(v, host)
+	}
+
 	return &out
 }

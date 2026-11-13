@@ -6,6 +6,7 @@ last_audit_date: 2026-10-21
 overall: B
 ops:
   PublishEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /api/events on the HTTPS port with EventGridSchema events (array or single object); id, subject, eventType, eventTime and dataVersion are required (400 BadRequest otherwise); CloudEvents on an EventGridSchema topic are rejected. Events are stamped with topic and metadataVersion, then fanned out to matching event subscriptions."}
+  PublishCustomSchema: {wire: ok, errors: ok, state: ok, persist: ok, note: "Topics created with inputSchema CustomEventSchema accept any JSON object (array or single) and map it onto the Event Grid schema with the topic's inputSchemaMapping (JsonInputSchemaMapping: id, topic, eventTime take a sourceField; subject, eventType, dataVersion take a sourceField and/or defaultValue, at least one). The event's id is the mapped field or a new GUID, eventTime the mapped field or the publish time, topic the mapped field or the topic resource ID, metadataVersion is 1 and data is the original payload (Learn: event-grid/input-mappings). A required subject, eventType or dataVersion that resolves to nothing is 400. Subscriptions on such a topic default to EventGridSchema delivery or choose CustomInputSchema, which delivers the original payload; CloudEventSchemaV1_0 delivery is refused. inputSchemaMapping needs the custom schema, inputSchemaMappingType must be Json and an unknown inputSchema is 400. Both persist with the topic and round-trip through ARM."}
   PublishCloudEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same endpoint for topics created with inputSchema CloudEventSchemaV1_0: structured application/cloudevents+json and batched application/cloudevents-batch+json (specversion 1.0, id, source, type required). Binary content mode (ce-* headers) is not implemented."}
   SendEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /topics/{topic}:publish for namespace topics, single or batched CloudEvents, fanned out to every pull subscription whose filter matches."}
   ReceiveEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: ":receive with maxEvents (1-100) and maxWaitTime long poll; returns value[].brokerProperties {lockToken, deliveryCount} and the CloudEvent. Locked events reappear when the lock lapses (injected clock in tests)."}
@@ -27,15 +28,13 @@ families:
   auth: {status: ok, note: "Off by default (any credential is accepted and the topic is picked by host label, key or the single topic). With --azure-eventgrid-validate-sas the aeg-sas-key must equal a topic key and SAS tokens (r, e, s; HMAC-SHA256 over the base64-decoded key) must verify and be unexpired; namespace requests use SharedAccessKey or SAS against the namespace keys."}
 gaps:
   - "System topics, partner topics and partner namespaces are not implemented."
-  - "Custom input schemas and input schema mappings are not implemented."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Delivery with managed identity and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery."
   - "Resource-scope event subscriptions receive no events."
 deferred: []
 items_still_open:
-  - "System topics, partner topics and partner configurations are not implemented."
-  - "Custom input schemas and input schema mappings are not implemented."
+  - "System topics, partner topics and partner configurations are not implemented; a system topic needs a source service that emits its events, and the emulated azureblob, azureservicebus and azurekeyvault publish none."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Managed-identity delivery and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces."
@@ -48,3 +47,5 @@ leaks: {status: clean, note: "Shutdown cancels the delivery worker and waits for
 Subscription properties cross the ARM seam as ARM property maps, so the service keeps the exact wire shape (destination, filter, retryPolicy, deadLetterDestination, eventDeliverySchema, labels, expirationTimeUtc) and renders it back with defaults and provisioningState. WebHook endpoint query strings are withheld from reads and returned by `getFullUrl`.
 
 A delivery's delivery schema always equals the topic's input schema (Event Grid does not convert between them).
+
+Custom input schema (2026-11-13): unmodelled by Learn and therefore unverified here: a target field without a mapping entry falls back to the payload property of the same name, and sourceField is matched against top-level properties only. Domains accept inputSchema CustomEventSchema but still require Event Grid-shaped events (no mapping on domains).

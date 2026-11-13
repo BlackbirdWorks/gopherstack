@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
@@ -19,10 +21,36 @@ func wireAzureRedis(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetRedis(&azureRedisAdapter{b: redisH.Backend})
+
+		if armH.Issuer != nil {
+			redisH.Backend.SetTokenValidator(redisEntraValidator(armH.Issuer))
+		}
 	}
 
 	if blob, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
 		redisH.Backend.SetBlobStore(azureRedisBlobs{b: blob.Backend})
+	}
+}
+
+const redisEntraAppID = "acca5fbb-b7e4-4009-81f1-37e38fd66d78"
+
+// redisEntraValidator accepts tokens the emulator's own token service issued for the Redis resource and returns the
+// principal's object ID.
+func redisEntraValidator(iss *aadauth.Issuer) azureredis.TokenValidator {
+	return func(token string) (string, bool) {
+		claims, err := iss.Parse(token)
+		if err != nil {
+			return "", false
+		}
+
+		aud, _ := claims["aud"].(string)
+		if a := strings.TrimSuffix(aud, "/"); a != "https://redis.azure.com" && a != redisEntraAppID {
+			return "", false
+		}
+
+		oid, _ := claims["oid"].(string)
+
+		return oid, oid != ""
 	}
 }
 
@@ -62,9 +90,15 @@ func redisKeysOf(k azureredis.Keys, err error) (azurearm.RedisKeys, error) {
 }
 
 func (a *azureRedisAdapter) Ensure(id string, spec azurearm.RedisSpec) (azurearm.RedisEndpoint, error) {
+	fw := make([]azureredis.IPRange, 0, len(spec.Firewall))
+	for _, r := range spec.Firewall {
+		fw = append(fw, azureredis.IPRange{Start: r.Start, End: r.End})
+	}
+
 	ep, err := a.b.Ensure(id, azureredis.Spec{
 		SKU: spec.SKU, MinTLS: spec.MinTLS, EnableNonSSLPort: spec.EnableNonSSLPort,
-		Persistence: spec.Persistence, AuthNotRequired: spec.AuthNotRequired,
+		Persistence: spec.Persistence, AuthNotRequired: spec.AuthNotRequired, Firewall: fw,
+		DisableAccessKeys: spec.DisableAccessKeys, EntraEnabled: spec.EntraEnabled,
 	})
 
 	return redisEndpointOf(ep), err

@@ -39,6 +39,7 @@ type EventHubEndpointConfig struct {
 type storedEHNamespace struct {
 	tags          map[string]string
 	sku           map[string]any
+	identity      map[string]any
 	extra         map[string]any
 	createdAt     time.Time
 	name          string

@@ -90,6 +90,8 @@ func (f *fnRecorder) Settings(string) (map[string]string, error) { return map[st
 
 func (f *fnRecorder) SetSettings(string, map[string]string) error { return nil }
 
+func (f *fnRecorder) SetConnectionStrings(string, map[string]string) error { return nil }
+
 func (f *fnRecorder) Functions(_ context.Context, name string) ([]azurearm.FunctionAppFunction, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

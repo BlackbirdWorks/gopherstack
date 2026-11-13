@@ -120,6 +120,10 @@ func (a *azureFunctionAppsAdapter) SetSettings(name string, settings map[string]
 	return mapFunctionsError(a.backend.SetSettings(name, settings))
 }
 
+func (a *azureFunctionAppsAdapter) SetConnectionStrings(name string, env map[string]string) error {
+	return mapFunctionsError(a.backend.SetConnectionStrings(name, env))
+}
+
 func (a *azureFunctionAppsAdapter) SetStopped(name string, stopped bool) error {
 	return mapFunctionsError(a.backend.SetStopped(name, stopped))
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -512,4 +513,196 @@ func TestAuthNotRequired(t *testing.T) {
 	spec.AuthNotRequired = false
 	ensure(t, b, "c1", spec)
 	require.Error(t, dialTLS(t, ep, "").Ping(t.Context()).Err())
+}
+
+func TestFirewall(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		firewall []azureredis.IPRange
+		wantErr  bool
+		wantConn bool
+	}{
+		{name: "no rules", wantConn: true},
+		{
+			name:     "client in range",
+			firewall: []azureredis.IPRange{{Start: "127.0.0.0", End: "127.0.0.9"}},
+			wantConn: true,
+		},
+		{name: "client outside range", firewall: []azureredis.IPRange{{Start: "10.0.0.1", End: "10.0.0.9"}}},
+		{
+			name: "any rule admits",
+			firewall: []azureredis.IPRange{
+				{Start: "10.0.0.1", End: "10.0.0.9"},
+				{Start: "127.0.0.1", End: "127.0.0.1"},
+			},
+			wantConn: true,
+		},
+		{name: "unparsable rule", firewall: []azureredis.IPRange{{Start: "nope", End: "127.0.0.1"}}, wantErr: true},
+		{name: "ipv6 rule", firewall: []azureredis.IPRange{{Start: "::1", End: "::1"}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBackend(t)
+			spec := basicSpec()
+			spec.EnableNonSSLPort = true
+			ensure(t, b, "c1", basicSpec())
+
+			spec.Firewall = tt.firewall
+			_, err := b.Ensure("c1", spec)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, azureredis.ErrInvalid)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			keys, err := b.Keys("c1")
+			require.NoError(t, err)
+
+			ep, _ := b.Endpoint("c1")
+			assert.Equal(t, tt.wantConn, dialTLS(t, ep, keys.Primary).Ping(t.Context()).Err() == nil)
+			assert.Equal(t, tt.wantConn, dialPlain(t, ep, keys.Primary).Ping(t.Context()).Err() == nil)
+		})
+	}
+}
+
+func TestFirewallSurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newBackend(t)
+	spec := basicSpec()
+	spec.Firewall = []azureredis.IPRange{{Start: "10.0.0.1", End: "10.0.0.9"}}
+	ensure(t, b, "c1", spec)
+
+	b2, _ := newBackend(t)
+	require.NoError(t, b2.Restore(t.Context(), b.Snapshot(t.Context())))
+
+	ep, _ := b2.Endpoint("c1")
+	keys, err := b2.Keys("c1")
+	require.NoError(t, err)
+	require.Error(t, dialTLS(t, ep, keys.Primary).Ping(t.Context()).Err())
+}
+
+func dialTLSUser(t *testing.T, ep azureredis.Endpoint, user, password string) *goredis.Client {
+	t.Helper()
+
+	c := goredis.NewClient(&goredis.Options{
+		Addr:     net.JoinHostPort(ep.Host, strconv.Itoa(ep.SSLPort)),
+		Username: user, Password: password,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+	})
+	t.Cleanup(func() { _ = c.Close() })
+
+	return c
+}
+
+func entraOn(s azureredis.Spec) azureredis.Spec {
+	s.EntraEnabled = true
+
+	return s
+}
+
+func TestEntraAuthentication(t *testing.T) {
+	t.Parallel()
+
+	const oid = "11111111-2222-3333-4444-555555555555"
+
+	validator := func(token string) (string, bool) {
+		if after, ok := strings.CutPrefix(token, "token-for-"); ok {
+			return after, true
+		}
+
+		return "", false
+	}
+
+	tests := []struct {
+		name        string
+		spec        func(azureredis.Spec) azureredis.Spec
+		user, pass  string
+		useKey      string
+		wantSuccess bool
+	}{
+		{name: "entra token", spec: entraOn,
+			user: oid, pass: "token-for-" + oid, wantSuccess: true},
+		{name: "entra token for another principal", spec: entraOn, user: oid, pass: "token-for-someone-else"},
+		{name: "entra token rejected when not enabled", spec: func(s azureredis.Spec) azureredis.Spec { return s },
+			user: oid, pass: "token-for-" + oid},
+		{name: "invalid token", spec: entraOn,
+			user: oid, pass: "garbage"},
+		{name: "key works while keys are allowed", spec: func(s azureredis.Spec) azureredis.Spec { return s },
+			useKey: "primary", wantSuccess: true},
+		{name: "key refused when keys are disabled", spec: func(s azureredis.Spec) azureredis.Spec {
+			s.DisableAccessKeys = true
+
+			return s
+		}, useKey: "primary"},
+		{name: "secondary key refused when keys are disabled", spec: func(s azureredis.Spec) azureredis.Spec {
+			s.DisableAccessKeys, s.EntraEnabled = true, true
+
+			return s
+		}, useKey: "secondary"},
+		{name: "entra token with keys disabled", spec: func(s azureredis.Spec) azureredis.Spec {
+			s.DisableAccessKeys, s.EntraEnabled = true, true
+
+			return s
+		}, user: oid, pass: "token-for-" + oid, wantSuccess: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBackend(t)
+			b.SetTokenValidator(validator)
+
+			ep := ensure(t, b, "c1", tt.spec(basicSpec()))
+			keys, err := b.Keys("c1")
+			require.NoError(t, err)
+
+			user, pass := tt.user, tt.pass
+
+			switch tt.useKey {
+			case "primary":
+				pass = keys.Primary
+			case "secondary":
+				pass = keys.Secondary
+			}
+
+			err = dialTLSUser(t, ep, user, pass).Ping(t.Context()).Err()
+			if tt.wantSuccess {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDisablingAccessKeysDropsConnections(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newBackend(t)
+	ep := ensure(t, b, "c1", basicSpec())
+	keys, err := b.Keys("c1")
+	require.NoError(t, err)
+
+	c := dialTLS(t, ep, keys.Primary)
+	require.NoError(t, c.Ping(t.Context()).Err())
+
+	spec := basicSpec()
+	spec.DisableAccessKeys = true
+	ensure(t, b, "c1", spec)
+
+	require.Eventually(t, func() bool {
+		return c.Ping(t.Context()).Err() != nil
+	}, 5*time.Second, 20*time.Millisecond)
 }

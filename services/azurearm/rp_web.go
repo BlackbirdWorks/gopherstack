@@ -343,23 +343,37 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	siteCfg := mapOf(props[webFieldSiteConfig])
-	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
-	rec.Configs[webConfigWeb] = cfgWeb
-
-	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb, flex))
+	cfgWeb, err := p.mergedWebConfig(rec, rec, siteCfg)
 	if err != nil {
-		return nil, badWebRequest(err)
+		return nil, err
 	}
 
-	if raw, ok := siteCfg[webFieldAppSettings].([]any); ok {
-		if err = p.dataPlane.SetSettings(name, nameValueSettings(raw)); err != nil {
-			return nil, badWebRequest(err)
-		}
+	rec.Configs[webConfigWeb] = cfgWeb
+
+	info, err := p.startSite(name, kind, cfgWeb, flex, siteCfg)
+	if err != nil {
+		return nil, err
 	}
 
 	p.sites[webSiteKey(name)] = rec
 
 	return p.siteBody(ctx, id, rec, info), nil
+}
+
+// startSite creates or updates the site's app in the data plane with its configuration and app settings.
+func (p *WebProvider) startSite(name, kind string, cfgWeb, flex, siteCfg map[string]any) (FunctionAppInfo, error) {
+	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb, flex))
+	if err != nil {
+		return FunctionAppInfo{}, badWebRequest(err)
+	}
+
+	if raw, ok := siteCfg[webFieldAppSettings].([]any); ok {
+		if err = p.dataPlane.SetSettings(name, nameValueSettings(raw)); err != nil {
+			return FunctionAppInfo{}, badWebRequest(err)
+		}
+	}
+
+	return info, nil
 }
 
 func siteAppConfig(kind string, cfg, flex map[string]any) FunctionAppConfig {

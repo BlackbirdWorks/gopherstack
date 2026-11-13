@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -68,6 +69,12 @@ func (p *EventHubProvider) putNamespace(
 		ns.sku = existing.sku
 	}
 
+	if ident, ok := body[acFieldIdentity].(map[string]any); ok {
+		ns.identity = ident
+	} else if existed {
+		ns.identity = existing.identity
+	}
+
 	p.namespaces[key] = ns
 
 	return p.namespaceBody(id, ns), nil
@@ -79,7 +86,7 @@ func (p *EventHubProvider) namespaceBody(id ResourceID, ns *storedEHNamespace) m
 		sku = map[string]any{fieldName: skuTierStandard, cosmosFieldTier: skuTierStandard, "capacity": 1}
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"id": id.ARMID(), fieldName: ns.name, fieldType: namespaceMicrosoftEventHub + "/" + ehNamespacesType,
 		fieldLocation: ns.location, fieldTags: tagsOrEmpty(ns.tags), ehFieldSKU: sku,
 		fieldProperties: ehMerge(map[string]any{
@@ -99,6 +106,12 @@ func (p *EventHubProvider) namespaceBody(id ResourceID, ns *storedEHNamespace) m
 			ehPropUpdatedAt:        ehTime(ns.createdAt),
 		}),
 	}
+
+	if len(ns.identity) > 0 {
+		out[acFieldIdentity] = redisIdentity(id, ns.identity)
+	}
+
+	return out
 }
 
 func (p *EventHubProvider) listNamespaces(id ResourceID) []map[string]any {
@@ -445,6 +458,10 @@ func (p *EventHubProvider) ListKeys(_ context.Context, id ResourceID) (map[strin
 		return nil, ErrEventHubRuleNotFound
 	}
 
+	return p.ruleKeysBody(id, hub, r), nil
+}
+
+func (p *EventHubProvider) ruleKeysBody(id ResourceID, hub string, r EventHubRule) map[string]any {
 	ns := p.namespaces[ehKey(id.ResourceGroup, id.Names[0])]
 
 	return map[string]any{
@@ -453,7 +470,37 @@ func (p *EventHubProvider) ListKeys(_ context.Context, id ResourceID) (map[strin
 		"primaryKey":                r.PrimaryKey,
 		"secondaryKey":              r.SecondaryKey,
 		fieldKeyName:                id.LeafName(),
-	}, nil
+	}
+}
+
+// RegenerateKeys replaces a rule's primary or secondary key (with body.key when given) and returns the new keys.
+func (p *EventHubProvider) RegenerateKeys(id ResourceID, body map[string]any) (map[string]any, error) {
+	kind := classifyEventHubPath(id)
+	if kind != ehKindNSRule && kind != ehKindHubRule {
+		return nil, errUnsupportedEventHubType(id)
+	}
+
+	keyType, _ := body["keyType"].(string)
+	key, _ := body["key"].(string)
+
+	p.mu.Lock("RegenerateKeys")
+	defer p.mu.Unlock()
+
+	hub, err := p.ruleScope(id)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := p.dataPlane.RegenerateRuleKey(id.Names[0], hub, id.LeafName(), keyType, key)
+	if err != nil {
+		if errors.Is(err, ErrEventHubRuleNotFound) {
+			return nil, err
+		}
+
+		return nil, badEventHubRequest(err)
+	}
+
+	return p.ruleKeysBody(id, hub, r), nil
 }
 
 func (p *EventHubProvider) connectionString(ns *storedEHNamespace, rule, key, hub string) string {

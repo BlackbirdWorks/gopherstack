@@ -67,9 +67,26 @@ func redisSpecOf(rec *redisRecord) RedisSpec {
 
 	return RedisSpec{
 		SKU: rec.SKU, MinTLS: rec.MinTLS, EnableNonSSLPort: rec.NonSSL,
-		Persistence:     rec.SKU == redisSKUPremium && persist,
-		AuthNotRequired: strings.EqualFold(cfg["authnotrequired"], "true"),
+		Persistence:       rec.SKU == redisSKUPremium && persist,
+		AuthNotRequired:   strings.EqualFold(cfg["authnotrequired"], "true"),
+		Firewall:          redisRanges(rec),
+		DisableAccessKeys: rec.DisableKeys,
+		EntraEnabled:      strings.EqualFold(cfg["aad-enabled"], "true"),
 	}
+}
+
+func redisRanges(rec *redisRecord) []RedisIPRange {
+	if len(rec.Firewall) == 0 {
+		return nil
+	}
+
+	out := make([]RedisIPRange, 0, len(rec.Firewall))
+
+	for _, fw := range sortedFirewalls(rec) {
+		out = append(out, RedisIPRange{Start: fw.Start, End: fw.End})
+	}
+
+	return out
 }
 
 func (p *RedisProvider) provisioningState(rec *redisRecord) string {
@@ -88,13 +105,15 @@ func (p *RedisProvider) cacheBody(id ResourceID, rec *redisRecord) map[string]an
 			"family":          rec.Family,
 			redisPropCapacity: rec.Capacity,
 		},
-		"enableNonSslPort":   rec.NonSSL,
-		redisPropMinTLS:      rec.MinTLS,
-		redisPropPublic:      rec.PublicAccess,
-		"redisVersion":       rec.Version,
-		"redisConfiguration": redisEffectiveConfig(rec),
-		"hostName":           redisHostName(rec.Name),
-		"linkedServers":      linkedRefs(rec),
+		"enableNonSslPort": rec.NonSSL,
+
+		"disableAccessKeyAuthentication": rec.DisableKeys,
+		redisPropMinTLS:                  rec.MinTLS,
+		redisPropPublic:                  rec.PublicAccess,
+		"redisVersion":                   rec.Version,
+		"redisConfiguration":             redisEffectiveConfig(rec),
+		"hostName":                       redisHostName(rec.Name),
+		"linkedServers":                  linkedRefs(rec),
 	}
 
 	p.addEndpoint(typed, id)

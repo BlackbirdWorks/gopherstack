@@ -310,6 +310,7 @@ func webEnv(a *appState, rt webRuntime, host string, port int) []string {
 		env["PYTHONPATH"] = siteRoot
 	}
 
+	maps.Copy(env, a.ConnEnv)
 	maps.Copy(env, a.Settings)
 
 	keys := make([]string, 0, len(env))

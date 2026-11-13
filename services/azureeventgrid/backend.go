@@ -115,12 +115,33 @@ func (t *topic) info() TopicInfo {
 
 // PutTopic creates a custom topic or updates its resource ID and input schema.
 func (b *InMemoryBackend) PutTopic(name, resourceID, inputSchema string) (TopicInfo, error) {
+	return b.PutTopicMapped(name, resourceID, inputSchema, nil)
+}
+
+// PutTopicMapped is PutTopic with the ARM inputSchemaMapping of a CustomEventSchema topic.
+func (b *InMemoryBackend) PutTopicMapped(
+	name, resourceID, inputSchema string, mapping map[string]any,
+) (TopicInfo, error) {
 	if !validName(name) {
 		return TopicInfo{}, ErrInvalidName
 	}
 
 	if inputSchema == "" {
 		inputSchema = SchemaEventGrid
+	}
+
+	if inputSchema != SchemaEventGrid && inputSchema != SchemaCloudEvent && inputSchema != SchemaCustom {
+		return TopicInfo{}, invalidSpec("inputSchema must be %s, %s or %s", SchemaEventGrid, SchemaCustom,
+			SchemaCloudEvent)
+	}
+
+	parsed, err := ParseInputMapping(mapping)
+	if err != nil {
+		return TopicInfo{}, err
+	}
+
+	if parsed != nil && inputSchema != SchemaCustom {
+		return TopicInfo{}, invalidSpec("inputSchemaMapping needs the %s input schema", SchemaCustom)
 	}
 
 	b.mu.Lock("PutTopic")
@@ -135,7 +156,7 @@ func (b *InMemoryBackend) PutTopic(name, resourceID, inputSchema string) (TopicI
 		b.topics[name] = t
 	}
 
-	t.ResourceID, t.InputSchema = resourceID, inputSchema
+	t.ResourceID, t.InputSchema, t.InputMapping = resourceID, inputSchema, parsed
 
 	return t.info(), nil
 }

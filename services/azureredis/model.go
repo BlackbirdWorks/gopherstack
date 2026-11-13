@@ -2,16 +2,14 @@ package azureredis
 
 // Spec is the part of a cache's ARM configuration the Redis servers act on.
 type Spec struct {
-	// SKU is Basic, Standard or Premium.
-	SKU string `json:"sku"`
-	// MinTLS is "1.0", "1.1" or "1.2".
-	MinTLS string `json:"minTls"`
-	// EnableNonSSLPort serves plaintext Redis on a second port.
-	EnableNonSSLPort bool `json:"enableNonSslPort"`
-	// Persistence is true when RDB or AOF backup is enabled, so a full reboot keeps the data.
-	Persistence bool `json:"persistence"`
-	// AuthNotRequired (redisConfiguration authnotrequired) lets clients connect without a key.
-	AuthNotRequired bool `json:"authNotRequired,omitempty"`
+	SKU               string    `json:"sku"`
+	MinTLS            string    `json:"minTls"`
+	Firewall          []IPRange `json:"firewall,omitempty"`
+	EnableNonSSLPort  bool      `json:"enableNonSslPort"`
+	Persistence       bool      `json:"persistence"`
+	AuthNotRequired   bool      `json:"authNotRequired,omitempty"`
+	DisableAccessKeys bool      `json:"disableAccessKeys,omitempty"`
+	EntraEnabled      bool      `json:"entraEnabled,omitempty"`
 }
 
 // Endpoint is where a cache's servers listen. Port is 0 while the non-TLS port is disabled.

@@ -132,8 +132,10 @@ type azureEventGridAdapter struct {
 	backend *azureeventgrid.InMemoryBackend
 }
 
-func (a *azureEventGridAdapter) PutTopic(name, resourceID, schema string) (azurearm.EventGridTopic, error) {
-	info, err := a.backend.PutTopic(name, resourceID, schema)
+func (a *azureEventGridAdapter) PutTopic(
+	name, resourceID, schema string, mapping map[string]any,
+) (azurearm.EventGridTopic, error) {
+	info, err := a.backend.PutTopicMapped(name, resourceID, schema, mapping)
 	if err != nil {
 		return azurearm.EventGridTopic{}, err
 	}

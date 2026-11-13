@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 15 (8 ok, 7 partial) |
+| PARITY entries audited | 16 (9 ok, 7 partial) |
 | Feature families | 4 (3 ok, 1 partial) |
 | Known gaps | 6 |
 | Deferred items | 0 |
@@ -16,12 +16,11 @@
 ### Known gaps
 
 - Kafka endpoint is not implemented.
-- Capture, geo-DR, schema registry, application groups, compaction and cluster features are not implemented.
+- Capture, geo-DR (disasterRecoveryConfigs), schema registry, application groups, compaction and cluster features are not implemented.
 - Hub names resolve across namespaces by first match.
 - Kafka endpoint for Event Hubs (port 9093) is not implemented.
 - Capture, geo-replication, compaction and application-group features are not implemented.
-- SAS claims are not scoped to the audience entity.
-- ARM namespace identity (SystemAssigned/UserAssigned), regenerateKeys and disasterRecoveryConfigs are not implemented.
+- ARM disasterRecoveryConfigs (geo-disaster recovery alias pairing, metadata replication to the secondary namespace, failover and break-pairing) are not implemented: Learn (event-hubs/event-hubs-geo-dr) specifies an alias FQDN that fails over to the secondary, a read-only secondary data plane while paired and asynchronous entity synchronisation, none of which this emulator models.
 
 ## More
 

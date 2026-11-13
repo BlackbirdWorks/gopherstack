@@ -492,6 +492,51 @@ func (b *InMemoryBackend) GetRule(nsName, hubName, name string) (Rule, error) {
 	return ruleView(r), nil
 }
 
+// Key types accepted by RegenerateRuleKey.
+const (
+	KeyTypePrimary   = "PrimaryKey"
+	KeyTypeSecondary = "SecondaryKey"
+)
+
+const maxRuleKeyLen = 256
+
+// RegenerateRuleKey replaces one of a rule's keys with key, or a fresh random key when key is empty; tokens signed
+// with the old value stop validating.
+func (b *InMemoryBackend) RegenerateRuleKey(nsName, hubName, name, keyType, key string) (Rule, error) {
+	if len(key) > maxRuleKeyLen {
+		return Rule{}, errInvalidKey
+	}
+
+	if keyType != KeyTypePrimary && keyType != KeyTypeSecondary {
+		return Rule{}, errInvalidKeyType
+	}
+
+	b.mu.Lock("RegenerateRuleKey")
+	defer b.mu.Unlock()
+
+	ns, err := b.nsLocked(nsName)
+	if err != nil {
+		return Rule{}, err
+	}
+
+	r, ok := ns.Rules[ruleKey(hubName, name)]
+	if !ok {
+		return Rule{}, ErrRuleNotFound
+	}
+
+	if key == "" {
+		key = newKey()
+	}
+
+	if keyType == KeyTypePrimary {
+		r.PrimaryKey = key
+	} else {
+		r.SecondaryKey = key
+	}
+
+	return ruleView(r), nil
+}
+
 // DeleteRule removes an authorization rule; the namespace root rule is protected.
 func (b *InMemoryBackend) DeleteRule(nsName, hubName, name string) error {
 	b.mu.Lock("DeleteRule")

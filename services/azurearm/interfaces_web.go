@@ -59,6 +59,8 @@ type FunctionApps interface {
 	AppInfo(name string) (FunctionAppInfo, bool)
 	Settings(name string) (map[string]string, error)
 	SetSettings(name string, settings map[string]string) error
+	// SetConnectionStrings sets the connection strings as the prefixed environment variables the host receives.
+	SetConnectionStrings(name string, env map[string]string) error
 	SetStopped(name string, stopped bool) error
 	Restart(name string) error
 	Functions(ctx context.Context, name string) ([]FunctionAppFunction, error)
@@ -90,6 +92,10 @@ func (noopFunctionApps) Settings(string) (map[string]string, error) {
 }
 
 func (noopFunctionApps) SetSettings(string, map[string]string) error {
+	return ErrWebFunctionsUnavailable
+}
+
+func (noopFunctionApps) SetConnectionStrings(string, map[string]string) error {
 	return ErrWebFunctionsUnavailable
 }
 

@@ -66,6 +66,14 @@ func TestAzureEventHubsAdapter(t *testing.T) {
 	_, err = a.PutRule("ns", "hub", "bad", nil)
 	require.Error(t, err)
 
+	regen, err := a.RegenerateRuleKey("ns", "hub", "r", "PrimaryKey", "")
+	require.NoError(t, err)
+	assert.NotEqual(t, rule.PrimaryKey, regen.PrimaryKey)
+	assert.Equal(t, rule.SecondaryKey, regen.SecondaryKey)
+
+	_, err = a.RegenerateRuleKey("ns", "hub", "nope", "PrimaryKey", "")
+	require.ErrorIs(t, err, azurearm.ErrEventHubRuleNotFound)
+
 	require.NoError(t, a.DeleteRule("ns", "hub", "r"))
 	require.NoError(t, a.DeleteRule("ns", "hub", "r"), "missing rule is not an error")
 	require.NoError(t, a.DeleteConsumerGroup("ns", "hub", "cg"))

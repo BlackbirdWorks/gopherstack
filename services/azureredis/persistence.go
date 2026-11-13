@@ -11,10 +11,10 @@ import (
 const snapshotVersion = 1
 
 type cacheSnap struct {
-	Spec     Spec   `json:"spec"`
 	Primary  string `json:"primary"`
 	Second   string `json:"secondary"`
 	Keyspace []byte `json:"keyspace,omitempty"`
+	Spec     Spec   `json:"spec"`
 }
 
 type backendSnapshot struct {

@@ -31,9 +31,29 @@ func (p *RedisProvider) putFirewall(id ResourceID, body map[string]any) (map[str
 		rec.Firewall = map[string]redisFirewall{}
 	}
 
+	prev, hadPrev := rec.Firewall[key]
 	rec.Firewall[key] = fw
 
+	if err = p.syncFirewall(id, rec); err != nil {
+		if hadPrev {
+			rec.Firewall[key] = prev
+		} else {
+			delete(rec.Firewall, key)
+		}
+
+		return nil, err
+	}
+
 	return firewallBody(id, rec, fw), nil
+}
+
+// syncFirewall pushes the cache's rules to the data plane so new connections are filtered by them.
+func (p *RedisProvider) syncFirewall(id ResourceID, rec *redisRecord) error {
+	if _, err := p.dataPlane.Ensure(redisKey(id), redisSpecOf(rec)); err != nil {
+		return badRedisRequest(err)
+	}
+
+	return nil
 }
 
 func validIPRange(start, end string) error {
@@ -214,6 +234,8 @@ func (p *RedisProvider) deleteChild(id ResourceID, kind redisKind) error {
 		}
 
 		delete(rec.Firewall, key)
+
+		return p.syncFirewall(id, rec)
 	case redisKindPatch:
 		if rec.Patch == nil {
 			return ErrRedisPatchNotFound

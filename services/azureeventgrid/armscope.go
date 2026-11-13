@@ -100,7 +100,7 @@ func (e ResourceEvent) fields(id string) map[string]any {
 		fieldSubject:   e.ResourceURI,
 		fieldEventType: e.EventType,
 		fieldEventTime: e.Time.UTC().Format(time.RFC3339Nano),
-		"data": map[string]any{
+		fieldData: map[string]any{
 			"authorization": map[string]any{"scope": e.ResourceURI, "action": e.OperationName},
 			"claims":        claims,
 			"correlationId": e.CorrelationID,

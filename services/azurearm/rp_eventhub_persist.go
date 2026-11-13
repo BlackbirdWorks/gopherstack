@@ -9,6 +9,7 @@ type eventHubNamespaceRecord struct {
 	CreatedAt     time.Time         `json:"createdAt"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	SKU           map[string]any    `json:"sku,omitempty"`
+	Identity      map[string]any    `json:"identity,omitempty"`
 	Extra         map[string]any    `json:"extra,omitempty"`
 	Name          string            `json:"name"`
 	ResourceGroup string            `json:"resourceGroup"`
@@ -52,7 +53,7 @@ func (p *EventHubProvider) snapshot() *eventHubSnapshot {
 
 	for k, n := range p.namespaces {
 		snap.Namespaces[k] = eventHubNamespaceRecord{
-			CreatedAt: n.createdAt, Tags: n.tags, SKU: n.sku, Extra: n.extra, Name: n.name,
+			CreatedAt: n.createdAt, Tags: n.tags, SKU: n.sku, Identity: n.identity, Extra: n.extra, Name: n.name,
 			ResourceGroup: n.resourceGroup, Location: n.location, Host: n.host,
 		}
 	}
@@ -95,7 +96,7 @@ func (p *EventHubProvider) restore(snap *eventHubSnapshot) {
 
 	for k, n := range snap.Namespaces {
 		p.namespaces[k] = &storedEHNamespace{
-			createdAt: n.CreatedAt, tags: n.Tags, sku: n.SKU, extra: n.Extra, name: n.Name,
+			createdAt: n.CreatedAt, tags: n.Tags, sku: n.SKU, identity: n.Identity, extra: n.Extra, name: n.Name,
 			resourceGroup: n.ResourceGroup, location: n.Location, host: n.Host,
 		}
 	}

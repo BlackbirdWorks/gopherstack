@@ -110,6 +110,21 @@ func (a *azureEventHubsAdapter) DeleteRule(ns, hub, name string) error {
 	)
 }
 
+func (a *azureEventHubsAdapter) RegenerateRuleKey(
+	ns, hub, name, keyType, key string,
+) (azurearm.EventHubRule, error) {
+	r, err := a.backend.RegenerateRuleKey(ns, hub, name, keyType, key)
+	if errors.Is(err, azureeventhubs.ErrRuleNotFound) {
+		return azurearm.EventHubRule{}, azurearm.ErrEventHubRuleNotFound
+	}
+
+	if err != nil {
+		return azurearm.EventHubRule{}, err
+	}
+
+	return azurearm.EventHubRule{PrimaryKey: r.PrimaryKey, SecondaryKey: r.SecondaryKey, Rights: r.Rights}, nil
+}
+
 func ignoreMissing(err error, missing ...error) error {
 	for _, m := range missing {
 		if errors.Is(err, m) {

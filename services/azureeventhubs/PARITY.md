@@ -19,21 +19,22 @@ ops:
   AMQPEpoch: {wire: ok, errors: ok, state: ok, persist: n/a, note: "com.microsoft:epoch receivers: a higher or equal epoch disconnects older receivers with amqp:link:stolen; a lower epoch (or a plain receiver while an epoch receiver exists) attaches and is detached with amqp:link:stolen. Up to 5 plain receivers per partition and consumer group (amqp:resource-limit-exceeded beyond)."}
   AMQPManagement: {wire: ok, errors: ok, state: ok, persist: n/a, note: "$management READ of com.microsoft:eventhub (partition_ids, created_at) and com.microsoft:partition (begin/last sequence, last offset, last time, is_partition_empty); status-code/status-description keys."}
   AMQPAuth: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SASL ANONYMOUS/PLAIN and $cbs put-token. With --azure-eventhubs-validate-sas the SAS signature is verified against authorization-rule keys (skn), expiry is enforced, and rights (Listen/Send/Manage) gate receive, send and management. A SAS audience must be a URL: sb://host/<hub> authorizes that hub only, sb://host/ the whole namespace, and a hub-scoped rule only signs tokens for its own hub; CBS claims are kept per audience. Off by default."}
+  RegenerateKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST .../authorizationRules/{rule}/regenerateKeys on namespace and hub rules: keyType PrimaryKey or SecondaryKey (armeventhub v1.3.0 RegenerateAccessKeyParameters), optional key sets that value instead of a random 32-byte key; the response is the AccessKeys shape. The replaced key stops validating SAS signatures and SASL PLAIN passwords at once while the other key keeps working. A bad keyType is 400, an unknown rule 404."}
   Retention: {wire: n/a, errors: n/a, state: ok, persist: ok, note: "Events older than the hub retention are trimmed lazily on every read/write and by a 30s sweeper, using an injected clock in tests. Capped at 100000 events per partition."}
 families:
-  arm_integration: {status: ok, note: "services/azurearm Microsoft.EventHub: namespaces, eventhubs (partitionCount, messageRetentionInDays, retentionDescription), consumergroups, namespace- and hub-level authorizationRules with listKeys, networkRuleSets/default. Hubs, groups, rules and keys live in this service; ARM keeps only ARM metadata. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventhubs_test.go."}
+  arm_integration: {status: ok, note: "services/azurearm Microsoft.EventHub: namespaces, eventhubs (partitionCount, messageRetentionInDays, retentionDescription), consumergroups, namespace- and hub-level authorizationRules with listKeys and regenerateKeys, namespace identity, networkRuleSets/default. Hubs, groups, rules and keys live in this service; ARM keeps only ARM metadata. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventhubs_test.go."}
   sdk_compat: {status: ok, note: "azeventhubs v2: producer batches (key, explicit partition), partition client from earliest/latest/offset/sequence/enqueued time, hub and partition properties, epoch receivers, SAS valid/invalid, restricted rights, TLS. Connect with UseDevelopmentEmulator=true to the plain port or with a TLSConfig to the TLS port."}
   ports: {status: ok, note: "HTTP 10005, AMQP 5673 plain and 5674 TLS (Service Bus keeps 5672/5671). Distinct ports were chosen over a shared listener because the AMQP open frame carries no namespace and the engine binds one handler per server."}
   namespaces: {status: partial, note: "AMQP addresses carry no namespace, so a hub name is resolved to the first namespace (by name) that has it; identical hub names in two namespaces are ambiguous."}
 gaps:
   - "Kafka endpoint is not implemented."
-  - "Capture, geo-DR, schema registry, application groups, compaction and cluster features are not implemented."
+  - "Capture, geo-DR (disasterRecoveryConfigs), schema registry, application groups, compaction and cluster features are not implemented."
   - "Hub names resolve across namespaces by first match."
 deferred: []
 items_still_open:
   - "Kafka endpoint for Event Hubs (port 9093) is not implemented."
   - "Capture, geo-replication, compaction and application-group features are not implemented."
-  - "ARM namespace identity (SystemAssigned/UserAssigned), authorization-rule regenerateKeys and disasterRecoveryConfigs are not implemented: the Microsoft.EventHub ARM routes live in services/azurearm, which holds no hook for them."
+  - "ARM disasterRecoveryConfigs (geo-disaster recovery alias pairing, metadata replication to the secondary namespace, failover and break-pairing) are not implemented: Learn (event-hubs/event-hubs-geo-dr) specifies an alias FQDN that fails over to the secondary, a read-only secondary data plane while paired and asynchronous entity synchronisation, none of which this emulator models."
 leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener; the sweeper stops with its context; receiver registrations are removed when links close."}
 ---
 

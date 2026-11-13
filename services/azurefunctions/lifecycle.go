@@ -120,6 +120,7 @@ func containerEnv(a *appState, rc runtimeChoice, host string) []string {
 	}
 
 	env[authKeySetting] = hex.EncodeToString(adminSigningKey(a))
+	maps.Copy(env, a.ConnEnv)
 	maps.Copy(env, a.Settings)
 
 	env["AzureWebJobsSecretStorageType"] = "files"

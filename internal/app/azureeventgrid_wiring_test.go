@@ -119,7 +119,7 @@ func TestAzureEventGridDeliversIntoSiblingEmulators(t *testing.T) {
 	list, err := blobs.ListBlobs("dead")
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	assert.Contains(t, list[0].Name, "t1/dl/")
+	assert.Contains(t, list[0].Name, "DL/")
 }
 
 func jsonField(t *testing.T, raw []byte, key string) string {

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,15 +18,13 @@
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server.
 - redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data.
-- disableAccessKeyAuthentication and Entra ID (aad-enabled) authentication, access policies and policy assignments are not implemented.
-- Firewall rules do not filter connections (the rules live in the ARM provider).
+- Entra ID data access policies and policy assignments (accessPolicies, accessPolicyAssignments, Data Owner/Contributor/Reader ACLs) are not implemented: with aad-enabled a token for the Redis audience (https://redis.azure.com or acca5fbb-b7e4-4009-81f1-37e38fd66d78) issued by the emulator's token service authenticates its principal as a full-access user; tokens are not re-checked for expiry on an open connection.
 - Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400.
 - Create completes the server immediately; only the reported provisioningState lags.
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering, VNet injection, private endpoints and geo-replication data flow are not modelled.
 - redisConfiguration settings are stored but not enforced (no CONFIG in miniredis).
-- Entra ID authentication, disableAccessKeyAuthentication and access policies are not implemented.
-- Reboots do not drop connections and firewall rules do not filter them.
+- Entra ID data access policies and policy assignments (Data Owner, Data Contributor, Data Reader) are not implemented: any valid Entra token for the Redis audience authenticates as a full-access user.
 
 ## More
 

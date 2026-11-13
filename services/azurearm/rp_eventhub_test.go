@@ -1,8 +1,12 @@
 package azurearm_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
@@ -100,6 +104,30 @@ func (f *fakeEventHubs) GetRule(ns, hub, name string) (azurearm.EventHubRule, bo
 	r, ok := f.rules[ns+"/"+hub+"/"+name]
 
 	return r, ok
+}
+
+func (f *fakeEventHubs) RegenerateRuleKey(ns, hub, name, keyType, key string) (azurearm.EventHubRule, error) {
+	r, ok := f.rules[ns+"/"+hub+"/"+name]
+	if !ok {
+		return azurearm.EventHubRule{}, azurearm.ErrEventHubRuleNotFound
+	}
+
+	if key == "" {
+		key = "fresh-" + keyType
+	}
+
+	switch keyType {
+	case "PrimaryKey":
+		r.PrimaryKey = key
+	case "SecondaryKey":
+		r.SecondaryKey = key
+	default:
+		return azurearm.EventHubRule{}, errNoRights
+	}
+
+	f.rules[ns+"/"+hub+"/"+name] = r
+
+	return r, nil
 }
 
 func (f *fakeEventHubs) DeleteRule(ns, hub, name string) error {
@@ -252,4 +280,132 @@ func TestEventHubProvider_GroupCascadeAndPersistence(t *testing.T) {
 
 	_, err = p.Get(ctx, ehID([]string{"namespaces", "bogus"}, "ns", "x"))
 	require.ErrorIs(t, err, azurearm.ErrResourceNotFound)
+}
+
+func TestEventHubRegenerateKeys(t *testing.T) {
+	t.Parallel()
+
+	const base = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.EventHub/namespaces/ns"
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		path     string
+		wantKey  string
+		wantCode int
+		wantNew  bool
+	}{
+		{name: "namespace primary", path: "/authorizationRules/root", body: map[string]any{"keyType": "PrimaryKey"},
+			wantCode: http.StatusOK, wantNew: true},
+		{name: "hub secondary explicit", path: "/eventhubs/hub/authorizationRules/send",
+			body:     map[string]any{"keyType": "SecondaryKey", "key": "my-own-key"},
+			wantCode: http.StatusOK, wantKey: "my-own-key"},
+		{name: "bad key type", path: "/authorizationRules/root", body: map[string]any{"keyType": "Tertiary"},
+			wantCode: http.StatusBadRequest},
+		{name: "missing rule", path: "/authorizationRules/nope", body: map[string]any{"keyType": "PrimaryKey"},
+			wantCode: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dp := newFakeEventHubs()
+			h := azurearm.NewTestHandlerWithEventHubs(dp)
+			ctx := t.Context()
+			rights := map[string]any{"properties": map[string]any{"rights": []any{"Listen", "Send"}}}
+			do := func(method, path string, body any) (int, map[string]any) {
+				raw, err := json.Marshal(body)
+				require.NoError(t, err)
+
+				req := httptest.NewRequestWithContext(ctx, method, path+"?api-version=2024-01-01",
+					bytes.NewReader(raw))
+				rec := httptest.NewRecorder()
+				newEchoServer(h).ServeHTTP(rec, req)
+
+				var out map[string]any
+				_ = json.Unmarshal(rec.Body.Bytes(), &out)
+
+				return rec.Code, out
+			}
+
+			for _, step := range []struct {
+				body any
+				path string
+			}{
+				{path: "", body: map[string]any{"location": "l"}},
+				{path: "/eventhubs/hub", body: map[string]any{}},
+				{path: "/authorizationRules/root", body: rights},
+				{path: "/eventhubs/hub/authorizationRules/send", body: rights},
+			} {
+				code, out := do(http.MethodPut, base+step.path, step.body)
+				require.Less(t, code, http.StatusMultipleChoices, out)
+			}
+
+			code, out := do(http.MethodPost, base+tt.path+"/regenerateKeys", tt.body)
+			require.Equal(t, tt.wantCode, code, out)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			field := "primaryKey"
+			if tt.body["keyType"] == "SecondaryKey" {
+				field = "secondaryKey"
+			}
+
+			if tt.wantNew {
+				assert.Equal(t, "fresh-PrimaryKey", out[field])
+			} else {
+				assert.Equal(t, tt.wantKey, out[field])
+			}
+
+			_, listed := do(http.MethodPost, base+tt.path+"/listKeys", nil)
+			assert.Equal(t, out[field], listed[field])
+		})
+	}
+}
+
+func TestEventHubNamespaceIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		identity map[string]any
+		name     string
+		wantPID  bool
+	}{
+		{name: "system assigned", identity: map[string]any{"type": "SystemAssigned"}, wantPID: true},
+		{name: "user assigned", identity: map[string]any{
+			"type":                   "UserAssigned",
+			"userAssignedIdentities": map[string]any{"/subscriptions/s/uai": map[string]any{}},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := azurearm.NewEventHubProvider(azurearm.EventHubEndpointConfig{}, newFakeEventHubs())
+			nsID := ehID([]string{"namespaces"}, "ns")
+
+			body, err := p.Put(t.Context(), nsID, map[string]any{"identity": tt.identity})
+			require.NoError(t, err)
+
+			got, _ := body["identity"].(map[string]any)
+			assert.Equal(t, tt.identity["type"], got["type"])
+			assert.Equal(t, tt.wantPID, got["principalId"] != nil)
+
+			snap := azurearm.EventHubSnapshotJSON(p)
+			p2 := azurearm.NewEventHubProvider(azurearm.EventHubEndpointConfig{}, newFakeEventHubs())
+			azurearm.EventHubRestoreJSON(t, p2, snap)
+
+			again, err := p2.Get(t.Context(), nsID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.identity["type"], again["identity"].(map[string]any)["type"])
+
+			body, err = p.Put(t.Context(), nsID, map[string]any{})
+			require.NoError(t, err)
+			assert.Contains(t, body, "identity", "an update without identity keeps it")
+		})
+	}
 }

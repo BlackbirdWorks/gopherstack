@@ -9,6 +9,10 @@ import (
 const (
 	SchemaEventGrid  = "EventGridSchema"
 	SchemaCloudEvent = "CloudEventSchemaV1_0"
+	// SchemaCustom is a topic input schema that maps arbitrary JSON onto the Event Grid schema.
+	SchemaCustom = "CustomEventSchema"
+	// SchemaCustomInput is the delivery schema that hands subscribers the originally published payload.
+	SchemaCustomInput = "CustomInputSchema"
 
 	EndpointWebHook      = "WebHook"
 	EndpointServiceBusQ  = "ServiceBusQueue"
@@ -89,13 +93,14 @@ type subscription struct {
 }
 
 type topic struct {
-	CreatedAt   time.Time                `json:"createdAt"`
-	Subs        map[string]*subscription `json:"subs"`
-	Name        string                   `json:"name"`
-	ResourceID  string                   `json:"resourceId"`
-	Key1        string                   `json:"key1"`
-	Key2        string                   `json:"key2"`
-	InputSchema string                   `json:"inputSchema"`
+	CreatedAt    time.Time                `json:"createdAt"`
+	Subs         map[string]*subscription `json:"subs"`
+	InputMapping *InputMapping            `json:"inputSchemaMapping,omitempty"`
+	Name         string                   `json:"name"`
+	ResourceID   string                   `json:"resourceId"`
+	Key1         string                   `json:"key1"`
+	Key2         string                   `json:"key2"`
+	InputSchema  string                   `json:"inputSchema"`
 }
 
 type pullEvent struct {

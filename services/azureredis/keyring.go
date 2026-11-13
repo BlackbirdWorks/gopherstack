@@ -36,9 +36,23 @@ func newKeys() (Keys, error) {
 	return Keys{Primary: p, Secondary: s}, err
 }
 
-// keyring holds a cache's access keys for the AUTH pre-hook.
+// TokenValidator checks a Microsoft Entra access token for the Redis audience and returns its principal's object ID.
+type TokenValidator func(token string) (objectID string, ok bool)
+
+type authPolicy struct {
+	validate    TokenValidator
+	disableKeys bool
+	entra       bool
+}
+
+// keyring holds a cache's access keys and authentication policy for the AUTH pre-hook.
 type keyring struct {
-	keys atomic.Pointer[Keys]
+	keys   atomic.Pointer[Keys]
+	policy atomic.Pointer[authPolicy]
+}
+
+func (k *keyring) setPolicy(spec Spec, validate TokenValidator) {
+	k.policy.Store(&authPolicy{disableKeys: spec.DisableAccessKeys, entra: spec.EntraEnabled, validate: validate})
 }
 
 func (k *keyring) set(v Keys) { k.keys.Store(&v) }
@@ -53,18 +67,60 @@ func (k *keyring) get() Keys {
 
 func same(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
-// canonicalize rewrites the secondary key to the primary one in an AUTH or HELLO command's arguments, in place, so
-// the miniredis password check (primary only) admits both keys.
+// canonicalize rewrites the credentials of an AUTH or HELLO command, in place, so the miniredis password check
+// (primary key, user "default") admits exactly what the cache's authentication policy allows: either access key
+// unless keys are disabled, and an Entra token whose object ID is the user name.
 func (k *keyring) canonicalize(cmd string, args []string) {
-	i := passwordIndex(cmd, args)
-	if i < 0 {
+	pi := passwordIndex(cmd, args)
+	if pi < 0 {
 		return
 	}
 
-	keys := k.get()
-	if keys.Secondary != "" && same(args[i], keys.Secondary) {
-		args[i] = keys.Primary
+	pol := k.policy.Load()
+	if pol == nil {
+		pol = &authPolicy{}
 	}
+
+	keys := k.get()
+	ui := userIndex(cmd, args)
+
+	if ui >= 0 && !strings.EqualFold(args[ui], "default") {
+		if pol.entra && pol.validate != nil {
+			if oid, ok := pol.validate(args[pi]); ok && strings.EqualFold(oid, args[ui]) {
+				args[ui], args[pi] = "default", keys.Primary
+
+				return
+			}
+		}
+
+		args[pi] = ""
+
+		return
+	}
+
+	switch {
+	case pol.disableKeys:
+		args[pi] = ""
+	case keys.Secondary != "" && same(args[pi], keys.Secondary):
+		args[pi] = keys.Primary
+	}
+}
+
+func userIndex(cmd string, args []string) int {
+	switch cmd {
+	case "AUTH":
+		if len(args) == helloAuthSpan {
+			return 0
+		}
+	case "HELLO":
+		for i := 1; i+helloAuthSpan < len(args); i++ {
+			if strings.EqualFold(args[i], "AUTH") {
+				return i + 1
+			}
+		}
+	}
+
+	return -1
 }
 
 func passwordIndex(cmd string, args []string) int {

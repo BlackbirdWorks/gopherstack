@@ -556,3 +556,74 @@ func TestClaimAudienceScope(t *testing.T) {
 }
 
 func urlEscape(s string) string { return url.QueryEscape(s) }
+
+func TestRegenerateRuleKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		hub     string
+		keyType string
+		key     string
+		wantErr bool
+		primary bool
+	}{
+		{name: "primary random", keyType: azureeventhubs.KeyTypePrimary, primary: true},
+		{name: "secondary random", keyType: azureeventhubs.KeyTypeSecondary},
+		{name: "primary explicit", keyType: azureeventhubs.KeyTypePrimary, key: "chosen", primary: true},
+		{name: "hub scoped", hub: testHub, keyType: azureeventhubs.KeyTypePrimary, primary: true},
+		{name: "bad type", keyType: "Primary", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t, azureeventhubs.HubConfig{})
+			before, err := b.PutRule(testNS, tt.hub, "rule", []string{azureeventhubs.RightListen})
+			require.NoError(t, err)
+
+			after, err := b.RegenerateRuleKey(testNS, tt.hub, "rule", tt.keyType, tt.key)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			replaced, fresh, kept := before.PrimaryKey, after.PrimaryKey, after.SecondaryKey
+			if !tt.primary {
+				replaced, fresh, kept = before.SecondaryKey, after.SecondaryKey, after.PrimaryKey
+			}
+
+			assert.NotEqual(t, replaced, fresh)
+
+			if tt.key != "" {
+				assert.Equal(t, tt.key, fresh)
+			}
+
+			exp := time.Now().Add(time.Hour).Unix()
+			audience := nsAudience + tt.hub
+			token := func(key string) string {
+				sig := azureeventhubs.SignSAS(audience, exp, key)
+
+				return "SharedAccessSignature sr=" + audience + "&sig=" + urlEscape(sig) + "&se=" +
+					strconv.FormatInt(exp, 10) + "&skn=rule"
+			}
+
+			_, ok := azureeventhubs.ClaimRights(b, token(replaced))
+			assert.False(t, ok, "the replaced key stops validating")
+
+			_, ok = azureeventhubs.ClaimRights(b, token(fresh))
+			assert.True(t, ok, "the new key validates")
+
+			_, ok = azureeventhubs.ClaimRights(b, token(kept))
+			assert.True(t, ok, "the other key keeps validating")
+		})
+	}
+
+	b := newBackend(t, azureeventhubs.HubConfig{})
+	_, err := b.RegenerateRuleKey(testNS, "", "missing", azureeventhubs.KeyTypePrimary, "")
+	require.ErrorIs(t, err, azureeventhubs.ErrRuleNotFound)
+}

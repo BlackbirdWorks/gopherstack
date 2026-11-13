@@ -121,6 +121,8 @@ type EventHubs interface {
 	PutRule(ns, hub, name string, rights []string) (EventHubRule, error)
 	GetRule(ns, hub, name string) (EventHubRule, bool)
 	DeleteRule(ns, hub, name string) error
+	// RegenerateRuleKey replaces a rule's PrimaryKey or SecondaryKey with key, or a random key when key is empty.
+	RegenerateRuleKey(ns, hub, name, keyType, key string) (EventHubRule, error)
 }
 
 type noopEventHubs struct{}
@@ -143,6 +145,9 @@ func (noopEventHubs) GetRule(string, string, string) (EventHubRule, bool) {
 	return EventHubRule{}, false
 }
 func (noopEventHubs) DeleteRule(string, string, string) error { return nil }
+func (noopEventHubs) RegenerateRuleKey(string, string, string, string, string) (EventHubRule, error) {
+	return EventHubRule{}, ErrEventHubRuleNotFound
+}
 
 var _ EventHubs = noopEventHubs{}
 
@@ -306,7 +311,8 @@ type EventGridDomainTopic struct {
 // subscription properties cross as ARM property maps, so this package never
 // imports services/azureeventgrid.
 type EventGrid interface {
-	PutTopic(name, resourceID, inputSchema string) (EventGridTopic, error)
+	// mapping is the topic's ARM inputSchemaMapping object, nil when absent.
+	PutTopic(name, resourceID, inputSchema string, mapping map[string]any) (EventGridTopic, error)
 	TopicInfo(name string) (EventGridTopic, bool)
 	DeleteTopic(name string) error
 	TopicKeys(name string) (key1, key2 string, err error)
@@ -363,7 +369,7 @@ type EventGrid interface {
 
 type noopEventGrid struct{}
 
-func (noopEventGrid) PutTopic(string, string, string) (EventGridTopic, error) {
+func (noopEventGrid) PutTopic(string, string, string, map[string]any) (EventGridTopic, error) {
 	return EventGridTopic{}, ErrEventGridUnavailable
 }
 func (noopEventGrid) TopicInfo(string) (EventGridTopic, bool) { return EventGridTopic{}, false }

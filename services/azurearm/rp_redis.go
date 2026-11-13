@@ -95,6 +95,7 @@ type redisRecord struct {
 	Zones        []any                    `json:"zones,omitempty"`
 	Capacity     int                      `json:"capacity"`
 	NonSSL       bool                     `json:"nonSsl,omitempty"`
+	DisableKeys  bool                     `json:"disableAccessKeys,omitempty"`
 }
 
 // RedisProvider implements ResourceProvider for Microsoft.Cache/redis. ARM keeps the resource metadata,

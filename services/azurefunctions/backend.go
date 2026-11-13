@@ -46,6 +46,7 @@ type Deployment struct {
 type appState struct {
 	Created         time.Time                    `json:"created"`
 	Settings        map[string]string            `json:"settings"`
+	ConnEnv         map[string]string            `json:"connEnv,omitempty"`
 	HostKeys        map[string]string            `json:"hostKeys"`
 	SystemKeys      map[string]string            `json:"systemKeys"`
 	FunctionKeys    map[string]map[string]string `json:"functionKeys"`
@@ -419,6 +420,28 @@ func (b *InMemoryBackend) SetSettings(name string, settings map[string]string) e
 		a.Settings = map[string]string{}
 	}
 
+	old := b.takeBoxLocked(a)
+	b.mu.Unlock()
+
+	b.teardown(old)
+	b.autoStart(name)
+
+	return nil
+}
+
+// SetConnectionStrings replaces the app's connection strings, given as the prefixed environment variables the host
+// sees (SQLCONNSTR_name and the like); a running host restarts on its next request.
+func (b *InMemoryBackend) SetConnectionStrings(name string, env map[string]string) error {
+	b.mu.Lock("SetConnectionStrings")
+
+	a, ok := b.apps[strs.Fold(name)]
+	if !ok {
+		b.mu.Unlock()
+
+		return ErrAppNotFound
+	}
+
+	a.ConnEnv = maps.Clone(env)
 	old := b.takeBoxLocked(a)
 	b.mu.Unlock()
 

@@ -213,3 +213,12 @@ func SQLRestoreJSON(t *testing.T, p *SQLProvider, data []byte) {
 	require.NoError(t, json.Unmarshal(data, &s))
 	p.restore(&s)
 }
+
+// NewTestHandlerWithEventHubs builds a Handler with a Microsoft.EventHub provider over dataPlane.
+func NewTestHandlerWithEventHubs(dataPlane EventHubs) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewEventHubProvider(EventHubEndpointConfig{}, dataPlane))
+
+	return NewHandler(backend, registry, nil, DefaultSettings())
+}
