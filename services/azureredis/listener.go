@@ -58,6 +58,12 @@ func (f *front) close() {
 	portalloc.ReleaseTo(f.alloc, f.port)
 }
 
+func (f *front) dropConnections() {
+	if f != nil {
+		f.proxy.DropConnections()
+	}
+}
+
 func (f *front) portOr0() int {
 	if f == nil {
 		return 0

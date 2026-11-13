@@ -10,7 +10,7 @@ ops:
   Delete: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE answers 202 with a finished async operation; a missing cache answers 204. Stops the cache's servers and releases its ports."}
   ListKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST listKeys returns primaryKey and secondaryKey (32 random bytes, base64). Both keys authenticate over RESP2 (AUTH) and RESP3 (HELLO AUTH)."}
   RegenerateKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "keyType Primary or Secondary; the replaced key stops authenticating for new connections while the other key keeps working. authnotrequired=true in redisConfiguration turns key authentication off."}
-  ForceReboot: {wire: ok, errors: ok, state: ok, persist: ok, note: "rebootType PrimaryNode, SecondaryNode (not on Basic) or AllNodes. Data survives when a replica remains (Standard/Premium, one node) or when persistence is on (Premium with rdb-backup-enabled or aof-backup-enabled, AllNodes); a Basic cache, or Standard AllNodes, is flushed. Open client connections are not dropped."}
+  ForceReboot: {wire: ok, errors: ok, state: ok, persist: ok, note: "rebootType PrimaryNode, SecondaryNode (not on Basic) or AllNodes. Data survives on Standard/Premium for every reboot type (Learn: azure-cache-for-redis/cache-administration, "Will I lose data from my cache if I do a reboot?": rebooting both nodes does not flush); a Basic cache is a single node and is flushed. Open client connections are dropped by PrimaryNode and AllNodes and on Basic (Learn: same page, "Reboot" and "Can I reboot the cache to clear client connections?"); a SecondaryNode reboot leaves them."}
   ImportData: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST import with format RDB and one file: a Blob Storage URL (virtual-hosted or path style, SAS query ignored). The RDB is read from the Azure Blob emulator and replaces the keyspace (pkgs/redisengine RDB reader: plain encodings, LZF, integer strings). The operation completes before the 202 is returned."}
   ExportData: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST export with format RDB, prefix and a container URL: writes <prefix>.rdb (RDB v9) to the container in the Azure Blob emulator. The SAS token is not validated."}
   FirewallRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT/GET/DELETE and list of redis/{name}/firewallRules/{rule} with IPv4 startIP/endIP validation. Rules are stored and returned; connections are not filtered by them."}
@@ -25,7 +25,6 @@ gaps:
   - "Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server."
   - "redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data."
   - "disableAccessKeyAuthentication and Entra ID (aad-enabled) authentication, access policies and policy assignments are not implemented."
-  - "Reboots do not drop open connections; firewall rules do not filter connections."
   - "Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400."
   - "Create completes the server immediately; only the reported provisioningState lags."
 deferred: []
@@ -34,7 +33,7 @@ items_still_open:
   - "Clustering, VNet injection, private endpoints and geo-replication data flow are not modelled."
   - "redisConfiguration settings are stored but not enforced (no CONFIG in miniredis)."
   - "Entra ID authentication, disableAccessKeyAuthentication and access policies are not implemented."
-  - "Reboots do not drop connections and firewall rules do not filter them."
+  - "Firewall rules do not filter connections: the rules live in the services/azurearm Redis provider and are not passed to the data plane."
 leaks: {status: clean, note: "Reset and Shutdown close every cache's relays and Redis server and release their ports; the package runs under testleak."}
 ---
 

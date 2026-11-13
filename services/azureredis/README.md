@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,7 +19,7 @@
 - Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server.
 - redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data.
 - disableAccessKeyAuthentication and Entra ID (aad-enabled) authentication, access policies and policy assignments are not implemented.
-- Reboots do not drop open connections; firewall rules do not filter connections.
+- Firewall rules do not filter connections (the rules live in the ARM provider).
 - Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400.
 - Create completes the server immediately; only the reported provisioningState lags.
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.

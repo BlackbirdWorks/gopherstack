@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 15 (8 ok, 7 partial) |
 | Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 8 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,7 +17,6 @@
 
 - Kafka endpoint is not implemented.
 - Capture, geo-DR, schema registry, application groups, compaction and cluster features are not implemented.
-- SAS claims are not scoped to an entity; hub-scoped rules authorize any hub.
 - Hub names resolve across namespaces by first match.
 - Kafka endpoint for Event Hubs (port 9093) is not implemented.
 - Capture, geo-replication, compaction and application-group features are not implemented.

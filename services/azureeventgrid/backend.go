@@ -26,6 +26,7 @@ type InMemoryBackend struct {
 	kick           chan struct{}
 	pullWake       chan struct{}
 	validationBase string
+	deadRetries    []deadRetry
 }
 
 // NewInMemoryBackend returns an empty backend using the wall clock.
@@ -69,6 +70,7 @@ func (b *InMemoryBackend) Reset() {
 	b.namespaces = map[string]*namespace{}
 	b.domains = map[string]*domain{}
 	b.armScopes = map[string]*armScope{}
+	b.deadRetries = nil
 }
 
 func validName(n string) bool {

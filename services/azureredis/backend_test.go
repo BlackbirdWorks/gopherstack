@@ -2,9 +2,11 @@ package azureredis_test
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"strconv"
 	"testing"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -227,7 +229,7 @@ func TestReboot(t *testing.T) {
 			rebootType: azureredis.RebootSecondary,
 			wantKept:   true,
 		},
-		{name: "standard all nodes", sku: azureredis.SKUStandard, rebootType: azureredis.RebootAll},
+		{name: "standard all nodes", sku: azureredis.SKUStandard, rebootType: azureredis.RebootAll, wantKept: true},
 		{
 			name: "premium all nodes persisted", sku: azureredis.SKUPremium, persist: true,
 			rebootType: azureredis.RebootAll, wantKept: true,
@@ -255,6 +257,54 @@ func TestReboot(t *testing.T) {
 			n, err := c.Exists(t.Context(), "k").Result()
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantKept, n == 1)
+		})
+	}
+}
+
+func TestRebootConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		sku        string
+		rebootType string
+		wantDrop   bool
+	}{
+		{name: "standard primary", sku: azureredis.SKUStandard, rebootType: azureredis.RebootPrimary, wantDrop: true},
+		{name: "standard all", sku: azureredis.SKUStandard, rebootType: azureredis.RebootAll, wantDrop: true},
+		{name: "standard secondary", sku: azureredis.SKUStandard, rebootType: azureredis.RebootSecondary},
+		{name: "basic primary", sku: azureredis.SKUBasic, rebootType: azureredis.RebootPrimary, wantDrop: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newBackend(t)
+			ep := ensure(t, b, "c1", azureredis.Spec{SKU: tt.sku, MinTLS: "1.2"})
+			conn, err := tls.Dial("tcp", net.JoinHostPort(ep.Host, strconv.Itoa(ep.SSLPort)),
+				&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12})
+			require.NoError(t, err)
+
+			t.Cleanup(func() { _ = conn.Close() })
+
+			_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+			require.NoError(t, err)
+
+			buf := make([]byte, 64)
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+			_, err = conn.Read(buf)
+			require.NoError(t, err)
+
+			require.NoError(t, b.Reboot("c1", tt.rebootType))
+
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(300*time.Millisecond)))
+			_, err = conn.Read(buf)
+			require.Error(t, err)
+
+			var netErr net.Error
+			isTimeout := errors.As(err, &netErr) && netErr.Timeout()
+			assert.Equal(t, tt.wantDrop, !isTimeout)
 		})
 	}
 }

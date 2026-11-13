@@ -5,19 +5,17 @@ import (
 	"strings"
 )
 
-// dataSurvivesReboot encodes Azure's behavior: a Basic cache is a single node, so any reboot loses its data; a
-// Standard or Premium cache keeps a replica, so rebooting one node keeps the data, and rebooting both keeps it
-// only when persistence (RDB or AOF backup) is on.
-func dataSurvivesReboot(spec Spec, rebootType string) bool {
-	if strings.EqualFold(spec.SKU, SKUBasic) {
-		return false
-	}
+// dataSurvivesReboot: a Basic cache is a single node, so any reboot loses its data; on Standard and Premium a
+// replica holds it, and rebooting both nodes does not flush (Learn: cache-administration, "Will I lose data from my
+// cache if I do a reboot?").
+func dataSurvivesReboot(spec Spec, _ string) bool {
+	return !strings.EqualFold(spec.SKU, SKUBasic)
+}
 
-	if strings.EqualFold(rebootType, RebootAll) {
-		return spec.Persistence
-	}
-
-	return true
+// dropsConnections: rebooting the primary fails over and rebooting the cache clears every client connection; a
+// replica reboot has no client effect (Learn: cache-administration, "Reboot").
+func dropsConnections(spec Spec, rebootType string) bool {
+	return strings.EqualFold(spec.SKU, SKUBasic) || !strings.EqualFold(rebootType, RebootSecondary)
 }
 
 func validRebootType(spec Spec, rebootType string) error {
@@ -31,7 +29,8 @@ func validRebootType(spec Spec, rebootType string) error {
 	return fmt.Errorf("%w: rebootType %q is not valid for a %s cache", ErrInvalid, rebootType, spec.SKU)
 }
 
-// Reboot restarts the selected nodes. Data is flushed when no surviving node or persisted copy holds it.
+// Reboot restarts the selected nodes. Data is flushed when no surviving node holds it; client connections drop
+// unless only a replica reboots.
 func (b *InMemoryBackend) Reboot(key, rebootType string) error {
 	b.mu.Lock("Reboot")
 	defer b.mu.Unlock()
@@ -47,6 +46,11 @@ func (b *InMemoryBackend) Reboot(key, rebootType string) error {
 
 	if !dataSurvivesReboot(c.spec, rebootType) {
 		c.engine.Mini.FlushAll()
+	}
+
+	if dropsConnections(c.spec, rebootType) {
+		c.tls.dropConnections()
+		c.plain.dropConnections()
 	}
 
 	return nil

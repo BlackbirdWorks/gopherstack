@@ -158,7 +158,7 @@ func (b *InMemoryBackend) fetchPackage(st *appState) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(b.baseCtx(), b.startupTimeoutValue())
 	defer cancel()
 
-	return b.sitePackage(ctx, st.Settings, st.Zip)
+	return b.sitePackage(ctx, st.Settings, st.Zip, st.Flex)
 }
 
 func (b *InMemoryBackend) startupTimeoutValue() time.Duration {

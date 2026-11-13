@@ -134,7 +134,7 @@ func (b *InMemoryBackend) Functions(ctx context.Context, name string) ([]Functio
 		return nil, nil
 	}
 
-	servable, zipData, settings, worker := a.servable(), a.Zip, maps.Clone(a.Settings), ""
+	servable, zipData, settings, worker, flex := a.servable(), a.Zip, maps.Clone(a.Settings), "", a.Flex
 	if rc, rcErr := chooseRuntime(a.Settings, a.LinuxFx); rcErr == nil {
 		worker = rc.worker
 	}
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) Functions(ctx context.Context, name string) ([]Functio
 		return nil, err
 	}
 
-	if zipData, err = b.sitePackage(ctx, settings, zipData); err != nil {
+	if zipData, err = b.sitePackage(ctx, settings, zipData, flex); err != nil {
 		return nil, err
 	}
 

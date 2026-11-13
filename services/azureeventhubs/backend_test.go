@@ -445,6 +445,8 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 	assert.False(t, restored.NamespaceExists(testNS))
 }
 
+const nsAudience = "sb%3A%2F%2Fehns.servicebus.windows.net%2F"
+
 func TestClaimRights(t *testing.T) {
 	t.Parallel()
 
@@ -475,25 +477,25 @@ func TestClaimRights(t *testing.T) {
 	}{
 		{
 			name:       "root",
-			token:      token(azureeventhubs.DefaultKeyName, azureeventhubs.DefaultKeyValue, future, "res"),
+			token:      token(azureeventhubs.DefaultKeyName, azureeventhubs.DefaultKeyValue, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen", "Send", "Manage"},
 		},
 		{
 			name:       "listen rule",
-			token:      token("listen", rule.PrimaryKey, future, "res"),
+			token:      token("listen", rule.PrimaryKey, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen"},
 		},
 		{
 			name:       "secondary key",
-			token:      token("listen", rule.SecondaryKey, future, "res"),
+			token:      token("listen", rule.SecondaryKey, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen"},
 		},
-		{name: "expired", token: token("listen", rule.PrimaryKey, past, "res")},
-		{name: "wrong key", token: token("listen", azureeventhubs.DefaultKeyValue, future, "res")},
-		{name: "unknown rule", token: token("ghost", rule.PrimaryKey, future, "res")},
+		{name: "expired", token: token("listen", rule.PrimaryKey, past, nsAudience)},
+		{name: "wrong key", token: token("listen", azureeventhubs.DefaultKeyValue, future, nsAudience)},
+		{name: "unknown rule", token: token("ghost", rule.PrimaryKey, future, nsAudience)},
 		{name: "garbage", token: "SharedAccessSignature nonsense"},
 		{name: "oversized", token: "SharedAccessSignature " + string(make([]byte, 10000))},
 	}
@@ -505,6 +507,50 @@ func TestClaimRights(t *testing.T) {
 			rights, ok := azureeventhubs.ClaimRights(b, tt.token)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantRights, rights)
+		})
+	}
+}
+
+func TestClaimAudienceScope(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t, azureeventhubs.HubConfig{})
+	_, err := b.CreateHub(azureeventhubs.HubRef{Namespace: testNS, Hub: "other"}, azureeventhubs.HubConfig{})
+	require.NoError(t, err)
+
+	hubRule, err := b.PutRule(testNS, testHub, "hubsend", []string{azureeventhubs.RightSend})
+	require.NoError(t, err)
+
+	token := func(key string, expiry int64, resource string) string {
+		sig := azureeventhubs.SignSAS(resource, expiry, key)
+
+		return "SharedAccessSignature sr=" + resource + "&sig=" + urlEscape(sig) +
+			"&se=" + strconv.FormatInt(expiry, 10) + "&skn=hubsend"
+	}
+
+	future := time.Now().Add(time.Hour).Unix()
+	hubRes := "sb%3A%2F%2Fehns.servicebus.windows.net%2F" + testHub
+	otherRes := "sb%3A%2F%2Fehns.servicebus.windows.net%2Fother"
+
+	tests := []struct {
+		name         string
+		token        string
+		wantAudience string
+		wantOK       bool
+	}{
+		{name: "own hub", token: token(hubRule.PrimaryKey, future, hubRes), wantOK: true, wantAudience: testHub},
+		{name: "other hub", token: token(hubRule.PrimaryKey, future, otherRes)},
+		{name: "namespace audience", token: token(hubRule.PrimaryKey, future, nsAudience)},
+		{name: "opaque audience", token: token(hubRule.PrimaryKey, future, "res")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			aud, ok := azureeventhubs.ClaimAudience(b, tt.token)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantAudience, aud)
 		})
 	}
 }

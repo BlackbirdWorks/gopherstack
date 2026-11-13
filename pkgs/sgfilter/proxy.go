@@ -82,6 +82,17 @@ func (p *Proxy) Close() {
 	p.wg.Wait()
 }
 
+// DropConnections closes every open client connection while the listener keeps accepting.
+func (p *Proxy) DropConnections() {
+	p.conns.Range(func(k, _ any) bool {
+		if c, ok := k.(net.Conn); ok {
+			_ = c.Close()
+		}
+
+		return true
+	})
+}
+
 func (p *Proxy) serve(client net.Conn) {
 	defer func() { _ = client.Close() }()
 

@@ -78,10 +78,12 @@ func TestRunFromPackage(t *testing.T) {
 		path      string
 		wantNames []string
 		wantErr   bool
+		flex      bool
 	}{
-		{"url package wins over deployed zip", "/pkg.zip", []string{"hello", "tick"}, false},
-		{"missing package fails", "/missing.zip", nil, true},
-		{"one uses the deployed zip", "", []string{"deployed"}, false},
+		{"url package wins over deployed zip", "/pkg.zip", []string{"hello", "tick"}, false, false},
+		{"missing package fails", "/missing.zip", nil, true, false},
+		{"one uses the deployed zip", "", []string{"deployed"}, false, false},
+		{"flex ignores the url", "/pkg.zip", []string{"deployed"}, false, true},
 	}
 
 	for _, tt := range tests {
@@ -101,7 +103,7 @@ func TestRunFromPackage(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			e := newEnv(t, false)
-			e.backend.PutApp("app", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
+			e.backend.PutApp("app", azurefunctions.AppConfig{LinuxFx: "NODE|20", Flex: tt.flex})
 
 			value := "1"
 			if tt.path != "" {

@@ -22,14 +22,16 @@ func packageURL(settings map[string]string) (string, bool) {
 	return v, true
 }
 
-// sitePackage is the zip a host runs: the one WEBSITE_RUN_FROM_PACKAGE names by URL, else the deployed zip.
+// sitePackage is the zip a host runs: the one WEBSITE_RUN_FROM_PACKAGE names by URL, else the deployed zip;
+// Flex Consumption ignores the setting (Learn: functions-app-settings, "Flex Consumption plan deprecations").
 func (b *InMemoryBackend) sitePackage(
 	ctx context.Context,
 	settings map[string]string,
 	deployed []byte,
+	flex bool,
 ) ([]byte, error) {
 	raw, ok := packageURL(settings)
-	if !ok {
+	if !ok || flex {
 		return deployed, nil
 	}
 

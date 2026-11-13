@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 10 (10 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
@@ -17,7 +17,6 @@
 
 - Background triggers are verified against a real node host (timer, queue, blob, Service Bus, Event Hubs; triggers_docker_test.go, opt-in GOPHERSTACK_AZFN_DOCKER_TEST=1), but the host starts at deploy only when a function.json declares a non-HTTP trigger; a code-first (v4 programming model) app with timer or queue triggers starts on its first request. Cosmos DB, Event Grid and other bundle extensions were not exercised.
 - Remote build is not implemented: Python and Node dependencies must be packed into the zip (SCM_DO_BUILD_DURING_DEPLOYMENT is ignored; RemoteBuild=true on publish is 400).
-- WEBSITE_RUN_FROM_PACKAGE=<URL> is fetched at host start with the emulator's own HTTP client (any http(s) URL, size capped, the URL kept out of errors); the package is not re-fetched until the host restarts. Flex apps should not set it (Learn: deprecated for Flex) but this is not enforced.
 - The listener is plain HTTP; Kudu supports zipdeploy, publish?type=zip, deployments, the site zip download and vfs below site/wwwroot (no command, logstream, webjobs or vfs outside wwwroot).
 - Windows function apps and Functions runtime versions other than ~4 run in the same Linux v4 images.
 - Not implemented: app-level managed identity, VNet integration, custom domains and certificates, easy auth (authsettings are stored only); Flex Consumption deployment.storage is validated but not used as the package store, and alwaysReady, maximumInstanceCount and perInstanceConcurrency have no runtime effect.

@@ -18,7 +18,7 @@ ops:
   AMQPReceive: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Receiver links on <hub>/ConsumerGroups/<cg>/Partitions/<n> with apache.org:selector-filter:string on x-opt-offset (incl. -1 and @latest), x-opt-sequence-number and x-opt-enqueued-time (ms), > and >=. Events carry x-opt-sequence-number, x-opt-offset, x-opt-enqueued-time and x-opt-partition-key, are sent pre-settled."}
   AMQPEpoch: {wire: ok, errors: ok, state: ok, persist: n/a, note: "com.microsoft:epoch receivers: a higher or equal epoch disconnects older receivers with amqp:link:stolen; a lower epoch (or a plain receiver while an epoch receiver exists) attaches and is detached with amqp:link:stolen. Up to 5 plain receivers per partition and consumer group (amqp:resource-limit-exceeded beyond)."}
   AMQPManagement: {wire: ok, errors: ok, state: ok, persist: n/a, note: "$management READ of com.microsoft:eventhub (partition_ids, created_at) and com.microsoft:partition (begin/last sequence, last offset, last time, is_partition_empty); status-code/status-description keys."}
-  AMQPAuth: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SASL ANONYMOUS/PLAIN and $cbs put-token. With --azure-eventhubs-validate-sas the SAS signature is verified against authorization-rule keys (skn), expiry is enforced, and rights (Listen/Send/Manage) gate receive, send and management. Off by default."}
+  AMQPAuth: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SASL ANONYMOUS/PLAIN and $cbs put-token. With --azure-eventhubs-validate-sas the SAS signature is verified against authorization-rule keys (skn), expiry is enforced, and rights (Listen/Send/Manage) gate receive, send and management. A SAS audience must be a URL: sb://host/<hub> authorizes that hub only, sb://host/ the whole namespace, and a hub-scoped rule only signs tokens for its own hub; CBS claims are kept per audience. Off by default."}
   Retention: {wire: n/a, errors: n/a, state: ok, persist: ok, note: "Events older than the hub retention are trimmed lazily on every read/write and by a 30s sweeper, using an injected clock in tests. Capped at 100000 events per partition."}
 families:
   arm_integration: {status: ok, note: "services/azurearm Microsoft.EventHub: namespaces, eventhubs (partitionCount, messageRetentionInDays, retentionDescription), consumergroups, namespace- and hub-level authorizationRules with listKeys, networkRuleSets/default. Hubs, groups, rules and keys live in this service; ARM keeps only ARM metadata. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventhubs_test.go."}
@@ -28,14 +28,12 @@ families:
 gaps:
   - "Kafka endpoint is not implemented."
   - "Capture, geo-DR, schema registry, application groups, compaction and cluster features are not implemented."
-  - "SAS claims are not scoped to an entity; hub-scoped rules authorize any hub."
   - "Hub names resolve across namespaces by first match."
 deferred: []
 items_still_open:
   - "Kafka endpoint for Event Hubs (port 9093) is not implemented."
   - "Capture, geo-replication, compaction and application-group features are not implemented."
-  - "SAS claims are not scoped to the audience entity."
-  - "ARM namespace identity (SystemAssigned/UserAssigned), regenerateKeys and disasterRecoveryConfigs are not implemented."
+  - "ARM namespace identity (SystemAssigned/UserAssigned), authorization-rule regenerateKeys and disasterRecoveryConfigs are not implemented: the Microsoft.EventHub ARM routes live in services/azurearm, which holds no hook for them."
 leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener; the sweeper stops with its context; receiver registrations are removed when links close."}
 ---
 
