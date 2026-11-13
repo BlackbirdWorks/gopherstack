@@ -767,18 +767,35 @@ const maxBlobBytes = 1 << 20
 
 // asInt converts a SQL value to int, clamping to the int32 range (NaN is 0).
 func asInt(v any) int {
-	f := asFloat(v)
+	switch x := toNumber(v).(type) {
+	case int64:
+		return clampInt32(x)
+	case float64:
+		switch {
+		case math.IsNaN(x):
+			return 0
+		case x >= math.MaxInt32:
+			return math.MaxInt32
+		case x <= math.MinInt32:
+			return math.MinInt32
+		}
 
-	switch {
-	case math.IsNaN(f):
-		return 0
-	case f > math.MaxInt32:
+		return int(x)
+	}
+
+	return 0
+}
+
+func clampInt32(i int64) int {
+	if i > math.MaxInt32 {
 		return math.MaxInt32
-	case f < math.MinInt32:
+	}
+
+	if i < math.MinInt32 {
 		return math.MinInt32
 	}
 
-	return int(f)
+	return int(i)
 }
 
 func logic(l, r node, or bool) node {
