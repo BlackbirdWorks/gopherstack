@@ -27,6 +27,7 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 	h.notificationOps(ops)
 	h.testCaseOps(ops)
 	h.workspaceOps(ops)
+	h.extractionOps(ops)
 }
 
 func (h *Handler) ruleOps(ops map[string]restroute.OpFunc) {

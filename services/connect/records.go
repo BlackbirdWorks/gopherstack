@@ -179,6 +179,8 @@ type extras struct {
 	authSessions      family[authSessionRec]
 	testCases         family[testCaseRec]
 	evaluations       family[evaluationRec]
+	extractions       family[extractionRec]
+	authProfiles      family[authProfileRec]
 }
 
 func (b *Backend) registerTables() {

@@ -29,6 +29,7 @@ func extraRoutes() []restroute.Route {
 		notificationRoutes(),
 		testCaseRoutes(),
 		workspaceRoutes(),
+		extractionRoutes(),
 	)
 }
 

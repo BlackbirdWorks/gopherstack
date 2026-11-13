@@ -86,6 +86,14 @@ func (b *Backend) registerViewTables() {
 		func(v *entityProfilesRec) string { return v.InstanceID },
 		func(v *entityProfilesRec) string { return v.EntityARN },
 	)
+	b.extractions = newFamily(r, "extractionDefinitions", labelExtraction,
+		func(v *extractionRec) string { return v.InstanceID },
+		func(v *extractionRec) string { return v.Definition.ExtractionDefinitionID })
+	b.extractions.taggable(
+		func(v *extractionRec) string { return v.Definition.ExtractionDefinitionArn },
+		func(v *extractionRec) *map[string]string { return &v.Definition.Tags })
+	b.authProfiles = newFamily(r, "authenticationProfiles", labelAuthProfile,
+		func(v *authProfileRec) string { return v.InstanceID }, func(v *authProfileRec) string { return v.Profile.ID })
 	b.views.taggable(
 		func(v *viewRec) string { return v.View.Arn }, func(v *viewRec) *map[string]string { return &v.View.Tags })
 }
@@ -151,6 +159,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.testCases.findARN,
 		b.evaluations.findARN,
 		b.trafficGroups.findARN,
+		b.extractions.findARN,
 	}
 }
 
@@ -180,4 +189,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.testCases.dropInstance(inst)
 	b.evaluations.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
+	b.extractions.dropInstance(inst)
+	b.authProfiles.dropInstance(inst)
 }

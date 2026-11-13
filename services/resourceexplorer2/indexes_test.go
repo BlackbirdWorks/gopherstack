@@ -233,3 +233,39 @@ func TestCreateIndexIdempotency(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceIndexOperations(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	east, west := f.client(t), f.clientIn(t, "us-west-2", "test")
+	ctx := t.Context()
+
+	_, err := east.GetServiceIndex(ctx, &sdk.GetServiceIndexInput{})
+	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
+
+	eastIdx, err := east.CreateIndex(ctx, &sdk.CreateIndexInput{})
+	require.NoError(t, err)
+
+	westIdx, err := west.CreateIndex(ctx, &sdk.CreateIndexInput{})
+	require.NoError(t, err)
+
+	got, err := east.GetServiceIndex(ctx, &sdk.GetServiceIndexInput{})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(eastIdx.Arn), aws.ToString(got.Arn))
+	assert.Equal(t, rtypes.IndexTypeLocal, got.Type)
+
+	all, err := east.ListServiceIndexes(ctx, &sdk.ListServiceIndexesInput{})
+	require.NoError(t, err)
+	assert.Len(t, all.Indexes, 2)
+
+	one, err := east.ListServiceIndexes(ctx, &sdk.ListServiceIndexesInput{Regions: []string{"us-west-2"}})
+	require.NoError(t, err)
+	require.Len(t, one.Indexes, 1)
+	assert.Equal(t, aws.ToString(westIdx.Arn), aws.ToString(one.Indexes[0].Arn))
+
+	page, err := east.ListServiceIndexes(ctx, &sdk.ListServiceIndexesInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	assert.Len(t, page.Indexes, 1)
+	assert.NotEmpty(t, aws.ToString(page.NextToken))
+}
