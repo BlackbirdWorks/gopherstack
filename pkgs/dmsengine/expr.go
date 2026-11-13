@@ -780,7 +780,7 @@ func asInt(v any) int {
 			return math.MinInt32
 		}
 
-		return int(x)
+		return clampInt32(int64(x))
 	}
 
 	return 0
