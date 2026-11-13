@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"time"
 
@@ -129,7 +130,7 @@ func (b *InMemoryBackend) createEvent(ctx context.Context, req *restroute.Reques
 	defer b.mu.Unlock()
 
 	if prior := b.eventByToken(ev); prior != nil {
-		return doc{keyEvent: eventView(prior, true)}, 0, nil
+		return doc{keyEvent: eventView(prior, true)}, http.StatusCreated, nil
 	}
 
 	if err = b.validateBranch(sc, memory, ev.SessionID, ev.Branch); err != nil {
@@ -140,7 +141,7 @@ func (b *InMemoryBackend) createEvent(ctx context.Context, req *restroute.Reques
 	ev.Seq = b.seq
 	b.events.Put(ev)
 
-	return doc{keyEvent: eventView(ev, true)}, 0, nil
+	return doc{keyEvent: eventView(ev, true)}, http.StatusCreated, nil
 }
 
 func (b *InMemoryBackend) newEvent(sc Scope, memory string, in doc) (*Event, error) {

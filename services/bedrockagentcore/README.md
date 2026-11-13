@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 30 (30 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,13 +20,12 @@
 - Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
 - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
 - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
-- Runtimes: authorizer configuration is not enforced and the invocation payload is capped at 16 MiB by the shared body reader
+- Runtimes: a customJWTAuthorizer is enforced with the gateway's bearer validator (its 401/403 split and WWW-Authenticate text are unverified); runtimes without one accept any caller and no IAM policy is evaluated
 - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
 - Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox
 - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
 - Identity: USER_FEDERATION OAuth2 flows are rejected, vendor providers without a discovery document have no reachable token endpoint, and user JWT signatures are not verified
 - Persistence: sessions come back TERMINATED after a restart; warm runtime containers and sandbox files are not persisted
-- Success status codes and error statuses for RuntimeClientError (424), RetryableConflictException (409) and ThrottlingException (429) come from AWS documentation, not SDK evidence
 
 ### Structural gaps
 

@@ -59,13 +59,6 @@ func (h *Handler) serveStatus(c *echo.Context, op, wsID string, vals url.Values)
 		data, err = h.metadataData(ctx, wsID, vals)
 	case opExemplars:
 		data, err = h.exemplarsData(ctx, wsID, vals)
-	case opAMAlerts:
-		out, aerr := h.Backend.alertManagerAlerts(ctx, wsID)
-		if aerr != nil {
-			return h.server.WriteErr(c, aerr)
-		}
-
-		return c.JSON(http.StatusOK, out)
 	case opBuildInfo:
 		data = map[string]string{
 			"version": buildVersion, "revision": "", "branch": "", "buildUser": "", "buildDate": "",

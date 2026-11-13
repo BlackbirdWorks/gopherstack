@@ -34,6 +34,13 @@ const (
 	opExemplars   = "QueryExemplars"
 	opAMAlerts    = "AlertManagerAlerts"
 	opAMPostAlert = "AlertManagerPostAlerts"
+	opAMGroups    = "AlertManagerAlertGroups"
+	opAMReceivers = "AlertManagerReceivers"
+	opAMStatus    = "AlertManagerStatus"
+	opAMSilences  = "AlertManagerSilences"
+	opAMPutSilnce = "AlertManagerPutSilence"
+	opAMGetSilnce = "AlertManagerGetSilence"
+	opAMDelSilnce = "AlertManagerDeleteSilence"
 
 	promBase = "/workspaces/{workspaceId}/api/v1/"
 	amBase   = "/workspaces/{workspaceId}/alertmanager/api/v2/"
@@ -59,6 +66,13 @@ func dataRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: promBase + "query_exemplars", Op: opExemplars},
 		{Method: http.MethodGet, Path: amBase + "alerts", Op: opAMAlerts},
 		{Method: http.MethodPost, Path: amBase + "alerts", Op: opAMPostAlert},
+		{Method: http.MethodGet, Path: amBase + "alerts/groups", Op: opAMGroups},
+		{Method: http.MethodGet, Path: amBase + "receivers", Op: opAMReceivers},
+		{Method: http.MethodGet, Path: amBase + "status", Op: opAMStatus},
+		{Method: http.MethodGet, Path: amBase + "silences", Op: opAMSilences},
+		{Method: http.MethodPost, Path: amBase + "silences", Op: opAMPutSilnce},
+		{Method: http.MethodGet, Path: amBase + "silence/{silenceId}", Op: opAMGetSilnce},
+		{Method: http.MethodDelete, Path: amBase + "silence/{silenceId}", Op: opAMDelSilnce},
 	}
 }
 
@@ -267,14 +281,20 @@ func (h *Handler) serveData(c *echo.Context, op string, params map[string]string
 		return h.postAlerts(c, wsID)
 	}
 
+	if op == opAMPutSilnce {
+		return h.putSilence(c, wsID)
+	}
+
 	vals, err := promParams(c)
 	if err != nil {
 		return promError(c, http.StatusBadRequest, "bad_data", "cannot read request parameters")
 	}
 
 	switch op {
-	case opRules, opAlerts, opMetadata, opBuildInfo, opExemplars, opAMAlerts:
+	case opRules, opAlerts, opMetadata, opBuildInfo, opExemplars:
 		return h.serveStatus(c, op, wsID, vals)
+	case opAMAlerts, opAMGroups, opAMReceivers, opAMStatus, opAMSilences, opAMGetSilnce, opAMDelSilnce:
+		return h.serveAlertManager(c, op, wsID, params, vals)
 	case opQuery:
 		return h.instantQuery(c, wsID, vals)
 	case opQueryRange:

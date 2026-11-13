@@ -3,6 +3,7 @@ package bedrockagentcore
 import (
 	"cmp"
 	"context"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -154,7 +155,7 @@ func (b *InMemoryBackend) batchCreateRecords(ctx context.Context, req *restroute
 		})
 	}
 
-	return doc{keySucceeded: ok, keyFailed: failed}, 0, nil
+	return doc{keySucceeded: ok, keyFailed: failed}, http.StatusCreated, nil
 }
 
 func batchInput(req *restroute.Request) ([]any, error) {

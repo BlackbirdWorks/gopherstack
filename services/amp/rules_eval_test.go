@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ampsdk "github.com/aws/aws-sdk-go-v2/service/amp"
+	"github.com/aws/aws-sdk-go-v2/service/amp/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -589,4 +590,37 @@ func TestStaleMarkersPersist(t *testing.T) {
 	dst := newFixtureFromBackend(t, amp.NewInMemoryBackend(testAccount, "us-east-1"), &fakeClock{t: f.clock.now()})
 	require.NoError(t, dst.backend.Restore(t.Context(), f.backend.Snapshot(t.Context())))
 	assert.Empty(t, dst.vector(t, ws, `r`))
+}
+
+func TestRecordingRuleHonoursLabelSetLimit(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	ws := f.workspace(t)
+
+	_, err := f.client.UpdateWorkspaceConfiguration(t.Context(), &ampsdk.UpdateWorkspaceConfigurationInput{
+		WorkspaceId: aws.String(ws),
+		LimitsPerLabelSet: []types.LimitsPerLabelSet{{
+			LabelSet: map[string]string{"team": "infra"},
+			Limits:   &types.LimitsPerLabelSetEntry{MaxSeries: aws.Int64(1)},
+		}},
+	})
+	require.NoError(t, err)
+	f.settle()
+
+	f.putRules(t, ws, `groups:
+  - name: g
+    interval: 30s
+    rules:
+      - record: job:up:sum
+        expr: sum by (job) (up)
+        labels:
+          team: infra
+`)
+
+	f.writeNow(t, ws, map[string]string{"__name__": "up", "job": "api"}, 1)
+	f.writeNow(t, ws, map[string]string{"__name__": "up", "job": "web"}, 1)
+	f.backend.Tick(t.Context())
+
+	assert.Len(t, f.vector(t, ws, "job:up:sum"), 1, "only one series fits under the limit")
 }

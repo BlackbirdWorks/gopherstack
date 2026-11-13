@@ -202,9 +202,7 @@ items_still_open:
   - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-  - GetMemory: the view query parameter is accepted and ignored
-  - Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
-  - Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence
+  - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
   - Quotas: no per-account resource limits are enforced
 structural_gaps:
   - StartPolicyGeneration: deriving Cedar from natural language needs a generative model, so every generation ends GENERATE_FAILED with no assets
@@ -231,3 +229,7 @@ Resources are scoped by account and Region; the two system resources (`aws.brows
 ## Gateway MCP endpoint
 
 The generated `gatewayUrl` (`https://<id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`) is served when the Host header matches it; the emulator also serves `/agentcore/gateways/<id>/mcp` on its own address for clients that cannot rewrite hosts. Evidence: SDK `types.McpTargetConfiguration*`, `ToolSchema*`, `MCPGatewayConfiguration` (supportedVersions, instructions, disableMcpListToolsPagination), `CustomJWTAuthorizerConfiguration`, `AuthorizerType` (serializers.go claim members); MCP specification (initialize, ping, tools/list with cursor, tools/call, JSON-RPC 2.0, streamable HTTP POST with JSON responses, 202 for notifications, 405 for GET). Tools are named `<target>___<tool>`. Lambda targets are invoked in-process with the arguments as the event and a base64 client context carrying `bedrockAgentCore*` members; OpenAPI operations with an operationId become tools and call the first server URL; MCP server targets are reached through the official Go MCP client. Outbound API key and OAuth client-credentials providers are applied. Targets and JWKS fetches dial loopback only unless `--agentcore-allow-external-gateway-targets` is set (checked on the resolved peer, redirects and proxies off, certificates are always verified; `--agentcore-gateway-extra-ca-file` adds trusted CAs). Credentials and tokens are never logged.
+
+## Success and error statuses
+
+Success statuses come from the HTTP/1.1 line of each operation's Response Syntax in the AgentCore Control Plane API Reference (docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_<Operation>.html, table in status.go): 201 for most Create operations of non-asynchronous resources, 202 for asynchronous creates and the dataset, registry and gateway-synchronization operations, 204 (no body) for the credential-provider, workload-identity and resource-policy deletes and for tagging. Error statuses on the same pages: ValidationException 400, AccessDeniedException 403, ResourceNotFoundException 404, ConflictException 409, ServiceQuotaExceededException 402, ThrottlingException 429, InternalServerException 500.

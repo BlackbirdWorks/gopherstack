@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,11 +17,9 @@
 ### Known gaps
 
 - PromQL: native histograms are queryable only through a bare selector (histogram_count/sum/avg/stddev/stdvar/quantile/fraction(metric) and the selector itself); rate, increase, sum, arithmetic and subqueries over native histograms are not implemented and treat them as absent; custom-bucket (NHCB, schema -53) histograms are rejected; the quantile, stddev and fraction maths follow the Prometheus histogram documentation from memory and are unverified against a real Prometheus; limit_ratio samples by an FNV hash of the label set, not Prometheus' hash, so the selected series differ from Prometheus (the positive/negative ratio complement property holds).
-- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); silences, the v1 API and template_files are not served; sigv4 settings are accepted and ignored; the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
+- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); sigv4 settings are accepted and ignored; the `templates` list is not consulted (every template_files entry is loaded); the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source; the EKS emulator exposes no pod or node metrics endpoints to scrape, so there is no in-process target
-- WorkspaceConfiguration: limitsPerLabelSet does not apply to series written by rule evaluation
 - RemoteWrite: the out-of-order window is measured against the same series' newest sample (Prometheus measures against the head's newest sample across series) and its default of 0 is unverified; exemplar limits (128 runes, newest 100 per series) follow Prometheus and are silently dropped; per-workspace ingestion limits and throttling do not exist
-- Query: targets and status config, flags, runtimeinfo and tsdb endpoints are not served
 - LoggingConfiguration: the delivered log line layout (JSON with level, component, ts, msg) and the stream names ruler and alertmanager are not documented by AWS and are unverified; only rule evaluation failures and alert notification failures are delivered
 - Authorization: with --validate-sigv4 the data plane requires an aps-scoped SigV4 signature checked against --sigv4-secret and evaluates the workspace resource policy by account only (the IAM evaluator ignores Principal); the error codes for missing and mis-scoped signatures are unverified; cross-account callers resolve workspaces in their own account, so a cross-account allow still answers 404
 - CreateWorkspace: a missing or disabled KMS key is a ValidationException; the real error code is unverified, and the key is not used to encrypt anything

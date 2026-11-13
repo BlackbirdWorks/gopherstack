@@ -246,6 +246,15 @@ func validateAlertManager(data []byte) error {
 		return cannotParse("alertmanager_config is invalid: %v", perr)
 	}
 
+	files, ferr := alertManagerTemplateFiles(data)
+	if ferr != nil {
+		return cannotParse("template_files is invalid: %v", ferr)
+	}
+
+	if _, terr := renderNotify("-", files, notifData{}); terr != nil {
+		return cannotParse("template_files is invalid: %v", terr)
+	}
+
 	return nil
 }
 

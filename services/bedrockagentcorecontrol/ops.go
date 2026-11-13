@@ -35,7 +35,7 @@ func (h *Handler) run(op string, fn callFn) restroute.OpFunc {
 			return nil, 0, err
 		}
 
-		return rep.body, rep.status, nil
+		return rep.body, statusOf(op), nil
 	}
 }
 
@@ -99,7 +99,7 @@ func (h *Handler) untag() restroute.OpFunc {
 			return nil, 0, err
 		}
 
-		return rep.body, rep.status, nil
+		return rep.body, statusOf("UntagResource"), nil
 	}
 }
 

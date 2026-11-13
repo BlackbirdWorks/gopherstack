@@ -31,11 +31,12 @@ type aggGroup struct {
 
 // alertManager is one workspace's alert dispatcher: routing, grouping, inhibition and notification timing.
 type alertManager struct {
-	mu     *lockmetrics.RWMutex
-	cfg    *amConfig
-	alerts map[string]Alert
-	groups map[string]*aggGroup
-	src    []byte
+	mu       *lockmetrics.RWMutex
+	cfg      *amConfig
+	alerts   map[string]Alert
+	groups   map[string]*aggGroup
+	src      []byte
+	silences []compiledSilence
 }
 
 func newAlertManager(cfg *amConfig, src []byte) *alertManager {
@@ -149,6 +150,7 @@ type pendingNotify struct {
 	done     func(err error)
 	receiver *amReceiver
 	sns      amSNS
+	files    []string
 }
 
 // Flush returns the notifications due at now.
@@ -233,7 +235,7 @@ func (m *alertManager) splitLocked(g *aggGroup, now time.Time) ([]Alert, []Alert
 		switch {
 		case a.resolved(now):
 			resolved = append(resolved, a)
-		case !m.inhibitedLocked(a, now):
+		case len(m.silencedByLocked(a.Labels, now)) == 0 && !m.inhibitedLocked(a, now):
 			firing = append(firing, a)
 		}
 	}
@@ -251,6 +253,13 @@ func sortAlerts(a []Alert) {
 }
 
 func (m *alertManager) inhibitedLocked(target Alert, now time.Time) bool {
+	return len(m.inhibitorsLocked(target, now)) > 0
+}
+
+// inhibitorsLocked returns the fingerprints of the firing alerts that inhibit target.
+func (m *alertManager) inhibitorsLocked(target Alert, now time.Time) []string {
+	out := []string{}
+
 	for _, rule := range m.cfg.inhibit {
 		if !promql.MatchesAll(target.Labels, rule.target) {
 			continue
@@ -263,12 +272,14 @@ func (m *alertManager) inhibitedLocked(target Alert, now time.Time) bool {
 
 			if equalOn(rule.equal, src.Labels, target.Labels) &&
 				promql.Fingerprint(src.Labels) != promql.Fingerprint(target.Labels) {
-				return true
+				out = append(out, fingerprintHex(src.Labels))
 			}
 		}
 	}
 
-	return false
+	slices.Sort(out)
+
+	return slices.Compact(out)
 }
 
 func equalOn(names []string, a, b promql.Labels) bool {
@@ -317,7 +328,7 @@ func (m *alertManager) decideLocked(
 	}
 
 	return pendingNotify{
-		receiver: rc, sns: s, data: newNotifData(rc.name, g, shown, now),
+		receiver: rc, sns: s, files: m.cfg.templates, data: newNotifData(rc.name, g, shown, now),
 		done: func(err error) {
 			if err != nil {
 				return

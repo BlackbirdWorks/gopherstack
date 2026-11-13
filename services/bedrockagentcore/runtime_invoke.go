@@ -89,6 +89,12 @@ func (b *InMemoryBackend) resolveRuntime(r *http.Request, p map[string]string, s
 		return nil, internal("resolving the agent runtime failed")
 	}
 
+	if info.Authorize != nil {
+		if f := info.Authorize(r.Context(), r); f != nil {
+			return nil, authRejected(f)
+		}
+	}
+
 	return &runtimeTarget{sc: sc, info: info, key: runtimeKey(sc, id, qualifier, session), sessionID: session}, nil
 }
 
@@ -144,6 +150,10 @@ func (b *InMemoryBackend) invokeAgentRuntime(c *echo.Context, p map[string]strin
 }
 
 func writeErr(c *echo.Context, err error) error {
+	if ae, ok := errors.AsType[*authError](err); ok && ae.challenge != "" {
+		c.Response().Header().Set("WWW-Authenticate", ae.challenge)
+	}
+
 	if apiErr, ok := errors.AsType[*restroute.Error](err); ok {
 		return restroute.WriteError(c, apiErr.Status, apiErr.Code, apiErr.Message, apiErr.Extra)
 	}
@@ -157,15 +167,18 @@ func writeErr(c *echo.Context, err error) error {
 	)
 }
 
+// maxInvokePayloadBytes is the InvokeAgentRuntime payload limit of the AWS API Reference (100000000).
+const maxInvokePayloadBytes = 100_000_000
+
 func (e *engine) outbound(ctx context.Context, r *http.Request, rs *runtimeSession, method, path string) (
 	*http.Request, error,
 ) {
 	var body io.Reader = http.NoBody
 
 	if method == http.MethodPost {
-		payload, err := httputils.ReadBody(r)
+		payload, err := httputils.ReadBodyLimit(r, maxInvokePayloadBytes)
 		if err != nil {
-			return nil, invalid("the payload could not be read or exceeds %d bytes", httputils.MaxRequestBodyBytes)
+			return nil, invalid("the payload could not be read or exceeds %d bytes", maxInvokePayloadBytes)
 		}
 
 		body = bytes.NewReader(payload)

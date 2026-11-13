@@ -2,7 +2,11 @@
 // events and records, code interpreter and browser sessions, and workload identity tokens.
 package bedrockagentcore
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"net/http"
+)
 
 // Scope identifies the account and Region a request operates in.
 type Scope struct{ Account, Region string }
@@ -13,9 +17,17 @@ var (
 	ErrNotReady = errors.New("resource is not ready")
 )
 
+// AuthFailure is a request the runtime's inbound authorizer rejected.
+type AuthFailure struct {
+	Challenge string
+	Message   string
+	Status    int
+}
+
 // RuntimeInfo is the deployable view of an agent runtime endpoint.
 type RuntimeInfo struct {
 	Env          map[string]string
+	Authorize    func(ctx context.Context, r *http.Request) *AuthFailure
 	ID           string
 	ImageURI     string
 	Protocol     string

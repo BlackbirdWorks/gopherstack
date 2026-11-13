@@ -254,8 +254,15 @@ func (b *InMemoryBackend) writeOutputsLocked(
 	t := now.UnixMilli()
 	cur := make(map[string]promql.Labels, len(outs))
 
+	ws, _ := b.workspaces.Get(g.wsID)
+
 	for i, l := range outs {
-		cur[promql.Fingerprint(l)] = l
+		fp := promql.Fingerprint(l)
+		if _, known := b.series.Get(seriesKey(g.wsID, fp)); !known && b.overLabelSetLimit(ws, l) {
+			continue
+		}
+
+		cur[fp] = l
 		b.appendSampleLocked(g.wsID, l, promql.Sample{T: t, V: vals[i]})
 	}
 

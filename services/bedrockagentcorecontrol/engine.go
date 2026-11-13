@@ -581,13 +581,7 @@ func (b *InMemoryBackend) render(op string, k *kindSpec, r *Resource, shown stri
 		}
 	}
 
-	status := http.StatusOK
-	if !k.Terminal && slices.ContainsFunc([]string{"Create", "Start", "Delete", "Update"},
-		func(p string) bool { return strings.HasPrefix(op, p) }) {
-		status = http.StatusAccepted
-	}
-
-	return &reply{body: out, status: status}
+	return &reply{body: out, status: http.StatusOK}
 }
 
 func (b *InMemoryBackend) project(

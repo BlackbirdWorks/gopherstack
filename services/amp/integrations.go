@@ -243,7 +243,7 @@ func dataAction(method, path string) string {
 
 	switch {
 	case strings.Contains(path, "/alertmanager/"):
-		return "aps:GetAlertManagerStatus"
+		return alertManagerAction(method, path)
 	case strings.Contains(path, "/rules"), strings.Contains(path, "/alerts"):
 		return "aps:ListRules"
 	}
@@ -273,4 +273,27 @@ func (b *InMemoryBackend) policyDenies(wsID, action, accessKey string, eval Poli
 	}
 
 	return w.ARN, denied || (caller != w.AccountID && !allowed)
+}
+
+func alertManagerAction(method, path string) string {
+	switch {
+	case strings.HasSuffix(path, "/alerts/groups"):
+		return "aps:ListAlertManagerAlertGroups"
+	case strings.HasSuffix(path, "/alerts") && method == http.MethodPost:
+		return "aps:CreateAlertManagerAlerts"
+	case strings.HasSuffix(path, "/alerts"):
+		return "aps:ListAlertManagerAlerts"
+	case strings.HasSuffix(path, "/receivers"):
+		return "aps:ListAlertManagerReceivers"
+	case strings.HasSuffix(path, "/silences") && method == http.MethodPost:
+		return "aps:PutAlertManagerSilences"
+	case strings.HasSuffix(path, "/silences"):
+		return "aps:ListAlertManagerSilences"
+	case strings.Contains(path, "/silence/") && method == http.MethodDelete:
+		return "aps:DeleteAlertManagerSilence"
+	case strings.Contains(path, "/silence/"):
+		return "aps:GetAlertManagerSilence"
+	}
+
+	return "aps:GetAlertManagerStatus"
 }

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 171 (171 ok) |
 | Feature families | 14 (14 ok) |
-| Known gaps | 13 |
+| Known gaps | 11 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -25,9 +25,7 @@
 - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
 - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
 - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-- GetMemory: the view query parameter is accepted and ignored
-- Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
-- Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence
+- GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
 - Quotas: no per-account resource limits are enforced
 
 ### Structural gaps

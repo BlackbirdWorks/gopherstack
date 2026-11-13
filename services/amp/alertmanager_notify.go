@@ -40,8 +40,28 @@ type kv map[string]string
 
 type kvPair struct{ Name, Value string }
 
-func (k kv) SortedPairs() []kvPair {
-	out := make([]kvPair, 0, len(k))
+type kvPairs []kvPair
+
+func (p kvPairs) Values() []string {
+	out := make([]string, 0, len(p))
+	for _, e := range p {
+		out = append(out, e.Value)
+	}
+
+	return out
+}
+
+func (p kvPairs) Names() []string {
+	out := make([]string, 0, len(p))
+	for _, e := range p {
+		out = append(out, e.Name)
+	}
+
+	return out
+}
+
+func (k kv) SortedPairs() kvPairs {
+	out := make(kvPairs, 0, len(k))
 	for n, v := range k {
 		out = append(out, kvPair{n, v})
 	}
@@ -180,9 +200,26 @@ var notifyFuncs = template.FuncMap{ //nolint:gochecknoglobals // immutable looku
 	"match":        templateFuncs["match"],
 }
 
-func renderNotify(text string, d notifData) (string, error) {
-	t, err := template.New("notify").Funcs(notifyFuncs).Parse(text)
+const defaultNotifyTemplates = `{{ define "__subject" }}[{{ .Status | toUpper }}` +
+	`{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] ` +
+	`{{ .GroupLabels.SortedPairs.Values | join " " }} {{ if gt (len .CommonLabels) (len .GroupLabels) }}` +
+	`({{ with .CommonLabels.Remove .GroupLabels.Names }}{{ .Values | join " " }}{{ end }}){{ end }}{{ end }}` +
+	`{{ define "sns.default.subject" }}{{ template "__subject" . }}{{ end }}` +
+	`{{ define "sns.default.message" }}{{ .CommonAnnotations.SortedPairs.Values | join " " }}{{ end }}`
+
+func renderNotify(text string, files []string, d notifData) (string, error) {
+	t, err := template.New("notify").Funcs(notifyFuncs).Parse(defaultNotifyTemplates)
 	if err != nil {
+		return "", err
+	}
+
+	for _, f := range files {
+		if _, err = t.Parse(f); err != nil {
+			return "", err
+		}
+	}
+
+	if _, err = t.Parse(text); err != nil {
 		return "", err
 	}
 
@@ -236,13 +273,13 @@ func (p pendingNotify) snsMessage() (SNSMessage, error) {
 	var err error
 
 	if p.sns.subject != "" {
-		if subject, err = renderNotify(p.sns.subject, p.data); err != nil {
+		if subject, err = renderNotify(p.sns.subject, p.files, p.data); err != nil {
 			return SNSMessage{}, err
 		}
 	}
 
 	if p.sns.message != "" {
-		if message, err = renderNotify(p.sns.message, p.data); err != nil {
+		if message, err = renderNotify(p.sns.message, p.files, p.data); err != nil {
 			return SNSMessage{}, err
 		}
 	}

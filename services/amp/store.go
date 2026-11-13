@@ -32,6 +32,8 @@ type InMemoryBackend struct {
 	publisher     SNSPublisher
 	clusters      ClusterResolver
 	seriesByWS    *store.Index[SeriesRecord]
+	silences      *store.Table[Silence]
+	silencesByWS  *store.Index[Silence]
 	scrapers      *store.Table[Scraper]
 	metadata      *store.Table[MetadataRecord]
 	metadataByWS  *store.Index[MetadataRecord]
@@ -201,12 +203,18 @@ func (b *InMemoryBackend) dropWorkspaceLocked(id string) {
 		b.series.Delete(s.Key)
 	}
 
+	for _, s := range slices.Clone(b.silencesByWS.Get(id)) {
+		b.silences.Delete(silenceKeyOf(s))
+	}
+
 	for _, m := range slices.Clone(b.metadataByWS.Get(id)) {
 		b.metadata.Delete(m.Key)
 	}
 }
 
 func (b *InMemoryBackend) purgeChildrenLocked() {
+	b.purgeSilencesLocked(b.now())
+
 	for _, n := range b.namespaces.All() {
 		if b.gone(n.Doc.Pending) {
 			b.namespaces.Delete(namespaceKey(n))

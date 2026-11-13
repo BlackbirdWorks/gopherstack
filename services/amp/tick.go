@@ -97,7 +97,15 @@ func (b *InMemoryBackend) managerFor(w *Workspace, now time.Time) *alertManager 
 		return old
 	}
 
+	files, err := alertManagerTemplateFiles(d.Data)
+	if err != nil {
+		return old
+	}
+
+	cfg.templates = files
+
 	m := newAlertManager(cfg, d.Data)
+	m.setSilences(b.workspaceSilencesLocked(w.ID))
 	if old != nil {
 		m.Receive(old.List(), now)
 	}

@@ -47,13 +47,12 @@ items_still_open:
   - Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
   - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
   - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
-  - Runtimes: authorizer configuration is not enforced and the invocation payload is capped at 16 MiB by the shared body reader
+  - Runtimes: a customJWTAuthorizer is enforced with the gateway's bearer validator (its 401/403 split and WWW-Authenticate text are unverified); runtimes without one accept any caller and no IAM policy is evaluated
   - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
   - Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox
   - Browser: no automation or live-view streams, no profiles, and no browser process behind a session
   - Identity: USER_FEDERATION OAuth2 flows are rejected, vendor providers without a discovery document have no reachable token endpoint, and user JWT signatures are not verified
   - Persistence: sessions come back TERMINATED after a restart; warm runtime containers and sandbox files are not persisted
-  - Success status codes and error statuses for RuntimeClientError (424), RetryableConflictException (409) and ThrottlingException (429) come from AWS documentation, not SDK evidence
 structural_gaps:
   - Semantic memory search: real retrieval embeds text with a model; the emulator has none, so ranking is lexical
   - Browser automation: a headless browser container with a CDP bridge is out of scope
@@ -70,3 +69,7 @@ The data plane reads the control plane through the `Control` seam (`control.go`)
 `InvokeAgentRuntime` follows the AgentCore runtime contract: the container listens on 8080 and answers `GET /ping` and `POST /invocations` (MCP runtimes serve `/mcp` on 8000, A2A runtimes `/` on 9000). The request body and the `Content-Type`, `Accept`, bearer `Authorization`, trace and `X-Amzn-Bedrock-AgentCore-Runtime-*` headers are forwarded; the SigV4 signature is not. A non-2xx agent reply becomes `RuntimeClientError` (424).
 
 Containers need a reachable Docker-compatible daemon (`--agentcore-engine=auto`). Without one, operations that need a container fail with `InternalServerException`; memory, identity, browser sessions and code interpreter file operations still work.
+
+## Statuses and payload
+
+Success statuses follow the Response Syntax of each operation in the AgentCore API Reference (docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_<Operation>.html): CreateEvent and BatchCreateMemoryRecords answer 201, every other served operation 200. Error statuses on the InvokeAgentRuntime page: RuntimeClientError 424, RetryableConflictException 409, ThrottlingException 429, ServiceQuotaExceededException 402, UnauthorizedException 401 (StopRuntimeSession). InvokeAgentRuntime accepts payloads up to 100000000 bytes, the documented maximum.
