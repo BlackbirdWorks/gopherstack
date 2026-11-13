@@ -229,13 +229,3 @@ func unzip(data []byte) ([]sourceFile, error) {
 
 	return out, nil
 }
-
-func hasConfigFile(files []sourceFile) bool {
-	for _, f := range files {
-		if f.Path == configFileName {
-			return true
-		}
-	}
-
-	return false
-}

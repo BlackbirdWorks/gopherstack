@@ -19,7 +19,6 @@ items_still_open:
   - columns: bill/lineItem/product/pricing/reservation/savingsPlan/discount core columns are present, but only those the cost ledger can fill carry values (the rest are empty cells); resourceTags/*, costCategory/* and the long tail of product/* attribute columns are absent
   - MANUAL_DISCOUNT_COMPATIBILITY: accepted but adds no columns
   - ResourceId and tags: lineItem/ResourceId is empty because the cost ledger has no per-resource data
-  - lastDelivery: emitted as RFC 3339; the real service string format is unverified
   - ATHENA artifacts: crawler template is minimal; cost_and_usage_data_status.parquet (one row, status=READY) is written next to the data but its exact key and schema are recalled, unverified
   - BillingViewArn: format-checked only, no billing view backend
 gaps: []
@@ -32,3 +31,7 @@ leaks: {status: clean, note: "StartWorker group is stopped on context cancel; te
 Protocol awsjson1.1, target prefix AWSOrigamiServiceGatewayService., homed in us-east-1 (ChaosRegions reports only that region).
 Every error is HTTP 400 except InternalErrorException; codes: DuplicateReportNameException, ReportLimitReachedException,
 ResourceNotFoundException, ValidationException.
+
+## 2026-11-13 lastDelivery
+
+ReportStatus.lastDelivery uses the documented layout 20060102T150405Z (API_cur_ReportStatus: pattern [0-9]{8}[T][0-9]{6}([Z]|[+-][0-9]{4})); snapshot values stored as RFC 3339 are re-rendered on read.

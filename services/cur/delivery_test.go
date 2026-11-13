@@ -79,6 +79,7 @@ func TestDelivery_CSVGzip(t *testing.T) {
 	st := f.status(t, "daily")
 	require.NotNil(t, st)
 	assert.Equal(t, curtypes.LastStatusSuccess, st.LastStatus)
+	assert.Regexp(t, `^[0-9]{8}T[0-9]{6}Z$`, aws.ToString(st.LastDelivery))
 
 	dataKey := ""
 	manifestKey := "reports/daily/20260301-20260401/daily-Manifest.json"

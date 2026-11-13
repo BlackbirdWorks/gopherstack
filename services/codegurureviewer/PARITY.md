@@ -26,7 +26,6 @@ families:
 gaps: []
 items_still_open:
   - "PullRequest reviews: CreateCodeReview only creates RepositoryAnalysis reviews, so ListCodeReviews Type=PullRequest is always empty; the emulator has no provider webhook that opens a pull-request review"
-  - "aws-codeguru-reviewer.yml: ConfigFileState reports Present/Absent by file presence; the contents (excluded paths) are not parsed, so SuppressedLinesOfCodeCount is always 0 and PresentWithErrors is never returned"
   - "ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators"
   - "KMSKeyDetails.KMSKeyId is stored, not looked up in the KMS emulator"
   - "Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which"
@@ -42,3 +41,7 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; th
 Protocol is REST-JSON (SigV4 signing name `codeguru-reviewer`, matcher also accepts the `api/codegurureviewer` user-agent marker). Timestamps are epoch-seconds numbers (`awstime.EpochTime`). Association ARN: `arn:aws:codeguru-reviewer:<region>:<account>:association:<uuid>`; review ARN appends `:codereview:<uuid>`.
 
 State is time-derived: records keep a settle time and the view settles Associating/Disassociating/Pending lazily, so a snapshot restored later reads the correct state. The window is 500ms by default (`--lifecycle-codegurureviewer` / `CODEGURUREVIEWER_LIFECYCLE_DELAY`). The analysis itself runs synchronously at CreateCodeReview against the source as it was at that moment.
+
+## 2026-11-13 repository config file
+
+aws-codeguru-reviewer.yml is parsed: excludeFiles globs (** crosses directories) drop files from the analysis and feed SuppressedLinesOfCodeCount; invalid YAML or a non-list excludeFiles reports PresentWithErrors (docs: recommendation-suppression and create-code-reviews pages; the glob dialect is taken from their examples).
