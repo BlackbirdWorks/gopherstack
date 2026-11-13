@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -27,6 +28,24 @@ var (
 // unnestModuleFor returns the per-query virtual table name carrying cols; the single process-wide module decodes them.
 func unnestModuleFor(cols []string) string {
 	return unnestTablePfx + hex.EncodeToString([]byte(strings.Join(cols, "\x00")))
+}
+
+// canonicalUnnestTable rebuilds mod byte by byte so only the decoded payload, never the matched text, reaches DDL.
+func canonicalUnnestTable(mod string) (string, error) {
+	raw, err := hex.DecodeString(strings.TrimPrefix(mod, unnestTablePfx))
+	if err != nil {
+		return "", errUnnestName
+	}
+
+	var sb strings.Builder
+
+	sb.WriteString(unnestTablePfx)
+
+	for _, c := range raw {
+		fmt.Fprintf(&sb, "%02x", c)
+	}
+
+	return sb.String(), nil
 }
 
 func registerUnnestModule() {

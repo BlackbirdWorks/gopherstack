@@ -43,6 +43,11 @@ func (b *bufResponse) status() int {
 func (b *bufResponse) replay(w http.ResponseWriter) {
 	maps.Copy(w.Header(), b.header)
 
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(b.status())
 	_, _ = w.Write(b.body.Bytes())
 }

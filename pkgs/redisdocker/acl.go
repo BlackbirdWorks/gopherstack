@@ -59,9 +59,15 @@ func SetUserArgs(u ACLUser) ([]any, error) {
 	return args, nil
 }
 
+// aclCommand is one SETUSER command plus the account it targets, kept apart from args so errors never echo them.
+type aclCommand struct {
+	user string
+	args []any
+}
+
 // commands returns the SETUSER commands for p; accounts are listed before "default" so a failure leaves it intact.
-func (p ACLPolicy) commands() ([][]any, error) {
-	cmds := make([][]any, 0, len(p.Users)+1)
+func (p ACLPolicy) commands() ([]aclCommand, error) {
+	cmds := make([]aclCommand, 0, len(p.Users)+1)
 
 	for _, u := range p.Users {
 		if u.Name == defaultUser {
@@ -73,11 +79,11 @@ func (p ACLPolicy) commands() ([][]any, error) {
 			return nil, err
 		}
 
-		cmds = append(cmds, args)
+		cmds = append(cmds, aclCommand{user: u.Name, args: args})
 	}
 
 	if def, ok := p.defaultCommand(); ok {
-		cmds = append(cmds, def)
+		cmds = append(cmds, aclCommand{user: defaultUser, args: def})
 	}
 
 	return cmds, nil
@@ -139,7 +145,7 @@ func (g *Group) ApplyACL(ctx context.Context, policy ACLPolicy) error {
 	return nil
 }
 
-func (g *Group) syncNodeACL(ctx context.Context, n *node, cmds [][]any, stale []string) error {
+func (g *Group) syncNodeACL(ctx context.Context, n *node, cmds []aclCommand, stale []string) error {
 	adm := g.dial(n)
 	defer func() { _ = adm.Close() }()
 
@@ -150,8 +156,8 @@ func (g *Group) syncNodeACL(ctx context.Context, n *node, cmds [][]any, stale []
 	}
 
 	for _, cmd := range cmds {
-		if _, err := adm.Do(ctx, cmd...); err != nil {
-			return fmt.Errorf("set acl user %v: %w", cmd[2], redactErr(err, cmd))
+		if _, err := adm.Do(ctx, cmd.args...); err != nil {
+			return fmt.Errorf("set acl user %s: %w", cmd.user, redactErr(err, cmd.args))
 		}
 	}
 

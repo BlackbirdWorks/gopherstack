@@ -88,10 +88,9 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 // smTagList is stateMachine:createdBy plus the user's Tags.
 func smTagList(props map[string]any) []any {
 	user := samTagList(asMap(props[samKeyTags]))
-	tags := make([]any, 0, len(user)+1)
-	tags = append(tags, map[string]any{samKeyKey: samSMCreatedBy, samKValue: samCreatedBy})
+	created := []any{map[string]any{samKeyKey: samSMCreatedBy, samKValue: samCreatedBy}}
 
-	return append(tags, user...)
+	return slices.Concat(created, user)
 }
 
 // smDefinition fills DefinitionString (a Fn::Join of the indented JSON, with intrinsics turned into

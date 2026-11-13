@@ -46,7 +46,7 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/alecthomas/kong v1.16.1 // indirect
 	github.com/alicebob/miniredis/v2 v2.40.0 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.8 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.7 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22 // indirect
@@ -281,15 +281,15 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261011100332-faecfb24eb49 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/term v0.47.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/api v0.304.0 // indirect
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941 // indirect

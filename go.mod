@@ -78,7 +78,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/alecthomas/kong v1.16.1
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/andybalholm/brotli v1.2.6
+	github.com/andybalholm/brotli v1.2.8
 	github.com/apache/tinkerpop/gremlin-go/v3 v3.8.2
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
@@ -341,11 +341,11 @@ require (
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
 	go.mongodb.org/mongo-driver/v2 v2.9.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/mod v0.42.0
 	golang.org/x/net v0.62.0
-	golang.org/x/sync v0.24.0
-	golang.org/x/text v0.43.0
+	golang.org/x/sync v0.25.0
+	golang.org/x/text v0.44.0
 	google.golang.org/api v0.304.0
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941
@@ -571,9 +571,9 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20261011100332-faecfb24eb49 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261009151841-97e8ea77aa2a // indirect
-	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/vuln v1.7.0 // indirect

@@ -315,6 +315,12 @@ func parsePos(s string) int64 {
 	return n
 }
 
+func parseClauseIndex(s string) int {
+	n, _ := strconv.ParseInt(s, 10, 32)
+
+	return int(n)
+}
+
 type rowRef struct {
 	path string
 	pos  int64
@@ -389,7 +395,7 @@ func (p *writePlan) applyMerge(
 	var freshOff []int
 
 	for r, row := range res.rows {
-		act := int(parsePos(row[dmlHidden]))
+		act := parseClauseIndex(row[dmlHidden])
 		if act == 0 {
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -45,7 +46,6 @@ const (
 	bytesPerMB                                   = 1 << 20
 	telemetryValidationErrorType                 = "ValidationError"
 	logsValidationErrorType                      = "Logs.ValidationError"
-	recordFrameBytes                             = 32
 	sandboxHost                                  = "sandbox.localdomain"
 	maxSubscribeBodyBytes                        = 1 << 20
 )
@@ -305,15 +305,7 @@ func (e wireEvent) MarshalJSON() ([]byte, error) {
 	t, _ := json.Marshal(e.Time)
 	typ, _ := json.Marshal(e.Type)
 
-	out := make([]byte, 0, len(rec)+len(t)+len(typ)+recordFrameBytes)
-	out = append(out, `{"time":`...)
-	out = append(out, t...)
-	out = append(out, `,"type":`...)
-	out = append(out, typ...)
-	out = append(out, `,"record":`...)
-	out = append(out, rec...)
-
-	return append(out, '}'), nil
+	return slices.Concat([]byte(`{"time":`), t, []byte(`,"type":`), typ, []byte(`,"record":`), rec, []byte{'}'}), nil
 }
 
 func eventTime(t time.Time) string { return t.UTC().Format(eventTimeLayout) }

@@ -55,6 +55,10 @@ func newNetProber() *netProber {
 }
 
 func (p *netProber) Probe(ctx context.Context, hp HealthProbe) string {
+	if host, _, err := net.SplitHostPort(hp.Address); err != nil || !httpclient.IsLoopbackHost(host) {
+		return healthTimeout
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, hp.Timeout)
 	defer cancel()
 

@@ -38,12 +38,12 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 
 // execute runs a SELECT, DESCRIBE or SHOW statement against the written records.
 func (b *InMemoryBackend) execute(
-	parent context.Context, query string, vars map[string]string,
+	parent context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
 	ctx, cancel := context.WithTimeout(parent, b.timeout())
 	defer cancel()
 
-	rs, err := b.executeStatement(ctx, query, vars)
+	rs, err := b.executeStatement(ctx, query, vars, queryID)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
 		return nil, fmt.Errorf("%w: query execution exceeded the %s time limit", ErrQueryExecution, b.timeout())
 	}
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) execute(
 }
 
 func (b *InMemoryBackend) executeStatement(
-	ctx context.Context, query string, vars map[string]string,
+	ctx context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
 	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(query), ";"))
 	region := getRegion(ctx, b.defaultRegion)
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) executeStatement(
 	case "SHOW":
 		return b.show(region, query)
 	case stmtUnload:
-		return b.unload(ctx, query)
+		return b.unload(ctx, query, queryID)
 	case "EXPLAIN":
 		return nil, validationf("line 1:1: EXPLAIN is not supported")
 	}
@@ -222,8 +222,13 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	}
 
 	for _, mod := range reUnnestMod.FindAllString(q, -1) {
-		//nolint:gosec // mod matches ^ts_unnest_[0-9a-f]+$
-		ddl := "CREATE VIRTUAL TABLE IF NOT EXISTS temp." + mod + " USING " + unnestModuleName
+		table, nameErr := canonicalUnnestTable(mod)
+		if nameErr != nil {
+			return nil, fmt.Errorf("timestreamquery: unnest module: %w", nameErr)
+		}
+
+		ddl := strings.Join(
+			[]string{"CREATE VIRTUAL TABLE IF NOT EXISTS temp.", table, " USING ", unnestModuleName}, "")
 		if _, err = conn.ExecContext(ctx, ddl); err != nil {
 			return nil, fmt.Errorf("timestreamquery: unnest module: %w", err)
 		}

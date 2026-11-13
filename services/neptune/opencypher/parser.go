@@ -3,6 +3,8 @@ package opencypher
 import (
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 type parser struct {
@@ -176,7 +178,7 @@ func (p *parser) unexpected(want string) error {
 	got := "end of input"
 
 	if t.kind != tkEOF {
-		got = "'" + t.text + "'"
+		got = "'" + strs.EscapeSingleQuotes(t.text) + "'"
 	}
 
 	return syntaxErr(t.pos, "Invalid input "+got+": expected "+want)

@@ -4,6 +4,8 @@ package sparql
 import (
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // Kind classifies an RDF term.
@@ -115,26 +117,7 @@ func (t Term) String() string {
 }
 
 func escapeString(s string) string {
-	var sb strings.Builder
-
-	for _, r := range s {
-		switch r {
-		case '\\':
-			sb.WriteString(`\\`)
-		case '"':
-			sb.WriteString(`\"`)
-		case '\n':
-			sb.WriteString(`\n`)
-		case '\r':
-			sb.WriteString(`\r`)
-		case '\t':
-			sb.WriteString(`\t`)
-		default:
-			sb.WriteRune(r)
-		}
-	}
-
-	return sb.String()
+	return strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(strs.EscapeDoubleQuotes(s))
 }
 
 const hexWidth = 4

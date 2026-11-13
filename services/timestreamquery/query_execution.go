@@ -68,7 +68,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 
 	queryID := newQueryID()
 
-	rs, err := b.execute(context.WithValue(ctx, queryIDKey{}, queryID), opts.QueryString, nil)
+	rs, err := b.execute(ctx, opts.QueryString, nil, queryID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 
 // Query runs a query and returns its full result (legacy path); a failing query yields an empty result.
 func (b *InMemoryBackend) Query(ctx context.Context, queryString string) *QueryResult {
-	rs, err := b.execute(ctx, queryString, nil)
+	rs, err := b.execute(ctx, queryString, nil, "")
 	if err != nil {
 		rs = &resultSet{rows: []Row{}}
 	}

@@ -43,8 +43,6 @@ var (
 	reStringLit  = regexp.MustCompile(`(?s)^'(.*)'$`)
 )
 
-type queryIDKey struct{}
-
 // unloadOptions are the validated WITH options of an UNLOAD statement.
 type unloadOptions struct {
 	format        string
@@ -288,7 +286,7 @@ func (o *unloadOptions) validate() error {
 }
 
 // unload runs UNLOAD (SELECT ...) TO 's3://...' and writes data, manifest and metadata files.
-func (b *InMemoryBackend) unload(ctx context.Context, query string) (*resultSet, error) {
+func (b *InMemoryBackend) unload(ctx context.Context, query, queryID string) (*resultSet, error) {
 	st, err := parseUnload(query)
 	if err != nil {
 		return nil, err
@@ -298,7 +296,7 @@ func (b *InMemoryBackend) unload(ctx context.Context, query string) (*resultSet,
 		return nil, unloadErr("UNLOAD cannot be nested")
 	}
 
-	rs, err := b.execute(ctx, st.selectSQL, nil)
+	rs, err := b.execute(ctx, st.selectSQL, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +314,6 @@ func (b *InMemoryBackend) unload(ctx context.Context, query string) (*resultSet,
 		return nil, err
 	}
 
-	queryID, _ := ctx.Value(queryIDKey{}).(string)
 	if queryID == "" {
 		queryID = newQueryID()
 	}

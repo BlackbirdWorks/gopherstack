@@ -21,6 +21,11 @@ func (c *captureWriter) WriteHeader(code int) {
 		c.status = code
 	}
 
+	if c.Header().Get("Content-Type") == "" {
+		c.Header().Set("Content-Type", "application/json")
+	}
+
+	c.Header().Set("X-Content-Type-Options", "nosniff")
 	c.ResponseWriter.WriteHeader(code)
 }
 
@@ -28,6 +33,12 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 	if c.status == 0 {
 		c.status = http.StatusOK
 	}
+
+	if c.Header().Get("Content-Type") == "" {
+		c.Header().Set("Content-Type", "application/json")
+	}
+
+	c.Header().Set("X-Content-Type-Options", "nosniff")
 
 	n, err := c.ResponseWriter.Write(p)
 	c.bytes += int64(n)

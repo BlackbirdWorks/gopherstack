@@ -76,6 +76,12 @@ func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, e
 
 	for _, m := range spec.Mounts {
 		dir, _, _ := strings.Cut(m, ":")
+		dir = filepath.Clean(dir)
+
+		if !strings.HasPrefix(dir, filepath.Clean(os.TempDir())+string(filepath.Separator)) {
+			continue
+		}
+
 		if _, err := os.Stat(filepath.Join(dir, "tls", "tls.key")); err == nil {
 			f.tlsSeen[spec.Name] = true
 		}

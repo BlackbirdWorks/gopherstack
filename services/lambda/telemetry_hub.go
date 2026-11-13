@@ -279,7 +279,7 @@ func (s *subscriber) send(batch [][]byte) error {
 		return s.sendTCP(batch)
 	}
 
-	body := make([]byte, 0, bodyFrameBytes+len(batch))
+	body := make([]byte, 0, bodyFrameBytes)
 	body = append(body, '[')
 
 	for i, b := range batch {

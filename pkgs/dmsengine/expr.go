@@ -763,6 +763,24 @@ func asFloat(v any) float64 {
 	return 0
 }
 
+const maxBlobBytes = 1 << 20
+
+// asInt converts a SQL value to int, clamping to the int32 range (NaN is 0).
+func asInt(v any) int {
+	f := asFloat(v)
+
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f > math.MaxInt32:
+		return math.MaxInt32
+	case f < math.MinInt32:
+		return math.MinInt32
+	}
+
+	return int(f)
+}
+
 func logic(l, r node, or bool) node {
 	return func(c *EvalCtx) any {
 		a, b := l(c), r(c)
@@ -966,7 +984,7 @@ func exprFuncs() map[string]funcSpec {
 			return a[0]
 		}},
 		"zeroblob": {min: 1, max: 1, fn: func(_ *EvalCtx, a []any) any {
-			return make([]byte, max(0, int(asFloat(a[0]))))
+			return make([]byte, min(max(0, asInt(a[0])), maxBlobBytes))
 		}},
 		"randomblob": {min: 1, max: 1, fn: randomBlob},
 		"hash_sha256": {min: 1, max: 1, fn: func(_ *EvalCtx, a []any) any {
@@ -1075,11 +1093,11 @@ func substrFn(_ *EvalCtx, a []any) any {
 	}
 
 	rs := []rune(text(a[0]))
-	start := int(asFloat(a[1]))
+	start := asInt(a[1])
 	length := len(rs)
 
 	if len(a) == arityThree {
-		length = int(asFloat(a[2]))
+		length = asInt(a[2])
 	}
 
 	if start < 0 {
@@ -1130,7 +1148,7 @@ func roundFn(_ *EvalCtx, a []any) any {
 
 	digits := 0
 	if len(a) == arityTwo {
-		digits = int(asFloat(a[1]))
+		digits = asInt(a[1])
 	}
 
 	scale := math.Pow(decimalBase, float64(digits))
@@ -1171,7 +1189,7 @@ func randomInt(*EvalCtx, []any) any {
 }
 
 func randomBlob(_ *EvalCtx, a []any) any {
-	b := make([]byte, max(1, int(asFloat(a[0]))))
+	b := make([]byte, min(max(1, asInt(a[0])), maxBlobBytes))
 	for i := range b {
 		b[i] = byte(rand.UintN(256)) //nolint:gosec,mnd // SQL randomblob()
 	}

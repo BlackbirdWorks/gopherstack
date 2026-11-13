@@ -31,7 +31,9 @@ func (b *InMemoryBackend) runScheduledQuery(
 ) (ExecutionStats, *runFailure) {
 	var stats ExecutionStats
 
-	rs, err := b.execute(ctx, sq.QueryString, map[string]string{"@scheduled_runtime": formatTS(invocationTime.UTC())})
+	vars := map[string]string{"@scheduled_runtime": formatTS(invocationTime.UTC())}
+
+	rs, err := b.execute(ctx, sq.QueryString, vars, "")
 	if err != nil {
 		return stats, &runFailure{err: err}
 	}
