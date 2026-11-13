@@ -296,6 +296,10 @@ func (b *InMemoryBackend) validateDestinations(dests []string) *APIError {
 			}
 		case strings.HasPrefix(d, destStreamPrefix):
 			streams++
+
+			if b.streamCheck != nil && !b.streamCheck(d) {
+				return errParam("destination " + d + " does not reference an active Streaming stream")
+			}
 		default:
 			return errParam("destination " + d + " must be the OCID of a Notifications topic or a Streaming stream")
 		}
@@ -327,6 +331,8 @@ func setExtra(a *Alarm, k string, v *string) {
 
 	a.Extra[k] = *v
 }
+
+const subtreeField = "metricCompartmentIdInSubtree"
 
 // CreateAlarm validates and stores an alarm; it starts OK.
 func (b *InMemoryBackend) CreateAlarm(in CreateAlarmIn) (AlarmWire, string, error) {
@@ -364,6 +370,10 @@ func (b *InMemoryBackend) CreateAlarm(in CreateAlarmIn) (AlarmWire, string, erro
 	defer b.mu.Unlock()
 
 	if aerr = b.validateDestinations(in.Destinations); aerr != nil {
+		return AlarmWire{}, "", aerr
+	}
+
+	if aerr = b.checkSubtree(in.MetricComp, in.InSubtree != nil && *in.InSubtree, subtreeField); aerr != nil {
 		return AlarmWire{}, "", aerr
 	}
 
@@ -458,6 +468,7 @@ func (b *InMemoryBackend) GetAlarm(id string) (AlarmWire, string, error) {
 // AlarmFilter narrows ListAlarms and ListAlarmsStatus.
 type AlarmFilter struct {
 	Compartment, Name, State string
+	Subtree                  bool
 }
 
 func (b *InMemoryBackend) filtered(f AlarmFilter) ([]*Alarm, *APIError) {
@@ -465,10 +476,14 @@ func (b *InMemoryBackend) filtered(f AlarmFilter) ([]*Alarm, *APIError) {
 		return nil, errMissing("compartmentId is required")
 	}
 
+	if aerr := b.checkSubtree(f.Compartment, f.Subtree, "compartmentIdInSubtree"); aerr != nil {
+		return nil, aerr
+	}
+
 	var out []*Alarm
 
 	for _, a := range b.alarms {
-		if a.CompartmentID == f.Compartment && (f.Name == "" || a.Name == f.Name) &&
+		if b.inCompartment(a.CompartmentID, f.Compartment, f.Subtree) && (f.Name == "" || a.Name == f.Name) &&
 			(f.State == "" || strs.Equal(f.State, stateActive)) {
 			out = append(out, a)
 		}
@@ -619,6 +634,20 @@ func (b *InMemoryBackend) applyAlarmUpdate(a *Alarm, in UpdateAlarmIn) *APIError
 		if format, aerr = validFormat(f, dests); aerr != nil {
 			return aerr
 		}
+	}
+
+	metricComp, subtree := a.MetricCompartmentID, a.InSubtree != nil && *a.InSubtree
+
+	if in.MetricComp != nil {
+		metricComp = *in.MetricComp
+	}
+
+	if in.InSubtree != nil {
+		subtree = *in.InSubtree
+	}
+
+	if aerr := b.checkSubtree(metricComp, subtree, subtreeField); aerr != nil {
+		return aerr
 	}
 
 	if in.Severity != nil {
@@ -828,6 +857,7 @@ func (h *Handler) alarmFilter(q *req) AlarmFilter {
 		Compartment: q.query("compartmentId"),
 		Name:        q.query("displayName"),
 		State:       q.query("lifecycleState"),
+		Subtree:     strings.EqualFold(q.query("compartmentIdInSubtree"), "true"),
 	}
 }
 

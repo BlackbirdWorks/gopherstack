@@ -9,6 +9,7 @@ import (
 	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
 	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
+	ocistreaming "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 )
 
 const (
@@ -38,6 +39,7 @@ func wireOCILoggingMonitoring(byName map[string]service.Registerable) {
 
 		if monH != nil {
 			monH.Backend.Auth.Link(identityH.Backend.Auth)
+			monH.Backend.SetCompartmentTree(ociidentitybackend.TenancyID, identityH.Backend.CompartmentWithin)
 		}
 	}
 
@@ -52,6 +54,12 @@ func wireOCILoggingMonitoring(byName map[string]service.Registerable) {
 
 			return err == nil
 		})
+	}
+
+	if streamH, ok := byName["OCIStreaming"].(*ocistreaming.Handler); ok && monH != nil {
+		monH.Backend.SetStreamPublisher(func(_ context.Context, streamID string, value []byte) error {
+			return streamH.Backend.AppendMessage(streamID, nil, value)
+		}, streamH.Backend.StreamActive)
 	}
 }
 

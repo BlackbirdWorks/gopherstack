@@ -25,6 +25,9 @@ const (
 	maxHistory       = 1000
 )
 
+// StreamPublisher puts one alarm message on a Streaming stream.
+type StreamPublisher func(ctx context.Context, streamID string, value []byte) error
+
 // Publisher delivers an alarm notification to a Notifications topic.
 type Publisher func(ctx context.Context, topicID, title, body string, asJSON bool) error
 
@@ -39,7 +42,11 @@ type InMemoryBackend struct {
 	alarms       map[string]*Alarm
 	Auth         *ociauth.Registry
 	publisher    Publisher
+	streamPub    StreamPublisher
+	streamCheck  func(streamID string) bool
 	topicChecker TopicChecker
+	within       func(id, ancestor string) bool
+	tenancy      string
 	seq          int64
 }
 
@@ -68,6 +75,39 @@ func (b *InMemoryBackend) SetPublisher(p Publisher) {
 	b.mu.Lock("SetPublisher")
 	b.publisher = p
 	b.mu.Unlock()
+}
+
+// SetStreamPublisher wires alarm delivery to Streaming destinations; check validates a destination stream.
+func (b *InMemoryBackend) SetStreamPublisher(p StreamPublisher, check func(streamID string) bool) {
+	b.mu.Lock("SetStreamPublisher")
+	b.streamPub, b.streamCheck = p, check
+	b.mu.Unlock()
+}
+
+// SetCompartmentTree wires subtree matching against the compartment hierarchy; the subtree flag is only
+// accepted for the tenancy root.
+func (b *InMemoryBackend) SetCompartmentTree(tenancy string, within func(id, ancestor string) bool) {
+	b.mu.Lock("SetCompartmentTree")
+	b.tenancy, b.within = tenancy, within
+	b.mu.Unlock()
+}
+
+// inCompartment reports whether a resource in have is selected by a compartmentId filter; the caller holds the lock.
+func (b *InMemoryBackend) inCompartment(have, want string, subtree bool) bool {
+	if have == want {
+		return true
+	}
+
+	return subtree && b.within != nil && b.within(have, want)
+}
+
+// checkSubtree rejects a subtree flag on any compartment but the tenancy root; the caller holds the lock.
+func (b *InMemoryBackend) checkSubtree(compartment string, subtree bool, field string) *APIError {
+	if subtree && b.tenancy != "" && compartment != b.tenancy {
+		return errParam(field + " can only be set to true when the compartment is the tenancy")
+	}
+
+	return nil
 }
 
 // SetTopicChecker wires validation of alarm destinations against a Notifications backend.
@@ -153,10 +193,10 @@ func (b *InMemoryBackend) Sweep(ctx context.Context) {
 	now := b.nowUTC()
 	b.prune(now)
 	out := b.evaluateAll(now)
-	pub := b.publisher
+	pub, streamPub := b.publisher, b.streamPub
 	b.mu.Unlock()
 
-	deliver(ctx, pub, out)
+	deliver(ctx, pub, streamPub, out)
 }
 
 func (b *InMemoryBackend) prune(now time.Time) {

@@ -22,6 +22,17 @@ const (
 	maxRetries      = 10
 )
 
+const minMaxConnections = 256
+
+// validMaxConnections accepts 0 (unlimited) or at least 256 (loadbalancer.CreateBackendDetails.MaxConnections).
+func validMaxConnections(field string, v *int) *APIError {
+	if v != nil && *v != 0 && *v < minMaxConnections {
+		return errParam(field + " must be 0 (unlimited) or at least 256")
+	}
+
+	return nil
+}
+
 var (
 	nameRE     = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	hostnameRE = regexp.MustCompile(
@@ -102,8 +113,8 @@ func buildBackend(in backendIn) (Backend, *APIError) {
 		return Backend{}, errParam("backend weight must be at least 1")
 	}
 
-	if in.MaxConnections != nil && *in.MaxConnections < 1 {
-		return Backend{}, errParam("backend maxConnections must be at least 1")
+	if aerr := validMaxConnections("backend maxConnections", in.MaxConnections); aerr != nil {
+		return Backend{}, aerr
 	}
 
 	ip := addr.String()
@@ -189,8 +200,8 @@ func buildBackendSet(name string, in *backendSetIn) (*BackendSet, *APIError) {
 		return nil, err
 	}
 
-	if in.BackendMaxConnections != nil && *in.BackendMaxConnections < 1 {
-		return nil, errParam("backendMaxConnections must be at least 1")
+	if aerr := validMaxConnections("backendMaxConnections", in.BackendMaxConnections); aerr != nil {
+		return nil, aerr
 	}
 
 	if in.SessionPersistence != nil && in.LBCookiePersistence != nil {

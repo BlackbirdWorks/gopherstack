@@ -319,7 +319,7 @@ func (d *dataPlane) available(lb *LoadBalancer, bs *BackendSet, be Backend) bool
 		limit = bs.BackendMaxConnections
 	}
 
-	return limit == nil || d.counter(healthKey(lb.ID, bs.Name, be.Name)).Load() < int64(*limit)
+	return limit == nil || *limit == 0 || d.counter(healthKey(lb.ID, bs.Name, be.Name)).Load() < int64(*limit)
 }
 
 // choose picks a backend: the session-persistent one if usable, otherwise per the set policy among healthy

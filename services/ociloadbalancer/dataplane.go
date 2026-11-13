@@ -424,13 +424,21 @@ func (d *dataPlane) transportFor(lb *LoadBalancer, bs *BackendSet) *http.Transpo
 	return tr
 }
 
+func verifyDepthKey(p *int) int {
+	if p == nil {
+		return -1
+	}
+
+	return *p
+}
+
 func transportFingerprint(lb *LoadBalancer, bs *BackendSet) string {
 	if bs.SSL == nil {
 		return "plain"
 	}
 
-	fp := fmt.Sprintf("%v|%v|%s|%v|%v", boolOr(bs.SSL.VerifyPeerCertificate), bs.SSL.Protocols, bs.SSL.CipherSuiteName,
-		bs.SSL.CertificateName, len(lb.Certificates))
+	fp := fmt.Sprintf("%v|%v|%s|%v|%v|%v", boolOr(bs.SSL.VerifyPeerCertificate), bs.SSL.Protocols,
+		bs.SSL.CipherSuiteName, bs.SSL.CertificateName, len(lb.Certificates), verifyDepthKey(bs.SSL.VerifyDepth))
 	if c := lb.Certificates[bs.SSL.CertificateName]; c != nil {
 		fp += "|" + c.CA + "|" + c.Public
 	}
@@ -481,6 +489,21 @@ func backendTLSFor(base *tls.Config, s *SSLConfig, host string) *tls.Config {
 
 	if !boolOr(s.VerifyPeerCertificate) && httpclient.IsLoopbackHost(host) {
 		cfg.InsecureSkipVerify = true
+
+		return cfg
+	}
+
+	if s.VerifyDepth != nil {
+		depth := *s.VerifyDepth
+		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+			for _, chain := range cs.VerifiedChains {
+				if len(chain)-1 <= depth {
+					return nil
+				}
+			}
+
+			return fmt.Errorf("%w: peer chain is deeper than verifyDepth %d", errBackendTLS, depth)
+		}
 	}
 
 	return cfg
