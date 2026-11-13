@@ -3,6 +3,7 @@ package servicequotas
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"time"
@@ -36,7 +37,14 @@ func (b *InMemoryBackend) settleLocked() {
 
 	for _, r := range reqs {
 		if r.Status == statusPending && r.CaseAllowed && !now.Before(r.Created.Add(dwell)) {
-			b.openCaseLocked(r, r.Created.Add(dwell))
+			_ = b.openCaseLocked(r, r.Created.Add(dwell))
+		}
+
+		if r.Status == statusCaseOpened && b.caseResolvedLocked(r) {
+			r.Status = statusCaseClosed
+			r.LastUpdated = now
+
+			continue
 		}
 
 		if r.Status == statusCaseOpened && !now.Before(r.CaseOpenedAt.Add(dwell)) {
@@ -47,11 +55,39 @@ func (b *InMemoryBackend) settleLocked() {
 	b.settleReportsLocked(now, dwell)
 }
 
-func (b *InMemoryBackend) openCaseLocked(r *Request, at time.Time) {
+func (b *InMemoryBackend) caseResolvedLocked(r *Request) bool {
+	return b.desk != nil && b.desk.CaseResolved(r.CaseID)
+}
+
+func (b *InMemoryBackend) openCaseLocked(r *Request, at time.Time) error {
+	caseID := strconv.FormatInt(caseIDBase+r.Seq, 10)
+
+	if b.desk != nil {
+		id, err := b.desk.OpenCase(supportCaseSubject(r), supportCaseBody(r))
+		if err != nil {
+			return fail(ErrInvalidResourceState, "The support case could not be opened: %v", err)
+		}
+
+		caseID = id
+	}
+
 	r.Status = statusCaseOpened
-	r.CaseID = strconv.FormatInt(caseIDBase+r.Seq, 10)
+	r.CaseID = caseID
 	r.CaseOpenedAt = at
 	r.LastUpdated = at
+
+	return nil
+}
+
+func supportCaseSubject(r *Request) string {
+	return "Service quota increase: " + r.ServiceCode + " " + r.QuotaCode
+}
+
+func supportCaseBody(r *Request) string {
+	return fmt.Sprintf(
+		"Increase quota %s of service %s in %s to %v (request %s).",
+		r.QuotaCode, r.ServiceCode, r.Region, r.DesiredValue, r.ID,
+	)
 }
 
 func (b *InMemoryBackend) approveLocked(r *Request, at time.Time) {
@@ -180,9 +216,7 @@ func (b *InMemoryBackend) CreateSupportCase(ctx context.Context, requestID strin
 		)
 	}
 
-	b.openCaseLocked(r, b.now())
-
-	return nil
+	return b.openCaseLocked(r, b.now())
 }
 
 func (b *InMemoryBackend) requestLocked(s scope, id string) (*Request, error) {
@@ -222,7 +256,8 @@ type RequestFilter struct {
 }
 
 var requestStatuses = []string{ //nolint:gochecknoglobals // immutable enum
-	statusPending, statusCaseOpened, statusApproved, statusDenied, "CASE_CLOSED", statusNotApproved, "INVALID_REQUEST",
+	statusPending, statusCaseOpened, statusApproved, statusDenied,
+	statusCaseClosed, statusNotApproved, "INVALID_REQUEST",
 }
 
 // ListRequests returns the request history, oldest first.

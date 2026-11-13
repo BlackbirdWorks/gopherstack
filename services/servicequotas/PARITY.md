@@ -6,7 +6,7 @@ last_audit_date: 2026-10-18
 overall: B            # all 26 SDK operations are backed by real state and driven through the real SDK client in-package; B until the open items below close.
 ops:
   AssociateServiceQuotaTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "Organizations gate: NoAvailableOrganization, AccessDenied for non-management accounts, OrganizationNotInAllFeaturesMode, AWSServiceAccessNotEnabled"}
-  CreateSupportCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "opens the case of a PENDING request (CaseId is a synthetic number); InvalidResourceState when not PENDING"}
+  CreateSupportCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "opens the case of a PENDING request (CaseId is the display ID of a case filed in the Support backend when wired, a synthetic number otherwise); InvalidResourceState when not PENDING"}
   DeleteServiceQuotaIncreaseRequestFromTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateServiceQuotaTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "ServiceQuotaTemplateNotInUse unless ASSOCIATED"}
   GetAWSDefaultServiceQuota: {wire: ok, errors: ok, state: ok, persist: ok, note: "default QuotaArn has no account segment"}
@@ -44,11 +44,11 @@ items_still_open:
   - AutoManagement: NotifyAndAdjust only notifies (80% and 95% thresholds to the SNS topic); no automatic quota increase is filed
   - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
   - Template: associating the template does not file increase requests for accounts that join the organization later
-  - RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
+  - RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
   - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TemplatesNotAvailableInRegion, TooManyRequests and ServiceException are not raised
 gaps: []
 structural_gaps:
-  - "No AWS Support case system exists in an emulator: CaseId values are synthetic numbers and no support case can be inspected."
+  - "Support staff never review a case: a request still auto-approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED)."
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; no goroutines or timers."}
 ---
