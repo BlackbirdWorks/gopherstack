@@ -1,62 +1,58 @@
 #!/usr/bin/env bash
-# lint-shard.sh SHARD -- full-repo golangci-lint, split by package path so each
-# CI shard finishes inside the timeout. Shard "rest" takes every package that no
-# named shard matches, so new top-level dirs and services are never skipped.
-#
-# Usage: scripts/lint-shard.sh {svc-a|svc-b-c|...|rest}   (--list prints shard names)
-# Env: LINT_TIMEOUT (55m), LINT_LIST_ONLY=1 prints the package list and exits.
+# Usage: lint-shard.sh list <index 0..total-1> <total> | check <total>
+# Deterministic LOC-balanced (LPT) split of the root module's packages for CI lint.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-declare -A shard_re=(
-  [svc-a]='^services/a'
-  [svc-b-c]='^services/[bc]'
-  [svc-d-e]='^services/[de]'
-  [svc-f-h]='^services/[f-h]'
-  [svc-i-m]='^services/[i-m]'
-  [svc-n-o]='^services/[no]'
-  [svc-p-r]='^services/[p-r]'
-  [svc-s]='^services/s'
-  [svc-t-z]='^services/[t-z_]'
-  [pkgs]='^pkgs/'
-)
-order=(svc-a svc-b-c svc-d-e svc-f-h svc-i-m svc-n-o svc-p-r svc-s svc-t-z pkgs rest)
+tags=$(sed -n '/^  build-tags:/,/^[^ ]/{s/^    - //p}' .golangci.yml | paste -sd, -)
 
-if [[ "${1:-}" == "--list" ]]; then
-  printf '%s\n' "${order[@]}"
-  exit 0
-fi
-shard="${1:?usage: lint-shard.sh SHARD|--list}"
+weighted() {
+  local root dir n
+  root=$(pwd)
+  go list -e -tags "$tags" -f '{{.Dir}}' ./... | sort | while IFS= read -r dir; do
+    n=$(cat "$dir"/*.go 2>/dev/null | wc -l)
+    dir=${dir#"$root"}
+    echo "$n ./${dir#/}"
+  done | sed 's#^\([0-9]*\) \./$#\1 .#'
+}
 
-module=$(go list -m)
-all_re=$(printf '%s|' "${shard_re[@]}")
-all_re="(${all_re%|})"
+assign() {
+  local total="$1"
+  weighted | LC_ALL=C sort -k1,1nr -k2,2 | awk -v t="$total" '
+    BEGIN { for (i = 0; i < t; i++) load[i] = 0 }
+    {
+      best = 0
+      for (i = 1; i < t; i++) if (load[i] < load[best]) best = i
+      load[best] += $1
+      print best, $1, $2
+    }'
+}
 
-mapfile -t pkgs < <(
-  go list -f '{{.ImportPath}}' ./... | sed -e "s|^$module/\\{0,1\\}||" -e 's|^$|.|' |
-    while IFS= read -r rel; do
-      if [[ "$shard" == rest ]]; then
-        [[ "$rel" =~ $all_re ]] || echo "$rel"
-      else
-        [[ -n "${shard_re[$shard]:-}" ]] || {
-          echo "lint-shard: unknown shard $shard" >&2
-          exit 2
-        }
-        [[ "$rel" =~ ${shard_re[$shard]} ]] && echo "$rel"
-      fi
-    done
-)
-
-if [[ ${#pkgs[@]} -eq 0 ]]; then
-  echo "lint-shard: shard $shard matched no packages" >&2
-  exit 1
-fi
-echo "lint-shard: $shard -> ${#pkgs[@]} package(s)"
-[[ "${LINT_LIST_ONLY:-0}" == 1 ]] && { printf '  %s\n' "${pkgs[@]}"; exit 0; }
-
-args=()
-for p in "${pkgs[@]}"; do
-  [[ "$p" == . ]] && args+=(.) || args+=("./$p")
-done
-exec golangci-lint run --timeout "${LINT_TIMEOUT:-55m}" "${args[@]}"
+cmd="${1:-}"
+case "$cmd" in
+  list)
+    [[ $# -eq 3 ]] || { echo "usage: $0 list <index 0..total-1> <total>" >&2; exit 2; }
+    idx="$2" total="$3"
+    (( idx >= 0 && idx < total )) || { echo "lint-shard: index $idx out of range 0..$((total - 1))" >&2; exit 2; }
+    assign "$total" | awk -v i="$idx" '$1 == i { print $3 }' | LC_ALL=C sort
+    ;;
+  check)
+    [[ $# -eq 2 ]] || { echo "usage: $0 check <total>" >&2; exit 2; }
+    total="$2"
+    out=$(assign "$total")
+    awk '{ n[$1]++; w[$1] += $2 } END { for (i in n) printf "lint-shard: shard %d: %d packages, %d LOC\n", i, n[i], w[i] }' <<<"$out" | sort -V
+    expected=$(weighted | awk '{ print $2 }' | LC_ALL=C sort)
+    actual=$(awk '{ print $3 }' <<<"$out" | LC_ALL=C sort)
+    if [[ "$expected" != "$actual" ]]; then
+      echo "lint-shard: union of shards differs from go list:" >&2
+      diff <(echo "$expected") <(echo "$actual") >&2 || true
+      exit 1
+    fi
+    echo "lint-shard: OK: $(wc -l <<<"$actual") packages across $total shards, no gaps or duplicates"
+    ;;
+  *)
+    echo "usage: $0 list <index 0..total-1> <total> | check <total>" >&2
+    exit 2
+    ;;
+esac
