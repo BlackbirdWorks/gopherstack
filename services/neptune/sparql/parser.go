@@ -1240,6 +1240,12 @@ func (p *parser) parseLiteral() (Term, error) {
 
 	switch t.kind {
 	case tInt:
+		if _, err := strconv.ParseInt(sign+t.val, 10, 64); err != nil {
+			return Term{}, &NumericDataError{
+				Msg: "Integer literal " + sign + t.val + " exceeds the 64-bit storage limit",
+			}
+		}
+
 		return Typed(sign+t.val, XSDInteger), nil
 	case tDecimal:
 		return Typed(sign+t.val, XSDDecimal), nil

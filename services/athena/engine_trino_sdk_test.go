@@ -1,6 +1,7 @@
 package athena_test
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -622,6 +623,30 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			failure: "INVALID_TABLE_PROPERTY: Column 'tenant' uses injected partition projection",
 		},
 		{
+			name:    "injected non string column fails",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "int"}},
+			objects: map[string]string{"lake/logs/tenant=1/x.csv": "1,a\n"},
+			sql:     "SELECT id FROM logs WHERE tenant = 1",
+			failure: "supports only string columns",
+		},
+		{
+			name:    "injected in list over 1000 fails",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{"lake/logs/tenant=a/x.csv": "1,a\n"},
+			sql:     injectedInQuery(1001),
+			failure: "at most 1000 are allowed",
+		},
+		{
+			name:    "injected in list of 1000 passes",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{"lake/logs/tenant=a/x.csv": "1,a\n"},
+			sql:     injectedInQuery(1000),
+			want:    [][]string{{"1"}},
+		},
+		{
 			name: "disabled projection reads nothing without partitions",
 			params: map[string]string{
 				"projection.enabled": "false", "projection.region.type": "enum", "projection.region.values": "us",
@@ -660,6 +685,17 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func injectedInQuery(n int) string {
+	vals := make([]string, n)
+	vals[0] = "'a'"
+
+	for i := 1; i < n; i++ {
+		vals[i] = fmt.Sprintf("'t%d'", i)
+	}
+
+	return "SELECT id FROM logs WHERE tenant IN (" + strings.Join(vals, ",") + ")"
 }
 
 func trimListed(in []string) []string {

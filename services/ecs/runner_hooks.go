@@ -57,6 +57,10 @@ func (b *InMemoryBackend) wireRunnerHooks(runner TaskRunner) {
 		r.SetRegistryAuthResolver(b.resolveRegistryAuth)
 	}
 
+	if r, ok := runner.(logModeRunner); ok {
+		r.SetDefaultLogModeResolver(b.defaultLogDriverMode)
+	}
+
 	if r, ok := runner.(envFileRunner); ok {
 		r.SetEnvFileResolver(b.resolveEnvFiles)
 	}

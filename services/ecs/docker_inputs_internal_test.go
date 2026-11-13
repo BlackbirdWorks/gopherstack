@@ -260,3 +260,58 @@ func TestFirelensFailsDocumented(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskSharedNamespaces(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pidMode string
+		ipcMode string
+		wantPid []string
+		wantIpc []string
+	}{
+		{
+			name: "pid task", pidMode: "task",
+			wantPid: []string{"", "container:aaaaaaaaaaaa01"}, wantIpc: []string{"", ""},
+		},
+		{
+			name: "ipc task", ipcMode: "task",
+			wantPid: []string{"", ""}, wantIpc: []string{"shareable", "container:aaaaaaaaaaaa01"},
+		},
+		{name: "unset", wantPid: []string{"", ""}, wantIpc: []string{"", ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeDockerClient{}
+			runner := newLaunchRunner(t, fake)
+			b := NewInMemoryBackend("000000000000", "us-east-1", runner)
+			b.wireRunnerHooks(runner)
+
+			_, err := b.CreateCluster(CreateClusterInput{ClusterName: "c"})
+			require.NoError(t, err)
+
+			_, err = b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+				Family: "job", PidMode: tt.pidMode, IpcMode: tt.ipcMode,
+				ContainerDefinitions: []ContainerDefinition{
+					{Name: "a", Image: "busybox", Essential: true},
+					{Name: "b", Image: "busybox", Essential: true},
+				},
+			})
+			require.NoError(t, err)
+
+			tasks, _, err := b.RunTask(RunTaskInput{Cluster: "c", TaskDefinition: "job"})
+			require.NoError(t, err)
+			settleTasks(t, b, tasks)
+
+			for i := range 2 {
+				host := fake.createAt(i).host
+				assert.Equal(t, tt.wantPid[i], string(host.PidMode))
+				assert.Equal(t, tt.wantIpc[i], string(host.IpcMode))
+			}
+		})
+	}
+}

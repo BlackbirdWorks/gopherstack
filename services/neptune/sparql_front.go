@@ -21,16 +21,17 @@ const (
 	sparqlStatusPath = "/sparql/status"
 	langSparql       = "Sparql"
 
-	mimeSparqlJSON = "application/sparql-results+json"
-	mimeSparqlXML  = "application/sparql-results+xml"
-	mimeNQuads     = "application/n-quads"
-	mimeTurtle     = "text/turtle"
-	mimeForm       = "application/x-www-form-urlencoded"
-	mimeSparqlQ    = "application/sparql-query"
-	mimeSparqlU    = "application/sparql-update"
-	codeMalformed  = "MalformedQueryException"
-	codeBadRequest = "BadRequestException"
-	codeUnsupMedia = "UnsupportedMediaTypeException"
+	mimeSparqlJSON     = "application/sparql-results+json"
+	mimeSparqlXML      = "application/sparql-results+xml"
+	mimeNQuads         = "application/n-quads"
+	mimeTurtle         = "text/turtle"
+	mimeForm           = "application/x-www-form-urlencoded"
+	mimeSparqlQ        = "application/sparql-query"
+	mimeSparqlU        = "application/sparql-update"
+	codeMalformed      = "MalformedQueryException"
+	codeInvalidNumeric = "InvalidNumericDataException"
+	codeBadRequest     = "BadRequestException"
+	codeUnsupMedia     = "UnsupportedMediaTypeException"
 )
 
 // serveRDF answers the SPARQL, Graph Store and loader routes; false when r is none of them.
@@ -300,6 +301,12 @@ func writeSparqlFailure(ctx context.Context, w http.ResponseWriter, err error) {
 	var se *sparql.SyntaxError
 	if errors.As(err, &se) && ctx.Err() == nil {
 		writeCypherError(w, http.StatusBadRequest, codeMalformed, se.Msg)
+
+		return
+	}
+
+	if ne, ok := errors.AsType[*sparql.NumericDataError](err); ok {
+		writeCypherError(w, http.StatusBadRequest, codeInvalidNumeric, ne.Msg)
 
 		return
 	}

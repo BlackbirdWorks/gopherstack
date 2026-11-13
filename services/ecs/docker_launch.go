@@ -83,6 +83,8 @@ type launch struct {
 	ipcMode   string
 	netMode   string
 	order     []string
+	pidTask   bool
+	ipcTask   bool
 }
 
 // containerOrderer is a depth-first topological sort over dependsOn and volumesFrom edges.
@@ -226,6 +228,8 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		needsExit: exitDependencies(order),
 		pidMode:   hostOrNone(td.PidMode),
 		ipcMode:   hostOrNone(td.IpcMode),
+		pidTask:   td.PidMode == modeTask,
+		ipcTask:   td.IpcMode == modeTask,
 		netMode:   taskNetworkMode(td),
 		state:     &launchState{abort: make(chan struct{}), stop: cancel},
 	}
@@ -287,6 +291,34 @@ func (r *realDockerRunner) startContainers(ctx context.Context, l *launch, order
 	}
 
 	return nil
+}
+
+const (
+	modeTask      = "task"
+	modeShareable = "shareable"
+	modeContainer = "container:"
+)
+
+// containerPidMode joins every container after the first to the first container's PID namespace for pidMode task.
+func (l *launch) containerPidMode() string {
+	if l.pidTask && len(l.order) > 0 {
+		return modeContainer + l.order[0]
+	}
+
+	return l.pidMode
+}
+
+// containerIpcMode makes the first container's IPC namespace shareable and joins the rest to it for ipcMode task.
+func (l *launch) containerIpcMode() string {
+	if !l.ipcTask {
+		return l.ipcMode
+	}
+
+	if len(l.order) == 0 {
+		return modeShareable
+	}
+
+	return modeContainer + l.order[0]
 }
 
 func hostOrNone(mode string) string {
@@ -444,12 +476,60 @@ func (r *realDockerRunner) SetEFSVolumeResolver(
 	r.efsLookup = fn
 }
 
+// SetDefaultLogModeResolver wires the lookup for the defaultLogDriverMode account setting.
+func (r *realDockerRunner) SetDefaultLogModeResolver(fn func() string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.logModeLookup = fn
+}
+
+func (r *realDockerRunner) accountLogMode() string {
+	r.mu.Lock()
+	fn := r.logModeLookup
+	r.mu.Unlock()
+
+	if fn == nil {
+		return ""
+	}
+
+	return fn()
+}
+
 // SetEnvFileResolver wires the lookup that reads a container's environmentFiles.
 func (r *realDockerRunner) SetEnvFileResolver(fn func(ctx context.Context, cd ContainerDefinition) ([]string, error)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.envFileLookup = fn
+}
+
+func (r *realDockerRunner) prepareContainer(ctx context.Context, l *launch, cd ContainerDefinition) error {
+	if err := r.pullContainerImage(ctx, cd); err != nil {
+		return err
+	}
+
+	if err := r.awaitDependencies(ctx, l, cd); err != nil {
+		return err
+	}
+
+	return r.verifyLogGroup(cd)
+}
+
+func (r *realDockerRunner) verifyLogGroup(cd ContainerDefinition) error {
+	cwLogs := r.cwLogsBackend()
+	if cwLogs == nil {
+		return nil
+	}
+
+	if err := checkAwslogsGroup(cwLogs, cd); err != nil {
+		return &taskLaunchError{
+			Reason: "CannotStartContainerError: failed to create Cloudwatch log stream: " + err.Error(),
+			Err:    err,
+		}
+	}
+
+	return nil
 }
 
 // launchContainer pulls, gates, creates and starts one container and wires its watchers.
@@ -462,11 +542,7 @@ func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd Co
 	default:
 	}
 
-	if err := r.pullContainerImage(ctx, cd); err != nil {
-		return err
-	}
-
-	if err := r.awaitDependencies(ctx, l, cd); err != nil {
+	if err := r.prepareContainer(ctx, l, cd); err != nil {
 		return err
 	}
 
@@ -622,10 +698,11 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 		env:          env,
 		mounts:       mounts,
 		volumesFrom:  l.volumesFrom(cd),
-		pidMode:      l.pidMode,
-		ipcMode:      l.ipcMode,
+		pidMode:      l.containerPidMode(),
+		ipcMode:      l.containerIpcMode(),
 		network:      nw,
 		logSecrets:   l.logSecret[cd.Name],
+		logMode:      r.accountLogMode(),
 	})
 	if err != nil {
 		releasePending(diverted)

@@ -41,6 +41,7 @@ type containerInput struct {
 	volumesFrom  []string
 	network      netSetup
 	logSecrets   map[string]string
+	logMode      string
 	cd           ContainerDefinition
 }
 
@@ -65,7 +66,7 @@ func buildDockerConfigs(in containerInput) (*dockertypes.Config, *dockertypes.Ho
 		return nil, nil, err
 	}
 
-	logCfg, err := buildLogConfig(cd.LogConfiguration, in.logSecrets)
+	logCfg, err := buildLogConfig(cd.LogConfiguration, in.logSecrets, in.logMode)
 	if err != nil {
 		return nil, nil, fmt.Errorf("container %q: %w", cd.Name, err)
 	}

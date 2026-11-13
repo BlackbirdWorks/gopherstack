@@ -16,6 +16,7 @@ const (
 	projDate     = "date"
 	projInjected = "injected"
 
+	maxInjectedInList      = 1000
 	maxProjectedValues     = 1_000_000
 	maxProjectedPartitions = 200_000
 )
@@ -363,10 +364,20 @@ func (c projectedColumn) values(f *colFilter, now time.Time) ([]string, error) {
 	case projDate:
 		return c.dateValues(f, now)
 	case projInjected:
+		if kindOf(c.key.Type) != kindString {
+			return nil, projErr("Column '%s' uses injected partition projection, which supports only string "+
+				"columns (got '%s')", c.key.Name, c.key.Type)
+		}
+
 		eq, ok := f.equalities()
 		if !ok {
 			return nil, projErr("Column '%s' uses injected partition projection; a constant filter "+
 				"(%s = <value> or IN) is required in the WHERE clause", c.key.Name, c.key.Name)
+		}
+
+		if len(eq) > maxInjectedInList {
+			return nil, projErr("Column '%s' uses injected partition projection; the IN list holds %d values "+
+				"but at most %d are allowed", c.key.Name, len(eq), maxInjectedInList)
 		}
 
 		return slices.Clone(eq), nil

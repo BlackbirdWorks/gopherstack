@@ -12,12 +12,13 @@ func TestBuildLogConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		lc       *LogConfiguration
-		secrets  map[string]string
-		wantOpts map[string]string
-		name     string
-		wantType string
-		wantErr  bool
+		lc          *LogConfiguration
+		secrets     map[string]string
+		wantOpts    map[string]string
+		name        string
+		wantType    string
+		accountMode string
+		wantErr     bool
 	}{
 		{name: "none configured", lc: nil, wantType: ""},
 		{
@@ -71,6 +72,22 @@ func TestBuildLogConfig(t *testing.T) {
 			wantType: "syslog",
 			wantOpts: map[string]string{"syslog-address": "udp://h:514", "mode": "blocking"},
 		},
+		{
+			name:        "account blocking default",
+			lc:          &LogConfiguration{LogDriver: "awslogs", Options: map[string]string{"awslogs-group": "g"}},
+			accountMode: "blocking",
+			wantType:    "json-file",
+			wantOpts:    map[string]string{"mode": "blocking"},
+		},
+		{
+			name: "explicit mode beats account default",
+			lc: &LogConfiguration{LogDriver: "awslogs", Options: map[string]string{
+				"awslogs-group": "g", "mode": "non-blocking",
+			}},
+			accountMode: "blocking",
+			wantType:    "json-file",
+			wantOpts:    map[string]string{"mode": "non-blocking", "max-buffer-size": "10m"},
+		},
 		{name: "none driver", lc: &LogConfiguration{LogDriver: "none"}, wantType: "none"},
 		{
 			name:    "bad mode",
@@ -83,7 +100,7 @@ func TestBuildLogConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := buildLogConfig(tt.lc, tt.secrets)
+			got, err := buildLogConfig(tt.lc, tt.secrets, tt.accountMode)
 			if tt.wantErr {
 				require.ErrorIs(t, err, errInvalidLogOption)
 
@@ -121,4 +138,15 @@ func TestRunTask_LogDriver(t *testing.T) {
 	lc := fake.createAt(0).host.LogConfig
 	assert.Equal(t, "splunk", lc.Type)
 	assert.Equal(t, "val:arn:tok", lc.Config["splunk-token"])
+}
+
+func TestDefaultLogDriverMode(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("000000000000", "us-east-1", nil)
+	assert.Empty(t, b.defaultLogDriverMode())
+
+	_, err := b.PutAccountSettingDefault("defaultLogDriverMode", "blocking")
+	require.NoError(t, err)
+	assert.Equal(t, "blocking", b.defaultLogDriverMode())
 }

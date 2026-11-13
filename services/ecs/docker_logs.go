@@ -29,8 +29,11 @@ const (
 
 // buildLogConfig maps a container's logConfiguration onto a Docker log driver. awslogs containers log through
 // json-file so the runner can read their output and forward it to CloudWatch Logs; every other driver is passed
-// through with its options and secretOptions. mode and max-buffer-size default as documented.
-func buildLogConfig(lc *LogConfiguration, secretOpts map[string]string) (mobycontainer.LogConfig, error) {
+// through with its options and secretOptions. mode defaults to the account's
+// defaultLogDriverMode, then non-blocking.
+func buildLogConfig(
+	lc *LogConfiguration, secretOpts map[string]string, accountMode string,
+) (mobycontainer.LogConfig, error) {
 	if lc == nil || lc.LogDriver == "" {
 		return mobycontainer.LogConfig{}, nil
 	}
@@ -52,7 +55,7 @@ func buildLogConfig(lc *LogConfiguration, secretOpts map[string]string) (mobycon
 
 	switch opts[logOptMode] {
 	case "":
-		opts[logOptMode] = defaultLogMode
+		opts[logOptMode] = cmpDefault(accountMode, defaultLogMode)
 	case logModeBlocking, logModeNonBlocking:
 	default:
 		return mobycontainer.LogConfig{}, fmt.Errorf("%w: logConfiguration option %q must be %s or %s, got %q",
@@ -64,6 +67,14 @@ func buildLogConfig(lc *LogConfiguration, secretOpts map[string]string) (mobycon
 	}
 
 	return mobycontainer.LogConfig{Type: driver, Config: opts}, nil
+}
+
+func cmpDefault(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+
+	return v
 }
 
 func pickLogOptions(opts map[string]string, keys ...string) map[string]string {

@@ -137,6 +137,7 @@ type realDockerRunner struct {
 	efsLookup         func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error)
 	registryAuth      func(ctx context.Context, cd ContainerDefinition) (string, error)
 	envFileLookup     func(ctx context.Context, cd ContainerDefinition) ([]string, error)
+	logModeLookup     func() string
 	taskEnv           func(task *Task, containerName string) []string
 	attach            func(ctx context.Context, containerID string) error
 	now               func() time.Time

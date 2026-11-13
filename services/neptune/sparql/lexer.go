@@ -40,6 +40,11 @@ type SyntaxError struct{ Msg string }
 
 func (e *SyntaxError) Error() string { return e.Msg }
 
+// NumericDataError is an integer literal beyond the 64-bit range Neptune stores.
+type NumericDataError struct{ Msg string }
+
+func (e *NumericDataError) Error() string { return e.Msg }
+
 func syntaxf(format string, args ...any) error {
 	return &SyntaxError{Msg: fmt.Sprintf(format, args...)}
 }

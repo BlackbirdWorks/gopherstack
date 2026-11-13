@@ -51,6 +51,21 @@ type registryAuthRunner interface {
 	SetRegistryAuthResolver(fn func(ctx context.Context, cd ContainerDefinition) (string, error))
 }
 
+// logModeRunner is implemented by runners that honour the defaultLogDriverMode account setting.
+type logModeRunner interface {
+	SetDefaultLogModeResolver(fn func() string)
+}
+
+// defaultLogDriverMode returns the account-level defaultLogDriverMode value, or "" when unset.
+func (b *InMemoryBackend) defaultLogDriverMode() string {
+	settings, err := b.ListAccountSettings("defaultLogDriverMode", "", true)
+	if err != nil || len(settings) == 0 {
+		return ""
+	}
+
+	return settings[0].Value
+}
+
 // envFileRunner is implemented by runners that apply environmentFiles.
 type envFileRunner interface {
 	SetEnvFileResolver(fn func(ctx context.Context, cd ContainerDefinition) ([]string, error))

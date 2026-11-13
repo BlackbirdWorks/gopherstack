@@ -63,7 +63,7 @@ items_still_open:
   - "Lambda functions cover transform, filter, reduce, any_match/all_match/none_match, map_filter, transform_values, transform_keys and zip_with; array_sort(arr, comparator), map_zip_with, reduce_agg and zip_with over more than two arrays are not translated."
   - "INTERVAL literals are supported only as the right operand of + or - (INTERVAL n UNIT, YEAR TO MONTH, 'D HH:MM:SS' DAY TO SECOND) via date_add semantics with end-of-month clamping; timestamp - timestamp interval results, standalone INTERVAL values/comparisons and fractional-second intervals are unsupported."
   - "GROUP BY ROLLUP/CUBE/GROUPING SETS are expanded to UNION ALL of plain GROUP BY branches: not combinable with UNION/INTERSECT/EXCEPT in the same query block, and the outer ORDER BY may reference only output columns or ordinals."
-  - "Partition projection (enum/integer/date/injected) enumerates partitions from table properties and prunes by simple WHERE conjuncts (=, IN, BETWEEN, comparisons; OR or non-literal predicates disable pruning); the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter or oversized enumeration is modeled, UNVERIFIED against live Athena; SHOW PARTITIONS does not list projected partitions."
+  - "Partition projection (enum/integer/date/injected) enumerates partitions from table properties and prunes by simple WHERE conjuncts (=, IN, BETWEEN, comparisons; OR or non-literal predicates disable pruning); the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter, an injected IN list over 1,000 values, a non-string injected column or an oversized enumeration is modeled, UNVERIFIED against live Athena (the docs state only that these queries fail)."
   - "QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as \"The kind of query statement that was run\" with no enum or value list, so the vocabulary cannot be verified."
 structural_gaps:
   - "ORC tables cannot be read or written (no maintained pure-Go ORC library): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR."
@@ -672,3 +672,6 @@ rendering. ARRAY/MAP values carry a `\x01` marker through SQLite so results
 render Trino-style while JSON-typed and varchar text stay raw; CTAS/UNLOAD strip
 it and keep JSON text. date_add on month/quarter/year now clamps to month end as
 Trino does. Remaining gaps are listed in `items_still_open`.
+
+## 2026-11-13 partition projection
+Injected projection: string columns only, filter required, IN list at most 1,000 values; SHOW PARTITIONS does not list projected partitions. Sources: https://docs.aws.amazon.com/athena/latest/ug/partition-projection-supported-types.html and https://docs.aws.amazon.com/athena/latest/ug/partition-projection.html. SubstatementType remains unlisted at https://docs.aws.amazon.com/athena/latest/APIReference/API_QueryExecution.html.
