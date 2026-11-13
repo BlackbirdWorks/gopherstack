@@ -1145,7 +1145,7 @@ func TestRollbackStack(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			stack, err := b.RollbackStack(t.Context(), "rb-stack", false)
+			stack, err := b.RollbackStack(t.Context(), "rb-stack", false, "")
 			if tt.wantErr {
 				require.ErrorIs(t, err, cloudformation.ErrRollbackStackInvalidState)
 
@@ -1213,4 +1213,40 @@ func quoteJSON(s string) string {
 	out = append(out, '"')
 
 	return string(out)
+}
+
+func TestRollbackStackRoleARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		roleARN string
+		wantErr bool
+	}{
+		{name: "valid role is recorded", roleARN: "arn:aws:iam::000000000000:role/rollback"},
+		{name: "invalid role rejected", roleARN: "not-an-arn", wantErr: true},
+		{name: "no role leaves the stack role", roleARN: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			_, err := b.CreateStack(
+				t.Context(), "rb-role", cfnCyclicTemplate, nil, cloudformation.StackOptions{DisableRollback: true},
+			)
+			require.NoError(t, err)
+
+			stack, err := b.RollbackStack(t.Context(), "rb-role", false, tt.roleARN)
+			if tt.wantErr {
+				require.ErrorIs(t, err, cloudformation.ErrInvalidRoleARN)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.roleARN, stack.RoleARN)
+		})
+	}
 }

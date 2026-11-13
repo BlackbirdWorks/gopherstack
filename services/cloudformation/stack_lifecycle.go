@@ -162,7 +162,7 @@ func (b *InMemoryBackend) CancelUpdateStack(ctx context.Context, nameOrID string
 
 	defer func() { b.stepAsync = false }()
 
-	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reasonUserInitiated)
+	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reasonUserInitiated, false)
 
 	return nil
 }
@@ -180,8 +180,12 @@ func (b *InMemoryBackend) DescribeAccountLimits() []AccountLimit {
 // RollbackStack rolls a CREATE_FAILED stack back: every resource it managed to create is deleted
 // (Retain/Snapshot ones too when retainExceptOnCreate), per RollbackStackInput.RetainExceptOnCreate.
 func (b *InMemoryBackend) RollbackStack(
-	ctx context.Context, nameOrID string, retainExceptOnCreate bool,
+	ctx context.Context, nameOrID string, retainExceptOnCreate bool, roleARN string,
 ) (*Stack, error) {
+	if err := ValidateRoleARN(roleARN); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("RollbackStack")
 	defer b.mu.Unlock()
 	stack, ok := b.resolveStack(nameOrID)
@@ -190,6 +194,10 @@ func (b *InMemoryBackend) RollbackStack(
 	}
 	if stack.StackStatus != statusCreateFailed {
 		return nil, fmt.Errorf("%w: stack %s is in %s", ErrRollbackStackInvalidState, nameOrID, stack.StackStatus)
+	}
+
+	if roleARN != "" {
+		stack.RoleARN = roleARN
 	}
 
 	arn, name := stack.StackID, stack.StackName

@@ -8,11 +8,12 @@ import (
 	"cloud.google.com/go/eventarc/publishing/apiv1/publishingpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
-// publisherServer is the Eventarc Publishing API for message buses. Channel publishing is not implemented.
+// publisherServer is the Eventarc Publishing API for message buses and channels.
 type publisherServer struct {
 	publishingpb.UnimplementedPublisherServer
 
@@ -89,4 +90,61 @@ func protoEventMap(ce *publishingpb.CloudEvent) map[string]any {
 	}
 
 	return out
+}
+
+func publishedEvents(anys []*anypb.Any, texts []string) ([]map[string]any, error) {
+	if len(anys) > 0 && len(texts) > 0 {
+		return nil, errInvalid("events and text_events must not both be set.")
+	}
+
+	if len(anys) == 0 {
+		return parseTextEvents(texts)
+	}
+
+	out := make([]map[string]any, 0, len(anys))
+
+	for _, a := range anys {
+		var ce publishingpb.CloudEvent
+		if err := a.UnmarshalTo(&ce); err != nil {
+			return nil, errInvalid("events must be CloudEvent messages: %v", err)
+		}
+
+		out = append(out, protoEventMap(&ce))
+	}
+
+	return out, nil
+}
+
+// PublishEvents delivers CloudEvents to the triggers of a channel.
+func (s *publisherServer) PublishEvents(
+	_ context.Context,
+	in *publishingpb.PublishEventsRequest,
+) (*publishingpb.PublishEventsResponse, error) {
+	events, err := publishedEvents(in.GetEvents(), in.GetTextEvents())
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.b.PublishToChannel(in.GetChannel(), events); err != nil {
+		return nil, err
+	}
+
+	return &publishingpb.PublishEventsResponse{}, nil
+}
+
+// PublishChannelConnectionEvents delivers CloudEvents published through a channel connection to its channel.
+func (s *publisherServer) PublishChannelConnectionEvents(
+	_ context.Context,
+	in *publishingpb.PublishChannelConnectionEventsRequest,
+) (*publishingpb.PublishChannelConnectionEventsResponse, error) {
+	events, err := publishedEvents(in.GetEvents(), in.GetTextEvents())
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.b.PublishToChannelConnection(in.GetChannelConnection(), events); err != nil {
+		return nil, err
+	}
+
+	return &publishingpb.PublishChannelConnectionEventsResponse{}, nil
 }

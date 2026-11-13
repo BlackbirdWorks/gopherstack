@@ -11,8 +11,21 @@ import (
 var (
 	hostPrefixes = []string{"/identitytoolkit.googleapis.com", "/securetoken.googleapis.com"}
 	accountVerbs = []string{
-		"signUp", "signInWithPassword", "signInWithCustomToken", "signInWithEmailLink", "lookup", "update", "delete",
-		"sendOobCode", opResetPassword, "createAuthUri", opBatchCreate, opBatchDelete, opQuery,
+		"signUp",
+		"signInWithPassword",
+		"signInWithCustomToken",
+		"signInWithEmailLink",
+		"lookup",
+		"update",
+		"delete",
+		"sendOobCode",
+		"sendVerificationCode",
+		"signInWithPhoneNumber",
+		opResetPassword,
+		"createAuthUri",
+		opBatchCreate,
+		opBatchDelete,
+		opQuery,
 	}
 )
 
@@ -78,6 +91,8 @@ func emulatorRoute(r *http.Request, parts []string) route {
 	switch {
 	case parts[4] == "oobCodes" && r.Method == http.MethodGet:
 		rt.op = opListOobCodes
+	case parts[4] == "verificationCodes" && r.Method == http.MethodGet:
+		rt.op = opListVerificationCodes
 	case parts[4] == "accounts" && r.Method == http.MethodDelete:
 		rt.op = opClearAccounts
 	}

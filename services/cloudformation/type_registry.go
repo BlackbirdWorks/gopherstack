@@ -55,12 +55,53 @@ func splitTypeVersionARN(typeARN string) (string, string, bool) {
 	return before, candidate, true
 }
 
+var typeNameRe = regexp.MustCompile(`^[A-Za-z0-9]{2,64}::[A-Za-z0-9]{2,64}::[A-Za-z0-9]{2,64}(::MODULE)?$`)
+
+const maxMajorVersion = 100000
+
+// validateActivateType applies the documented ActivateType constraints (API_ActivateType.html).
+func validateActivateType(opts ActivateTypeOptions) error {
+	if opts.MajorVersion != nil && opts.VersionBump != "" {
+		return fmt.Errorf("%w: specify MajorVersion or VersionBump, not both", ErrActivateTypeInput)
+	}
+
+	if v := opts.MajorVersion; v != nil && (*v < 1 || *v > maxMajorVersion) {
+		return fmt.Errorf("%w: MajorVersion must be between 1 and %d", ErrActivateTypeInput, maxMajorVersion)
+	}
+
+	if v := opts.VersionBump; v != "" && v != "MAJOR" && v != "MINOR" {
+		return fmt.Errorf("%w: VersionBump must be MAJOR or MINOR", ErrActivateTypeInput)
+	}
+
+	if a := opts.TypeNameAlias; a != "" && !typeNameRe.MatchString(a) {
+		return fmt.Errorf("%w: TypeNameAlias %q is not a valid type name", ErrActivateTypeInput, a)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) ActivateType(typeName, typeArn string, opts ActivateTypeOptions) (string, error) {
+	if err := validateActivateType(opts); err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("ActivateType")
 	defer b.mu.Unlock()
 	key := typeArn
 	if key == "" {
 		key = b.buildTypeARN(typeName)
+	}
+
+	if opts.TypeNameAlias != "" {
+		original := key
+		key = b.buildTypeARN(opts.TypeNameAlias)
+
+		if existing, taken := b.typeRegistry.Get(key); taken && existing.IsActivated {
+			return "", fmt.Errorf("%w: %s", ErrTypeAliasExists, opts.TypeNameAlias)
+		}
+
+		defer b.markAliasLocked(key, original, typeName)
+		typeName = opts.TypeNameAlias
 	}
 	autoUpdate := true
 	if opts.AutoUpdate != nil {
@@ -89,6 +130,19 @@ func (b *InMemoryBackend) ActivateType(typeName, typeArn string, opts ActivateTy
 	}
 
 	return key, nil
+}
+
+func (b *InMemoryBackend) markAliasLocked(aliasKey, originalKey, originalName string) {
+	t, ok := b.typeRegistry.Get(aliasKey)
+	if !ok {
+		return
+	}
+
+	if originalName == "" {
+		originalName = strings.ReplaceAll(originalKey[strings.LastIndex(originalKey, "/")+1:], "-", "::")
+	}
+
+	t.OriginalTypeArn, t.OriginalTypeName = originalKey, originalName
 }
 
 func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
@@ -756,6 +810,8 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 		ExecutionRoleArn: reg.ExecutionRoleArn,
 		LogGroupName:     reg.LogGroupName,
 		LogRoleArn:       reg.LogRoleArn,
+		OriginalTypeName: reg.OriginalTypeName,
+		OriginalTypeArn:  reg.OriginalTypeArn,
 	}, nil
 }
 

@@ -77,6 +77,10 @@ func TestWireOCIDNSAgainstCoreAndIdentity(t *testing.T) {
 
 	dnsH.Backend.SyncVcns()
 
+	assoc, aerr := coreH.Backend.GetVcnDNSResolverAssociation(vcnID)
+	require.Nil(t, aerr)
+	assert.NotEmpty(t, assoc.DNSResolverID, "the VCN association names the OCI DNS resolver")
+
 	got, err := dnsH.Backend.ListResolvers(ocidns.ResolverFilter{}, ocidns.ListOpts{})
 	require.Error(t, err, "compartmentId is required")
 	assert.Empty(t, got.Items)

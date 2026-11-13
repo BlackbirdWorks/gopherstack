@@ -46,11 +46,13 @@ func noticeKey(am *AutoManagement, serviceCode, quotaCode string) string {
 	return appliedKey(scope{account: am.Account, region: am.Region}, serviceCode, quotaCode)
 }
 
-func thresholdOf(util float64) int {
+// thresholdOf maps utilization to a notification level; Notify and Auto-Adjust has no 80% notification
+// (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html).
+func thresholdOf(util float64, optInType string) int {
 	switch {
 	case util >= criticalThreshold:
 		return criticalThreshold
-	case util >= warnThreshold:
+	case util >= warnThreshold && optInType != optInNotifyAndAdjust:
 		return warnThreshold
 	default:
 		return 0
@@ -126,7 +128,7 @@ func (b *InMemoryBackend) noticeFor(
 	am *AutoManagement, serviceCode string, def *QuotaDef, util float64,
 ) (pendingNotice, bool) {
 	key := noticeKey(am, serviceCode, def.Code)
-	level := thresholdOf(util)
+	level := thresholdOf(util, am.OptInType)
 
 	prev := 0
 	if n, ok := b.notices.Get(key); ok {

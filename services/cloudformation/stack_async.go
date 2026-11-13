@@ -38,6 +38,19 @@ type pendingStackOp struct {
 	ForceDelete          bool                      `json:"forceDelete,omitempty"`
 }
 
+type updateOptions struct {
+	resourceTypes        []string
+	disableValidation    bool
+	retainExceptOnCreate bool
+}
+
+func (op *pendingStackOp) updateOptions() updateOptions {
+	return updateOptions{
+		resourceTypes: op.ResourceTypes, disableValidation: op.DisableValidation,
+		retainExceptOnCreate: op.RetainExceptOnCreate,
+	}
+}
+
 // SetProvisioningScheduler makes top-level stack operations return in their
 // *_IN_PROGRESS status and run the rest when schedule calls run.
 // A nil schedule restores synchronous provisioning (the default).
@@ -230,9 +243,7 @@ func (b *InMemoryBackend) runUpdateOpLocked(ctx context.Context, stack *Stack, o
 			return
 		}
 
-		if !b.applyTemplateToStack(
-			ctx, stack, op.DisableValidation, op.ResourceTypes, op.OldTemplateBody, op.OldParams,
-		) {
+		if !b.applyTemplateToStack(ctx, stack, op.updateOptions(), op.OldTemplateBody, op.OldParams) {
 			return
 		}
 
@@ -255,7 +266,7 @@ func (b *InMemoryBackend) runUpdateOpLocked(ctx context.Context, stack *Stack, o
 		b.completeUpdateLocked(stack)
 	case pendingRollbackUpdate:
 		if stack.StackStatus == statusUpdateRollbackInProgress {
-			b.runUpdateRollbackLocked(ctx, stack, op.PrevResources, op.Created)
+			b.runUpdateRollbackLocked(ctx, stack, op.PrevResources, op.Created, op.RetainExceptOnCreate)
 		}
 	case pendingRollbackUpdateCleanup:
 		if stack.StackStatus == statusUpdateRollbackCleanup {

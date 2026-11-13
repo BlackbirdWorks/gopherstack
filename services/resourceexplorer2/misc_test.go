@@ -1,6 +1,7 @@
 package resourceexplorer2_test
 
 import (
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourceexplorer2"
 )
 
@@ -139,6 +141,23 @@ func TestManagedViews(t *testing.T) {
 	assert.Equal(t, "ssm.amazonaws.com", aws.ToString(got.ManagedView.TrustedService))
 	assert.Equal(t, filtered.ManagedViews[0], aws.ToString(got.ManagedView.ManagedViewArn))
 	assert.Contains(t, aws.ToString(got.ManagedView.ResourcePolicy), "resource-explorer-2:Search")
+
+	var pol struct {
+		Statement []struct {
+			Sid       string
+			Effect    string
+			Resource  string
+			NotAction []string
+		}
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ManagedView.ResourcePolicy)), &pol, jsonx.V1()))
+	require.Len(t, pol.Statement, 2)
+	assert.Equal(t, "Allow", pol.Statement[0].Effect)
+	assert.Equal(t, filtered.ManagedViews[0], pol.Statement[0].Resource)
+	assert.Contains(t, pol.Statement[0].Sid, "_ACCESS_TO_SERVICE_PRINCIPAL")
+	assert.Equal(t, "Deny", pol.Statement[1].Effect)
+	assert.Equal(t, []string{"resource-explorer-2:GetManagedView"}, pol.Statement[1].NotAction)
 
 	_, err = c.GetManagedView(
 		ctx,

@@ -36,6 +36,7 @@ func wireOCIDNS(byName map[string]service.Registerable) {
 
 			return out
 		})
+		coreH.Backend.SetDNSResolverLookup(dnsH.Backend.ResolverIDForVcn)
 		dnsH.Backend.SetSubnetResolver(func(id string) (ocidns.SubnetInfo, bool) {
 			ref, live := coreH.Backend.LookupSubnet(id)
 

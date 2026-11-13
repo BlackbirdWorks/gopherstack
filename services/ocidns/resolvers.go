@@ -192,6 +192,22 @@ func (b *InMemoryBackend) SyncVcns() {
 	}
 }
 
+// ResolverIDForVcn returns the private resolver id of a VCN.
+func (b *InMemoryBackend) ResolverIDForVcn(vcnID string) (string, bool) {
+	b.SyncVcns()
+
+	b.mu.RLock("ResolverIDForVcn")
+	defer b.mu.RUnlock()
+
+	for _, r := range b.resolvers {
+		if r.VcnID == vcnID {
+			return r.ID, true
+		}
+	}
+
+	return "", false
+}
+
 func (b *InMemoryBackend) hasResolver(vcnID string) bool {
 	for _, r := range b.resolvers {
 		if r.VcnID == vcnID {

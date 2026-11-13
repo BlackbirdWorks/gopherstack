@@ -337,11 +337,11 @@ func binaryBinding(msg map[string]any) binding {
 	bd := binding{headers: map[string]string{}}
 
 	for k, v := range msg {
-		if k == "data" || k == "data_base64" {
+		if k == fieldData || k == fieldDataB64 {
 			continue
 		}
 
-		if k == "datacontenttype" {
+		if k == fieldDataType {
 			bd.headers["Content-Type"] = fmt.Sprint(v)
 
 			continue

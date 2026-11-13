@@ -23,6 +23,8 @@ type updateContext struct {
 	oldTmpl   *Template
 	oldParams map[string]string
 	oldPhys   map[string]string
+
+	retainExceptOnCreate bool
 }
 
 // replacedResource is an old physical resource awaiting cleanup after a replacement.

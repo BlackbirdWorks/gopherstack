@@ -66,10 +66,26 @@ func (h *Handler) Name() string { return "GCPIdentityToolkit" }
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	ops := make([]string, 0, supportedOpCount+len(accountVerbs))
-	ops = append(ops,
-		opAdminCreate, opBatchGet, opCreateSessionCookie, opToken, opPublicKeys, opGetConfig, opUpdateConfig,
-		opListTenants, opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant, opListOobCodes, opClearAccounts,
-		opEmulatorAction, opGetPasswordPolicy, opGetRecaptchaConfig,
+	ops = append(
+		ops,
+		opAdminCreate,
+		opBatchGet,
+		opCreateSessionCookie,
+		opToken,
+		opPublicKeys,
+		opGetConfig,
+		opUpdateConfig,
+		opListTenants,
+		opCreateTenant,
+		opGetTenant,
+		opUpdateTenant,
+		opDeleteTenant,
+		opListOobCodes,
+		opListVerificationCodes,
+		opClearAccounts,
+		opEmulatorAction,
+		opGetPasswordPolicy,
+		opGetRecaptchaConfig,
 	)
 	ops = append(ops, accountVerbs...)
 
@@ -207,7 +223,7 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return h.token(c)
 	case opPublicKeys:
 		return h.publicKeys(c)
-	case opListOobCodes, opClearAccounts:
+	case opListOobCodes, opListVerificationCodes, opClearAccounts:
 		return h.emulatorOp(rt, cl)
 	}
 
@@ -242,6 +258,13 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 		}
 
 		return map[string]any{"oobCodes": codes}, nil
+	case opListVerificationCodes:
+		codes, err := h.Backend.VerificationCodes(cl.project, rt.tenant)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"verificationCodes": codes}, nil
 	default:
 		if err := h.Backend.ClearAccounts(cl.project, rt.tenant); err != nil {
 			return nil, err
@@ -354,6 +377,17 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 		return b.CreateAuthURI(cl, req)
 	case opCreateSessionCookie:
 		return b.CreateSessionCookie(cl, req)
+	}
+
+	return h.phoneOp(op, cl, req)
+}
+
+func (h *Handler) phoneOp(op string, cl call, req *authRequest) (any, error) {
+	switch op {
+	case "sendVerificationCode":
+		return h.Backend.SendVerificationCode(cl, req)
+	case "signInWithPhoneNumber":
+		return h.Backend.SignInWithPhoneNumber(cl, req)
 	}
 
 	return nil, errNotFound("NOT_FOUND")

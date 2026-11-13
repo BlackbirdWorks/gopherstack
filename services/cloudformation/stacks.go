@@ -588,7 +588,7 @@ func (b *InMemoryBackend) updateFailAndRollback(ctx context.Context, stack *Stac
 	name := stack.StackName
 	stack.StackStatusReason = reason
 	b.addEvent(arn, name, name, arn, cfnStackType, statusUpdateFailed, reason)
-	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reason)
+	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reason, false)
 }
 
 // failAndRollback records a pre-flight CREATE_FAILED then enters rollback (no
@@ -880,18 +880,19 @@ func (b *InMemoryBackend) updateStack(
 	)
 
 	op := &pendingStackOp{
-		Kind:              pendingUpdate,
-		DisableValidation: opts.DisableValidation,
-		ResourceTypes:     opts.ResourceTypes,
-		OldTemplateBody:   oldTemplateBody,
-		OldParams:         oldParams,
+		Kind:                 pendingUpdate,
+		DisableValidation:    opts.DisableValidation,
+		ResourceTypes:        opts.ResourceTypes,
+		RetainExceptOnCreate: opts.RetainExceptOnCreate,
+		OldTemplateBody:      oldTemplateBody,
+		OldParams:            oldParams,
 	}
 
 	if async && b.scheduleUpdateLocked(ctx, stack, op, changes) {
 		return stack, nil
 	}
 
-	if b.applyTemplateToStack(ctx, stack, op.DisableValidation, op.ResourceTypes, oldTemplateBody, oldParams) {
+	if b.applyTemplateToStack(ctx, stack, op.updateOptions(), oldTemplateBody, oldParams) {
 		b.completeUpdateLocked(stack)
 	}
 
@@ -1050,14 +1051,13 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 }
 
 func (b *InMemoryBackend) applyTemplateToStack(
-	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
-	oldTemplateBody string, oldParams []Parameter,
+	ctx context.Context, stack *Stack, ux updateOptions, oldTemplateBody string, oldParams []Parameter,
 ) bool {
 	if stack.TemplateBody == "" {
 		return true
 	}
 
-	tmpl, resolvedParams := b.parseAndValidateUpdateTemplate(ctx, stack, disableValidation, resourceTypes)
+	tmpl, resolvedParams := b.parseAndValidateUpdateTemplate(ctx, stack, ux.disableValidation, ux.resourceTypes)
 	if tmpl == nil {
 		return false
 	}
@@ -1071,6 +1071,7 @@ func (b *InMemoryBackend) applyTemplateToStack(
 	maps.Copy(physicalIDs, stack.ResourceAttrs)
 
 	uc := newUpdateContext(oldTemplateBody, oldParams, physicalIDs)
+	uc.retainExceptOnCreate = ux.retainExceptOnCreate
 
 	// Side channel for property-time Fn::GetAtt during update -- see the
 	// matching block in provisionResources and physIDResourceTypeKey.
@@ -1165,7 +1166,7 @@ func (b *InMemoryBackend) updateResources(
 	for _, logicalID := range ordered {
 		if err := b.applyResourceUpdate(ctx, stack, tmpl.Resources[logicalID], logicalID, pass); err != nil {
 			stack.StackStatusReason = err.Error()
-			b.rollbackUpdateResources(ctx, stack, prevResources, pass.created)
+			b.rollbackUpdateResources(ctx, stack, prevResources, pass.created, uc.retainExceptOnCreate)
 
 			return false
 		}
@@ -1318,8 +1319,9 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 	stack *Stack,
 	prevResources map[string]*StackResource,
 	created []string,
+	retainExceptOnCreate bool,
 ) {
-	b.beginUpdateRollbackLocked(ctx, stack, prevResources, created, stack.StackStatusReason)
+	b.beginUpdateRollbackLocked(ctx, stack, prevResources, created, stack.StackStatusReason, retainExceptOnCreate)
 }
 
 func (b *InMemoryBackend) beginUpdateRollbackLocked(
@@ -1328,6 +1330,7 @@ func (b *InMemoryBackend) beginUpdateRollbackLocked(
 	prevResources map[string]*StackResource,
 	created []string,
 	reason string,
+	retainExceptOnCreate bool,
 ) {
 	stack.StackStatus = statusUpdateRollbackInProgress
 	b.addEvent(
@@ -1335,10 +1338,13 @@ func (b *InMemoryBackend) beginUpdateRollbackLocked(
 		cfnStackType, statusUpdateRollbackInProgress, reason,
 	)
 
-	op := &pendingStackOp{Kind: pendingRollbackUpdate, PrevResources: prevResources, Created: created}
+	op := &pendingStackOp{
+		Kind: pendingRollbackUpdate, PrevResources: prevResources, Created: created,
+		RetainExceptOnCreate: retainExceptOnCreate,
+	}
 
 	b.stageLocked(ctx, stack.StackID, op, func() {
-		b.runUpdateRollbackLocked(ctx, stack, prevResources, created)
+		b.runUpdateRollbackLocked(ctx, stack, prevResources, created, retainExceptOnCreate)
 	})
 }
 
@@ -1350,6 +1356,7 @@ func (b *InMemoryBackend) runUpdateRollbackLocked(
 	stack *Stack,
 	prevResources map[string]*StackResource,
 	created []string,
+	retainExceptOnCreate bool,
 ) {
 	rollbackOK := true
 	physIDs := b.deleteResolveContext(stack)
@@ -1363,6 +1370,16 @@ func (b *InMemoryBackend) runUpdateRollbackLocked(
 		b.addEvent(
 			stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "",
 		)
+
+		keepsPolicy := res.DeletionPolicy == deletionPolicyRetain || res.DeletionPolicy == deletionPolicySnapshot
+		if keepsPolicy && !retainExceptOnCreate {
+			b.addEvent(
+				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "",
+			)
+			delete(b.resources[stack.StackID], logicalID)
+
+			continue
+		}
 
 		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 			rollbackOK = false

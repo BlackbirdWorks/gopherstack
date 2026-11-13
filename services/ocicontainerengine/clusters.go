@@ -629,7 +629,49 @@ func (b *InMemoryBackend) checkClusterUpdate(c *Cluster, in UpdateClusterIn) *AP
 		}
 	}
 
-	return firstErr(checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version))
+	return firstErr(
+		checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version), b.checkUpgradeNodes(c, in.Version),
+	)
+}
+
+// checkUpgradeNodes applies the control plane upgrade preconditions on worker nodes: every node must be ready and
+// every node pool and node must stay within the version skew of the target.
+func (b *InMemoryBackend) checkUpgradeNodes(c *Cluster, want *string) *APIError {
+	if want == nil || *want == c.Version {
+		return nil
+	}
+
+	for _, np := range b.pools {
+		if np.ClusterID != c.ID || np.State == stateDeleted {
+			continue
+		}
+
+		if skewed(np.Version, *want) {
+			return errParam("The node pool " + np.ID + " Kubernetes version " + np.Version +
+				" is not compatible with the target control plane version " + *want)
+		}
+
+		for _, n := range np.Nodes {
+			if n.State != stateActive {
+				return errState("All worker nodes must be ready to upgrade the control plane; node " + n.ID +
+					" is in state " + n.State)
+			}
+
+			if skewed(n.Version, *want) {
+				return errParam("The node " + n.ID + " Kubernetes version " + n.Version +
+					" is not compatible with the target control plane version " + *want)
+			}
+		}
+	}
+
+	return nil
+}
+
+func skewed(have, target string) bool {
+	hv, ok := parseVersion(have)
+	tv, tok := parseVersion(target)
+
+	return ok && tok && tv.minor-hv.minor > maxMinorSkew
 }
 
 func checkTypeChange(cur, want string) *APIError {

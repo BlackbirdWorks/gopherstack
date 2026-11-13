@@ -32,6 +32,8 @@ var (
 	ErrOperationNotFound         = errors.New("operation not found in stack set")
 	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
 	ErrTypeNotFound              = errors.New("type not found")
+	ErrActivateTypeInput         = errors.New("invalid ActivateType input")
+	ErrTypeAliasExists           = errors.New("type name alias already in use")
 	ErrTypeVersionNotFound       = errors.New("type version not found")
 	ErrRegistrationTokenNotFound = errors.New("registration token not found")
 	ErrPublisherNotFound         = errors.New("publisher not found")

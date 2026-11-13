@@ -185,6 +185,7 @@ func computeEntries() []entry {
 		replicaEntries(),
 		inventoryEntries(),
 		topologyEntries(),
+		dnsResolverEntries(),
 	)
 }
 

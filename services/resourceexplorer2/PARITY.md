@@ -46,13 +46,12 @@ items_still_open:
   - ListServiceViews: not implemented; same reason as GetServiceView (SDK docs give MaxResults 1-50)
   - ListStreamingAccessForServices: not implemented; no public API or emulated service grants streaming access, so there is no state to read (SDK docs give MaxResults 1-50)
   - ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
-  - Search: keywords match as case-insensitive substrings over the ARN and tag text, not as AWS tokens; the application filter is unsupported and an unknown filter is treated as a keyword
+  - Search: the resourcetype.supports:tags filter is not implemented (no per-type taggability catalogue is published in the Resource Explorer docs or SDK) and is treated as a keyword
   - Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
-  - GetManagedView: the two managed views (SSM, Resilience Hub) are emulator-defined; real names, ARNs and policies are unverified
+  - GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN
   - ListIndexesForMembers: no organization membership or delegated-administrator check
   - CreateView: organization and OU scopes are accepted without validating them against Organizations
   - ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
-  - MaxResults: the SDK documents ranges only for GetResourceExplorerSetup (1-100), ListServiceIndexes (1-100), ListServiceViews and ListStreamingAccessForServices (1-50); the 1-100 (views 1-20) ranges of the other list operations are unverified
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
 deferred: []
@@ -69,3 +68,7 @@ Emulator choices the SDK does not document:
 - Resources with an empty ARN Region (S3) take the Region of the query; IAM, Route 53, CloudFront, Organizations, WAF, Shield, Global Accelerator, Network Manager and STS resources report the Region `global`.
 - A caller whose account differs from the resource ARN account sees nothing.
 - Search results are ordered by ARN; NextToken is an offset token validated by `pkgs/page`.
+
+## 2026-11-13 query syntax and page limits
+
+Verified against docs.aws.amazon.com/resource-explorer (using-search-query-syntax.html, API_ListViews/Search/ListIndexes/ListSupportedResourceTypes/ListResources/ListManagedViews/ListIndexesForMembers): MaxResults maxima are ListViews 50, ListManagedViews 50, Search/ListResources/ListSupportedResourceTypes 1000, ListIndexes 100, ListIndexesForMembers 10. Keywords are OR-ed word matches ranked by hit count, filters AND-ed with comma OR values, quotes make phrases, backslash escapes, trailing `*` prefixes, application filter by name or group ARN, tag/application filters need a tags view, FilterString takes filters only. The managed view policy follows the documented two-statement shape.

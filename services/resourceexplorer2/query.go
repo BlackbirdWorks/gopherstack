@@ -2,8 +2,12 @@ package resourceexplorer2
 
 import (
 	"path"
+	"slices"
 	"strings"
+	"unicode"
 )
+
+const applicationTagKey = "awsApplication"
 
 const (
 	filterRegion       = "region"
@@ -14,19 +18,26 @@ const (
 	filterTagValue     = "tag.value"
 	filterAccountID    = "accountid"
 	filterID           = "id"
+	filterApplication  = "application"
 	filterKeyword      = ""
 )
 
 var filterNames = map[string]bool{ //nolint:gochecknoglobals // immutable lookup table
 	filterRegion: true, filterService: true, filterResourceType: true, filterTag: true,
-	filterTagKey: true, filterTagValue: true, filterAccountID: true, filterID: true,
+	filterTagKey: true, filterTagValue: true, filterAccountID: true, filterID: true, filterApplication: true,
 }
 
-// clause is one parsed query term: a keyword (name "") or a filter.
+// clause is one parsed query term: a keyword (name "") or a filter whose values are OR-ed.
 type clause struct {
 	name    string
-	value   string
+	values  []string
+	phrase  bool
 	negated bool
+}
+
+type piece struct {
+	s   string
+	lit bool
 }
 
 // parseQuery splits a Resource Explorer query string into keywords and filters.
@@ -43,20 +54,9 @@ func parseQuery(q string) ([]clause, error) {
 	out := make([]clause, 0, len(tokens))
 
 	for _, tok := range tokens {
-		c := clause{name: filterKeyword}
-
-		if strings.HasPrefix(tok, "-") && len(tok) > 1 {
-			c.negated, tok = true, tok[1:]
-		}
-
-		if name, val, ok := strings.Cut(tok, ":"); ok && filterNames[strings.ToLower(name)] {
-			if val == "" {
-				return nil, invalid("filter %q needs a value", name)
-			}
-
-			c.name, c.value = strings.ToLower(name), val
-		} else {
-			c.value = tok
+		c, perr := parseToken(tok)
+		if perr != nil {
+			return nil, perr
 		}
 
 		out = append(out, c)
@@ -65,32 +65,143 @@ func parseQuery(q string) ([]clause, error) {
 	return out, nil
 }
 
-// tokenize splits on whitespace; double quotes group characters and are removed.
-func tokenize(q string) ([]string, error) {
+func plain(tok []piece) string {
+	var sb strings.Builder
+
+	for _, p := range tok {
+		sb.WriteString(p.s)
+	}
+
+	return sb.String()
+}
+
+func parseToken(tok []piece) (clause, error) {
+	var c clause
+
+	if len(tok) > 0 && !tok[0].lit && strings.HasPrefix(tok[0].s, "-") && len(plain(tok)) > 1 {
+		c.negated = true
+		tok = append([]piece{{s: tok[0].s[1:]}}, tok[1:]...)
+	}
+
+	if name, rest, ok := cutFilter(tok); ok {
+		if len(plain(rest)) == 0 {
+			return clause{}, invalid("filter %q needs a value", name)
+		}
+
+		c.name, c.values = name, splitValues(rest)
+
+		return c, nil
+	}
+
+	for _, p := range tok {
+		c.phrase = c.phrase || p.lit
+	}
+
+	c.values = []string{plain(tok)}
+
+	return c, nil
+}
+
+func cutFilter(tok []piece) (string, []piece, bool) {
+	var name strings.Builder
+
+	for i, p := range tok {
+		if p.lit {
+			return "", nil, false
+		}
+
+		if idx := strings.IndexByte(p.s, ':'); idx >= 0 {
+			name.WriteString(p.s[:idx])
+
+			n := strings.ToLower(name.String())
+			if !filterNames[n] {
+				return "", nil, false
+			}
+
+			rest := append([]piece{{s: p.s[idx+1:]}}, tok[i+1:]...)
+
+			return n, rest, true
+		}
+
+		name.WriteString(p.s)
+	}
+
+	return "", nil, false
+}
+
+func splitValues(tok []piece) []string {
 	var (
-		out      []string
-		cur      strings.Builder
+		out []string
+		cur strings.Builder
+	)
+
+	for _, p := range tok {
+		if p.lit {
+			cur.WriteString(p.s)
+
+			continue
+		}
+
+		parts := strings.Split(p.s, ",")
+		cur.WriteString(parts[0])
+
+		for _, part := range parts[1:] {
+			out = append(out, cur.String())
+			cur.Reset()
+			cur.WriteString(part)
+		}
+	}
+
+	return append(out, cur.String())
+}
+
+// tokenize splits on whitespace; double quotes and backslash escapes mark literal pieces.
+func tokenize(q string) ([][]piece, error) {
+	var (
+		out      [][]piece
+		cur      []piece
+		buf      strings.Builder
 		inQuotes bool
 		started  bool
 	)
 
-	flush := func() {
-		if started {
-			out = append(out, cur.String())
-			cur.Reset()
-
-			started = false
+	flushBuf := func(lit bool) {
+		if buf.Len() > 0 {
+			cur = append(cur, piece{s: buf.String(), lit: lit})
+			buf.Reset()
 		}
 	}
 
-	for _, r := range q {
+	flush := func() {
+		flushBuf(inQuotes)
+
+		if started {
+			out = append(out, cur)
+			cur, started = nil, false
+		}
+	}
+
+	rs := []rune(q)
+
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+
 		switch {
+		case r == '\\' && i+1 < len(rs):
+			flushBuf(inQuotes)
+
+			i++
+
+			cur = append(cur, piece{s: string(rs[i]), lit: true})
+			started = true
 		case r == '"':
+			flushBuf(inQuotes)
+
 			inQuotes, started = !inQuotes, true
 		case !inQuotes && (r == ' ' || r == '\t' || r == '\n'):
 			flush()
 		default:
-			cur.WriteRune(r)
+			buf.WriteRune(r)
 
 			started = true
 		}
@@ -114,7 +225,13 @@ type candidate struct {
 	region       string
 	account      string
 	id           string
-	blob         string
+	words        []string
+}
+
+func words(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
 
 func globMatch(pattern, v string) bool {
@@ -123,35 +240,67 @@ func globMatch(pattern, v string) bool {
 	return err == nil && ok
 }
 
+func anyGlob(values []string, v string) bool {
+	return slices.ContainsFunc(values, func(p string) bool { return globMatch(p, v) })
+}
+
 func (c *candidate) matches(cl clause) bool {
 	switch cl.name {
 	case filterRegion:
-		return globMatch(cl.value, c.region)
+		return anyGlob(cl.values, c.region)
 	case filterService:
-		return globMatch(cl.value, c.service)
+		return anyGlob(cl.values, c.service)
 	case filterResourceType:
-		return globMatch(cl.value, c.resourceType)
+		return anyGlob(cl.values, c.resourceType)
 	case filterAccountID:
-		return c.account == cl.value
+		return slices.Contains(cl.values, c.account)
 	case filterID:
-		return strings.EqualFold(c.id, cl.value)
+		return slices.ContainsFunc(cl.values, func(v string) bool {
+			return strings.EqualFold(c.arn, v) || strings.EqualFold(c.id, v)
+		})
 	case filterTagKey:
-		_, ok := c.tags[cl.value]
+		return slices.ContainsFunc(cl.values, func(v string) bool {
+			_, ok := c.tags[v]
 
-		return ok
+			return ok
+		})
 	case filterTagValue:
-		for _, v := range c.tags {
-			if v == cl.value {
-				return true
+		return slices.ContainsFunc(cl.values, func(v string) bool {
+			for _, tv := range c.tags {
+				if tv == v {
+					return true
+				}
 			}
-		}
 
-		return false
+			return false
+		})
 	case filterTag:
-		return c.matchesTag(cl.value)
+		return slices.ContainsFunc(cl.values, c.matchesTag)
+	case filterApplication:
+		return slices.ContainsFunc(cl.values, c.matchesApplication)
 	default:
-		return strings.Contains(c.blob, strings.ToLower(cl.value))
+		return false
 	}
+}
+
+func (c *candidate) matchesApplication(v string) bool {
+	app, ok := c.tags[applicationTagKey]
+	if !ok {
+		return false
+	}
+
+	if app == v {
+		return true
+	}
+
+	_, after, found := strings.Cut(app, ":group/")
+	if !found {
+		return false
+	}
+
+	name, _, _ := strings.Cut(after, "/")
+
+	return name == v
 }
 
 func (c *candidate) matchesTag(v string) bool {
@@ -172,39 +321,94 @@ func (c *candidate) matchesTag(v string) bool {
 	return !hasValue || got == val
 }
 
-// evaluate applies clauses: keywords and negations all must hold; positive filters of one name are OR-ed.
-func evaluate(c *candidate, clauses []clause) bool {
-	positive := map[string]bool{}
-	seen := map[string]bool{}
+func (c *candidate) hasWord(w string) bool {
+	if pre, ok := strings.CutSuffix(w, "*"); ok {
+		return slices.ContainsFunc(c.words, func(x string) bool { return strings.HasPrefix(x, pre) })
+	}
+
+	return slices.Contains(c.words, w)
+}
+
+func (c *candidate) hasPhrase(ws []string) bool {
+	if len(ws) == 0 {
+		return false
+	}
+
+	for i := 0; i+len(ws) <= len(c.words); i++ {
+		if slices.Equal(c.words[i:i+len(ws)], ws) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// keywordHits counts how many of the keyword's terms the resource matches.
+func (c *candidate) keywordHits(cl clause) (int, int) {
+	text := cl.values[0]
+
+	hits, terms := 0, 0
+
+	if cl.phrase {
+		if c.hasPhrase(words(text)) {
+			return 1, 1
+		}
+
+		return 0, 1
+	}
+
+	for _, w := range words(text) {
+		terms++
+
+		if c.hasWord(w) || (strings.HasSuffix(text, "*") && c.hasWord(w+"*")) {
+			hits++
+		}
+	}
+
+	return hits, terms
+}
+
+// evaluate applies the clauses and returns the match and its relevance.
+// Filters are AND-ed; their values are OR-ed. Keywords are OR-ed; negations exclude.
+func evaluate(c *candidate, clauses []clause) (bool, int) {
+	var (
+		score, terms int
+		keywords     bool
+	)
 
 	for _, cl := range clauses {
-		hit := c.matches(cl)
-
-		if cl.negated {
-			if hit {
-				return false
-			}
-
-			continue
-		}
-
 		if cl.name == filterKeyword {
-			if !hit {
-				return false
+			hits, n := c.keywordHits(cl)
+
+			switch {
+			case cl.negated && hits > 0:
+				return false, 0
+			case !cl.negated:
+				keywords, terms, score = true, terms+n, score+hits
 			}
 
 			continue
 		}
 
-		seen[cl.name] = true
-		positive[cl.name] = positive[cl.name] || hit
-	}
-
-	for name := range seen {
-		if !positive[name] {
-			return false
+		if c.matches(cl) == cl.negated {
+			return false, 0
 		}
 	}
 
-	return true
+	if keywords && score == 0 && terms > 0 {
+		return false, 0
+	}
+
+	return true, score
+}
+
+func usesTagFilter(clauses []clause) bool {
+	return slices.ContainsFunc(clauses, func(cl clause) bool {
+		return cl.name == filterTag || cl.name == filterTagKey || cl.name == filterTagValue ||
+			cl.name == filterApplication
+	})
+}
+
+func hasKeyword(clauses []clause) bool {
+	return slices.ContainsFunc(clauses, func(cl clause) bool { return cl.name == filterKeyword })
 }

@@ -29,7 +29,7 @@ func (b *InMemoryBackend) RollbackUpdateResourcesForTest(
 		prevResources[k] = &cp
 	}
 
-	b.rollbackUpdateResources(ctx, stack, prevResources, created)
+	b.rollbackUpdateResources(ctx, stack, prevResources, created, true)
 }
 
 // RegisterForTest exposes MacroRegistry.register for test-only use.

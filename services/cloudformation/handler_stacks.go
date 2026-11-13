@@ -477,7 +477,7 @@ func (h *Handler) handleRollbackStack(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 	stack, err := h.Backend.RollbackStack(
-		c.Request().Context(), name, strings.EqualFold(form.Get("RetainExceptOnCreate"), "true"),
+		c.Request().Context(), name, strings.EqualFold(form.Get("RetainExceptOnCreate"), "true"), form.Get("RoleARN"),
 	)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())

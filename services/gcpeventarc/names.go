@@ -16,6 +16,9 @@ var (
 
 const (
 	fieldSource        = "source"
+	fieldData          = "data"
+	fieldDataB64       = "data_base64"
+	fieldDataType      = "datacontenttype"
 	fieldCreateTime    = "create_time"
 	fieldUpdateTime    = "update_time"
 	kindDeleted        = "deleted"

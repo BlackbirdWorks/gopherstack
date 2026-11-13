@@ -318,3 +318,34 @@ func TestIngressSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestFunction_InstallContainerUnlimited(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		memory string
+		cpu    string
+	}{
+		{name: "explicit", memory: "512Mi", cpu: "1"},
+		{name: "fractional", memory: "256Mi", cpu: "0.5"},
+		{name: "decimal_unit", memory: "1G", cpu: "2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, true)
+			spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
+			spec.GetServiceConfig().AvailableMemory, spec.GetServiceConfig().AvailableCpu = tt.memory, tt.cpu
+			e.createFunction(t, "limits", spec)
+
+			specs := e.rt.specs()
+			require.Len(t, specs, 1)
+			assert.Contains(t, specs[0].Cmd[0], "npm install")
+			assert.Zero(t, specs[0].MemoryBytes)
+			assert.Zero(t, specs[0].NanoCPUs)
+		})
+	}
+}

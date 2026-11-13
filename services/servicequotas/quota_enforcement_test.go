@@ -236,3 +236,28 @@ func TestAutoManagementTick_Disabled(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoManagementTick_NotifyAndAdjustSkipsWarn(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	usage := &mutableUsage{}
+	notifier := &fakeNotifier{}
+	f.backend.SetUsageSource(usage)
+	f.backend.SetNotifier(notifier)
+
+	_, err := f.client.StartAutoManagement(t.Context(), &sqsdk.StartAutoManagementInput{
+		OptInLevel: "ACCOUNT", OptInType: "NotifyAndAdjust",
+		NotificationArn: aws.String("arn:aws:sns:us-east-1:123456789012:quota-alerts"),
+	})
+	require.NoError(t, err)
+
+	usage.v = 85
+	f.backend.Tick(t.Context())
+	require.Zero(t, notifier.count())
+
+	usage.v = 96
+	f.backend.Tick(t.Context())
+	require.Equal(t, 1, notifier.count())
+	assert.Contains(t, notifier.got[0].subject, "95%")
+}

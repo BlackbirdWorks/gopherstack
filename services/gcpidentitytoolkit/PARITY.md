@@ -41,9 +41,9 @@ families:
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; requests go through telemetry. No dashboard page."}
 items_still_open:
   - "accounts:signInWithIdp, federated createAuthUri, OIDC/SAML/OAuth provider configs (v2 defaultSupportedIdpConfigs, oauthIdpConfigs, inboundSamlConfigs) and linking federated providers through sign-in are not implemented."
-  - "Multi-factor authentication (phone/TOTP enrollment and sign-in, mfaInfo) and phone-number sign-in (sendVerificationCode, signInWithPhoneNumber) are not implemented; mfaInfo on create is ignored."
-  - "No email is sent (no mail transport); codes are read from the emulator oobCodes endpoint or applied through /emulator/action."
-  - "Out-of-band code lifetimes (reset 1h, verify 3d, sign-in 6h) come from Firebase developer statements, not official documentation; batchCreate failure message texts, the passwordHashOrder default for HMAC/plain hashes (password then salt), whether authorizedDomains match subdomains, whether the non-alphanumeric password set includes a backtick (the docs page rendering is ambiguous), INVALID_CONTINUE_URI wording and the config defaults have no production reference."
+  - "Multi-factor authentication (phone/TOTP enrollment and sign-in, mfaInfo) is not implemented; mfaInfo on create is ignored."
+  - "No email or SMS is sent (no mail or SMS transport); codes are read from the emulator oobCodes and verificationCodes endpoints or applied through /emulator/action."
+  - "Out-of-band code lifetimes (reset 1h, verify 3d, sign-in 6h) come from Firebase developer statements, not official documentation; the phone verification session and temporary proof lifetime (5 minutes), the error codes MISSING_CLIENT_IDENTIFIER, INVALID_TEMPORARY_PROOF, TEMPORARY_PROOF_EXPIRED and SESSION_EXPIRED for phone sign-in, batchCreate failure message texts, the passwordHashOrder default for HMAC/plain hashes (password then salt), whether authorizedDomains match subdomains, whether the non-alphanumeric password set includes a backtick (the docs page rendering is ambiguous), INVALID_CONTINUE_URI wording and the config defaults have no production reference."
   - "TOO_MANY_ATTEMPTS_TRY_LATER and quotas, API key restrictions, blocking functions, reCAPTCHA assessments and SMS region policy are not implemented."
   - "The Admin SDKs in production mode fetch signing keys from googleapis.com and cannot be redirected to this emulator; only FIREBASE_AUTH_EMULATOR_HOST mode verifies tokens."
 ---
@@ -57,3 +57,7 @@ Prose notes are history only; `items_still_open` above is the authoritative open
 Identity Toolkit v1 (client and admin), v2 admin (config, tenants) and Secure Token on one listener. Wire shapes were
 checked by decoding with `google.golang.org/api/identitytoolkit/v1` and by driving the service through
 `firebase.google.com/go/v4/auth` in emulator mode.
+
+## 2026-11-13 phone sign-in
+
+accounts:sendVerificationCode and accounts:signInWithPhoneNumber follow docs.cloud.google.com/identity-platform/docs/reference/rest/v1/accounts/sendVerificationCode and signInWithPhoneNumber (at least one of recaptchaToken, captchaResponse, playIntegrityToken, safetyNetToken or iosReceipt+iosSecret is required; temporaryProof returned when the number belongs to another user; signIn.phoneNumber.testPhoneNumbers give fixed codes; enabled=false rejects). Sessions and proofs persist in the existing codes map (oobRec fields phoneNumber, verificationCode).

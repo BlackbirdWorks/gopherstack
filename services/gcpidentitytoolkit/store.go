@@ -80,6 +80,8 @@ type oobRec struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	ContinueURL string `json:"continueUrl,omitempty"`
 	Link        string `json:"link"`
+	Phone       string `json:"phoneNumber,omitempty"`
+	VerifyCode  string `json:"verificationCode,omitempty"`
 	Created     int64  `json:"created"`
 	Expires     int64  `json:"expires"`
 }
@@ -187,15 +189,17 @@ func (b *InMemoryBackend) projectLocked(project string) *projectRec {
 
 // scope bundles what an operation needs about one project or tenant.
 type scope struct {
-	proj     *projectRec
-	users    map[string]*userRec
-	policy   *idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig
-	project  string
-	tenant   string
-	password bool
-	link     bool
-	anon     bool
-	privacy  bool
+	proj       *projectRec
+	testPhones map[string]string
+	users      map[string]*userRec
+	policy     *idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig
+	project    string
+	tenant     string
+	password   bool
+	link       bool
+	phone      bool
+	anon       bool
+	privacy    bool
 }
 
 func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
@@ -212,6 +216,8 @@ func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
 		}
 
 		s.anon = in != nil && in.Anonymous != nil && in.Anonymous.Enabled
+		s.phone = in == nil || in.PhoneNumber == nil || in.PhoneNumber.Enabled
+		s.testPhones = phoneTestNumbers(in)
 		s.privacy = p.Config.EmailPrivacyConfig != nil && p.Config.EmailPrivacyConfig.EnableImprovedEmailPrivacy
 		s.policy = p.Config.PasswordPolicyConfig
 
@@ -229,6 +235,7 @@ func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
 
 	s.users = p.Users[tenant]
 	s.password, s.link, s.anon = t.AllowPasswordSignup, t.EnableEmailLinkSignin, t.EnableAnonymousUser
+	s.phone = true
 	s.privacy = t.EmailPrivacyConfig != nil && t.EmailPrivacyConfig.EnableImprovedEmailPrivacy
 	s.policy = t.PasswordPolicyConfig
 

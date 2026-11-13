@@ -403,6 +403,8 @@ type RegisteredType struct {
 	LogGroupName     string
 	LogRoleArn       string
 	PublisherID      string
+	OriginalTypeName string
+	OriginalTypeArn  string
 	IsActivated      bool
 	IsPublished      bool
 }
@@ -411,10 +413,13 @@ type RegisteredType struct {
 // and LoggingConfig members.
 type ActivateTypeOptions struct {
 	AutoUpdate       *bool
+	MajorVersion     *int64
 	ExecutionRoleArn string
 	LogGroupName     string
 	LogRoleArn       string
 	PublisherID      string
+	TypeNameAlias    string
+	VersionBump      string
 }
 
 // TypeRegistrationRecord holds the state of a type registration request.
@@ -498,6 +503,8 @@ type TypeDetails struct {
 	LogGroupName       string `xml:"-"`
 	ExecutionRoleArn   string `xml:"-"`
 	TypeArn            string `xml:"Arn,omitempty"`
+	OriginalTypeName   string `xml:"OriginalTypeName,omitempty"`
+	OriginalTypeArn    string `xml:"OriginalTypeArn,omitempty"`
 	IsActivatableInOrg bool   `xml:"IsActivatableInOrg,omitempty"`
 	IsDefaultVersion   bool   `xml:"IsDefaultVersion,omitempty"`
 	IsActivated        bool   `xml:"IsActivated,omitempty"`

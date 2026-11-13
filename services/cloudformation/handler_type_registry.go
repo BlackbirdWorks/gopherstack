@@ -223,13 +223,26 @@ func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 		LogGroupName:     form.Get("LoggingConfig.LogGroupName"),
 		LogRoleArn:       form.Get("LoggingConfig.LogRoleArn"),
 		PublisherID:      form.Get("PublisherId"),
+		TypeNameAlias:    form.Get("TypeNameAlias"),
+		VersionBump:      form.Get("VersionBump"),
 	}
 	if v, parseErr := strconv.ParseBool(form.Get("AutoUpdate")); parseErr == nil {
 		opts.AutoUpdate = &v
 	}
 
+	if v, parseErr := strconv.ParseInt(form.Get("MajorVersion"), 10, 64); parseErr == nil {
+		opts.MajorVersion = &v
+	}
+
 	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("PublicTypeArn"), opts)
 	if err != nil {
+		switch {
+		case errors.Is(err, ErrActivateTypeInput):
+			return h.xmlError(c, "ValidationError", err.Error())
+		case errors.Is(err, ErrTypeAliasExists):
+			return h.xmlError(c, "CFNRegistryException", err.Error())
+		}
+
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
 	type result struct {
@@ -699,6 +712,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			Type             string            `xml:"Type,omitempty"`
 			ExecutionRoleArn string            `xml:"ExecutionRoleArn,omitempty"`
 			TypeArn          string            `xml:"Arn,omitempty"`
+			OriginalTypeName string            `xml:"OriginalTypeName,omitempty"`
+			OriginalTypeArn  string            `xml:"OriginalTypeArn,omitempty"`
 			IsActivated      bool              `xml:"IsActivated"`
 			IsDefaultVersion bool              `xml:"IsDefaultVersion"`
 		}
@@ -722,6 +737,8 @@ func (h *Handler) describeTypeFromRegistry(form url.Values, c *echo.Context) (bo
 			DeprecatedStatus: details.DeprecatedStatus,
 			AutoUpdate:       details.AutoUpdate,
 			ExecutionRoleArn: details.ExecutionRoleArn,
+			OriginalTypeName: details.OriginalTypeName,
+			OriginalTypeArn:  details.OriginalTypeArn,
 		}
 		if details.LogGroupName != "" || details.LogRoleArn != "" {
 			result.LoggingConfig = &loggingConfigXML{

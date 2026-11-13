@@ -376,7 +376,7 @@ func (b *InMemoryBackend) publishEvent(f fanout) {
 		typ := eventType(rec.pb.GetEventFilters())
 		topic := rec.pb.GetTransport().GetPubsub().GetTopic()
 
-		if topic == "" || !slices.Contains(f.types, typ) {
+		if topic == "" || rec.pb.GetChannel() != "" || !slices.Contains(f.types, typ) {
 			continue
 		}
 

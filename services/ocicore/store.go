@@ -40,6 +40,7 @@ type InMemoryBackend struct {
 	ipInvReqs   map[string]*IPInventoryRequest
 	compartment func(string) bool
 	keyState    func(string) (string, bool)
+	dnsResolver func(string) (string, bool)
 	retry       *ociretry.Store
 	tagLookup   ocitags.Lookup
 	// Auth is the API-key registry shared with the other OCI services.
