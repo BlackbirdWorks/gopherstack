@@ -580,3 +580,53 @@ func TestRegionalSSLPolicy(t *testing.T) {
 	})
 	e.done(t, op, err)
 }
+
+func TestTargetPoolSetSecurityPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy string
+		want   string
+		status int
+	}{
+		{name: "attach", policy: gl + "securityPolicies/pol", want: "/securityPolicies/pol"},
+		{name: "clear", policy: ""},
+		{name: "missing", policy: gl + "securityPolicies/none", status: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			require.NoError(t, e.policy(t, &computepb.SecurityPolicy{Name: s("pol")}))
+			require.NoError(t, e.poolInsert(t, &computepb.TargetPool{Name: s("pool")}))
+
+			op, err := e.pools(t).SetSecurityPolicy(t.Context(), &computepb.SetSecurityPolicyTargetPoolRequest{
+				Project: project, Region: region, TargetPool: "pool",
+				SecurityPolicyReferenceResource: &computepb.SecurityPolicyReference{SecurityPolicy: s(tt.policy)},
+			})
+			if tt.status != 0 {
+				assertAPIError(t, err, tt.status, "")
+
+				return
+			}
+
+			e.done(t, op, err)
+
+			got := e.getPool(t).GetSecurityPolicy()
+			if tt.want == "" {
+				assert.Empty(t, got)
+
+				return
+			}
+
+			assert.Contains(t, got, tt.want)
+
+			_, delErr := e.armor(t).
+				Delete(t.Context(), &computepb.DeleteSecurityPolicyRequest{Project: project, SecurityPolicy: "pol"})
+			assertAPIError(t, delErr, http.StatusBadRequest, "")
+		})
+	}
+}

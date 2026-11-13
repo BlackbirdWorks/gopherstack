@@ -333,6 +333,14 @@ func (h *Handler) registerRuleOps() {
 
 			return opResult(h.Backend.setRuleTarget(ctxOf(rq), rq.rt.name, in.Target))
 		})
+		h.reg(collFwdRules, scope, verbPatch, func(h *Handler, rq *request) (any, error) {
+			_, raw, err := decode[computeapi.ForwardingRule](rq)
+			if err != nil {
+				return nil, err
+			}
+
+			return opResult(h.Backend.patchForwardingRule(ctxOf(rq), rq.rt.name, raw))
+		})
 		h.reg(collFwdRules, scope, "setLabels", func(h *Handler, rq *request) (any, error) {
 			in, _, err := decode[labelsRequest](rq)
 			if err != nil {

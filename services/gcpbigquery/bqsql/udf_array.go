@@ -52,6 +52,7 @@ func jsonToSQL(v any) driver.Value {
 }
 
 func addArrayUDFs(d map[string]udfDef) {
+	d["array_chk"] = udfDef{n: argc2, fn: udfArrayIndexCheck}
 	d["array_concat"] = udfDef{n: -1, fn: func(a []driver.Value) (driver.Value, error) {
 		out := []any{}
 
@@ -188,4 +189,29 @@ func udfGenerateArray(a []driver.Value) (driver.Value, error) {
 	}
 
 	return encodeJSON(out), nil
+}
+
+func udfArrayIndexCheck(a []driver.Value) (driver.Value, error) {
+	if anyNull(a) {
+		return nil, nil //nolint:nilnil // NULL in, NULL out
+	}
+
+	arr, err := decodeJSONArray(a[0])
+	if err != nil {
+		return nil, err
+	}
+
+	i, err := toInt(a[1])
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case i < 0:
+		return nil, errBQ("Array index %d is out of bounds", i)
+	case i >= int64(len(arr)):
+		return nil, errBQ("Array index %d is out of bounds", i)
+	}
+
+	return i, nil
 }

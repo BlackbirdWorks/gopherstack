@@ -286,7 +286,7 @@ var networkPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only l
 	jsonName: true, "routingConfig": true, "mtu": true, jsonDesc: true,
 	"networkFirewallPolicyEnforcementOrder": true, jsonKind: true, "id": true, jsonSelfLink: true,
 	jsonCreated: true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
-	"peerings": true,
+	"peerings": true, "enableUlaInternalIpv6": true, "internalIpv6Range": true,
 }
 
 func (b *InMemoryBackend) patchNetwork(
@@ -308,16 +308,12 @@ func (b *InMemoryBackend) patchNetwork(
 		}
 	}
 
-	if v, ok := raw["autoCreateSubnetworks"].(bool); ok && v != n.AutoCreateSubnetworks {
-		return nil, errField("resource.autoCreateSubnetworks", "", "Use switchToCustomMode to change the subnet mode.")
-	}
-
-	if err = validRoutingConfig(in.RoutingConfig); err != nil {
+	if err = validNetworkPatch(n, in, raw); err != nil {
 		return nil, err
 	}
 
-	if in.Mtu != 0 && (in.Mtu < minMTU || in.Mtu > maxMTU) {
-		return nil, errField("resource.mtu", int64Str(in.Mtu), "MTU must be between 1300 and 8896.")
+	if err = b.patchULALocked(n, in, raw); err != nil {
+		return nil, err
 	}
 
 	if in.RoutingConfig != nil && in.RoutingConfig.RoutingMode != "" {
@@ -337,6 +333,22 @@ func (b *InMemoryBackend) patchNetwork(
 	}
 
 	return b.newOpLocked("patch", netTarget(project, n), b.timing.Done), nil
+}
+
+func validNetworkPatch(n, in *computeapi.Network, raw map[string]any) *APIError {
+	if v, ok := raw["autoCreateSubnetworks"].(bool); ok && v != n.AutoCreateSubnetworks {
+		return errField("resource.autoCreateSubnetworks", "", "Use switchToCustomMode to change the subnet mode.")
+	}
+
+	if err := validRoutingConfig(in.RoutingConfig); err != nil {
+		return err
+	}
+
+	if in.Mtu != 0 && (in.Mtu < minMTU || in.Mtu > maxMTU) {
+		return errField("resource.mtu", int64Str(in.Mtu), "MTU must be between 1300 and 8896.")
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) switchToCustomMode(project, name string) (*computeapi.Operation, error) {

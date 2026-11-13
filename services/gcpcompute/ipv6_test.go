@@ -868,3 +868,76 @@ func TestLocalSSDDoesNotAffectPersistentDisks(t *testing.T) {
 	_, nerr := it.Next()
 	require.Error(t, nerr, "the boot disk is auto-deleted and the scratch disk never was a disk resource")
 }
+
+func TestNetworkPatchULA(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		prep    func(t *testing.T, e *env)
+		patch   *computepb.Network
+		name    string
+		status  int
+		wantULA bool
+	}{
+		{
+			name: "enable", prep: func(t *testing.T, e *env) { t.Helper(); e.network(t, "vpc", false) },
+			patch: &computepb.Network{EnableUlaInternalIpv6: new(true)}, wantULA: true,
+		},
+		{
+			name: "enable with range",
+			prep: func(t *testing.T, e *env) { t.Helper(); e.network(t, "vpc", false) },
+			patch: &computepb.Network{
+				EnableUlaInternalIpv6: new(true),
+				InternalIpv6Range:     s("fd20:5:6::/48"),
+			},
+			wantULA: true,
+		},
+		{
+			name: "bad range", prep: func(t *testing.T, e *env) { t.Helper(); e.network(t, "vpc", false) },
+			patch:  &computepb.Network{EnableUlaInternalIpv6: new(true), InternalIpv6Range: s("fd30:1:2::/48")},
+			status: http.StatusBadRequest,
+		},
+		{
+			name: "range without enable", prep: func(t *testing.T, e *env) { t.Helper(); e.network(t, "vpc", false) },
+			patch:  &computepb.Network{InternalIpv6Range: s("fd20:5:6::/48")},
+			status: http.StatusBadRequest,
+		},
+		{
+			name: "disable", prep: func(t *testing.T, e *env) { t.Helper(); e.v6Network(t) },
+			patch: &computepb.Network{EnableUlaInternalIpv6: new(false)},
+		},
+		{
+			name: "disable in use",
+			prep: func(t *testing.T, e *env) {
+				t.Helper()
+				e.v6Network(t)
+				require.NoError(t, e.v6Subnet(t, "sn", "10.1.0.0/24", "IPV4_IPV6", "INTERNAL"))
+			},
+			patch:  &computepb.Network{EnableUlaInternalIpv6: new(false)},
+			status: http.StatusBadRequest, wantULA: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			tt.prep(t, e)
+
+			op, err := e.networks(t).Patch(t.Context(), &computepb.PatchNetworkRequest{
+				Project: project, Network: "vpc", NetworkResource: tt.patch,
+			})
+			if tt.status != 0 {
+				assertAPIError(t, err, tt.status, "")
+			} else {
+				e.done(t, op, err)
+			}
+
+			n, gerr := e.networks(t).Get(t.Context(), &computepb.GetNetworkRequest{Project: project, Network: "vpc"})
+			require.NoError(t, gerr)
+			assert.Equal(t, tt.wantULA, n.GetEnableUlaInternalIpv6())
+			assert.Equal(t, tt.wantULA, n.GetInternalIpv6Range() != "")
+		})
+	}
+}

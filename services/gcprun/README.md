@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 13 (5 ok, 8 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - WorkerPools, Instances, Builds and Locations are not served.
-- Only the first container of a job task is run; sidecars, volumes and probes apply to services only. VPC access, resource limits and readiness probes are stored but not applied.
+- Only the first container of a job task is run; sidecars, volumes and probes apply to services only. VPC access is stored but not applied (no VPC network exists to attach).
 - Cloud Storage FUSE, NFS and Cloud SQL volumes are not supported (the revision fails to deploy with a message).
 - The URI is an http .localhost address, not https://*.run.app.
-- update_mask nested paths replace the whole top-level field.
 
 ## More
 

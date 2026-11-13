@@ -33,7 +33,12 @@ func targetPoolSpec() lbSpec[computeapi.TargetPool] {
 		},
 		prep: prepTargetPool,
 		refs: func(v *computeapi.TargetPool) []string {
-			return append(slices.Clone(v.HealthChecks), v.BackupPool)
+			out := append(slices.Clone(v.HealthChecks), v.BackupPool)
+			if v.SecurityPolicy != "" {
+				out = append(out, v.SecurityPolicy)
+			}
+
+			return out
 		},
 	}
 }
@@ -488,6 +493,14 @@ func (h *Handler) registerPoolOps() {
 
 		return opResult(h.Backend.poolSetBackup(ctxOf(rq), rq.rt.name, rq.q.Get("failoverRatio"), in))
 	})
+	h.reg(collTargetPools, scopeRegion, "setSecurityPolicy", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.SecurityPolicyReference](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.poolSetSecurityPolicy(ctxOf(rq), rq.rt.name, in.SecurityPolicy))
+	})
 	h.reg(collTargetPools, scopeRegion, "getHealth", func(h *Handler, rq *request) (any, error) {
 		in, _, err := decode[computeapi.InstanceReference](rq)
 		if err != nil {
@@ -509,4 +522,25 @@ func poolAction[R any](
 
 		return opResult(fn(h.Backend, ctxOf(rq), rq.rt.name, in))
 	}
+}
+
+func (b *InMemoryBackend) poolSetSecurityPolicy(c lbCtx, name, policy string) (*computeapi.Operation, error) {
+	return lbMutate(b, targetPoolSpec(), c, name, "setSecurityPolicy", nil,
+		func(cur *computeapi.TargetPool) (*computeapi.TargetPool, *APIError) {
+			if policy == "" {
+				cur.SecurityPolicy = ""
+
+				return cur, nil
+			}
+
+			self, err := lbResolve(b, secPolicySpec(), lbCtx{project: c.project, scope: scopeGlobal},
+				"securityPolicyReference.securityPolicy", policy)
+			if err != nil {
+				return nil, err
+			}
+
+			cur.SecurityPolicy = self
+
+			return cur, nil
+		})
 }

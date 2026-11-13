@@ -277,6 +277,7 @@ func TestAdminOobLink(t *testing.T) {
 
 			e := newEnv(t)
 			e.signUp(t, "a@example.com")
+			e.setConfig(t, map[string]any{"authorizedDomains": []string{"localhost", "example.com"}})
 
 			tt.body["returnOobLink"] = true
 
@@ -374,6 +375,44 @@ func TestCreateAuthURI(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.methods, r.body["signinMethods"])
+		})
+	}
+}
+
+func TestContinueURLAuthorizedDomains(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		url  string
+		msg  string
+	}{
+		{name: "authorized", url: "http://localhost:3000/done"},
+		{name: "subdomain", url: "https://app.example.com/done"},
+		{name: "unauthorized", url: "https://evil.test/done", msg: "UNAUTHORIZED_DOMAIN"},
+		{name: "suffix lookalike", url: "https://notexample.com/done", msg: "UNAUTHORIZED_DOMAIN"},
+		{name: "relative", url: "/done", msg: "INVALID_CONTINUE_URI"},
+		{name: "bad scheme", url: "ftp://example.com/done", msg: "INVALID_CONTINUE_URI"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.signUp(t, "a@example.com")
+			e.setConfig(t, map[string]any{"authorizedDomains": []string{"localhost", "example.com"}})
+
+			r := e.admin(t, "sendOobCode", map[string]any{
+				"requestType": "PASSWORD_RESET", "email": "a@example.com", "continueUrl": tt.url,
+			})
+			if tt.msg != "" {
+				e.assertErr(t, r, http.StatusBadRequest, tt.msg)
+
+				return
+			}
+
+			assert.Equal(t, http.StatusOK, r.status, r.body)
 		})
 	}
 }

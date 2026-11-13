@@ -290,3 +290,48 @@ func TestRoutingAndErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestInsertTemplateSuffix(t *testing.T) {
+	t.Parallel()
+
+	env := newSDK(t)
+	ctx := t.Context()
+	ds := env.dataset(t, "tmpl")
+	schema := bigquery.Schema{{Name: "id", Type: bigquery.IntegerFieldType}}
+	require.NoError(t, ds.Table("base").Create(ctx, &bigquery.TableMetadata{Schema: schema}))
+
+	tests := []struct {
+		name   string
+		suffix string
+		table  string
+		rows   uint64
+		bad    bool
+	}{
+		{"creates", "_20240101", "base_20240101", 1, false},
+		{"reuses", "_20240101", "base_20240101", 2, false},
+		{"invalid", "-bad!", "", 0, true},
+		{"hyphen", "-1", "", 0, true},
+	}
+
+	for _, tt := range tests {
+		ins := ds.Table("base").Inserter()
+		ins.TableTemplateSuffix = tt.suffix
+
+		err := ins.Put(ctx, []*bigquery.ValuesSaver{{Schema: schema, Row: []bigquery.Value{int64(1)}}})
+		if tt.bad {
+			require.Error(t, err, tt.name)
+
+			continue
+		}
+
+		require.NoError(t, err, tt.name)
+
+		md, merr := ds.Table(tt.table).Metadata(ctx)
+		require.NoError(t, merr, tt.name)
+		assert.Equal(t, tt.rows, md.NumRows, tt.name)
+	}
+
+	md, err := ds.Table("base").Metadata(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), md.NumRows)
+}

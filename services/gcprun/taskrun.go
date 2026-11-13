@@ -33,12 +33,16 @@ func taskSpec(ex *runpb.Execution, t *runpb.Task, attemptNo int, base []string) 
 		"CLOUD_RUN_TASK_COUNT="+strconv.Itoa(int(ex.GetTaskCount())),
 	)
 
+	mem, cpu := resourceLimits(c)
+
 	return container.Spec{
-		Image:      c.GetImage(),
-		Name:       "gopherstack-run-" + lastSegment(t.GetName()) + "-" + strconv.Itoa(attemptNo),
-		Env:        env,
-		Entrypoint: c.GetCommand(),
-		Cmd:        c.GetArgs(),
+		Image:       c.GetImage(),
+		Name:        "gopherstack-run-" + lastSegment(t.GetName()) + "-" + strconv.Itoa(attemptNo),
+		Env:         env,
+		Entrypoint:  c.GetCommand(),
+		Cmd:         c.GetArgs(),
+		MemoryBytes: mem,
+		NanoCPUs:    cpu,
 	}
 }
 

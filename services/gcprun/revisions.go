@@ -60,6 +60,10 @@ func validateContainers(cs []*runpb.Container, allowPorts bool) error {
 		if err := validateEnv(c.GetEnv()); err != nil {
 			return err
 		}
+
+		if err := validateLimits(c); err != nil {
+			return err
+		}
 	}
 
 	if withPorts > 1 || (!allowPorts && withPorts > 0) {

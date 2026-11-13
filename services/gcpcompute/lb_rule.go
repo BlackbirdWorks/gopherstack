@@ -649,3 +649,25 @@ func prepClassicRulePorts(in *computeapi.ForwardingRule) *APIError {
 
 	return normalizeRulePorts(in)
 }
+
+// patchForwardingRule applies forwardingRules.patch, which updates only networkTier.
+func (b *InMemoryBackend) patchForwardingRule(c lbCtx, name string, raw map[string]any) (*computeapi.Operation, error) {
+	return lbMutate(b, fwdRuleSpec(), c, name, "patch", nil,
+		func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
+			tier, _ := raw["networkTier"].(string)
+
+			for k := range raw {
+				if k != "networkTier" {
+					return nil, errField("resource."+k, "", "Field is not updatable.")
+				}
+			}
+
+			if tier != tierPremium && (c.scope == scopeGlobal || tier != tierStandard) {
+				return nil, errField("resource.networkTier", tier, "")
+			}
+
+			cur.NetworkTier = tier
+
+			return cur, nil
+		})
+}

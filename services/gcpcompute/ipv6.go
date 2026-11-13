@@ -529,6 +529,47 @@ func (b *InMemoryBackend) setupULALocked(n, in *computeapi.Network) *APIError {
 	return b.assignULALocked(n, in.InternalIpv6Range)
 }
 
+// patchULALocked applies enableUlaInternalIpv6 and internalIpv6Range from a network patch.
+func (b *InMemoryBackend) patchULALocked(n, in *computeapi.Network, raw map[string]any) *APIError {
+	_, setEnable := raw["enableUlaInternalIpv6"]
+	want, rng := in.EnableUlaInternalIpv6, in.InternalIpv6Range
+
+	if !setEnable {
+		want = n.EnableUlaInternalIpv6
+	}
+
+	switch {
+	case want && !n.EnableUlaInternalIpv6:
+		if err := b.assignULALocked(n, rng); err != nil {
+			return err
+		}
+
+		n.EnableUlaInternalIpv6 = true
+
+		return nil
+	case want:
+		if rng != "" && rng != n.InternalIpv6Range {
+			return errField("resource.internalIpv6Range", rng, "The range cannot be changed.")
+		}
+
+		return nil
+	case rng != "":
+		return errField("resource.internalIpv6Range", rng, "Requires enableUlaInternalIpv6.")
+	case !n.EnableUlaInternalIpv6:
+		return nil
+	}
+
+	for _, s := range b.subnets {
+		if s.Network == n.SelfLink && s.Ipv6CidrRange != "" {
+			return errField("resource.enableUlaInternalIpv6", "false", "Subnetworks of the network use IPv6 ranges.")
+		}
+	}
+
+	n.EnableUlaInternalIpv6, n.InternalIpv6Range = false, ""
+
+	return nil
+}
+
 func (b *InMemoryBackend) patchSubnetStackLocked(s, in *computeapi.Subnetwork, raw map[string]any) *APIError {
 	if _, ok := raw["stackType"]; !ok && raw["ipv6AccessType"] == nil {
 		return nil

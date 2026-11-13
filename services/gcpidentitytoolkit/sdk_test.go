@@ -490,6 +490,8 @@ func sdkEmailLinks(t *testing.T, e *env, c *auth.Client) {
 
 	ctx := t.Context()
 
+	e.setConfig(t, map[string]any{"authorizedDomains": []string{"localhost", "example.com"}})
+
 	_, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("em").Email("em@example.com").Password("secret1"))
 	require.NoError(t, err)
 

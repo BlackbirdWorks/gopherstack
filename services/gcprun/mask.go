@@ -8,11 +8,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// applyMask copies the masked top-level fields of src onto dst. An empty mask copies every populated mutable
-// field; a nested path replaces its whole top-level field.
+// applyMask copies the masked fields of src onto dst. An empty mask copies every populated mutable top-level
+// field; a dotted path copies only that nested field through singular message fields.
 func applyMask(dst, src proto.Message, paths, mutable []string) error {
 	d, s := dst.ProtoReflect(), clone(src).ProtoReflect()
-	fields := d.Descriptor().Fields()
 
 	if len(paths) == 0 {
 		s.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
@@ -31,19 +30,38 @@ func applyMask(dst, src proto.Message, paths, mutable []string) error {
 	}
 
 	for _, p := range paths {
-		top, _, _ := strings.Cut(p, ".")
-
-		fd := fields.ByName(protoreflect.Name(top))
-		if fd == nil || !slices.Contains(mutable, top) {
+		segs := strings.Split(p, ".")
+		if !slices.Contains(mutable, segs[0]) {
 			return errInvalid("update_mask path %q is not a mutable field.", p)
 		}
 
+		if err := copyPath(d, s, segs, p); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func copyPath(d, s protoreflect.Message, segs []string, full string) error {
+	fd := d.Descriptor().Fields().ByName(protoreflect.Name(segs[0]))
+	if fd == nil {
+		return errInvalid("update_mask path %q is not a mutable field.", full)
+	}
+
+	if len(segs) == 1 {
 		if s.Has(fd) {
 			d.Set(fd, s.Get(fd))
 		} else {
 			d.Clear(fd)
 		}
+
+		return nil
 	}
 
-	return nil
+	if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() {
+		return errInvalid("update_mask path %q is not a mutable field.", full)
+	}
+
+	return copyPath(d.Mutable(fd).Message(), s.Get(fd).Message(), segs[1:], full)
 }

@@ -79,7 +79,7 @@ func checkStrength(o *idtkv2.GoogleCloudIdentitytoolkitAdminV2CustomStrengthOpti
 			upper = true
 		case unicode.IsDigit(r):
 			digit = true
-		default:
+		case strings.ContainsRune(nonAlnumChars, r):
 			other = true
 		}
 	}

@@ -673,13 +673,28 @@ func (b *InMemoryBackend) setMIGTargetPools(
 		return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
 	}
 
+	region := loc
+	if scope == scopeZone {
+		region = regionOfZone(loc)
+	}
+
+	pools := make([]string, 0, len(in.TargetPools))
+
 	for _, p := range in.TargetPools {
 		if strings.TrimSpace(p) == "" {
 			return nil, errField("targetPools", p, "")
 		}
+
+		self, lerr := lbResolve(b, targetPoolSpec(), lbCtx{project: project, scope: scopeRegion, loc: region},
+			"targetPools", p)
+		if lerr != nil {
+			return nil, lerr
+		}
+
+		pools = append(pools, self)
 	}
 
-	rec.Mgr.TargetPools, rec.Mgr.Fingerprint = in.TargetPools, newFingerprint()
+	rec.Mgr.TargetPools, rec.Mgr.Fingerprint = pools, newFingerprint()
 
 	return b.newOpLocked(opMIG+"setTargetPools", migOpTarget(project, rec.Mgr), b.timing.Done), nil
 }

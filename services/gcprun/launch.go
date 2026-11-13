@@ -82,14 +82,18 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 }
 
 func containerSpec(rev *runpb.Revision, p prepared, seq uint64, idx int) container.Spec {
+	mem, cpu := resourceLimits(p.c)
+
 	return container.Spec{
-		Image:      p.c.GetImage(),
-		Name:       fmt.Sprintf("gopherstack-run-%s-%d-%d", lastSegment(rev.GetName()), seq, idx),
-		Env:        p.env,
-		Mounts:     p.mounts,
-		WorkingDir: p.c.GetWorkingDir(),
-		Entrypoint: p.c.GetCommand(),
-		Cmd:        p.c.GetArgs(),
+		Image:       p.c.GetImage(),
+		Name:        fmt.Sprintf("gopherstack-run-%s-%d-%d", lastSegment(rev.GetName()), seq, idx),
+		Env:         p.env,
+		Mounts:      p.mounts,
+		WorkingDir:  p.c.GetWorkingDir(),
+		Entrypoint:  p.c.GetCommand(),
+		Cmd:         p.c.GetArgs(),
+		MemoryBytes: mem,
+		NanoCPUs:    cpu,
 	}
 }
 

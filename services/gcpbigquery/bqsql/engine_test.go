@@ -242,6 +242,16 @@ func TestQueryErrors(t *testing.T) {
 		{"unknown column", "SELECT zzz FROM people", "Unrecognized name: zzz", bqsql.ErrInvalid},
 		{"division by zero", "SELECT 1 / 0", "division by zero", bqsql.ErrRuntime},
 		{"syntax", "SELEC 1", "Syntax error", bqsql.ErrInvalid},
+		{"add overflow", "SELECT 9223372036854775807 + 1", "int64 overflow: 9223372036854775807 + 1", bqsql.ErrRuntime},
+		{"sub overflow", "SELECT -9223372036854775807 - 2", "int64 overflow", bqsql.ErrRuntime},
+		{"mul overflow", "SELECT 4611686018427387904 * 2", "int64 overflow: 4611686018427387904 * 2", bqsql.ErrRuntime},
+		{"offset overflow", "SELECT [1, 2][OFFSET(2)]", "Array index 2 is out of bounds", bqsql.ErrRuntime},
+		{
+			"ordinal underflow",
+			"SELECT [1, 2][ORDINAL(0)]",
+			"Array index -1 is out of bounds",
+			bqsql.ErrRuntime,
+		},
 	}
 
 	for _, tt := range tests {

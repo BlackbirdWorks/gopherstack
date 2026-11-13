@@ -33,7 +33,7 @@ const (
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
 	keyCacheSeconds   = 3600
-	supportedOpCount  = 14
+	supportedOpCount  = 17
 )
 
 // Handler serves the Identity Toolkit and Secure Token REST APIs on a dedicated listener.
@@ -68,6 +68,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	ops = append(ops,
 		opAdminCreate, opBatchGet, opCreateSessionCookie, opToken, opPublicKeys, opGetConfig, opUpdateConfig,
 		opListTenants, opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant, opListOobCodes, opClearAccounts,
+		opEmulatorAction, opGetPasswordPolicy, opGetRecaptchaConfig,
 	)
 	ops = append(ops, accountVerbs...)
 
@@ -178,6 +179,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.fail(c, errNotFound("NOT_FOUND"))
 		}
 
+		if rt.op == opEmulatorAction {
+			return h.emulatorAction(c)
+		}
+
 		out, err := h.dispatch(c, rt)
 		if err != nil {
 			return h.fail(c, err)
@@ -203,6 +208,10 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return h.publicKeys(c)
 	case opListOobCodes, opClearAccounts:
 		return h.emulatorOp(rt, cl)
+	}
+
+	if rt.op == opGetPasswordPolicy || rt.op == opGetRecaptchaConfig {
+		return h.clientConfig(c, rt, cl)
 	}
 
 	if (rt.version == "v2" || slices.Contains(adminOps, rt.op)) && !cl.admin {
@@ -239,6 +248,18 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 
 		return map[string]any{}, nil
 	}
+}
+
+func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) {
+	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
+		return nil, errNoKey()
+	}
+
+	if rt.op == opGetPasswordPolicy {
+		return h.Backend.PasswordPolicy(cl.project, cl.tenant)
+	}
+
+	return h.Backend.RecaptchaConfig(cl.project, cl.tenant, c.QueryParam("clientType"))
 }
 
 func adminGuard(cl call) error {
