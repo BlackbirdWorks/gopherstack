@@ -53,6 +53,29 @@ func (b *InMemoryBackend) wireBackupLocked(bk *Backup) wireBackup {
 
 // takeBackupLocked records the backup the service takes of an initialized cluster.
 func (b *InMemoryBackend) takeBackupLocked(c *Cluster, now time.Time) {
+	c.LastBackup = now
+	b.putBackupLocked(c, now)
+}
+
+// autoBackupsLocked takes the periodic backups (at least one every 24 hours) due since the cluster's last backup.
+func (b *InMemoryBackend) autoBackupsLocked(now time.Time) {
+	for _, c := range b.clusters.All() {
+		if !c.Initialized || !c.DeletedAt.IsZero() || c.LastBackup.IsZero() || b.activeHsmsLocked(c.ID, now) == 0 {
+			continue
+		}
+
+		due := int(now.Sub(c.LastBackup) / autoBackupInterval)
+		for i := max(1, due-c.RetentionDays); i <= due; i++ {
+			b.putBackupLocked(c, c.LastBackup.Add(time.Duration(i)*autoBackupInterval))
+		}
+
+		if due > 0 {
+			c.LastBackup = c.LastBackup.Add(time.Duration(due) * autoBackupInterval)
+		}
+	}
+}
+
+func (b *InMemoryBackend) putBackupLocked(c *Cluster, now time.Time) {
 	b.backups.Put(&Backup{
 		ID: newBackupID(), Account: c.Account, Region: c.Region, ClusterID: c.ID, HsmType: c.HsmType, Mode: c.Mode,
 		ClusterCert: c.ClusterCert, RetentionDays: c.RetentionDays, Created: now, ReadyAt: now.Add(b.dwell()),
@@ -92,7 +115,7 @@ func (b *InMemoryBackend) backupForUseLocked(sc scope, ref string) (*Backup, err
 
 	bk, ok := b.backups.Get(id)
 	if !ok || bk.Region != sc.region || backupState(bk, b.now()) == stateDeleted ||
-		(bk.Account != sc.account && !policyGrants(bk.Policy, sc.account)) {
+		(bk.Account != sc.account && !b.grants(bk, sc.account)) {
 		return nil, fail(ErrResourceNotFound, "backup %s not found", ref)
 	}
 
@@ -146,13 +169,22 @@ type DescribeBackupsInput struct {
 	SortAscending bool
 }
 
-func (in DescribeBackupsInput) visible(bk *Backup, sc scope, state string) bool {
+// grants reports whether account may use another account's backup through its resource policy or a RAM share.
+func (b *InMemoryBackend) grants(bk *Backup, account string) bool {
+	if policyGrants(bk.Policy, account) {
+		return true
+	}
+
+	return b.sharing != nil && b.sharing.SharedWith(backupARN(bk.Account, bk.Region, bk.ID), account)
+}
+
+func (in DescribeBackupsInput) visible(b *InMemoryBackend, bk *Backup, sc scope, state string) bool {
 	if bk.Region != sc.region || state == stateDeleted {
 		return false
 	}
 
 	if in.Shared {
-		return bk.Account != sc.account && policyGrants(bk.Policy, sc.account)
+		return bk.Account != sc.account && b.grants(bk, sc.account)
 	}
 
 	return bk.Account == sc.account
@@ -180,8 +212,10 @@ func (b *InMemoryBackend) DescribeBackups(ctx context.Context, in DescribeBackup
 
 	sc := b.scopeOf(ctx)
 
-	b.mu.RLock("DescribeBackups")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeBackups")
+	defer b.mu.Unlock()
+
+	b.reapLocked()
 
 	now := b.now()
 
@@ -189,7 +223,7 @@ func (b *InMemoryBackend) DescribeBackups(ctx context.Context, in DescribeBackup
 
 	b.backups.Range(func(bk *Backup) bool {
 		state := backupState(bk, now)
-		if in.visible(bk, sc, state) && in.matches(bk, state) {
+		if in.visible(b, bk, sc, state) && in.matches(bk, state) {
 			matched = append(matched, bk)
 		}
 

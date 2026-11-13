@@ -43,7 +43,20 @@ type loaderEnvelope struct {
 	Status  string         `json:"status"`
 }
 
+const loaderRoleField = `"iamRoleArn":"arn:aws:iam::000000000000:role/r",`
+
+// loaderStart posts body, adding the required iamRoleArn when the request names none.
 func loaderStart(t *testing.T, c neptune.DBCluster, body string) (int, loaderEnvelope, string) {
+	t.Helper()
+
+	if !strings.Contains(body, "iamRoleArn") && strings.HasPrefix(body, `{"`) {
+		body = "{" + loaderRoleField + body[1:]
+	}
+
+	return loaderStartRaw(t, c, body)
+}
+
+func loaderStartRaw(t *testing.T, c neptune.DBCluster, body string) (int, loaderEnvelope, string) {
 	t.Helper()
 
 	res := sparqlDo(t, c, http.MethodPost, "/loader", "application/json", "", body)
@@ -225,27 +238,43 @@ func TestBulkLoaderBehaviours(t *testing.T) {
 func TestBulkLoaderRequestErrors(t *testing.T) {
 	t.Parallel()
 
+	withRole := func(rest string) string { return "{" + loaderRoleField + rest }
+
 	tests := []struct {
 		name     string
 		body     string
 		wantCode string
 		wantMsg  string
 	}{
-		{"missing source", `{"format":"ntriples"}`, "MissingParameterException", ""},
-		{"bad format", `{"source":"s3://lake/x.nt","format":"jsonld"}`, "BadRequestException", "Invalid format"},
-		{"csv without files", `{"source":"s3://lake/none/","format":"csv"}`, "BadRequestException", "Failed to start"},
+		{"missing source", withRole(`"format":"ntriples"}`), "MissingParameterException", "source"},
+		{"missing role", `{"source":"s3://lake/x.nt","format":"ntriples"}`, "MissingParameterException", "iamRoleArn"},
 		{
-			"missing bucket",
-			`{"source":"s3://nobucket/x.nt","format":"ntriples"}`,
-			"BadRequestException",
-			"Failed to start",
+			"bad mode", withRole(`"source":"s3://lake/x.nt","format":"ntriples","mode":"REPLACE"}`),
+			"InvalidParameterException", "Invalid mode",
 		},
-		{"no files", `{"source":"s3://lake/none/","format":"ntriples"}`, "BadRequestException", "no files"},
 		{
-			"not s3",
-			`{"source":"http://example.com/x.nt","format":"ntriples"}`,
-			"BadRequestException",
-			"not an Amazon S3 URI",
+			"bad parallelism", withRole(`"source":"s3://lake/x.nt","format":"ntriples","parallelism":"MAX"}`),
+			"InvalidParameterException", "Invalid parallelism",
+		},
+		{
+			"bad format", withRole(`"source":"s3://lake/x.nt","format":"jsonld"}`),
+			"BadRequestException", "Invalid format",
+		},
+		{
+			"csv without files", withRole(`"source":"s3://lake/none/","format":"csv"}`),
+			"BadRequestException", "Failed to start",
+		},
+		{
+			"missing bucket", withRole(`"source":"s3://nobucket/x.nt","format":"ntriples"}`),
+			"BadRequestException", "Failed to start",
+		},
+		{
+			"no files", withRole(`"source":"s3://lake/none/","format":"ntriples"}`),
+			"BadRequestException", "no files",
+		},
+		{
+			"not s3", withRole(`"source":"http://example.com/x.nt","format":"ntriples"}`),
+			"BadRequestException", "not an Amazon S3 URI",
 		},
 		{"malformed json", `{`, "BadRequestException", "Invalid loader request"},
 	}
@@ -255,7 +284,7 @@ func TestBulkLoaderRequestErrors(t *testing.T) {
 			t.Parallel()
 
 			c := newLoaderCluster(t, map[string]string{"x.nt": "<urn:s> <urn:p> <urn:o> .\n"})
-			status, _, raw := loaderStart(t, c, tt.body)
+			status, _, raw := loaderStartRaw(t, c, tt.body)
 			require.Equal(t, http.StatusBadRequest, status, raw)
 
 			var e map[string]string

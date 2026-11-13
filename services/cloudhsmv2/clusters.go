@@ -65,6 +65,8 @@ func (b *InMemoryBackend) clusterStateLocked(c *Cluster, now time.Time) (string,
 		return stateUninitialized, "The cluster has not been initialized."
 	case now.Before(c.InitUntil):
 		return stateInitializeInProgress, "The cluster is being initialized."
+	case now.Before(c.ModifyUntil) && c.RollingBack:
+		return stateRollbackInProgress, "The cluster is rolling back its HSM type."
 	case now.Before(c.ModifyUntil):
 		return stateModifyInProgress, "The cluster is being modified."
 	case b.activeHsmsLocked(c.ID, now) > 0:
@@ -181,6 +183,8 @@ func (b *InMemoryBackend) reapLocked() {
 			b.clusters.Delete(c.ID)
 		}
 	}
+
+	b.autoBackupsLocked(now)
 
 	for _, bk := range b.backups.All() {
 		if state := backupState(bk, now); state == stateDeleted {
@@ -438,7 +442,7 @@ func (b *InMemoryBackend) ModifyCluster(ctx context.Context, in ModifyClusterInp
 
 	now := b.now()
 	if state, _ := b.clusterStateLocked(c, now); state == stateCreateInProgress || state == stateDeleteInProgress ||
-		state == stateModifyInProgress || state == stateInitializeInProgress {
+		state == stateModifyInProgress || state == stateRollbackInProgress || state == stateInitializeInProgress {
 		return wireCluster{}, fail(ErrInvalidRequest, "cluster %s is %s and cannot be modified", c.ID, state)
 	}
 
@@ -459,8 +463,10 @@ func (b *InMemoryBackend) changeHsmTypeLocked(c *Cluster, to string, now time.Ti
 	switch {
 	case c.HsmType == hsmTypeV1 && to == hsmTypeV2:
 		c.RollbackExpiry = now.Add(rollbackWindow)
+		c.RollingBack = false
 	case c.HsmType == hsmTypeV2 && to == hsmTypeV1 && now.Before(c.RollbackExpiry) && c.Mode == modeFIPS:
 		c.RollbackExpiry = time.Time{}
+		c.RollingBack = true
 	default:
 		return fail(ErrInvalidRequest, "cluster HsmType cannot be changed from %s to %s", c.HsmType, to)
 	}

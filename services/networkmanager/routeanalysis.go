@@ -121,6 +121,10 @@ func walkRouteTables(resolver EC2Resolver, anchorArn, ip string) *RouteAnalysisP
 	)
 
 	for ; ; seq++ {
+		if seq >= maxRouteAnalysisHops {
+			return completedPath(routeAnalysisResultNotConnected, routeAnalysisReasonMaxHops, path)
+		}
+
 		visited[anchorArn] = true
 
 		routeTableID, ok := resolver.TransitGatewayRouteTableForAttachment(anchorArn)

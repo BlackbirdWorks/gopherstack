@@ -1,6 +1,7 @@
 package neptune
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -115,6 +116,7 @@ type loadRequest struct {
 	Format       string `json:"format"`
 	IAMRoleArn   string `json:"iamRoleArn"`
 	Mode         string `json:"mode"`
+	Parallelism  string `json:"parallelism"`
 	Region       string `json:"region"`
 	FailOnError  string `json:"failOnError"`
 	Queue        string `json:"queueRequest"`
@@ -218,12 +220,14 @@ func (f *cypherFront) startLoad(w http.ResponseWriter, r *http.Request) {
 
 	job, apiErr := f.rdf.newLoadJob(r.Context(), req)
 	if apiErr != "" {
-		code := "BadRequestException"
-		if apiErr == codeMissingParam {
-			code = codeMissingParam
+		code, msg := "BadRequestException", apiErr
+		if detail, missing := strings.CutPrefix(apiErr, codeMissingParam); missing {
+			code, msg = codeMissingParam, strings.TrimPrefix(detail, ": ")
+		} else if rest, invalid := strings.CutPrefix(apiErr, codeInvalidParam+": "); invalid {
+			code, msg = codeInvalidParam, rest
 		}
 
-		writeCypherError(w, http.StatusBadRequest, code, apiErr)
+		writeCypherError(w, http.StatusBadRequest, code, cmp.Or(msg, apiErr))
 
 		return
 	}
@@ -241,7 +245,15 @@ func (f *cypherFront) startLoad(w http.ResponseWriter, r *http.Request) {
 // newLoadJob validates req and lists the feeds; the returned string is an error detail.
 func (rs *rdfService) newLoadJob(ctx context.Context, req loadRequest) (*loadJob, string) {
 	if req.Source == "" {
-		return nil, codeMissingParam
+		return nil, codeMissingParam + ": Required parameter 'source' is missing"
+	}
+
+	if req.IAMRoleArn == "" {
+		return nil, codeMissingParam + ": Required parameter 'iamRoleArn' is missing"
+	}
+
+	if msg := validateLoaderEnums(req); msg != "" {
+		return nil, codeInvalidParam + ": " + msg
 	}
 
 	format, ok := loaderFormat(req.Format)
@@ -741,4 +753,19 @@ func (f *cypherFront) cancelLoad(w http.ResponseWriter, r *http.Request, id stri
 	}
 
 	writeCypherJSON(w, http.StatusOK, map[string]string{keyStatus: statusOK200})
+}
+
+// validateLoaderEnums checks the documented allowed values of mode and parallelism (load-api-reference-load.html).
+func validateLoaderEnums(req loadRequest) string {
+	if req.Mode != "" && !slices.Contains([]string{"NEW", "RESUME", "AUTO"}, strings.ToUpper(req.Mode)) {
+		return "Invalid mode " + strconv.Quote(req.Mode) + "; allowed values are NEW, RESUME, AUTO"
+	}
+
+	levels := []string{"LOW", "MEDIUM", "HIGH", "OVERSUBSCRIBE"}
+	if req.Parallelism != "" && !slices.Contains(levels, strings.ToUpper(req.Parallelism)) {
+		return "Invalid parallelism " + strconv.Quote(req.Parallelism) +
+			"; allowed values are LOW, MEDIUM, HIGH, OVERSUBSCRIBE"
+	}
+
+	return ""
 }

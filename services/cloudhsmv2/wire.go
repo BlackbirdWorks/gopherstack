@@ -26,6 +26,7 @@ type wireHsm struct {
 	ClusterID    string `json:"ClusterId,omitempty"`
 	EniID        string `json:"EniId,omitempty"`
 	EniIP        string `json:"EniIp,omitempty"`
+	EniIPv6      string `json:"EniIpV6,omitempty"`
 	HsmType      string `json:"HsmType,omitempty"`
 	State        string `json:"State,omitempty"`
 	StateMessage string `json:"StateMessage,omitempty"`

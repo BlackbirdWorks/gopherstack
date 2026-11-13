@@ -119,7 +119,9 @@ func testBackupDeleteRestore(t *testing.T, f *fixture) {
 	_, err = f.client.RestoreBackup(ctx, &sdk.RestoreBackupInput{BackupId: bk.BackupId})
 	assert.Equal(t, "CloudHsmResourceNotFoundException", apiCode(err), "recovery window elapsed")
 
-	list, err := f.client.DescribeBackups(ctx, &sdk.DescribeBackupsInput{})
+	list, err := f.client.DescribeBackups(ctx, &sdk.DescribeBackupsInput{
+		Filters: map[string][]string{"backupIds": {aws.ToString(bk.BackupId)}},
+	})
 	require.NoError(t, err)
 	assert.Empty(t, list.Backups)
 }
@@ -174,7 +176,9 @@ func testBackupRetention(t *testing.T, f *fixture) {
 	)
 	require.NoError(t, err)
 
-	list, err = f.client.DescribeBackups(ctx, &sdk.DescribeBackupsInput{})
+	list, err = f.client.DescribeBackups(ctx, &sdk.DescribeBackupsInput{
+		Filters: map[string][]string{"backupIds": {aws.ToString(id)}},
+	})
 	require.NoError(t, err)
 	assert.Empty(t, list.Backups, "the policy applies again, so the old backup has expired")
 }
@@ -400,4 +404,83 @@ func testBackupErrors(t *testing.T, f *fixture) {
 		&sdk.CopyBackupToRegionInput{BackupId: ghost, DestinationRegion: aws.String("us-west-2")},
 	)
 	assert.Equal(t, "CloudHsmResourceNotFoundException", apiCode(err))
+}
+
+func TestRealClient_AutomaticBackups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		advance    time.Duration
+		withHsm    bool
+		wantBackup int
+	}{
+		{name: "after one day", advance: 25 * time.Hour, withHsm: true, wantBackup: 2},
+		{name: "after three days", advance: 73 * time.Hour, withHsm: true, wantBackup: 4},
+		{name: "within a day", advance: 23 * time.Hour, withHsm: true, wantBackup: 1},
+		{name: "no active hsm", advance: 73 * time.Hour, wantBackup: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			c := f.initializedCluster(t)
+
+			if tt.withHsm {
+				_, err := f.client.CreateHsm(t.Context(), &sdk.CreateHsmInput{
+					ClusterId: c.ClusterId, AvailabilityZone: aws.String("us-east-1a"),
+				})
+				require.NoError(t, err)
+				f.clock.advance(time.Second)
+			}
+
+			f.clock.advance(tt.advance)
+
+			list, err := f.client.DescribeBackups(t.Context(), &sdk.DescribeBackupsInput{
+				Filters: map[string][]string{"clusterIds": {aws.ToString(c.ClusterId)}},
+			})
+			require.NoError(t, err)
+			assert.Len(t, list.Backups, tt.wantBackup)
+		})
+	}
+}
+
+type fakeSharing struct{ account string }
+
+func (s fakeSharing) SharedWith(_, account string) bool { return account == s.account }
+
+func TestRealClient_RAMSharedBackup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		shared bool
+		want   int
+	}{
+		{name: "shared", shared: true, want: 1},
+		{name: "not shared", want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			_, bk := f.readyBackup(t)
+
+			if tt.shared {
+				f.backend.SetSharing(fakeSharing{account: "210987654321"})
+			}
+
+			shared, err := newOtherAccountClient(t, f).DescribeBackups(
+				t.Context(), &sdk.DescribeBackupsInput{
+					Shared: aws.Bool(true), Filters: map[string][]string{"backupIds": {aws.ToString(bk.BackupId)}},
+				},
+			)
+			require.NoError(t, err)
+			assert.Len(t, shared.Backups, tt.want)
+		})
+	}
 }

@@ -3,16 +3,21 @@ package iot_test
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -328,4 +333,62 @@ func TestMQTTAuthRequiresCertificate(t *testing.T) {
 	tok := pahomqtt.NewClient(opts).Connect()
 	require.True(t, tok.WaitTimeout(authDeadline))
 	require.Error(t, tok.Error())
+}
+
+func TestMQTTPrincipalInRuleSQL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want   func(d authDevice) string
+		name   string
+		authOn bool
+	}{
+		{name: "certificate", authOn: true, want: func(d authDevice) string { return d.cert.CertificateID }},
+		{name: "no certificate", authOn: false, want: func(authDevice) string { return "" }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newAuthEnv(t, tt.authOn)
+			dev := env.device(t, true, "", "pub-policy", authPolicy(allowAll))
+			obs := env.device(t, true, "", "obs-policy", authPolicy(allowAll))
+
+			client := newTestIoTClient(t, iot.NewHandler(env.backend, nil))
+			_, err := client.CreateTopicRule(t.Context(), &iotsdk.CreateTopicRuleInput{
+				RuleName: aws.String("principalRule"),
+				TopicRulePayload: &iottypes.TopicRulePayload{
+					Sql: aws.String("SELECT principal() AS p FROM 'in/topic'"),
+					Actions: []iottypes.Action{{Republish: &iottypes.RepublishAction{
+						RoleArn: aws.String("arn:aws:iam::123456789012:role/r"), Topic: aws.String("out/topic"),
+					}}},
+				},
+			})
+			require.NoError(t, err)
+
+			msgs := make(chan pahomqtt.Message, 8)
+			observer, err := env.connect(t, obs, "observer", msgs)
+			require.NoError(t, err)
+			require.NoError(t, subscribeErr(observer, "out/topic"))
+
+			pub, err := env.connect(t, dev, "publisher", nil)
+			require.NoError(t, err)
+			require.True(t, pub.Publish("in/topic", 0, false, `{}`).WaitTimeout(authDeadline))
+
+			select {
+			case m := <-msgs:
+				var got map[string]any
+				require.NoError(t, json.Unmarshal(m.Payload(), &got, jsonx.V1()))
+
+				if want := tt.want(dev); want != "" {
+					assert.Equal(t, want, got["p"])
+				} else {
+					assert.NotContains(t, got, "p", "principal() is Undefined without a certificate")
+				}
+			case <-time.After(authDeadline):
+				require.FailNow(t, "no republished message")
+			}
+		})
+	}
 }

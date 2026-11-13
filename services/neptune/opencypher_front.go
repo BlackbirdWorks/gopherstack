@@ -34,6 +34,7 @@ const (
 	cypherQueryTimeout = 2 * time.Minute
 	cypherCloseTimeout = 5 * time.Second
 	codeMissingParam   = "MissingParameterException"
+	codeInvalidParam   = "InvalidParameterException"
 )
 
 // cypherFront serves a cluster's Neptune port: /openCypher, Bolt and (with no upstream) /gremlin are answered

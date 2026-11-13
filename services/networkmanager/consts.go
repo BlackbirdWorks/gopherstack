@@ -158,6 +158,8 @@ const (
 	routeAnalysisReasonBlackhole     = "BLACKHOLE_ROUTE_FOR_DESTINATION_FOUND"
 	routeAnalysisReasonInactiveRoute = "INACTIVE_ROUTE_FOR_DESTINATION_FOUND"
 	routeAnalysisReasonCyclicPath    = "CYCLIC_PATH_DETECTED"
+	routeAnalysisReasonMaxHops       = "MAX_HOPS_EXCEEDED"
+	maxRouteAnalysisHops             = 64
 	tgwAttachmentResourceType        = "transit-gateway-attachment"
 )
 

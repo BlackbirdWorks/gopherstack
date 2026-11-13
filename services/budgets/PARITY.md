@@ -40,8 +40,8 @@ families:
 gaps: []
 items_still_open:
   - CalculatedSpend: spend comes from the Cost Explorer ledger, which is synthetic seed data (90 days), not real usage
-  - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; no utilization source is wired
-  - CostFilters: AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, etc. do not narrow spend (the ledger does not model them); FilterExpression is flattened to And-of-Dimensions only, Or/Not/Tags/CostCategories are ignored for spend
+  - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; the only utilization data in the emulator is Cost Explorer's constant-ratio synthetic values (ce/reservations.go, ce/savings_plans.go), which would be fabricated here
+  - CostFilters: AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, etc. do not narrow spend (the ledger does not model them); FilterExpression And/Or/Not, Dimensions and Tags (MatchOptions EQUALS, ABSENT, STARTS_WITH, ENDS_WITH, CONTAINS, CASE_SENSITIVE, CASE_INSENSITIVE) narrow spend when a Cost Explorer ledger is wired, but CostCategories and ProductAttributes clauses do not (the ledger assigns no cost category and carries no product attributes)
   - CostTypes: Include* flags exclude ledger entries by charge type (ce CostEntry.ChargeType, RECORD_TYPE-style values), but the synthetic seed ledger only holds Usage entries, so flags change spend only for entries added with RecordCharge; the flag-to-charge-type mapping (Subscription, Fee, Discount) is unverified
   - Alerting: topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
   - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend

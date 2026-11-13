@@ -43,6 +43,44 @@ func (s budgetsCESpend) Spend(start, end time.Time, filters map[string][]string,
 	return s.ce.LedgerSpend(start.Format(dateLayout), end.Format(dateLayout), filters, metric), true
 }
 
+func (s budgetsCESpend) SpendExpression(
+	start, end time.Time, expr *budgetsbackend.Expression, filters map[string][]string, metric string,
+) (float64, bool) {
+	return s.ce.LedgerSpendFiltered(
+		start.Format(dateLayout), end.Format(dateLayout), budgetsSpendFilter(expr), filters, metric,
+	), true
+}
+
+func budgetsSpendFilter(e *budgetsbackend.Expression) *cebackend.SpendFilter {
+	if e == nil {
+		return nil
+	}
+
+	out := &cebackend.SpendFilter{Not: budgetsSpendFilter(e.Not)}
+
+	if e.Dimensions != nil {
+		out.Dimensions = &cebackend.SpendValues{
+			Key: e.Dimensions.Key, Values: e.Dimensions.Values, MatchOptions: e.Dimensions.MatchOptions,
+		}
+	}
+
+	if e.Tags != nil {
+		out.Tags = &cebackend.SpendValues{
+			Key: e.Tags.Key, Values: e.Tags.Values, MatchOptions: e.Tags.MatchOptions,
+		}
+	}
+
+	for i := range e.And {
+		out.And = append(out.And, *budgetsSpendFilter(&e.And[i]))
+	}
+
+	for i := range e.Or {
+		out.Or = append(out.Or, *budgetsSpendFilter(&e.Or[i]))
+	}
+
+	return out
+}
+
 type budgetsNotifier struct {
 	sns *snsbackend.InMemoryBackend
 	ses *sesbackend.InMemoryBackend

@@ -59,7 +59,9 @@ func TestLoaderStatusDuringRunningLoad(t *testing.T) {
 			rs := newRDFService(func() S3Reader { return gate })
 			ls := rs.loader
 
-			job, apiErr := rs.newLoadJob(t.Context(), loadRequest{Source: "s3://lake/d/", Format: tt.format})
+			job, apiErr := rs.newLoadJob(t.Context(), loadRequest{
+				Source: "s3://lake/d/", Format: tt.format, IAMRoleArn: "arn:aws:iam::000000000000:role/r",
+			})
 			require.Empty(t, apiErr)
 			require.Empty(t, ls.admit(job, false))
 			ls.dispatch(t.Context(), rs)

@@ -119,18 +119,45 @@ func (b *Broker) activeCertARN(der []byte) string {
 	return ""
 }
 
-func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMemoryBackend) {
+// peerCertificateOf returns the client certificate presented on a TLS connection.
+func peerCertificateOf(cl *mqtt.Client) *x509.Certificate {
+	if cl == nil || cl.Net.Conn == nil {
+		return nil
+	}
+
 	conn, ok := cl.Net.Conn.(*tls.Conn)
 	if !ok {
-		return "", nil, nil
+		return nil
 	}
 
 	peers := conn.ConnectionState().PeerCertificates
 	if len(peers) == 0 {
+		return nil
+	}
+
+	return peers[0]
+}
+
+// certThumbprintOf is the SHA-256 hex digest of the client certificate, which principal() returns
+// for MQTT clients authenticated with an X.509 certificate; "" without one.
+func certThumbprintOf(cl *mqtt.Client) string {
+	cert := peerCertificateOf(cl)
+	if cert == nil {
+		return ""
+	}
+
+	sum := sha256.Sum256(cert.Raw)
+
+	return hex.EncodeToString(sum[:])
+}
+
+func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMemoryBackend) {
+	peer := peerCertificateOf(cl)
+	if peer == nil {
 		return "", nil, nil
 	}
 
-	sum := sha256.Sum256(peers[0].Raw)
+	sum := sha256.Sum256(peer.Raw)
 	id := hex.EncodeToString(sum[:])
 
 	for _, cand := range b.backends() {
@@ -145,7 +172,7 @@ func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMem
 		cand.mu.RUnlock()
 
 		if arnStr != "" {
-			return arnStr, peers[0], cand
+			return arnStr, peer, cand
 		}
 	}
 

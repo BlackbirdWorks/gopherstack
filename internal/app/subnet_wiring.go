@@ -171,6 +171,7 @@ func (a ec2SubnetAdapter) PrefixListCIDRCount(arn string) (int, bool) {
 func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireAMPScraperSources(byName)
 	wireCloudHSMNetwork(byName)
+	wireCloudHSMSharing(byName)
 	wireDLMCompute(byName)
 	wireRUMCloudWatch(byName)
 	wireConnectIntegrations(byName)

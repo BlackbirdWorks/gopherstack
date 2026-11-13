@@ -295,5 +295,5 @@ func validatePolicyDocument(policy string) error {
 		return validationError("The resource policy must be a valid JSON policy document with a Statement.")
 	}
 
-	return nil
+	return validateNotPublic(policy)
 }

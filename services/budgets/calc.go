@@ -178,15 +178,22 @@ func (b *InMemoryBackend) periodSpendLocked(bg *Budget, start, end time.Time) (f
 		return 0, false
 	}
 
-	return b.spend.Spend(start, end, spendFilters(bg), metricFor(bg))
+	if src, ok := b.spend.(ExpressionSpendSource); ok && bg.FilterExpression != nil {
+		return src.SpendExpression(start, end, bg.FilterExpression, spendFilters(bg, false), metricFor(bg))
+	}
+
+	return b.spend.Spend(start, end, spendFilters(bg, true), metricFor(bg))
 }
 
 // ExcludeChargeTypeFilter is the SpendSource filter key whose values are charge types to leave out of spend.
 const ExcludeChargeTypeFilter = "ExcludeChargeType"
 
 // spendFilters returns the budget's filters plus the charge types its CostTypes flags exclude.
-func spendFilters(bg *Budget) map[string][]string {
-	base := filtersOf(bg)
+func spendFilters(bg *Budget, flatten bool) map[string][]string {
+	base := bg.CostFilters
+	if flatten {
+		base = filtersOf(bg)
+	}
 
 	excluded := excludedChargeTypes(bg.CostTypes)
 	if len(excluded) == 0 {

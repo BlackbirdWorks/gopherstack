@@ -4034,6 +4034,8 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"], byName["STS"])
 	wireCognitoCodeEncryption(byName["CognitoIDP"], byName["KMS"])
 	wireBudgets(byName)
+	wireSignin(byName)
+	wireS3VectorsKMS(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.

@@ -9,7 +9,7 @@ func (b *InMemoryBackend) wireHsmLocked(h *Hsm) wireHsm {
 	state, msg := hsmState(h, b.now())
 
 	return wireHsm{
-		HsmID: h.ID, AZ: h.Zone, ClusterID: h.ClusterID, EniID: h.EniID, EniIP: h.EniIP,
+		HsmID: h.ID, AZ: h.Zone, ClusterID: h.ClusterID, EniID: h.EniID, EniIP: h.EniIP, EniIPv6: h.EniIPv6,
 		HsmType: h.HsmType, State: state, StateMessage: msg, SubnetID: h.SubnetID,
 	}
 }
@@ -46,7 +46,7 @@ func (b *InMemoryBackend) CreateHsm(ctx context.Context, clusterID, zone, ip str
 	now := b.now()
 
 	switch state, _ := b.clusterStateLocked(c, now); state {
-	case stateCreateInProgress, stateDeleteInProgress, stateModifyInProgress:
+	case stateCreateInProgress, stateDeleteInProgress, stateModifyInProgress, stateRollbackInProgress:
 		return wireHsm{}, fail(ErrInvalidRequest, "cluster %s is %s and cannot accept a new HSM", clusterID, state)
 	}
 
@@ -75,6 +75,13 @@ func (b *InMemoryBackend) CreateHsm(ctx context.Context, clusterID, zone, ip str
 		return wireHsm{}, fail(ErrInvalidRequest, "cannot create the HSM network interface: %v", err)
 	}
 
+	eniIPv6, err := b.assignENIIPv6(c, sc.region, subnetID, eniID)
+	if err != nil {
+		b.network.DeleteENI(sc.region, eniID)
+
+		return wireHsm{}, err
+	}
+
 	if err = ensureHardwareCerts(c, now); err != nil {
 		b.network.DeleteENI(sc.region, eniID)
 
@@ -83,7 +90,7 @@ func (b *InMemoryBackend) CreateHsm(ctx context.Context, clusterID, zone, ip str
 
 	h := &Hsm{
 		ID: newHsmID(), ClusterID: clusterID, Account: sc.account, Region: sc.region, Zone: zone, SubnetID: subnetID,
-		EniID: eniID, EniIP: eniIP, HsmType: c.HsmType, Created: now, ReadyAt: now.Add(b.dwell()),
+		EniID: eniID, EniIP: eniIP, EniIPv6: eniIPv6, HsmType: c.HsmType, Created: now, ReadyAt: now.Add(b.dwell()),
 	}
 	b.hsms.Put(h)
 
@@ -173,4 +180,18 @@ func ensureHardwareCerts(c *Cluster, now time.Time) error {
 	c.HsmCert, c.AwsHwCert, c.MfrHwCert = hw.HSM, hw.AWS, hw.Manufacturer
 
 	return nil
+}
+
+func (b *InMemoryBackend) assignENIIPv6(c *Cluster, region, subnetID, eniID string) (string, error) {
+	n, ok := b.network.(IPv6Network)
+	if !ok || c.NetworkType != networkDualstack {
+		return "", nil
+	}
+
+	addr, err := n.AssignENIIPv6(region, subnetID, eniID)
+	if err != nil {
+		return "", fail(ErrInvalidRequest, "cannot assign an IPv6 address to the HSM network interface: %v", err)
+	}
+
+	return addr, nil
 }

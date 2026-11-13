@@ -1,6 +1,7 @@
 package networkmanager_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -47,9 +48,23 @@ func TestRoundTrip_RouteAnalysisAcrossPeering(t *testing.T) {
 		}
 	}
 
+	chainTables := map[string]string{}
+	chainRoutes := map[string][]networkmanager.EC2TransitGatewayRoute{}
+	chainPeers := map[string]string{}
+
+	const chainLen = 70
+
+	for i := range chainLen {
+		chainTables[peeringAttachArnFmt+fmt.Sprintf("hop-%d", i)] = fmt.Sprintf("rtb-%d", i)
+		chainRoutes[fmt.Sprintf("rtb-%d", i)] = active(fmt.Sprintf("peer-%d", i))
+		chainPeers[fmt.Sprintf("peer-%d", i)] = peeringAttachArnFmt + fmt.Sprintf("hop-%d", i+1)
+	}
+
 	tests := []struct {
 		routes     map[string][]networkmanager.EC2TransitGatewayRoute
 		peers      map[string]string
+		tables     map[string]string
+		start      string
 		name       string
 		wantReason types.RouteAnalysisCompletionReasonCode
 		wantResult types.RouteAnalysisCompletionResultCode
@@ -84,6 +99,13 @@ func TestRoundTrip_RouteAnalysisAcrossPeering(t *testing.T) {
 			wantReason: types.RouteAnalysisCompletionReasonCodeRouteNotFound,
 			wantHops:   1,
 		},
+		{
+			name: "chain_exceeds_64_hops", routes: chainRoutes, peers: chainPeers, tables: chainTables,
+			start:      peeringAttachArnFmt + "hop-0",
+			wantResult: types.RouteAnalysisCompletionResultCodeNotConnected,
+			wantReason: types.RouteAnalysisCompletionReasonCodeMaxHopsExceeded,
+			wantHops:   64,
+		},
 	}
 
 	for _, tt := range tests {
@@ -93,8 +115,13 @@ func TestRoundTrip_RouteAnalysisAcrossPeering(t *testing.T) {
 			h, client := newTestHandlerAndClient(t)
 			ctx := t.Context()
 
+			tables, start := tt.tables, tt.start
+			if tables == nil {
+				tables, start = map[string]string{a: "rtb-a", b: "rtb-b"}, a
+			}
+
 			h.Backend.SetEC2Resolver(&peeringResolver{
-				routeTables: map[string]string{a: "rtb-a", b: "rtb-b"},
+				routeTables: tables,
 				routes:      tt.routes,
 				peers:       tt.peers,
 			})
@@ -105,7 +132,7 @@ func TestRoundTrip_RouteAnalysisAcrossPeering(t *testing.T) {
 			started, err := client.StartRouteAnalysis(ctx, &networkmanagersdk.StartRouteAnalysisInput{
 				GlobalNetworkId: gn.GlobalNetwork.GlobalNetworkId,
 				Source: &types.RouteAnalysisEndpointOptionsSpecification{
-					TransitGatewayAttachmentArn: aws.String(a),
+					TransitGatewayAttachmentArn: aws.String(start),
 				},
 				Destination: &types.RouteAnalysisEndpointOptionsSpecification{IpAddress: aws.String("10.1.2.3")},
 			})

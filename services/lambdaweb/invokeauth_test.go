@@ -89,8 +89,9 @@ func TestInvokeAuth_ResourcePolicy(t *testing.T) {
 		},
 		{
 			name: "allow wildcard action cross account", principal: crossUser,
-			policy: policyJSON(`{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"lambda:*","Resource":"*"}`),
-			want:   http.StatusOK,
+			policy: policyJSON(`{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"lambda:*","Resource":"*",` +
+				`"Condition":{"StringEquals":{"aws:PrincipalAccount":"` + otherAccount + `"}}}`),
+			want: http.StatusOK,
 		},
 		{
 			name: "deny by source ip condition",
@@ -113,7 +114,7 @@ func TestInvokeAuth_ResourcePolicy(t *testing.T) {
 		{
 			name: "not principal denies others", principal: crossUser,
 			policy: policyJSON(`{"Effect":"Allow","NotPrincipal":{"AWS":"111122223333"},"Action":"` + invokeAct +
-				`","Resource":"*"}`),
+				`","Resource":"*","Condition":{"StringEquals":{"aws:PrincipalAccount":"` + otherAccount + `"}}}`),
 			want: http.StatusOK,
 		},
 	}
