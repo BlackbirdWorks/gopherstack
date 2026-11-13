@@ -64,6 +64,10 @@ func withBody[I any](q *req, fn func(in I) (string, error)) error {
 		return err
 	}
 
+	if r, ok := any(&in).(interface{ setRetryToken(string) }); ok {
+		r.setRetryToken(q.r.Header.Get(headerRetry))
+	}
+
 	wr, err := fn(in)
 
 	return acceptedWR(q, wr, err)

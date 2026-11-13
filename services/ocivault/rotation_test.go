@@ -43,7 +43,7 @@ func (l *stepLog) get() []string {
 type rotationPayload struct {
 	SecretID string `json:"secretId"`
 	Step     string `json:"step"`
-	Current  int64  `json:"currentVersionNumber"`
+	Current  int64  `json:"versionNo"`
 }
 
 func fnTarget() vault.TargetSystemDetails {

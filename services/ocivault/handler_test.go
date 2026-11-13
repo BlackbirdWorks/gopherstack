@@ -63,7 +63,8 @@ func TestPerVaultHostRouting(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "key of another vault is invisible")
 
 	_, err = e.crypto(t, vb).Encrypt(ctx, keymanagement.EncryptRequest{
-		KeyId: ka.Id, Plaintext: new(b64([]byte("x")))})
+		KeyId: ka.Id, Plaintext: new(b64([]byte("x"))),
+	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "crypto endpoint of another vault")
 
 	unknown, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(

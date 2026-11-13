@@ -233,7 +233,14 @@ type moveSpec struct {
 }
 
 // move applies a ChangeCompartment call: lock and etag checks, optional conflict check, then the move.
-func (b *InMemoryBackend) move(m moveSpec, ifMatch, target string) (string, error) {
+func (b *InMemoryBackend) move(m moveSpec, ifMatch string, in changeCompartmentIn) (string, error) {
+	target := in.CompartmentID
+	scope := "Move/" + m.entity + "/" + m.id
+
+	if wr, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
+		return wr, nil
+	}
+
 	if lerr := checkLocked(m.locks, false); lerr != nil {
 		return "", lerr
 	}
@@ -250,8 +257,10 @@ func (b *InMemoryBackend) move(m moveSpec, ifMatch, target string) (string, erro
 
 	now := b.nowUTC()
 	*m.compartment, *m.updated, *m.etag = target, now, newEtag()
+	wr := b.newWR(m.op, target, m.entity, m.id, actionUpdated, now.Add(b.transition))
+	b.retry.Remember(scope, in.RetryToken, wr, now)
 
-	return b.newWR(m.op, target, m.entity, m.id, actionUpdated, now.Add(b.transition)), nil
+	return wr, nil
 }
 
 func (b *InMemoryBackend) transitionAt() *time.Time {

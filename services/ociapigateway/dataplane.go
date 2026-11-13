@@ -210,7 +210,7 @@ func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted,
 
 	d := b.authorize(c.r, rp, c.m.route, rv)
 	if d.status != 0 {
-		var h []string
+		h := d.hdr
 		if d.www != "" {
 			h = []string{"WWW-Authenticate", d.www}
 		}
@@ -357,6 +357,7 @@ type denial struct {
 	claims map[string]any
 	www    string
 	msg    string
+	hdr    []string
 	status int
 }
 
@@ -389,6 +390,14 @@ func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route 
 	}
 
 	res, anonymous := b.authenticate(r.Context(), a, r, rv)
+	if res.upstream {
+		return denial{status: http.StatusBadGateway, msg: "Bad Gateway"}
+	}
+
+	if !res.ok && a.ValidationFailure != nil {
+		return failureDenial(a.ValidationFailure, rv)
+	}
+
 	if !res.ok {
 		return denial{status: http.StatusUnauthorized, www: res.wwwAuth, msg: msgUnauthorized}
 	}
@@ -408,4 +417,32 @@ func hasAnyScope(have, allowed []string) bool {
 	}
 
 	return false
+}
+
+// failureDenial builds the MODIFY_RESPONSE answer for a missing or invalid token.
+func failureDenial(f *failureDoc, rv *reqView) denial {
+	d := denial{status: http.StatusUnauthorized, msg: msgUnauthorized}
+
+	if f.ResponseCode != "" {
+		if n, ok := failureStatus(rv.interpolate(f.ResponseCode, nil)); ok {
+			d.status = n
+		}
+	}
+
+	if f.ResponseMessage != "" {
+		d.msg = rv.interpolate(f.ResponseMessage, nil)
+	}
+
+	if t := f.ResponseHeaders; t != nil && t.SetHeaders != nil {
+		h := http.Header{}
+		setValues(h, t.SetHeaders.Items, http.CanonicalHeaderKey, rv, h.Add)
+
+		for k, vs := range h {
+			for _, v := range vs {
+				d.hdr = append(d.hdr, k, v)
+			}
+		}
+	}
+
+	return d
 }

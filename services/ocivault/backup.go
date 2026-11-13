@@ -215,6 +215,10 @@ func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn)
 	b.mu.Lock("BackupVault")
 
 	v, aerr := b.activeVault(id)
+	if aerr == nil && v.VaultType != vaultTypePrivate {
+		aerr = errParam("Only a virtual private vault can be backed up")
+	}
+
 	if aerr == nil {
 		aerr = checkEtag(v.Etag, ifMatch)
 	}
@@ -265,6 +269,10 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	k, v, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr == nil && k.State != stateEnabled && k.State != stateDisabled {
 		aerr = errState("Key " + keyID + " is in state " + k.State + "; a backup requires ENABLED or DISABLED")
+	}
+
+	if aerr == nil && k.ProtectionMode != modeHSM {
+		aerr = errParam("Only an HSM-protected key can be backed up")
 	}
 
 	if aerr != nil {

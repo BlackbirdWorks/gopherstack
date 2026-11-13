@@ -679,6 +679,7 @@ func TestSecretOnPendingDeletionVault(t *testing.T) {
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
 	_, err = se.m.CreateKey(t.Context(), keymanagement.CreateKeyRequest{
-		CompartmentId: new(testCompartment), DisplayName: new("late"), KeyShape: aes256()})
+		CompartmentId: new(testCompartment), DisplayName: new("late"), KeyShape: aes256(),
+	})
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 }

@@ -100,7 +100,8 @@ func TestProtectionModeStored(t *testing.T) {
 
 	_, err := m.CreateKey(t.Context(), keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("ext"), KeyShape: aes256(),
-		ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeExternal})
+		ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeExternal,
+	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
 	list, err := m.ListKeys(t.Context(), keymanagement.ListKeysRequest{
@@ -299,14 +300,16 @@ func TestAutoRotation(t *testing.T) {
 	resp, err := m.CreateKey(ctx, keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("auto"), KeyShape: aes256(),
 		IsAutoRotationEnabled:  new(true),
-		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(60)}})
+		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(60)},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, resp.AutoKeyRotationDetails.TimeOfNextRotation)
 
 	_, err = m.CreateKey(ctx, keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("bad"), KeyShape: aes256(),
 		IsAutoRotationEnabled:  new(true),
-		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(5)}})
+		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(5)},
+	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
 	e.clock.Advance(61 * 24 * time.Hour)

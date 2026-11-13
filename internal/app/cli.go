@@ -3939,6 +3939,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {

@@ -13,7 +13,7 @@ func (h *Handler) createVaultReplica(q *req) error {
 		return err
 	}
 
-	return accepted(q, h.Backend.CreateVaultReplica(q.param("vaultId"), q.ifMatch(), in))
+	return accepted(q, h.Backend.CreateVaultReplica(q.param("vaultId"), q.ifMatch(), q.retry(), in))
 }
 
 func (h *Handler) deleteVaultReplica(q *req) error {
@@ -22,7 +22,7 @@ func (h *Handler) deleteVaultReplica(q *req) error {
 		return err
 	}
 
-	return accepted(q, h.Backend.DeleteVaultReplica(q.param("vaultId"), q.ifMatch(), in))
+	return accepted(q, h.Backend.DeleteVaultReplica(q.param("vaultId"), q.ifMatch(), q.retry(), in))
 }
 
 func (h *Handler) listVaultReplicas(q *req) error {

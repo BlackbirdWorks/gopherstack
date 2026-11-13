@@ -415,7 +415,7 @@ func (b *InMemoryBackend) ChangeAPICompartment(id, ifMatch string, in changeComp
 	return b.move(moveSpec{
 		id: id, op: wrUpdateAPI, entity: entityAPI, locks: a.Locks, compartment: &a.Compartment,
 		etag: &a.Etag, updated: &a.TimeUpdated,
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 // APIContent returns the stored OpenAPI document, its etag and base64 SHA-256.

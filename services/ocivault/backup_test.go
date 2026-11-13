@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	oci "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
 const backupBucket = "vault-backups"
@@ -32,7 +33,15 @@ func newBackupEnv(t *testing.T) *backupEnv {
 		ociobjectstorage.CreateBucketInput{Name: backupBucket, CompartmentID: testCompartment}, "tester")
 	require.NoError(t, err)
 
-	ce := newCryptoEnv(t)
+	e := newEnv(t, envOpts{})
+	resp, err := e.vaults.CreateVault(t.Context(), keymanagement.CreateVaultRequest{
+		CompartmentId: new(testCompartment), DisplayName: new("backup"),
+		VaultType: keymanagement.CreateVaultDetailsVaultTypeVirtualPrivate,
+	})
+	require.NoError(t, err)
+	e.clock.Advance(oci.TransitionDelay)
+
+	ce := &cryptoEnv{m: e.mgmt(t, resp.Vault), c: e.crypto(t, resp.Vault), e: e, v: resp.Vault}
 	ce.e.backend.SetBlobStore(osb)
 
 	return &backupEnv{cryptoEnv: ce, os: osb}
@@ -377,4 +386,34 @@ func TestBackupSurvivesSnapshotRestore(t *testing.T) {
 	_, _, rerr = fresh.backend.RestoreKey("", kBlob)
 	require.Error(t, rerr)
 	assert.Contains(t, rerr.Error(), "corrupt", "a different emulator cannot open the backup")
+}
+
+func TestBackupRestrictions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default vault", func(t *testing.T) {
+		t.Parallel()
+
+		be := newBackupEnv(t)
+		def := be.e.mkVault(t, "default")
+
+		_, err := be.e.vaults.BackupVault(t.Context(), keymanagement.BackupVaultRequest{
+			VaultId: def.Id, BackupLocation: be.bucketLoc("d"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+	})
+
+	t.Run("software key", func(t *testing.T) {
+		t.Parallel()
+
+		be := newBackupEnv(t)
+		key := be.e.mkKey(t, be.m, "sw", aes256(), keymanagement.CreateKeyDetailsProtectionModeSoftware)
+
+		_, err := be.m.BackupKey(t.Context(), keymanagement.BackupKeyRequest{
+			KeyId: key.Id, BackupLocation: be.bucketLoc("sw"),
+		})
+		require.Error(t, err)
+		assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+	})
 }

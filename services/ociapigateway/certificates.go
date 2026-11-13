@@ -350,7 +350,7 @@ func (b *InMemoryBackend) ChangeCertificateCompartment(id, ifMatch string, in ch
 
 			return nil
 		},
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 func (h *Handler) createCertificate(q *req) error {

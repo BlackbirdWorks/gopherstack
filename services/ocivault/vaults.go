@@ -180,11 +180,16 @@ func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVau
 
 // ScheduleVaultDeletion moves an ACTIVE vault to PENDING_DELETION.
 func (b *InMemoryBackend) ScheduleVaultDeletion(
-	id, ifMatch, hostPort string,
+	id, ifMatch, hostPort, token string,
 	at *time.Time,
 ) (vaultWire, string, error) {
 	b.mu.Lock("ScheduleVaultDeletion")
 	defer b.mu.Unlock()
+
+	scope := "ScheduleVaultDeletion/" + id
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayVault(id, hostPort)
+	}
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
@@ -206,14 +211,20 @@ func (b *InMemoryBackend) ScheduleVaultDeletion(
 
 	v.TimeOfDeletion, v.Etag = &t, newEtag()
 	b.begin(&v.State, &v.transition, stateSchedulingDelete, statePendingDeletion)
+	b.retryNote(scope, token, "")
 
 	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // CancelVaultDeletion returns a PENDING_DELETION vault to ACTIVE.
-func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort string) (vaultWire, string, error) {
+func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort, token string) (vaultWire, string, error) {
 	b.mu.Lock("CancelVaultDeletion")
 	defer b.mu.Unlock()
+
+	scope := "CancelVaultDeletion/" + id
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayVault(id, hostPort)
+	}
 
 	v, aerr := b.vaultByID(id)
 	if aerr != nil {
@@ -230,18 +241,24 @@ func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort string) (vau
 
 	v.TimeOfDeletion, v.Etag = nil, newEtag()
 	b.begin(&v.State, &v.transition, stateCancellingDelete, stateActive)
+	b.retryNote(scope, token, "")
 
 	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // ChangeVaultCompartment moves a vault; its keys and secrets follow.
-func (b *InMemoryBackend) ChangeVaultCompartment(id, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeVaultCompartment(id, ifMatch, compartment, token string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
 
 	b.mu.Lock("ChangeVaultCompartment")
 	defer b.mu.Unlock()
+
+	scope := "ChangeVaultCompartment/" + id
+	if _, ok := b.retrySeen(scope, token); ok {
+		return nil
+	}
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
@@ -253,6 +270,7 @@ func (b *InMemoryBackend) ChangeVaultCompartment(id, ifMatch, compartment string
 	}
 
 	v.CompartmentID, v.Etag = compartment, newEtag()
+	b.retryNote(scope, token, "")
 
 	return nil
 }

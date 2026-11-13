@@ -589,7 +589,7 @@ func (b *InMemoryBackend) CancelSecretDeletion(id, ifMatch string) error {
 }
 
 // ChangeSecretCompartment moves a secret.
-func (b *InMemoryBackend) ChangeSecretCompartment(id, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeSecretCompartment(id, ifMatch, compartment, token string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
@@ -597,12 +597,18 @@ func (b *InMemoryBackend) ChangeSecretCompartment(id, ifMatch, compartment strin
 	b.mu.Lock("ChangeSecretCompartment")
 	defer b.mu.Unlock()
 
+	scope := "ChangeSecretCompartment/" + id
+	if _, ok := b.retrySeen(scope, token); ok {
+		return nil
+	}
+
 	s, aerr := b.writableSecret(id, ifMatch)
 	if aerr != nil {
 		return aerr
 	}
 
 	s.CompartmentID, s.Etag = compartment, newEtag()
+	b.retryNote(scope, token, "")
 
 	return nil
 }

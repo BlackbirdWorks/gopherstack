@@ -44,6 +44,8 @@ type authResult struct {
 	wwwAuth string
 	scopes  []string
 	ok      bool
+	// upstream marks an authorizer failure; the gateway answers 502 (Oracle: authorizer 5xx gives 502).
+	upstream bool
 }
 
 func parseStaticKey(k *staticKeyDoc) (crypto.PublicKey, error) {
@@ -470,19 +472,38 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 	out, err := inv.InvokeFunction(ctx, a.FunctionID, FunctionRequest{
 		Method: http.MethodPost, Header: http.Header{"Content-Type": {"application/json"}}, Body: body,
 	})
-	if err != nil || out.Status != http.StatusOK {
+	if err != nil || out.Status >= http.StatusInternalServerError {
+		return authResult{upstream: true}
+	}
+
+	if out.Status != http.StatusOK {
 		return authResult{}
 	}
 
 	var verdict struct {
-		WWWAuth string   `json:"wwwAuthenticate"`
-		Scope   []string `json:"scope"`
-		Active  bool     `json:"active"`
+		WWWAuth string          `json:"wwwAuthenticate"`
+		Scope   json.RawMessage `json:"scope"`
+		Active  bool            `json:"active"`
 	}
 
 	if json.Unmarshal(out.Body, &verdict) != nil || !verdict.Active {
 		return authResult{wwwAuth: verdict.WWWAuth}
 	}
 
-	return authResult{ok: true, scopes: verdict.Scope}
+	return authResult{ok: true, scopes: authorizerScopes(verdict.Scope)}
+}
+
+// authorizerScopes reads the scope field, which Oracle allows as a JSON array or a space-separated string.
+func authorizerScopes(raw json.RawMessage) []string {
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return list
+	}
+
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.Fields(s)
+	}
+
+	return nil
 }

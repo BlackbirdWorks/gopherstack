@@ -172,9 +172,14 @@ func (b *InMemoryBackend) ListWorkRequests(
 }
 
 // CancelWorkRequest cancels a work request that has not finished; the resource transition it describes still runs.
-func (b *InMemoryBackend) CancelWorkRequest(id, ifMatch string) error {
+func (b *InMemoryBackend) CancelWorkRequest(id, ifMatch, retryToken string) error {
 	b.mu.Lock("CancelWorkRequest")
 	defer b.mu.Unlock()
+
+	scope := "CancelWorkRequest/" + id
+	if _, ok := b.retry.Lookup(scope, retryToken, b.nowUTC()); ok {
+		return nil
+	}
 
 	wr, ok := b.workReqs[id]
 	if !ok {
@@ -191,6 +196,7 @@ func (b *InMemoryBackend) CancelWorkRequest(id, ifMatch string) error {
 	}
 
 	wr.Canceled, wr.FinishAt = true, now
+	b.retry.Remember(scope, retryToken, "", now)
 
 	return nil
 }
@@ -236,7 +242,8 @@ func (h *Handler) getWorkRequest(q *req) error {
 }
 
 func (h *Handler) cancelWorkRequest(q *req) error {
-	if err := h.Backend.CancelWorkRequest(q.param("workRequestId"), q.ifMatch()); err != nil {
+	err := h.Backend.CancelWorkRequest(q.param("workRequestId"), q.ifMatch(), q.r.Header.Get(headerRetry))
+	if err != nil {
 		return err
 	}
 

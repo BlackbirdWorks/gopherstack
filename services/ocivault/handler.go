@@ -147,6 +147,8 @@ func (q *req) param(k string) string { return q.rt.params[k] }
 
 func (q *req) ifMatch() string { return q.r.Header.Get("If-Match") }
 
+func (q *req) retry() string { return q.r.Header.Get(headerRetry) }
+
 func (q *req) listOpts() ListOpts {
 	n, _ := strconv.Atoi(q.query("limit"))
 

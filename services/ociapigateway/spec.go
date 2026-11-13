@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -17,9 +18,10 @@ const (
 	backendStock   = "STOCK_RESPONSE_BACKEND"
 	backendDynamic = "DYNAMIC_ROUTING_BACKEND"
 
-	authJWT    = "JWT_AUTHENTICATION"
-	authToken  = "TOKEN_AUTHENTICATION"
-	authCustom = "CUSTOM_AUTHENTICATION"
+	authJWT       = "JWT_AUTHENTICATION"
+	failureModify = "MODIFY_RESPONSE"
+	authToken     = "TOKEN_AUTHENTICATION"
+	authCustom    = "CUSTOM_AUTHENTICATION"
 
 	keysStatic = "STATIC_KEYS"
 	keysRemote = "REMOTE_JWKS"
@@ -130,7 +132,15 @@ type publicKeysDoc struct {
 	Keys          []staticKeyDoc `json:"keys"`
 }
 
+type failureDoc struct {
+	ResponseHeaders *transformDoc `json:"responseHeaderTransformations"`
+	Type            string        `json:"type"`
+	ResponseCode    string        `json:"responseCode"`
+	ResponseMessage string        `json:"responseMessage"`
+}
+
 type authDoc struct {
+	ValidationFailure  *failureDoc       `json:"validationFailurePolicy"`
 	PublicKeys         *publicKeysDoc    `json:"publicKeys"`
 	TokenHeader        *string           `json:"tokenHeader"`
 	TokenQueryParam    *string           `json:"tokenQueryParam"`
@@ -363,6 +373,10 @@ func validateAuth(a *authDoc) *APIError {
 		return errParam("authentication.tokenAuthScheme is required when tokenHeader is set")
 	}
 
+	if err := validateAuthTuning(a); err != nil {
+		return err
+	}
+
 	switch a.Type {
 	case authJWT:
 		return validateJWT(a)
@@ -377,6 +391,41 @@ func validateAuth(a *authDoc) *APIError {
 	default:
 		return errParam("authentication.type must be JWT_AUTHENTICATION, TOKEN_AUTHENTICATION or CUSTOM_AUTHENTICATION")
 	}
+}
+
+// maxClockSkewSeconds is the documented maximum of maxClockSkewInSeconds (minimum and default 0).
+const maxClockSkewSeconds = 120
+
+func validateAuthTuning(a *authDoc) *APIError {
+	if a.MaxClockSkew != nil && (*a.MaxClockSkew < 0 || *a.MaxClockSkew > maxClockSkewSeconds) {
+		return errParam("authentication.maxClockSkewInSeconds must be between 0 and 120")
+	}
+
+	return validateFailurePolicy(a.ValidationFailure)
+}
+
+func validateFailurePolicy(f *failureDoc) *APIError {
+	if f == nil {
+		return nil
+	}
+
+	if f.Type != failureModify {
+		return errUnsupported("validationFailurePolicy type " + f.Type)
+	}
+
+	if f.ResponseCode != "" && !strings.Contains(f.ResponseCode, "${") {
+		if _, ok := failureStatus(f.ResponseCode); !ok {
+			return errParam("validationFailurePolicy.responseCode must be an HTTP status code")
+		}
+	}
+
+	return nil
+}
+
+func failureStatus(code string) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimSpace(code))
+
+	return n, err == nil && n >= 100 && n <= 599
 }
 
 func validateJWT(a *authDoc) *APIError {

@@ -143,8 +143,15 @@ func generatedContent(g *GenerationContext) (*SecretContent, *APIError) {
 }
 
 // RotateSecret forces a rotation now; the version stages move PENDING to CURRENT when it succeeds.
-func (b *InMemoryBackend) RotateSecret(id, ifMatch string) error {
+func (b *InMemoryBackend) RotateSecret(id, ifMatch, token string) error {
 	b.mu.Lock("RotateSecret")
+
+	scope := "RotateSecret/" + id
+	if _, ok := b.retrySeen(scope, token); ok {
+		b.mu.Unlock()
+
+		return nil
+	}
 
 	s, aerr := b.writableSecret(id, ifMatch)
 	if aerr == nil && s.Rotation == nil {
@@ -157,6 +164,10 @@ func (b *InMemoryBackend) RotateSecret(id, ifMatch string) error {
 
 	if aerr == nil && s.Rotation.Config.TargetSystemDetails.TargetSystemType == targetFunction && b.invoke == nil {
 		aerr = errParam("OCI Functions is not available to run the rotation function")
+	}
+
+	if aerr == nil {
+		b.retryNote(scope, token, "")
 	}
 
 	b.mu.Unlock()
@@ -258,7 +269,7 @@ func (b *InMemoryBackend) runSteps(ctx context.Context, id string, run rotationR
 		}
 
 		body, _ := json.Marshal(map[string]any{
-			"secretId": id, "step": step, "currentVersionNumber": run.current,
+			"secretId": id, "step": step, "versionNo": run.current,
 		})
 
 		return run.invoke(ctx, run.target.FunctionID, body)

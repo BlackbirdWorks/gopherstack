@@ -120,10 +120,13 @@ type createSubscriberIn struct {
 	Tags
 	CompartmentID string   `json:"compartmentId"`
 	DisplayName   string   `json:"displayName"`
+	RetryToken    string   `json:"-"`
 	Clients       []Client `json:"clients"`
 	UsagePlans    []string `json:"usagePlans"`
 	Locks         []lockIn `json:"locks"`
 }
+
+func (i *createSubscriberIn) setRetryToken(t string) { i.RetryToken = t }
 
 type updateSubscriberIn struct {
 	Tags
@@ -479,13 +482,24 @@ func (b *InMemoryBackend) ChangeUsagePlanCompartment(id, ifMatch string, in chan
 	return b.move(moveSpec{
 		id: id, op: wrUpdateUsagePlan, entity: entityUsagePlan, locks: p.Locks, compartment: &p.Compartment,
 		etag: &p.Etag, updated: &p.TimeUpdated,
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 // CreateSubscriber creates a subscriber.
 func (b *InMemoryBackend) CreateSubscriber(in createSubscriberIn) (SubscriberWire, string, string, error) {
 	b.mu.Lock("CreateSubscriber")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("CreateSubscriber", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+
+		s, live := b.subscribers[id]
+		if !live || s.State == stateDeleting || s.State == stateDeleted {
+			return SubscriberWire{}, "", "", errInvalidatedToken()
+		}
+
+		return subscriberView(s, true), wr, s.Etag, nil
+	}
 
 	if err := b.checkTags(in.Tags); err != nil {
 		return SubscriberWire{}, "", "", err
@@ -518,6 +532,7 @@ func (b *InMemoryBackend) CreateSubscriber(in createSubscriberIn) (SubscriberWir
 	}
 	b.subscribers[s.ID] = s
 	wr := b.newWR(wrCreateSubscribe, s.Compartment, entitySubscribe, s.ID, actionCreated, *s.TransitionAt)
+	b.retry.Remember("CreateSubscriber", in.RetryToken, ociretry.Join(s.ID, wr), now)
 
 	return subscriberView(s, true), wr, s.Etag, nil
 }
@@ -652,7 +667,7 @@ func (b *InMemoryBackend) ChangeSubscriberCompartment(id, ifMatch string, in cha
 	return b.move(moveSpec{
 		id: id, op: wrUpdateSubscribe, entity: entitySubscribe, locks: s.Locks, compartment: &s.Compartment,
 		etag: &s.Etag, updated: &s.TimeUpdated,
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 func (h *Handler) createUsagePlan(q *req) error {

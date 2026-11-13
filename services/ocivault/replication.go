@@ -126,7 +126,7 @@ func replicaEndpoint(v *Vault, region, kind, hostPort string) string {
 }
 
 // CreateVaultReplica adds a replica of a virtual private vault in another region.
-func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplicaIn) error {
+func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch, token string, in CreateReplicaIn) error {
 	if !regionRe.MatchString(in.ReplicaRegion) {
 		return errParam("replicaRegion must be a region identifier such as us-phoenix-1")
 	}
@@ -137,6 +137,11 @@ func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplic
 
 	b.mu.Lock("CreateVaultReplica")
 	defer b.mu.Unlock()
+
+	scope := "CreateVaultReplica/" + id + "/" + in.ReplicaRegion
+	if _, ok := b.retrySeen(scope, token); ok {
+		return nil
+	}
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
@@ -167,6 +172,7 @@ func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplic
 	b.begin(&r.Status, &r.transition, replCreating, replCreated)
 	v.Replicas = append(v.Replicas, r)
 	v.ReplicationID, v.Etag = r.ReplicationID, newEtag()
+	b.retryNote(scope, token, "")
 
 	for _, k := range b.keys {
 		if k.VaultID == id && k.State != stateDeleted {
@@ -178,9 +184,14 @@ func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplic
 }
 
 // DeleteVaultReplica removes the replica in the given region.
-func (b *InMemoryBackend) DeleteVaultReplica(id, ifMatch string, in DeleteReplicaIn) error {
+func (b *InMemoryBackend) DeleteVaultReplica(id, ifMatch, token string, in DeleteReplicaIn) error {
 	b.mu.Lock("DeleteVaultReplica")
 	defer b.mu.Unlock()
+
+	scope := "DeleteVaultReplica/" + id + "/" + in.ReplicaRegion
+	if _, ok := b.retrySeen(scope, token); ok {
+		return nil
+	}
 
 	v, aerr := b.activeVault(id)
 	if aerr != nil {
@@ -203,6 +214,7 @@ func (b *InMemoryBackend) DeleteVaultReplica(id, ifMatch string, in DeleteReplic
 	r.ReplicationID = b.newReplOp([]string{r.Region})
 	b.begin(&r.Status, &r.transition, replDeleting, replDeleted)
 	v.ReplicationID, v.Etag = r.ReplicationID, newEtag()
+	b.retryNote(scope, token, "")
 
 	return nil
 }

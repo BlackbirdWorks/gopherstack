@@ -40,7 +40,10 @@ type updateGatewayIn struct {
 
 type changeCompartmentIn struct {
 	CompartmentID string `json:"compartmentId"`
+	RetryToken    string `json:"-"`
 }
+
+func (i *changeCompartmentIn) setRetryToken(t string) { i.RetryToken = t }
 
 // GatewayWire is the wire form of a gateway.
 type GatewayWire struct {
@@ -375,7 +378,7 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 
 			return nil
 		},
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 func (h *Handler) createGateway(q *req) error {

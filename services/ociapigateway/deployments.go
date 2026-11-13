@@ -307,7 +307,7 @@ func (b *InMemoryBackend) ChangeDeploymentCompartment(id, ifMatch string, in cha
 	return b.move(moveSpec{
 		id: id, op: wrUpdateDeploy, entity: entityDeploy, locks: d.Locks, compartment: &d.CompartmentID,
 		etag: &d.Etag, updated: &d.TimeUpdated,
-	}, ifMatch, in.CompartmentID)
+	}, ifMatch, in)
 }
 
 func (h *Handler) createDeployment(q *req) error {

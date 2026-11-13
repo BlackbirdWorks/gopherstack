@@ -224,6 +224,10 @@ func (b *InMemoryBackend) CommitUpload(
 		return ObjectInfo{}, err
 	}
 
+	if err = checkPartCoverage(u, in); err != nil {
+		return ObjectInfo{}, err
+	}
+
 	used, data, digest, err := b.collectParts(u, in.PartsToCommit)
 	if err != nil {
 		return ObjectInfo{}, err
@@ -407,6 +411,36 @@ func (b *InMemoryBackend) collectParts(u *Upload, commit []CommitPart) ([]Part, 
 	}
 
 	return used, data, digest, nil
+}
+
+// checkPartCoverage enforces that every uploaded part is in exactly one of partsToCommit and partsToExclude
+// (CommitMultipartUploadDetails.PartsToExclude, oci-go-sdk objectstorage).
+func checkPartCoverage(u *Upload, in CommitInput) error {
+	seen := make(map[int]bool, len(u.Parts))
+
+	for _, p := range in.PartsToCommit {
+		seen[p.PartNum] = true
+	}
+
+	for _, n := range in.PartsToExclude {
+		if _, ok := u.Parts[n]; !ok {
+			return partErr("Excluded part " + strconv.Itoa(n) + " was not uploaded")
+		}
+
+		if seen[n] {
+			return partErr("Part " + strconv.Itoa(n) + " is in both partsToCommit and partsToExclude")
+		}
+
+		seen[n] = true
+	}
+
+	for n := range u.Parts {
+		if !seen[n] {
+			return partErr("Part " + strconv.Itoa(n) + " must be in partsToCommit or partsToExclude")
+		}
+	}
+
+	return nil
 }
 
 func partErr(msg string) *APIError { return newErr(http.StatusBadRequest, "InvalidUploadPart", msg) }

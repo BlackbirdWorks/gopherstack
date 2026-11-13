@@ -28,10 +28,8 @@ func TestCreateRetryToken(t *testing.T) {
 
 				r, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
 					OpcRetryToken: new("tok"),
-					CreateGatewayDetails: apigateway.CreateGatewayDetails{
-						CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-						SubnetId: new(testSubnet), DisplayName: new(name),
-					},
+					CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+					SubnetId: new(testSubnet), DisplayName: new(name),
 				})
 				if err != nil {
 					return "", err
@@ -56,9 +54,7 @@ func TestCreateRetryToken(t *testing.T) {
 
 				r, err := e.api.CreateApi(t.Context(), apigateway.CreateApiRequest{
 					OpcRetryToken: new("tok"),
-					CreateApiDetails: apigateway.CreateApiDetails{
-						CompartmentId: new(testCompartment), DisplayName: new(name), Content: new(petsYAML),
-					},
+					CompartmentId: new(testCompartment), DisplayName: new(name), Content: new(petsYAML),
 				})
 				if err != nil {
 					return "", err
@@ -187,31 +183,27 @@ func TestTagValidation(t *testing.T) {
 			}
 
 			_, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-				CreateGatewayDetails: apigateway.CreateGatewayDetails{
-					CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-					SubnetId: new(testSubnet), DisplayName: new("tagged"),
-					FreeformTags: tt.free, DefinedTags: tt.defd,
-				},
+				CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+				SubnetId: new(testSubnet), DisplayName: new("tagged"),
+				FreeformTags: tt.free, DefinedTags: tt.defd,
 			})
 			check(err)
 
 			_, err = e.api.CreateApi(t.Context(), apigateway.CreateApiRequest{
-				CreateApiDetails: apigateway.CreateApiDetails{
-					CompartmentId: new(testCompartment), DisplayName: new("taggedapi"), Content: new(petsYAML),
-					FreeformTags: tt.free, DefinedTags: tt.defd,
-				},
+				CompartmentId: new(testCompartment), DisplayName: new("taggedapi"), Content: new(petsYAML),
+				FreeformTags: tt.free, DefinedTags: tt.defd,
 			})
 			check(err)
 
 			_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
-				GatewayId:            gw.Id,
-				UpdateGatewayDetails: apigateway.UpdateGatewayDetails{FreeformTags: tt.free, DefinedTags: tt.defd},
+				GatewayId:    gw.Id,
+				FreeformTags: tt.free, DefinedTags: tt.defd,
 			})
 			check(err)
 
 			_, err = e.api.UpdateApi(t.Context(), apigateway.UpdateApiRequest{
-				ApiId:            base.Id,
-				UpdateApiDetails: apigateway.UpdateApiDetails{FreeformTags: tt.free, DefinedTags: tt.defd},
+				ApiId:        base.Id,
+				FreeformTags: tt.free, DefinedTags: tt.defd,
 			})
 			check(err)
 		})

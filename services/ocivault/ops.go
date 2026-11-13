@@ -221,13 +221,13 @@ func (h *Handler) scheduleVaultDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ScheduleVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), at)
+	w, etag, err := h.Backend.ScheduleVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), q.retry(), at)
 
 	return reply(q, w, etag, err)
 }
 
 func (h *Handler) cancelVaultDeletion(q *req) error {
-	w, etag, err := h.Backend.CancelVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort())
+	w, etag, err := h.Backend.CancelVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -238,7 +238,7 @@ func (h *Handler) changeVaultCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeVaultCompartment(q.param("vaultId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeVaultCompartment(q.param("vaultId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) getVaultUsage(q *req) error {
@@ -308,13 +308,13 @@ func (h *Handler) updateKey(q *req) error {
 	return reply(q, w, etag, err)
 }
 
-func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch string) (keyWire, string, error)) error {
+func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch, token string) (keyWire, string, error)) error {
 	vid, err := h.scope(q)
 	if err != nil {
 		return err
 	}
 
-	w, etag, err := fn(vid, q.param("keyId"), q.ifMatch())
+	w, etag, err := fn(vid, q.param("keyId"), q.ifMatch(), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -332,8 +332,8 @@ func (h *Handler) scheduleKeyDeletion(q *req) error {
 		return err
 	}
 
-	return h.keyAction(q, func(v, k, m string) (keyWire, string, error) {
-		return h.Backend.ScheduleKeyDeletion(v, k, m, at)
+	return h.keyAction(q, func(v, k, m, t string) (keyWire, string, error) {
+		return h.Backend.ScheduleKeyDeletion(v, k, m, t, at)
 	})
 }
 
@@ -348,7 +348,7 @@ func (h *Handler) changeKeyCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeKeyCompartment(vid, q.param("keyId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeKeyCompartment(vid, q.param("keyId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) createKeyVersion(q *req) error {
@@ -357,7 +357,7 @@ func (h *Handler) createKeyVersion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.CreateKeyVersion(vid, q.param("keyId"))
+	w, etag, err := h.Backend.CreateKeyVersion(vid, q.param("keyId"), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -395,7 +395,9 @@ func (h *Handler) scheduleKeyVersionDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ScheduleKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"), at)
+	w, etag, err := h.Backend.ScheduleKeyVersionDeletion(
+		vid, q.param("keyId"), q.param("keyVersionId"), q.retry(), at,
+	)
 
 	return reply(q, w, etag, err)
 }
@@ -406,7 +408,7 @@ func (h *Handler) cancelKeyVersionDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.CancelKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"))
+	w, etag, err := h.Backend.CancelKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -422,7 +424,7 @@ func (h *Handler) importKey(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ImportKey(vid, in)
+	w, etag, err := h.Backend.ImportKey(vid, q.retry(), in)
 
 	return reply(q, w, etag, err)
 }
@@ -438,7 +440,7 @@ func (h *Handler) importKeyVersion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ImportKeyVersion(vid, q.param("keyId"), in)
+	w, etag, err := h.Backend.ImportKeyVersion(vid, q.param("keyId"), q.retry(), in)
 
 	return reply(q, w, etag, err)
 }
@@ -538,7 +540,7 @@ func (h *Handler) changeSecretCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeSecretCompartment(q.param("secretId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeSecretCompartment(q.param("secretId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) listSecretVersions(q *req) error {
@@ -634,11 +636,7 @@ func (h *Handler) listBundleVersions(q *req) error {
 }
 
 func (h *Handler) rotateSecret(q *req) error {
-	if err := h.Backend.RotateSecret(q.param("secretId"), q.ifMatch()); err != nil {
-		return err
-	}
-
-	return accepted(q, nil)
+	return accepted(q, h.Backend.RotateSecret(q.param("secretId"), q.ifMatch(), q.retry()))
 }
 
 func (h *Handler) cancelSecretRotation(q *req) error {

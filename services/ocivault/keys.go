@@ -314,9 +314,16 @@ func (b *InMemoryBackend) applyRotationUpdate(k *Key, in UpdateKeyIn) *APIError 
 	return nil
 }
 
-func (b *InMemoryBackend) setKeyState(vaultID, keyID, ifMatch, from, to, shown string) (keyWire, string, error) {
+func (b *InMemoryBackend) setKeyState(
+	vaultID, keyID, ifMatch, token, from, to, shown string,
+) (keyWire, string, error) {
 	b.mu.Lock("SetKeyState")
 	defer b.mu.Unlock()
+
+	scope := "SetKeyState/" + shown + "/" + keyID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayKey(vaultID, keyID)
+	}
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
@@ -329,24 +336,32 @@ func (b *InMemoryBackend) setKeyState(vaultID, keyID, ifMatch, from, to, shown s
 
 	b.touchKey(k)
 	b.begin(&k.State, &k.transition, shown, to)
+	b.retryNote(scope, token, "")
 
 	return keyView(k), k.Etag, nil
 }
 
 // EnableKey moves a DISABLED key to ENABLED.
-func (b *InMemoryBackend) EnableKey(vaultID, keyID, ifMatch string) (keyWire, string, error) {
-	return b.setKeyState(vaultID, keyID, ifMatch, stateDisabled, stateEnabled, stateEnabling)
+func (b *InMemoryBackend) EnableKey(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
+	return b.setKeyState(vaultID, keyID, ifMatch, token, stateDisabled, stateEnabled, stateEnabling)
 }
 
 // DisableKey moves an ENABLED key to DISABLED.
-func (b *InMemoryBackend) DisableKey(vaultID, keyID, ifMatch string) (keyWire, string, error) {
-	return b.setKeyState(vaultID, keyID, ifMatch, stateEnabled, stateDisabled, stateDisabling)
+func (b *InMemoryBackend) DisableKey(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
+	return b.setKeyState(vaultID, keyID, ifMatch, token, stateEnabled, stateDisabled, stateDisabling)
 }
 
 // ScheduleKeyDeletion moves an ENABLED or DISABLED key to PENDING_DELETION.
-func (b *InMemoryBackend) ScheduleKeyDeletion(vaultID, keyID, ifMatch string, at *time.Time) (keyWire, string, error) {
+func (b *InMemoryBackend) ScheduleKeyDeletion(
+	vaultID, keyID, ifMatch, token string, at *time.Time,
+) (keyWire, string, error) {
 	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
+
+	scope := "ScheduleKeyDeletion/" + keyID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayKey(vaultID, keyID)
+	}
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
@@ -365,14 +380,20 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(vaultID, keyID, ifMatch string, at
 	k.PrevState, k.TimeOfDeletion, k.Etag = k.State, &t, newEtag()
 	b.begin(&k.State, &k.transition, stateSchedulingDelete, statePendingDeletion)
 	b.stampKey(k)
+	b.retryNote(scope, token, "")
 
 	return keyView(k), k.Etag, nil
 }
 
 // CancelKeyDeletion restores the state a key had before deletion was scheduled.
-func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch string) (keyWire, string, error) {
+func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch, token string) (keyWire, string, error) {
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
+
+	scope := "CancelKeyDeletion/" + keyID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayKey(vaultID, keyID)
+	}
 
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
@@ -387,6 +408,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch string) (key
 	k.PrevState, k.TimeOfDeletion, k.Etag = "", nil, newEtag()
 	b.begin(&k.State, &k.transition, stateCancellingDelete, prev)
 	b.stampKey(k)
+	b.retryNote(scope, token, "")
 
 	return keyView(k), k.Etag, nil
 }
@@ -400,7 +422,7 @@ func cmpOr(a, def string) string {
 }
 
 // ChangeKeyCompartment moves a key.
-func (b *InMemoryBackend) ChangeKeyCompartment(vaultID, keyID, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeKeyCompartment(vaultID, keyID, ifMatch, compartment, token string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
@@ -408,12 +430,18 @@ func (b *InMemoryBackend) ChangeKeyCompartment(vaultID, keyID, ifMatch, compartm
 	b.mu.Lock("ChangeKeyCompartment")
 	defer b.mu.Unlock()
 
+	scope := "ChangeKeyCompartment/" + keyID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return nil
+	}
+
 	k, _, aerr := b.writableKey(vaultID, keyID, ifMatch)
 	if aerr != nil {
 		return aerr
 	}
 
 	k.CompartmentID, k.Etag = compartment, newEtag()
+	b.retryNote(scope, token, "")
 
 	return nil
 }
@@ -429,7 +457,7 @@ func (k *Key) version(id string) (*KeyVersion, *APIError) {
 }
 
 // CreateKeyVersion rotates the key: new material becomes the current version.
-func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID string) (keyVersionWire, string, error) {
+func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID, token string) (keyVersionWire, string, error) {
 	b.mu.RLock("CreateKeyVersion")
 	k, _, aerr := b.keyFor(vaultID, keyID)
 
@@ -452,6 +480,11 @@ func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID string) (keyVersionWir
 	b.mu.Lock("CreateKeyVersion")
 	defer b.mu.Unlock()
 
+	scope := "CreateKeyVersion/" + keyID
+	if id, ok := b.retrySeen(scope, token); ok {
+		return b.replayKeyVersion(vaultID, keyID, id)
+	}
+
 	k, v, aerr := b.writableKey(vaultID, keyID, "")
 	if aerr != nil {
 		return keyVersionWire{}, "", aerr
@@ -463,6 +496,7 @@ func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID string) (keyVersionWir
 
 	kv := b.addVersion(k, v.Prefix, originInternal, material)
 	b.touchKey(k)
+	b.retryNote(scope, token, kv.ID)
 
 	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
 }
@@ -509,11 +543,16 @@ func (b *InMemoryBackend) ListKeyVersions(vaultID, keyID string, o ListOpts) (pa
 
 // ScheduleKeyVersionDeletion schedules deletion of a non-current key version.
 func (b *InMemoryBackend) ScheduleKeyVersionDeletion(
-	vaultID, keyID, versionID string,
+	vaultID, keyID, versionID, token string,
 	at *time.Time,
 ) (keyVersionWire, string, error) {
 	b.mu.Lock("ScheduleKeyVersionDeletion")
 	defer b.mu.Unlock()
+
+	scope := "ScheduleKeyVersionDeletion/" + versionID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayKeyVersion(vaultID, keyID, versionID)
+	}
 
 	k, _, aerr := b.writableKey(vaultID, keyID, "")
 	if aerr != nil {
@@ -536,14 +575,22 @@ func (b *InMemoryBackend) ScheduleKeyVersionDeletion(
 
 	kv.State, kv.TimeOfDeletion = statePendingDeletion, &t
 	b.touchKey(k)
+	b.retryNote(scope, token, "")
 
 	return keyVersionView(k, kv, stateSchedulingDelete), k.Etag, nil
 }
 
 // CancelKeyVersionDeletion returns a PENDING_DELETION version to ENABLED.
-func (b *InMemoryBackend) CancelKeyVersionDeletion(vaultID, keyID, versionID string) (keyVersionWire, string, error) {
+func (b *InMemoryBackend) CancelKeyVersionDeletion(
+	vaultID, keyID, versionID, token string,
+) (keyVersionWire, string, error) {
 	b.mu.Lock("CancelKeyVersionDeletion")
 	defer b.mu.Unlock()
+
+	scope := "CancelKeyVersionDeletion/" + versionID
+	if _, ok := b.retrySeen(scope, token); ok {
+		return b.replayKeyVersion(vaultID, keyID, versionID)
+	}
 
 	k, _, aerr := b.writableKey(vaultID, keyID, "")
 	if aerr != nil {
@@ -561,6 +608,7 @@ func (b *InMemoryBackend) CancelKeyVersionDeletion(vaultID, keyID, versionID str
 
 	kv.State, kv.TimeOfDeletion = stateEnabled, nil
 	b.touchKey(k)
+	b.retryNote(scope, token, "")
 
 	return keyVersionView(k, kv, stateCancellingDelete), k.Etag, nil
 }

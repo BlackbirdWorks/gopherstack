@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -40,6 +41,7 @@ type InMemoryBackend struct {
 	Auth         *ociauth.Registry
 	sink         func(ObjectEvent)
 	keyState     func(string) (string, bool)
+	tagLookup    ocitags.Lookup
 	nsMeta       nsMetaWire
 	namespace    string
 	pending      []ObjectEvent
@@ -234,6 +236,10 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		return nil, err
 	}
 
+	if err := b.checkTags(in.FreeformTags, in.DefinedTags); err != nil {
+		return nil, err
+	}
+
 	if _, dup := b.buckets[in.Name]; dup {
 		return nil, errConflict("BucketAlreadyExists",
 			"The bucket '"+in.Name+"' already exists in the namespace '"+ns+"'")
@@ -317,6 +323,10 @@ func (in UpdateBucketInput) validate(bk *Bucket) error {
 
 func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) error {
 	if err := in.validate(bk); err != nil {
+		return err
+	}
+
+	if err := b.checkTags(in.FreeformTags, in.DefinedTags); err != nil {
 		return err
 	}
 
@@ -578,4 +588,19 @@ func bucketTotals(bk *Bucket) (int64, int64) {
 	}
 
 	return count, size
+}
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(free map[string]string, defined map[string]map[string]any) error {
+	if err := ocitags.Validate(free, defined, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
 }
