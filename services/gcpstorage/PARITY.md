@@ -65,7 +65,7 @@ items_still_open:
   - "Signed URL gaps: the canonical-requests page says X-Goog-Date is when the URL becomes usable but names no error code, so RequestTimeTooSkewed for a future date is the emulator's choice; POST policy documents are not verified; bearer tokens are never validated."
   - "Lifecycle gaps: AbortIncompleteMultipartUpload (XML multipart is not served), matchesPattern (absent from the buckets reference and the Go client, so its semantics are undocumented) and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (the pubsub-notifications page does not say whether it should); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced."
   - "Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported."
-  - "Customer-supplied and KMS encryption keys are accepted but not applied."
+  - "Cloud KMS keys (kmsKeyName on buckets and objects) are accepted but the key is not checked against gcpkms and no data is encrypted; resumable chunk requests are not re-checked for the customer-supplied key headers (the key is read on the initiating request)."
   - "Managed and hierarchical-namespace folders are not modelled, so includeFoldersAsPrefixes (validated: delimiter must be '/') adds no prefixes; the docs do not say whether matchGlob with prefix matches the full name or the remainder, and the emulator matches the full name."
 leaks: {status: clean, note: "The background resources are the http.Server and the lifecycle janitor goroutine, both stopped by Shutdown. Abandoned resumable sessions are purged when a new session starts once older than 7 days, and by Reset."}
 ---
@@ -73,5 +73,7 @@ leaks: {status: clean, note: "The background resources are the http.Server and t
 Initial implementation (2026-10-18): Cloud Storage JSON and XML APIs verified against cloud.google.com/go/storage v1.65.1 through the official client in sdk_test.go.
 
 Verified 2026-11-13: HMAC limit is 10 keys per service account, access id 61 and secret 40 characters (docs.cloud.google.com/storage/docs/authentication/hmackeys, /storage/quotas); lifecycle sizeAboveBytes and sizeBelowBytes (docs.cloud.google.com/storage/docs/json_api/v1/buckets); notification payload is the object resource, which carries retentionExpirationTime (docs.cloud.google.com/storage/docs/pubsub-notifications); includeFoldersAsPrefixes requires delimiter '/' (json_api/v1/objects/list).
+
+Customer-supplied keys verified 2026-11-13 (docs.cloud.google.com/storage/docs/encryption/customer-supplied-keys, json_api/v1/objects/rewrite): AES256 key/sha256 headers on upload, read, rewrite/copy (copy-source headers) and compose; wrong, missing or unexpected key is 400; only the key SHA-256 is stored; metadata reads without the key omit crc32c/md5Hash; customerEncryption in object resources. New snapshot field Object.customerKeySha256.
 
 Pass (2026-11-01): bucket notificationConfigs delivered to Pub/Sub, HMAC keys, signed URL verification, retention and hold enforcement, lifecycle janitor, decompressive transcoding and soft delete, tested through cloud.google.com/go/storage v1.69.0 and raw HTTP.

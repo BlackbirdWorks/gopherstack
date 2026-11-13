@@ -414,6 +414,7 @@ func (b *InMemoryBackend) newObject(bk *Bucket, name string, data []byte, p Patc
 
 	o.ACL = acl
 	o.CRC32C, o.MD5 = crc32cOf(data), md5Of(data)
+	o.CustomerKeySHA256 = p.str(keyCustomerKeySHA)
 
 	if want := p.str("crc32c"); want != "" && want != o.CRC32C {
 		return nil, errInvalid("Provided CRC32C \"" + want + "\" doesn't match calculated CRC32C \"" + o.CRC32C + "\".")

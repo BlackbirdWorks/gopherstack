@@ -24,6 +24,8 @@ type CopyRequest struct {
 	SrcName       string
 	DstBucket     string
 	DstName       string
+	SrcKeySHA     string
+	DstKeySHA     string
 	SrcGeneration int64
 }
 
@@ -49,6 +51,10 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		return nil, apiErr
 	}
 
+	if apiErr := src.checkKey(req.SrcKeySHA); apiErr != nil {
+		return nil, apiErr
+	}
+
 	dstBk, err := b.bucketLocked(req.DstBucket)
 	if err != nil {
 		return nil, err
@@ -64,6 +70,13 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 	} else if _, ok := meta[keyContentType]; !ok {
 		meta = maps.Clone(meta)
 		meta[keyContentType] = marshalRaw(src.ContentType)
+	}
+
+	meta = maps.Clone(meta)
+	delete(meta, keyCustomerKeySHA)
+
+	if req.DstKeySHA != "" {
+		meta[keyCustomerKeySHA] = marshalRaw(req.DstKeySHA)
 	}
 
 	for _, k := range []string{keyPredefined, keyACL} {
@@ -120,7 +133,7 @@ type ComposeSource struct {
 
 // ComposeObject concatenates sources (same bucket) into dst.
 func (b *InMemoryBackend) ComposeObject(
-	bucket, dst string, sources []ComposeSource, meta Patch, pre Preconds,
+	bucket, dst string, sources []ComposeSource, meta Patch, pre Preconds, keySHA string,
 ) (*Object, error) {
 	if len(sources) == 0 {
 		return nil, errInvalid("You must provide at least one source component.")
@@ -156,6 +169,10 @@ func (b *InMemoryBackend) ComposeObject(
 			return nil, apiErr
 		}
 
+		if apiErr := src.checkKey(keySHA); apiErr != nil {
+			return nil, apiErr
+		}
+
 		data = append(data, src.Data...)
 		count += max(src.ComponentCount, 1)
 	}
@@ -166,6 +183,17 @@ func (b *InMemoryBackend) ComposeObject(
 
 	if apiErr := b.guardMutation(bk, bk.live(dst)); apiErr != nil {
 		return nil, apiErr
+	}
+
+	meta = maps.Clone(meta)
+	if meta == nil {
+		meta = Patch{}
+	}
+
+	delete(meta, keyCustomerKeySHA)
+
+	if keySHA != "" {
+		meta[keyCustomerKeySHA] = marshalRaw(keySHA)
 	}
 
 	o, apiErr := b.newObject(bk, dst, data, meta, b.nextGen())

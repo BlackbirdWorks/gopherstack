@@ -29,7 +29,7 @@ func (b *InMemoryBackend) HandleLogEntry(e *loggingpb.LogEntry) {
 		return
 	}
 
-	project, logID := auditLogParts(e.GetLogName())
+	project, _ := auditLogParts(e.GetLogName())
 	if project == "" {
 		return
 	}
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) HandleLogEntry(e *loggingpb.LogEntry) {
 		message: func() map[string]any {
 			data, _ := protojson.Marshal(e)
 
-			return eventMessage(id, auditSourcePrefix+project+"/logs/"+logID, typeAuditLog, subject, at, ext, data)
+			return eventMessage(id, auditSource(al.GetServiceName(), project), typeAuditLog, subject, at, ext, data)
 		},
 		build: func(_ *eventarcpb.Trigger, typ string) (map[string]string, []byte, error) {
 			data, err := protojson.Marshal(e)
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) HandleLogEntry(e *loggingpb.LogEntry) {
 				return nil, nil, err //nolint:wrapcheck // message built by the emulator
 			}
 
-			return ceAttrs(id, auditSourcePrefix+project+"/logs/"+logID, typ, subject, at, ext), data, nil
+			return ceAttrs(id, auditSource(al.GetServiceName(), project), typ, subject, at, ext), data, nil
 		},
 	})
 }
@@ -166,3 +166,7 @@ func documentEventJSON(ev DocumentEvent) ([]byte, error) {
 
 	return json.Marshal(out)
 }
+
+// auditSource is the documented audit-log ce-source //SERVICE_NAME/projects/PROJECT_ID
+// (docs.cloud.google.com/eventarc/docs/cloudevents).
+func auditSource(service, project string) string { return "//" + service + "/projects/" + project }

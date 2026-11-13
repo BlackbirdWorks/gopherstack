@@ -57,6 +57,11 @@ func (h *Handler) finishInsert(c *echo.Context, bucket, name string, data []byte
 		return errRequired("name")
 	}
 
+	meta, apiErr := withUploadKey(c.Request(), meta)
+	if apiErr != nil {
+		return apiErr
+	}
+
 	meta = withACLParams(c, meta, keyPredefined)
 
 	o, err := h.Backend.PutObject(bucket, name, data, meta, pre)
@@ -129,6 +134,11 @@ func (h *Handler) startResumable(c *echo.Context, bucket string, pre Preconds) e
 
 	if name == "" {
 		return errRequired("name")
+	}
+
+	meta, apiErr := withUploadKey(r, meta)
+	if apiErr != nil {
+		return apiErr
 	}
 
 	meta = withACLParams(c, meta, keyPredefined)

@@ -44,6 +44,7 @@ type Object struct {
 	StorageClass       string            `json:"storageClass"`
 	MD5                string            `json:"md5,omitempty"`
 	Name               string            `json:"name"`
+	CustomerKeySHA256  string            `json:"customerKeySha256,omitempty"`
 	Data               []byte            `json:"data"`
 	ACL                []ACLEntry        `json:"acl,omitempty"`
 	Generation         int64             `json:"generation"`

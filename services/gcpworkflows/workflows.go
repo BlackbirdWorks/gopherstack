@@ -358,7 +358,7 @@ func (b *InMemoryBackend) DeleteWorkflow(in *workflowspb.DeleteWorkflowRequest) 
 
 func (b *InMemoryBackend) applyWorkflowMask(next, src *workflowspb.Workflow, paths []string) error {
 	if len(paths) == 0 {
-		paths = presentWorkflowPaths(src)
+		paths = allWorkflowPaths()
 	}
 
 	for _, p := range paths {
@@ -395,30 +395,6 @@ func allWorkflowPaths() []string {
 	return []string{
 		maskDescription, maskLabels, maskAccount, maskSource, maskCryptoKey, maskCallLog, maskEnv, maskHistory,
 	}
-}
-
-func presentWorkflowPaths(src *workflowspb.Workflow) []string {
-	var paths []string
-
-	add := func(ok bool, p string) {
-		if ok {
-			paths = append(paths, p)
-		}
-	}
-
-	add(src.GetDescription() != "", maskDescription)
-	add(len(src.GetLabels()) > 0, maskLabels)
-	add(src.GetServiceAccount() != "", maskAccount)
-	add(src.GetSourceContents() != "", maskSource)
-	add(src.GetCryptoKeyName() != "", maskCryptoKey)
-	add(src.GetCallLogLevel() != workflowspb.Workflow_CALL_LOG_LEVEL_UNSPECIFIED, maskCallLog)
-	add(len(src.GetUserEnvVars()) > 0, maskEnv)
-	add(
-		src.GetExecutionHistoryLevel() != workflowspb.ExecutionHistoryLevel_EXECUTION_HISTORY_LEVEL_UNSPECIFIED,
-		maskHistory,
-	)
-
-	return paths
 }
 
 // UpdateWorkflow updates the masked fields; changing the source or service account creates a revision.

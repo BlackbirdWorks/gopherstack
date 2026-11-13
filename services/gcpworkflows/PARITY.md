@@ -40,9 +40,11 @@ items_still_open:
   - "experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference."
   - "Only the listed googleapis.* connectors exist; other connectors, connector retry/long-running-operation polling helpers and calls to *.googleapis.com hosts (which would leave the emulator) are not rewritten."
   - "Operations are recorded already finished: no CREATING state, and CancelOperation has no effect."
-  - "ListWorkflows and ListExecutions reject unsupported filter expressions instead of evaluating the full AIP-160 grammar; UpdateWorkflow with an empty mask updates only the fields present."
+  - "ListWorkflows and ListExecutions reject unsupported filter expressions instead of evaluating the full AIP-160 grammar."
   - "Callback endpoints and in-flight executions do not survive a restore, and a callback URL is bound to the listener port of the run that created it."
 leaks: {status: clean, note: "Background resources are the grpc.Server and its serve goroutine, joined by Shutdown, one goroutine per running execution (cancelled and joined by Shutdown, Reset, Restore and Close), and the pooled HTTP client, closed there."}
 ---
+
+Verified 2026-11-13: an UpdateWorkflow without update_mask replaces the entire workflow (workflows.proto UpdateWorkflowRequest.update_mask: "If not present, the entire workflow will be updated"); argument size limit 32KB is per docs.cloud.google.com/workflows/docs/reference/executions/rest/v1/projects.locations.workflows.executions, while docs.cloud.google.com/workflows/quotas lists 512 KB cumulative variable/argument data, 2 MB response size, 10,000 concurrent and 100,000 queued executions per region, 1 year duration, none with a documented error.
 
 Initial implementation (2026-10-25): google.cloud.workflows.v1 Workflows and google.cloud.workflows.executions.v1 Executions verified against cloud.google.com/go/workflows v1.20.0 through the official clients in the package tests; the language semantics follow the Google Cloud Workflows syntax and standard library reference (docs.cloud.google.com/workflows/docs/reference), with the interpreter in pkgs/wfinterp.

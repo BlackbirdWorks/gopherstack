@@ -61,6 +61,7 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	h.registerZoneOps()
 	h.registerRecordOps()
 	h.registerPolicyOps()
+	h.registerIAMOps()
 
 	return h
 }

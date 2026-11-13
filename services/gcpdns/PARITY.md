@@ -10,6 +10,9 @@ ops:
   ManagedZones.Create: {wire: ok, errors: partial, state: ok, persist: ok, note: "Returns the ManagedZone (v1 does not return an operation). name must match [a-z]([-a-z0-9]*[a-z0-9])? up to 63 chars, dnsName a lower-cased FQDN with trailing dot, description is required. Public zones get a random int64 id, four nameServers (ns-cloud-{a-e}{1-4}.googledomains.com.) and visibility public; private zones keep privateVisibilityConfig networks/gkeClusters and have no nameServers. forwardingConfig and peeringConfig are validated (private only, mutually exclusive, targets need an address) and stored. Every zone starts with change 0 holding the default SOA (serial 1, 21600 3600 259200 300, hostmaster cloud-dns-hostmaster.google.com.) and NS records (TTL 21600; private zones use ns-gcp-private.googledomains.com.). 409 alreadyExists on a duplicate name. The wording of validation messages was chosen without a production reference."}
   ManagedZones.Get: {wire: ok, errors: ok, state: ok, persist: n/a, note: "404 notFound \"The 'parameters.managedZone' resource named 'x' does not exist.\""}
   ManagedZones.List: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Ordered by name; paged through pkgs/page (default 100); dnsName filter; an empty list omits managedZones."}
+  ManagedZones.GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST managedZones/{z}:getIamPolicy; an empty policy when none is set (docs.cloud.google.com/dns/docs/reference/rest/v1/managedZones/getIamPolicy). Policies live in pkgs/gcpiampolicy."}
+  ManagedZones.SetIamPolicy: {wire: ok, errors: partial, state: ok, persist: ok, note: "Replaces the policy; a stale etag is 409 (status code unverified)."}
+  ManagedZones.TestIamPermissions: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Echoes requested dns.* permissions as granted: callers are not authenticated."}
   ManagedZones.Delete: {wire: ok, errors: partial, state: ok, persist: ok, note: "204; a zone holding anything besides its apex SOA and NS is 400 containerNotEmpty (message text unverified)."}
   ManagedZones.Patch: {wire: ok, errors: ok, state: ok, persist: ok, note: "JSON merge into the stored zone; returns a done Operation (type update) with zoneContext old/new values, readable through managedZoneOperations. name, dnsName and visibility are immutable (400 invalid). Changing dnssecConfig.state from off to on/transfer generates the DNSKEYs, back to off drops them; nonExistence and defaultKeySpecs only change while off."}
   ManagedZones.Update: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT: replaces the mutable fields (an omitted dnssecConfig turns DNSSEC off); same Operation result and immutability rules as Patch."}
@@ -54,7 +57,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; requests go through telemetry. No dashboard page."}
 items_still_open:
-  - "managedZones.getIamPolicy, setIamPolicy and testIamPermissions are not routed (404); dns/v1beta2 and dns/v2 are not served."
+  - "dns/v1beta2 and dns/v2 are not served."
   - "Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only."
   - "Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items."
   - "Error message texts (validation, containerNotEmpty, quota) and a few conditions (rrsets.* calls appearing in the change history, change completion timing, project number, non-fixed quota values) were chosen without a production reference."

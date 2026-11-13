@@ -10,37 +10,38 @@ import (
 )
 
 type objectJSON struct {
-	Metadata           map[string]string `json:"metadata,omitempty"`
-	Kind               string            `json:"kind"`
-	ID                 string            `json:"id"`
-	SelfLink           string            `json:"selfLink"`
-	MediaLink          string            `json:"mediaLink"`
-	Name               string            `json:"name"`
-	Bucket             string            `json:"bucket"`
-	Generation         string            `json:"generation"`
-	Metageneration     string            `json:"metageneration"`
-	ContentType        string            `json:"contentType,omitempty"`
-	ContentEncoding    string            `json:"contentEncoding,omitempty"`
-	ContentDisposition string            `json:"contentDisposition,omitempty"`
-	ContentLanguage    string            `json:"contentLanguage,omitempty"`
-	CacheControl       string            `json:"cacheControl,omitempty"`
-	TimeCreated        string            `json:"timeCreated"`
-	Updated            string            `json:"updated"`
-	TimeDeleted        string            `json:"timeDeleted,omitempty"`
-	SoftDeleteTime     string            `json:"softDeleteTime,omitempty"`
-	HardDeleteTime     string            `json:"hardDeleteTime,omitempty"`
-	RetentionExpiry    string            `json:"retentionExpirationTime,omitempty"`
-	TimeStorageClass   string            `json:"timeStorageClassUpdated"`
-	CustomTime         string            `json:"customTime,omitempty"`
-	StorageClass       string            `json:"storageClass"`
-	Size               string            `json:"size"`
-	MD5Hash            string            `json:"md5Hash,omitempty"`
-	CRC32C             string            `json:"crc32c"`
-	ETag               string            `json:"etag"`
-	ACL                []aclResource     `json:"acl,omitempty"`
-	ComponentCount     int64             `json:"componentCount,omitempty"`
-	TemporaryHold      bool              `json:"temporaryHold,omitempty"`
-	EventBasedHold     bool              `json:"eventBasedHold,omitempty"`
+	Metadata           map[string]string       `json:"metadata,omitempty"`
+	Kind               string                  `json:"kind"`
+	ID                 string                  `json:"id"`
+	SelfLink           string                  `json:"selfLink"`
+	MediaLink          string                  `json:"mediaLink"`
+	Name               string                  `json:"name"`
+	Bucket             string                  `json:"bucket"`
+	Generation         string                  `json:"generation"`
+	Metageneration     string                  `json:"metageneration"`
+	ContentType        string                  `json:"contentType,omitempty"`
+	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
+	ContentDisposition string                  `json:"contentDisposition,omitempty"`
+	ContentLanguage    string                  `json:"contentLanguage,omitempty"`
+	CacheControl       string                  `json:"cacheControl,omitempty"`
+	TimeCreated        string                  `json:"timeCreated"`
+	Updated            string                  `json:"updated"`
+	TimeDeleted        string                  `json:"timeDeleted,omitempty"`
+	SoftDeleteTime     string                  `json:"softDeleteTime,omitempty"`
+	HardDeleteTime     string                  `json:"hardDeleteTime,omitempty"`
+	RetentionExpiry    string                  `json:"retentionExpirationTime,omitempty"`
+	TimeStorageClass   string                  `json:"timeStorageClassUpdated"`
+	CustomTime         string                  `json:"customTime,omitempty"`
+	StorageClass       string                  `json:"storageClass"`
+	Size               string                  `json:"size"`
+	MD5Hash            string                  `json:"md5Hash,omitempty"`
+	CRC32C             string                  `json:"crc32c,omitempty"`
+	CustomerEncryption *customerEncryptionJSON `json:"customerEncryption,omitempty"`
+	ETag               string                  `json:"etag"`
+	ACL                []aclResource           `json:"acl,omitempty"`
+	ComponentCount     int64                   `json:"componentCount,omitempty"`
+	TemporaryHold      bool                    `json:"temporaryHold,omitempty"`
+	EventBasedHold     bool                    `json:"eventBasedHold,omitempty"`
 }
 
 func baseURL(r *http.Request) string {
@@ -105,6 +106,7 @@ func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 		ComponentCount:     o.ComponentCount,
 		TemporaryHold:      o.TemporaryHold,
 		EventBasedHold:     o.EventBasedHold,
+		CustomerEncryption: o.customerEncryption(),
 	}
 }
 

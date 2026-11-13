@@ -32,7 +32,6 @@ const (
 	attrDatabase        = "database"
 	attrNamespace       = "namespace"
 	attrDocument        = "document"
-	auditSourcePrefix   = "//cloudaudit.googleapis.com/projects/"
 	firestoreSourceBase = "//firestore.googleapis.com/"
 	firestoreWritten    = "written"
 	defaultFirestoreNS  = "(default)"

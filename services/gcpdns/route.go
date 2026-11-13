@@ -100,6 +100,13 @@ func zoneRoute(method string, rt route, rest []string) route {
 	rt.zone = rest[0]
 	sub := rest[1:]
 
+	if name, verb, ok := strings.Cut(rt.zone, ":"); ok && len(sub) == 0 && method == http.MethodPost {
+		rt.zone = name
+		rt.op = iamOp(verb)
+
+		return rt
+	}
+
 	if len(sub) == 0 {
 		rt.op = itemOp(method, "ManagedZones")
 
@@ -178,6 +185,19 @@ func itemOp(method, family string) string {
 		}
 
 		return family + ".Update"
+	}
+
+	return ""
+}
+
+func iamOp(verb string) string {
+	switch verb {
+	case "getIamPolicy":
+		return "ManagedZones.GetIamPolicy"
+	case "setIamPolicy":
+		return "ManagedZones.SetIamPolicy"
+	case "testIamPermissions":
+		return "ManagedZones.TestIamPermissions"
 	}
 
 	return ""

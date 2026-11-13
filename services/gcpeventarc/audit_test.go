@@ -80,11 +80,7 @@ func TestAuditLogDelivery(t *testing.T) {
 			got := e.dest.next(t)
 			assert.Equal(t, "/audit", got.path)
 			assert.Equal(t, "google.cloud.audit.log.v1.written", got.header.Get("Ce-Type"))
-			assert.Equal(
-				t,
-				"//cloudaudit.googleapis.com/projects/"+project+"/logs/"+tt.wantLog,
-				got.header.Get("Ce-Source"),
-			)
+			assert.Equal(t, "//storage.googleapis.com/projects/"+project, got.header.Get("Ce-Source"))
 			assert.Equal(t, "storage.googleapis.com/"+tt.wantResource, got.header.Get("Ce-Subject"))
 			assert.Equal(t, tt.method, got.header.Get("Ce-Methodname"))
 			assert.Equal(t, tt.wantResource, got.header.Get("Ce-Resourcename"))

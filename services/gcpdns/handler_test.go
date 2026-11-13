@@ -34,7 +34,8 @@ func TestWireErrorsAndRouting(t *testing.T) {
 		{"unsupported verb", "DELETE", "/dns/v1/projects/p/managedZones/z/changes/0", "", "notFound", 404},
 		{"bad json", "POST", "/dns/v1/projects/p/managedZones", "{", "invalid", 400},
 		{"bad max results", "GET", "/dns/v1/projects/p/managedZones?maxResults=-1", "", "invalid", 400},
-		{"iam not served", "POST", "/dns/v1/projects/p/managedZones/z:getIamPolicy", "{}", "notFound", 404},
+		{"iam missing zone", "POST", "/dns/v1/projects/p/managedZones/nope:getIamPolicy", "{}", "notFound", 404},
+		{"iam unknown verb", "POST", "/dns/v1/projects/p/managedZones/z:bogus", "{}", "notFound", 404},
 	}
 
 	for _, tt := range tests {
