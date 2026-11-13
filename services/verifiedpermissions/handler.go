@@ -252,6 +252,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyTypeField:    "UnknownOperationException",
 			keyMessageField: message,
 		})
+	case errors.Is(err, ErrAliasQuotaExceeded):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ServiceQuotaExceededException",
+			keyMessageField: message,
+		})
 	case errors.Is(err, ErrTooManyTags):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "TooManyTagsException",

@@ -187,7 +187,11 @@ func (b *InMemoryBackend) updateMasterSecret(
 				"%w: MasterUserSecretKmsKeyId requires ManageMasterUserPassword", ErrInvalidParameterCombination,
 			)
 		}
-		cur.MasterUserSecretKmsKeyID = req.MasterUserSecretKmsKeyID
+		if req.MasterUserSecretKmsKeyID != cur.MasterUserSecretKmsKeyID {
+			return cur, fmt.Errorf(
+				"%w: the KMS key of a managed master user secret can't be changed", ErrInvalidParameterCombination,
+			)
+		}
 
 		return cur, nil
 	}

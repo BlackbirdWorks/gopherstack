@@ -363,8 +363,11 @@ func TestHandler_DescribeScalableTargets_ScalableDimensionFilter(t *testing.T) {
 		wantCount int
 	}{
 		{
-			name:      "filter_by_dimension_ecs",
-			body:      map[string]any{"ServiceNamespace": "ecs", "ScalableDimension": "ecs:service:DesiredCount"},
+			name: "filter_by_dimension_ecs",
+			body: map[string]any{
+				"ServiceNamespace": "ecs", "ScalableDimension": "ecs:service:DesiredCount",
+				"ResourceIds": []string{"service/default/my-svc"},
+			},
 			wantCount: 1,
 		},
 		{
@@ -372,6 +375,7 @@ func TestHandler_DescribeScalableTargets_ScalableDimensionFilter(t *testing.T) {
 			body: map[string]any{
 				"ServiceNamespace":  "ecs",
 				"ScalableDimension": "dynamodb:table:ReadCapacityUnits",
+				"ResourceIds":       []string{"service/default/my-svc"},
 			},
 			wantCount: 0,
 		},
