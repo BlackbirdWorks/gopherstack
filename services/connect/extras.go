@@ -66,6 +66,11 @@ func (b *Backend) registerViewTables() {
 		func(v *testCaseRec) string { return v.InstanceID }, func(v *testCaseRec) string { return v.ID })
 	b.testCases.taggable(
 		func(v *testCaseRec) string { return v.Arn }, func(v *testCaseRec) *map[string]string { return &v.Tags })
+	b.testExecutions = newFamily(r, "testCaseExecutions", labelTestExecution,
+		func(v *testExecutionRec) string { return v.InstanceID }, func(v *testExecutionRec) string { return v.ID })
+	b.analyticsAssocs = newFamily(r, "analyticsAssociations", labelAnalyticsAssoc,
+		func(v *analyticsAssocRec) string { return v.InstanceID },
+		func(v *analyticsAssocRec) string { return analyticsKey(v.DataSetID, v.TargetAccountID) })
 	b.evaluations = newFamily(r, "contactEvaluations", labelEvaluation,
 		func(v *evaluationRec) string { return v.InstanceID }, func(v *evaluationRec) string { return v.ID })
 	b.evaluations.taggable(

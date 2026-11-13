@@ -179,6 +179,15 @@ func (h *Handler) serveAttachedContent(c *echo.Context) error {
 
 		return c.NoContent(http.StatusOK)
 	case http.MethodGet:
+		if r.URL.Query().Get("op") == promptOp {
+			data, perr := h.Backend.GetPromptContent(r.Context(), inst, fileID, r.URL.Query())
+			if perr != nil {
+				return contentError(c, perr)
+			}
+
+			return c.Blob(http.StatusOK, "audio/wav", data)
+		}
+
 		data, name, gerr := h.Backend.GetAttachedContent(inst, fileID, r.URL.Query())
 		if gerr != nil {
 			return contentError(c, gerr)

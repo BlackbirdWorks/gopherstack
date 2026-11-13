@@ -20,6 +20,16 @@ func (h *Handler) testCaseOps(ops map[string]restroute.OpFunc) {
 		},
 	)
 
+	ops["StartTestCaseExecution"] = replay(h, "StartTestCaseExecution",
+		func(in *StartTestCaseExecutionInput) string { return in.ClientToken },
+		func(_ context.Context, in *StartTestCaseExecutionInput) (*startExecutionOut, error) {
+			return b.StartTestCaseExecution(in)
+		})
+	ops["StopTestCaseExecution"] = typed(b.StopTestCaseExecution)
+	ops["ListTestCaseExecutions"] = typed(b.ListTestCaseExecutions)
+	ops["ListTestCaseExecutionRecords"] = typed(b.ListTestCaseExecutionRecords)
+	ops["GetTestCaseExecutionSummary"] = typed(b.GetTestCaseExecutionSummary)
+
 	ops["StartContactEvaluation"] = replay(h, "StartContactEvaluation",
 		func(in *StartContactEvaluationInput) string { return in.ClientToken }, b.StartContactEvaluation)
 	ops["UpdateContactEvaluation"] = typed(b.UpdateContactEvaluation)

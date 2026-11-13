@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (10 ok, 1 partial) |
+| PARITY entries audited | 13 (10 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 10 |
 | Deferred items | 0 |
@@ -18,13 +18,13 @@
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server.
 - redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data.
-- Entra ID data access policies and policy assignments (accessPolicies, accessPolicyAssignments, Data Owner/Contributor/Reader ACLs) are not implemented: with aad-enabled a token for the Redis audience (https://redis.azure.com or acca5fbb-b7e4-4009-81f1-37e38fd66d78) issued by the emulator's token service authenticates its principal as a full-access user; tokens are not re-checked for expiry on an open connection.
+- Entra authentication: tokens are not re-checked for expiry on an open connection; the three built-in access policies use permission strings derived from their names (+@all allkeys; +@all -@dangerous allkeys; +@read +@connection allkeys) because Learn (azure-cache-for-redis/cache-configure-role-based-access-control) and REST 2024-11-01 access-policy list publish no built-in permission strings; deleting a custom policy that an assignment uses answers 400 InvalidRequestBody (the REST page documents no such rule).
 - Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400.
 - Create completes the server immediately; only the reported provisioningState lags.
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering, VNet injection, private endpoints and geo-replication data flow are not modelled.
 - redisConfiguration settings are stored but not enforced (no CONFIG in miniredis).
-- Entra ID data access policies and policy assignments (Data Owner, Data Contributor, Data Reader) are not implemented: any valid Entra token for the Redis audience authenticates as a full-access user.
+- Entra authentication: tokens are not re-checked for expiry on an open connection; the built-in access policy permission strings are not published by Learn or the REST reference and are derived from the policy names; deleting a custom policy that an assignment uses is refused although the REST page documents no such rule.
 
 ## More
 

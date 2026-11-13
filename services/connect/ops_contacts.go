@@ -27,6 +27,8 @@ func (h *Handler) contactControlOps(ops map[string]restroute.OpFunc) {
 	ops["SendOutboundEmail"] = replay(h, "SendOutboundEmail",
 		func(in *SendOutboundEmailInput) string { return in.ClientToken }, b.SendOutboundEmail)
 	ops["PauseContact"] = typed(b.PauseContact)
+	ops["UpdateParticipantRoleConfig"] = typed(b.UpdateParticipantRoleConfig)
+	ops["UpdateContactRoutingData"] = typed(b.UpdateContactRoutingData)
 	ops["DismissUserContact"] = typed(b.DismissUserContact)
 	ops["ResumeContact"] = typed(b.ResumeContact)
 	ops["StartContactRecording"] = typed(b.StartContactRecording)

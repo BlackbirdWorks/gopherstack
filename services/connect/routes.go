@@ -402,6 +402,16 @@ func contactsRoutes() []restroute.Route {
 			Op:     "CreatePersistentContactAssociation",
 		},
 		{Method: http.MethodPost, Path: "/contact/pause", Op: "PauseContact"},
+		{
+			Method: http.MethodPut,
+			Path:   "/contact/participant-role-config/{InstanceId}/{ContactId}",
+			Op:     "UpdateParticipantRoleConfig",
+		},
+		{
+			Method: http.MethodPost,
+			Path:   "/contacts/{InstanceId}/{ContactId}/routing-data",
+			Op:     "UpdateContactRoutingData",
+		},
 		{Method: http.MethodPost, Path: "/users/{InstanceId}/{UserId}/contact", Op: "DismissUserContact"},
 		{Method: http.MethodPost, Path: "/contact/resume", Op: "ResumeContact"},
 		{Method: http.MethodPost, Path: "/contact/start-recording", Op: "StartContactRecording"},

@@ -607,6 +607,9 @@ type Contact struct {
 	AgentInfo                   *ContactAgentInfo          `json:"AgentInfo,omitempty"`
 	LastPausedTimestamp         *awstime.EpochTime         `json:"LastPausedTimestamp,omitempty"`
 	CustomerEndpoint            *EndpointInfo              `json:"CustomerEndpoint,omitempty"`
+	QueuePriority               *int64                     `json:"QueuePriority,omitempty"`
+	QueueTimeAdjustmentSeconds  *int32                     `json:"QueueTimeAdjustmentSeconds,omitempty"`
+	RoutingCriteria             *RoutingCriteria           `json:"RoutingCriteria,omitempty"`
 	Campaign                    *Campaign                  `json:"Campaign,omitempty"`
 	ContactEvaluations          map[string]ContactEvalInfo `json:"ContactEvaluations,omitempty"`
 	ID                          string                     `json:"Id"`

@@ -93,9 +93,12 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 		{name: "unrouted operations answer as unknown", run: func(t *testing.T, e *connectWiringEnv) {
 			t.Helper()
 
-			_, err := e.connect.StartTestCaseExecution(t.Context(), &connectsdk.StartTestCaseExecutionInput{
-				InstanceId: e.instance.Id, TestCaseId: aws.String("t"),
-			})
+			_, err := e.connect.ListAnalyticsDataLakeDataSets(
+				t.Context(),
+				&connectsdk.ListAnalyticsDataLakeDataSetsInput{
+					InstanceId: e.instance.Id,
+				},
+			)
 			assert.Equal(t, "UnknownOperationException", connectErrCode(err))
 		}},
 	}

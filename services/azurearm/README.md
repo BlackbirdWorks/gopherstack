@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 21 (15 ok, 3 partial, 3 gap) |
-| Feature families | 27 (27 ok) |
+| Feature families | 28 (28 ok) |
 | Known gaps | 73 |
 | Deferred items | 3 |
 | Resource leaks | clean |
@@ -86,7 +86,7 @@
 - Authorization (unverified, recalled only - no primary source found): the error codes InvalidRoleAssignmentId (non-GUID name), RoleAssignmentNotFound (GET of a missing assignment), RoleDefinitionDoesNotExist for GET (the text is documented, the 404 status is not), RoleAssignmentScopeNotAssignableToRoleDefinition, RoleDefinitionWithSameNameExists, RoleAssignmentExists and its text, LockNotFound, InvalidLockName, PolicyDefinitionNotFound, PolicySetDefinitionNotFound, PolicyAssignmentNotFound, InvalidPolicyRule, InvalidFilter and InvalidScope; the ScopeLocked text for a POST ('action') and the listing of several locked scopes; DELETE of a missing role assignment/lock/policy answering 204; assignedTo() semantics (modelled as at-or-above); the unfiltered list defaults (at and below).
 - Authorization: ScopeLocked enforcement covers the ARM listener only (not data planes, as documented); it does not model the documented exceptions where services act on locked resources, resource moves, or Microsoft.Authorization extension resources other than the lock itself inheriting a lock (role assignments and policy assignments do inherit it).
 - Authorization: role assignment conditions (ABAC) and conditionVersion are stored, not validated or evaluated; delegatedManagedIdentityResourceId is stored; assignment count limits are not enforced; the last-owner deletion guard does not exist; role definition assignableScopes are not checked to exist; list calls are not paged (no nextLink/$skipToken).
-- Policy: nothing is evaluated - no Deny/Audit/Modify/DeployIfNotExists effect runs, compliance and remediation, exemptions, policy versions, tokens and the allowed-locations deny are not implemented; policy parameters are not checked against the definition (missing required parameter, wrong type); deleting a definition referenced by an assignment or set is allowed; policyDefinitions is limited to a 13-definition and 1-initiative built-in catalog; the Policy Insights, remediation and Guest Configuration providers do not exist.
+- Policy: nothing is evaluated (exemptions are stored and served but never applied) - no Deny/Audit/Modify/DeployIfNotExists effect runs, compliance and remediation, policy versions, tokens and the allowed-locations deny are not implemented; policy parameters are not checked against the definition (missing required parameter, wrong type); deleting a definition referenced by an assignment or set is allowed; policyDefinitions is limited to a 13-definition and 1-initiative built-in catalog; the Policy Insights, remediation and Guest Configuration providers do not exist.
 - Authorization: azurerm_role_definition, subscription/management-group scoped policy assignments and policy set definitions have no Terraform fixture (test/terraform/azure/authorization_test.go covers azurerm_role_assignment by name and by id, azurerm_management_lock, azurerm_policy_definition, azurerm_resource_group_policy_assignment; applied, planned clean and destroyed against the docker harness on 2026-10-31, azurerm ~> 4.0).
 
 ### Deferred

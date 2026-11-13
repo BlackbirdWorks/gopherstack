@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 33 (12 ok, 21 partial) |
+| PARITY entries audited | 35 (12 ok, 23 partial) |
 | Feature families | 9 (7 ok, 2 partial) |
 | Known gaps | 10 |
 | Deferred items | 0 |
@@ -17,7 +17,7 @@
 
 - User responses return unset default properties as explicit nulls and the create-response carries the default property set; the Get user reference documents neither (its example response only shows populated properties).
 - Soft delete: restore of a user does not reinstate its group memberships as seen from the groups (references from other objects are dropped), and whether Entra restores them is not verified; the deletedItems list without a type cast, the restore response shape for non-user objects and group restore conflicts are recalled.
-- Not implemented: legacy directoryRoles (activate, members), directoryRoleTemplates, custom role definitions, $expand=principal on role assignments, administrativeUnits, devices, contacts, applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, users/{id}/manager, photos, licensing, @odata.bind on user manager, and $expand for manager/appRoleAssignments.
+- Not implemented: custom role definitions, $expand=principal on role assignments, administrativeUnits, devices, contacts, applicationTemplates, tokenIssuancePolicies, claimsMappingPolicies, delta queries, extension attributes, photos, licensing, manager@odata.bind on user create/update (not documented on the user create/update pages; use PUT manager/$ref) and $expand for appRoleAssignments.
 - Graph permissions are not enforced (no Authorization_RequestDenied for missing Application.ReadWrite.All and similar); requiredResourceAccess and appRoleAssignments are stored but grant nothing, and tokens carry no roles/scp claims.
 - Password users cannot sign in (no ROPC or authorization-code flow), so /me needs a hand-built user token. PFX (X509CertAndPassword) keys and PATCH of keyCredentials/passwordCredentials are not supported, so certificates cannot authenticate from a PFX-only credential.
 - Error messages and codes not verified against the live service (recalled, not read from the reference): malformed ids ('Invalid object identifier'), duplicate identifierUris/uniqueName/UPN/servicePrincipalNames ('Another object with the same value for property ... already exists'), unknown property ('Property ... does not exist as a declared property'), the password complexity message, appRoleAssignment validation messages, group creation rules (mail-enabled and neither-flag refusals, isAssignableToRole), unsupported-method 405 code, the 'Unable to read JSON request payload' text, the federated credential 409 code and 20-per-app error, the addKey proof failure text, the $batch limit message, role assignment validation and duplicate errors, and the AADSTS texts for assertion failures.

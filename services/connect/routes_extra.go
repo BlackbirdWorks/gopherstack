@@ -30,6 +30,7 @@ func extraRoutes() []restroute.Route {
 		testCaseRoutes(),
 		workspaceRoutes(),
 		extractionRoutes(),
+		analyticsRoutes(),
 	)
 }
 
@@ -323,5 +324,18 @@ func securityExtraRoutes() []restroute.Route {
 			Method: http.MethodGet, Path: "/security-profiles-flow-modules/{InstanceId}/{SecurityProfileId}",
 			Op: "ListSecurityProfileFlowModules",
 		},
+	}
+}
+
+func analyticsRoutes() []restroute.Route {
+	const base = "/analytics-data/instance/{InstanceId}"
+
+	return []restroute.Route{
+		{Method: http.MethodPut, Path: base + "/association", Op: "AssociateAnalyticsDataSet"},
+		{Method: http.MethodPost, Path: base + "/association", Op: "DisassociateAnalyticsDataSet"},
+		{Method: http.MethodGet, Path: base + "/association", Op: "ListAnalyticsDataAssociations"},
+		{Method: http.MethodPut, Path: base + "/associations", Op: "BatchAssociateAnalyticsDataSet"},
+		{Method: http.MethodPost, Path: base + "/associations", Op: "BatchDisassociateAnalyticsDataSet"},
+		{Method: http.MethodGet, Path: "/prompts/{InstanceId}/{PromptId}/file", Op: "GetPromptFile"},
 	}
 }

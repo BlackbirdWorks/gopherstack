@@ -90,21 +90,22 @@ type promptRec struct {
 }
 
 type contactRec struct {
-	PausedAt         *awstime.EpochTime   `json:"pausedAt,omitempty"`
-	MediaProcessor   *mediaProcessor      `json:"mediaProcessor,omitempty"`
-	Recording        map[string]*recState `json:"recording,omitempty"`
-	Streams          map[string]string    `json:"streams,omitempty"`
-	InstanceID       string               `json:"instanceId"`
-	ParticipantID    string               `json:"participantId,omitempty"`
-	ParticipantToken string               `json:"participantToken,omitempty"`
-	FlowID           string               `json:"flowId,omitempty"`
-	TaskTemplateID   string               `json:"taskTemplateId,omitempty"`
-	References       jsontext.Value       `json:"references,omitempty"`
-	Participants     []participantRec     `json:"participants,omitempty"`
-	Emails           []emailMessageRec    `json:"emails,omitempty"`
-	MonitorCaps      []string             `json:"monitorCapabilities,omitempty"`
-	DismissedBy      []string             `json:"dismissedBy,omitempty"`
-	Contact          Contact              `json:"contact"`
+	PausedAt          *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	MediaProcessor    *mediaProcessor      `json:"mediaProcessor,omitempty"`
+	Recording         map[string]*recState `json:"recording,omitempty"`
+	Streams           map[string]string    `json:"streams,omitempty"`
+	ParticipantTimers map[string]int32     `json:"participantTimers,omitempty"`
+	InstanceID        string               `json:"instanceId"`
+	ParticipantID     string               `json:"participantId,omitempty"`
+	ParticipantToken  string               `json:"participantToken,omitempty"`
+	FlowID            string               `json:"flowId,omitempty"`
+	TaskTemplateID    string               `json:"taskTemplateId,omitempty"`
+	References        jsontext.Value       `json:"references,omitempty"`
+	Participants      []participantRec     `json:"participants,omitempty"`
+	Emails            []emailMessageRec    `json:"emails,omitempty"`
+	MonitorCaps       []string             `json:"monitorCapabilities,omitempty"`
+	DismissedBy       []string             `json:"dismissedBy,omitempty"`
+	Contact           Contact              `json:"contact"`
 }
 
 type emailMessageRec struct {
@@ -179,6 +180,8 @@ type extras struct {
 	pushRegistrations family[pushRegistrationRec]
 	authSessions      family[authSessionRec]
 	testCases         family[testCaseRec]
+	testExecutions    family[testExecutionRec]
+	analyticsAssocs   family[analyticsAssocRec]
 	evaluations       family[evaluationRec]
 	extractions       family[extractionRec]
 	authProfiles      family[authProfileRec]
