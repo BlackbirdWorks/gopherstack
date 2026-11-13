@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Unverified, chosen by the emulator: ECPU range 2 to 512 and OCPU range 1 to 128, storage range 1 to 384 TB or 20 GB to 384 TB, long-term backup minimum of 90 days, 409 Conflict for duplicate dbName, 400 LimitExceeded for the Always Free limit of 2, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes.
+- Unverified, chosen by the emulator: ECPU range 2 to 512 and OCPU range 1 to 128, storage range 1 to 384 TB or 20 GB to 384 TB, long-term backup minimum of 90 days, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes.
 - cwallet.sso, keystore.jks and truststore.jks are not in the wallet zip; ewallet.p12 is encrypted with the modern PKCS#12 scheme, which very old Oracle clients may not read.
 - Backups and restore are lifecycle only: no data is copied, so restore never changes a database, with or without the docker engine.
 - Not routed: clones, refreshable clones, Data Guard, disaster recovery, key rotation and Vault keys, secretId, Data Safe, Operations Insights, Database Management, maintenance windows, resource pools, scheduled operations, regional wallets, character set listing, shrink, upgrade and the Exadata, container database and software image families. opc-dry-run is ignored.

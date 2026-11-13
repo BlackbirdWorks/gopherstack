@@ -7,8 +7,8 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 374 (374 ok) |
-| Known gaps | 20 |
+| PARITY entries audited | 386 (386 ok) |
+| Known gaps | 19 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -21,12 +21,11 @@
 - Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
 - Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
 - AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
-- Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed
-- UserProficiencies and contacts of users: DismissUserContact are not routed
+- Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed: associations are RAM resource shares and the dataset catalog is not published
+- DismissUserContact is not routed: the emulator keeps no per-agent contact state (MISSED, ERROR, REJECTED) for a dismissal to clear
 - Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)
-- Contact data and participants: DeleteContactData GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed
-- Instance extras: GetCrossRegionRouting ReplicateInstance UpdateCrossRegionRouting are not routed
-- Extraction/Push/Auth: CreateExtractionDefinition DeleteExtractionDefinition DescribeAuthenticationProfile DescribeExtractionDefinition ListAuthenticationProfiles ListExtractionDefinitions UpdateAuthenticationProfile UpdateExtractionDefinition are not routed
+- Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed (no chat message plane, no queue-position model for routing data)
+- Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model
 - GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
 - Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled

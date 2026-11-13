@@ -7,20 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 27 (27 ok) |
+| PARITY entries audited | 29 (29 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 13 |
+| Known gaps | 11 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetServiceIndex: not implemented; service-linked indexes are created by AWS services and no emulator path creates one
-- GetServiceView: not implemented; same reason as GetServiceIndex
-- ListServiceIndexes: not implemented; same reason as GetServiceIndex
-- ListServiceViews: not implemented; same reason as GetServiceIndex
-- ListStreamingAccessForServices: not implemented; no service streaming access is ever granted
+- GetServiceView: not implemented; service views are created by AWS services and no emulator path or public API creates one, so there is no state to read
+- ListServiceViews: not implemented; same reason as GetServiceView (SDK docs give MaxResults 1-50)
+- ListStreamingAccessForServices: not implemented; no public API or emulated service grants streaming access, so there is no state to read (SDK docs give MaxResults 1-50)
 - ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
 - Search: keywords match as case-insensitive substrings over the ARN and tag text, not as AWS tokens; the application filter is unsupported and an unknown filter is treated as a keyword
 - Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
@@ -28,7 +26,7 @@
 - ListIndexesForMembers: no organization membership or delegated-administrator check
 - CreateView: organization and OU scopes are accepted without validating them against Organizations
 - ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
-- MaxResults: the 1-100 (views 1-20) ranges are not in the SDK and are unverified
+- MaxResults: the SDK documents ranges only for GetResourceExplorerSetup (1-100), ListServiceIndexes (1-100), ListServiceViews and ListStreamingAccessForServices (1-50); the 1-100 (views 1-20) ranges of the other list operations are unverified
 
 ### Structural gaps
 

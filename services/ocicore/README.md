@@ -24,7 +24,7 @@
 - The service catalogue holds two entries (all IAD services, OCI IAD Object Storage) for the single emulated region us-ashburn-1.
 - Security rules are validated structurally and CanReach evaluates security lists and NSGs (stateful and stateless rules, the reply path, a stateful rule winning over a stateless one) for a flow inside one VCN, but no emulated service calls it and nothing enforces traffic; overlapping or duplicate rules are accepted because the documentation does not say they are refused (unverified).
 - Availability domain names are checked for shape (<4 letters>:US-ASHBURN-AD-<1-3>) rather than against the tenancy's list.
-- Error codes and statuses for limits (400 LimitExceeded), duplicate dnsLabel and delete-in-use (409 Conflict) are unverified against the live service; default DHCP domainNameType for custom option sets is assumed CUSTOM_DOMAIN.
+- Error codes for duplicate dnsLabel and delete-in-use (409 Conflict) are unverified against the live service; default DHCP domainNameType for custom option sets is assumed CUSTOM_DOMAIN.
 - Resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
