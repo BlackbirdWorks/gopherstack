@@ -5,6 +5,7 @@ import "time"
 // Lifecycle states.
 const (
 	stateActive   = "ACTIVE"
+	stateUpdating = "UPDATING"
 	stateCreating = "CREATING"
 	stateDeleting = "DELETING"
 	stateDeleted  = "DELETED"

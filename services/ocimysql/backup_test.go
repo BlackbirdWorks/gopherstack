@@ -332,3 +332,95 @@ func TestChangeBackupCompartment(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
+
+func TestSoftDeleteBackup(t *testing.T) {
+	t.Parallel()
+
+	const day = 24 * time.Hour
+
+	tests := []struct {
+		act   func(t *testing.T, e *env, id *string)
+		name  string
+		state my.BackupLifecycleStateEnum
+	}{
+		{
+			name: "grace expires",
+			act: func(_ *testing.T, e *env, _ *string) {
+				e.clock.Advance(8 * day)
+				e.backend.Sweep()
+			},
+			state: my.BackupLifecycleStateDeleted,
+		},
+		{
+			name:  "within grace",
+			act:   func(_ *testing.T, e *env, _ *string) { e.clock.Advance(6 * day); e.backend.Sweep() },
+			state: my.BackupLifecycleStateDeleteScheduled,
+		},
+		{
+			name: "cancel",
+			act: func(t *testing.T, e *env, id *string) {
+				t.Helper()
+
+				_, err := e.bk.CancelBackupDeletion(t.Context(), my.CancelBackupDeletionRequest{BackupId: id})
+				require.NoError(t, err)
+				e.backend.Sweep()
+			},
+			state: my.BackupLifecycleStateActive,
+		},
+		{
+			name: "delete now",
+			act: func(t *testing.T, e *env, id *string) {
+				t.Helper()
+
+				_, err := e.bk.DeleteBackup(t.Context(), my.DeleteBackupRequest{BackupId: id})
+				require.NoError(t, err)
+			},
+			state: my.BackupLifecycleStateDeleted,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			db := e.mkDB(t, "soft", nil)
+
+			created, err := e.bk.CreateBackup(t.Context(), my.CreateBackupRequest{
+				DbSystemId: db.Id, RetentionInDays: new(1), SoftDelete: my.SoftDeleteEnabled,
+			})
+			require.NoError(t, err)
+			e.settle()
+
+			e.clock.Advance(2 * day)
+			e.backend.Sweep()
+
+			got, err := e.bk.GetBackup(t.Context(), my.GetBackupRequest{BackupId: created.Id})
+			require.NoError(t, err)
+			require.Equal(t, my.BackupLifecycleStateDeleteScheduled, got.LifecycleState)
+
+			_, err = e.bk.ChangeBackupCompartment(t.Context(), my.ChangeBackupCompartmentRequest{
+				BackupId:      created.Id,
+				CompartmentId: new(testCompartment),
+			})
+			assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+
+			tt.act(t, e, created.Id)
+
+			got, err = e.bk.GetBackup(t.Context(), my.GetBackupRequest{BackupId: created.Id})
+			require.NoError(t, err)
+			assert.Equal(t, tt.state, got.LifecycleState)
+		})
+	}
+}
+
+func TestCancelBackupDeletionRequiresScheduled(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	db := e.mkDB(t, "plain", nil)
+	bk := e.mkBackup(t, db.Id, "active")
+
+	_, err := e.bk.CancelBackupDeletion(t.Context(), my.CancelBackupDeletionRequest{BackupId: bk.Id})
+	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+}

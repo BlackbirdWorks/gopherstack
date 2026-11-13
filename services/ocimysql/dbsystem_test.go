@@ -725,6 +725,21 @@ func TestShapesAndVersions(t *testing.T) {
 	assert.Equal(t, 16, *byName["MySQL.2"].MemorySizeInGBs)
 	assert.Equal(t, 2, *byName["MySQL.2"].CpuCoreCount)
 	assert.Contains(t, byName, "MySQL.Free")
+
+	for _, tt := range []struct {
+		name string
+		cpu  int
+		mem  int
+	}{
+		{"MySQL.Free", 1, 8}, {"MySQL.96", 96, 768}, {"MySQL.192", 192, 1326}, {"MySQL.256", 256, 1024},
+		{"MySQL.VM.Standard.E4.4.64GB", 4, 64}, {"MySQL.VM.Standard2.2.30GB", 2, 30},
+		{"MySQL.VM.Standard3.24.384GB", 24, 384}, {"MySQL.VM.Optimized3.16.256GB", 16, 256},
+	} {
+		require.Contains(t, byName, tt.name)
+		assert.Equal(t, tt.cpu, *byName[tt.name].CpuCoreCount, tt.name)
+		assert.Equal(t, tt.mem, *byName[tt.name].MemorySizeInGBs, tt.name)
+	}
+
 	assert.Equal(t, []my.ShapeSummaryIsSupportedForEnum{my.ShapeSummaryIsSupportedForHeatwavecluster},
 		byName["MySQL.HeatWave.VM.Standard"].IsSupportedFor)
 

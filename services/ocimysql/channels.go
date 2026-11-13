@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -39,6 +40,7 @@ type ChannelTargetIn struct {
 
 // CreateChannelIn is the CreateChannel body.
 type CreateChannelIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	IsEnabled     *bool           `json:"isEnabled"`
 	Source        ChannelSourceIn `json:"source"`
@@ -194,6 +196,24 @@ func (b *InMemoryBackend) CreateChannel(in CreateChannelIn) (Doc, string, string
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
+	id, rwr, hit, rerr := b.replayCreate("CreateChannel", in.RetryToken, func(id string) (string, bool) {
+		c, ok := b.channels[id]
+		if !ok {
+			return "", false
+		}
+
+		return c.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		c := b.channels[id]
+
+		return b.channelDoc(c), c.Etag, rwr, nil
+	}
+
 	src, aerr := b.channelSource(in.Source, nil)
 	tgt, aerr2 := b.channelTarget(in.Target, nil)
 
@@ -241,6 +261,7 @@ func (b *InMemoryBackend) CreateChannel(in CreateChannelIn) (Doc, string, string
 
 	b.channels[c.ID] = c
 	wr := b.newWR(wrCreateChannel, compartment, entityChannel, c.ID, actionCreated, c.TransitionAt)
+	b.retry.Remember("CreateChannel", in.RetryToken, ociretry.Join(c.ID, wr), b.nowUTC())
 
 	return b.channelDoc(c), c.Etag, wr, nil
 }
@@ -455,6 +476,8 @@ func (h *Handler) createChannel(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, wr, err := h.Backend.CreateChannel(in)
 	if err != nil {

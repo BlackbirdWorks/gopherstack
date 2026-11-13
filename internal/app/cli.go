@@ -3947,6 +3947,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
@@ -3960,6 +3961,7 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIQueue"].(*ociqueuebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {

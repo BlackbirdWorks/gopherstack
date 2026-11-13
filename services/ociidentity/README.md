@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 70 (50 ok, 20 partial) |
 | Feature families | 6 (5 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -20,10 +20,9 @@
 - Customer secret keys, auth tokens, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, registry, SMTP or console authentication.
 - DeleteCompartment only checks the IAM resources it owns; resources other emulated OCI services keep in a compartment do not block deletion.
 - Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists.
-- Error codes and statuses for duplicate names, per-user credential limits and tenancy limits (400 LimitExceeded, 409 Conflict) and the MOVE_COMPARTMENT operation type are unverified against the live service.
-- Dynamic group matchingRule supports a single ANY or ALL group of simple comparisons; the documented variable set is not enforced.
+- Per-operation error mapping for duplicate names (409 Conflict), per-user credential limits and tenancy limits (400 LimitExceeded) is undocumented, and MOVE_COMPARTMENT is not among the SDK's work request operation types (DELETE_COMPARTMENT and DELETE_TAG_DEFINITION).
 - Access levels are not modelled: accessLevel is validated but every caller sees every compartment, and inactive states other than DELETING and DELETED are never produced.
-- opc-retry-token idempotency, resource principals and instance principals are not applied; only API-key signatures are verified.
+- opc-retry-token replay is not applied to credential creation (auth tokens, secret keys, SMTP credentials, API keys), whose replies carry secrets that are not stored; resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 

@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -43,6 +44,7 @@ type InMemoryBackend struct {
 	tagDefs     map[string]*TagDef
 	tagDefaults map[string]*TagDefault
 	workReqs    map[string]*WorkRequest
+	retry       *ociretry.Store
 	// Auth is the API-key registry shared with the other OCI services.
 	Auth *ociauth.Registry
 	seq  int64
@@ -68,6 +70,7 @@ func (b *InMemoryBackend) initMaps() {
 	b.tagDefs = map[string]*TagDef{}
 	b.tagDefaults = map[string]*TagDefault{}
 	b.workReqs = map[string]*WorkRequest{}
+	b.retry = ociretry.New()
 }
 
 // SetClock injects the time source used for lifecycle transitions.
@@ -242,3 +245,24 @@ func stampOf[T any](acc listAccess[T], v *T) (time.Time, int64) {
 
 	return created, seq
 }
+
+// replayCreate resolves an opc-retry-token to the resource its first request created.
+// It reports a hit, and InvalidatedRetryToken when that resource has since been deleted.
+func replayCreate[T any](
+	b *InMemoryBackend, scope, token string, m map[string]*T, state func(*T) string,
+) (*T, bool, *APIError) {
+	id, ok := b.retry.Lookup(scope, token, b.nowUTC())
+	if !ok {
+		return nil, false, nil
+	}
+
+	r, live := m[id]
+	if !live || (state != nil && (state(r) == stateDeleting || state(r) == stateDeleted)) {
+		return nil, true, errConflict("InvalidatedRetryToken",
+			"The retry token was used by an earlier request whose resource has since been deleted")
+	}
+
+	return r, true, nil
+}
+
+const headerRetry = "Opc-Retry-Token"

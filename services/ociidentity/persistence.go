@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -14,20 +15,21 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Created     time.Time                `json:"created"`
-	Compart     map[string]*Compartment  `json:"compartments"`
-	Users       map[string]*User         `json:"users"`
-	Groups      map[string]*Group        `json:"groups"`
-	Members     map[string]*Membership   `json:"memberships"`
-	DynGroups   map[string]*DynamicGroup `json:"dynamicGroups"`
-	Policies    map[string]*Policy       `json:"policies"`
-	TagNS       map[string]*TagNamespace `json:"tagNamespaces"`
-	TagDefs     map[string]*TagDef       `json:"tagDefinitions"`
-	TagDefaults map[string]*TagDefault   `json:"tagDefaults"`
-	WorkReqs    map[string]*WorkRequest  `json:"workRequests"`
-	Auth        []ociauth.KeyRecord      `json:"authKeys"`
-	Version     int                      `json:"version"`
-	Seq         int64                    `json:"seq"`
+	Created     time.Time                 `json:"created"`
+	Policies    map[string]*Policy        `json:"policies"`
+	TagDefs     map[string]*TagDef        `json:"tagDefinitions"`
+	Groups      map[string]*Group         `json:"groups"`
+	Members     map[string]*Membership    `json:"memberships"`
+	DynGroups   map[string]*DynamicGroup  `json:"dynamicGroups"`
+	Compart     map[string]*Compartment   `json:"compartments"`
+	TagNS       map[string]*TagNamespace  `json:"tagNamespaces"`
+	Users       map[string]*User          `json:"users"`
+	TagDefaults map[string]*TagDefault    `json:"tagDefaults"`
+	WorkReqs    map[string]*WorkRequest   `json:"workRequests"`
+	Retry       map[string]ociretry.Entry `json:"retryTokens"`
+	Auth        []ociauth.KeyRecord       `json:"authKeys"`
+	Version     int                       `json:"version"`
+	Seq         int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -40,7 +42,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "ociidentity", backendSnapshot{
 		Version: snapshotVersion, Created: b.created, Compart: b.compartment, Users: b.users, Groups: b.groups,
 		Members: b.members, DynGroups: b.dynGroups, Policies: b.policies, TagNS: b.tagNS, TagDefs: b.tagDefs,
-		TagDefaults: b.tagDefaults, WorkReqs: b.workReqs, Auth: keys, Seq: b.seq,
+		TagDefaults: b.tagDefaults, WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, Retry: b.retry.Entries(),
 	})
 }
 
@@ -76,6 +78,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.created = snap.Created
 	}
 
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

@@ -334,3 +334,28 @@ func TestGroupsPerStreamLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestCommitUnreservedPartition(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	s := e.mkStream(t, "g6", 1)
+	c := e.msgs(t, s)
+	putOne(t, c, s, "", "a")
+
+	manual := func(d *streaming.CreateGroupCursorDetails) {
+		d.CommitOnGet = new(false)
+		d.TimeoutInMs = new(5000)
+	}
+	cur := groupCursor(t, c, s, "g", "slow", manual)
+	got := getMsgs(t, c, s, cur, 0)
+
+	e.clock.Advance(10 * time.Second)
+	groupCursor(t, c, s, "g", "other", manual)
+
+	_, err := c.ConsumerCommit(t.Context(), streaming.ConsumerCommitRequest{StreamId: s.Id, Cursor: got.OpcNextCursor})
+	se := svcErr(t, err)
+	assert.Equal(t, http.StatusBadRequest, se.GetHTTPStatusCode())
+	assert.Equal(t, "InvalidParameter", se.GetCode())
+	assert.Contains(t, se.GetMessage(), "Trying to commit unreserved partition")
+}

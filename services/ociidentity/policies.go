@@ -17,6 +17,7 @@ const (
 
 // CreatePolicyIn is the CreatePolicy request body.
 type CreatePolicyIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	VersionDate   *string  `json:"versionDate"`
 	CompartmentID string   `json:"compartmentId"`
@@ -117,6 +118,15 @@ func (b *InMemoryBackend) CreatePolicy(in CreatePolicyIn) (policyWire, string, e
 	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(b, "CreatePolicy", in.RetryToken, b.policies,
+		func(r *Policy) string { return r.LifecycleState }); hit || aerr != nil {
+		if aerr != nil {
+			return policyWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	if aerr := b.activeParent(in.CompartmentID); aerr != nil {
 		return policyWire{}, "", aerr
 	}
@@ -142,6 +152,7 @@ func (b *InMemoryBackend) CreatePolicy(in CreatePolicyIn) (policyWire, string, e
 	}
 
 	b.policies[p.ID] = p
+	b.retry.Remember("CreatePolicy", in.RetryToken, p.ID, b.nowUTC())
 
 	return p.view(), p.Internal.Etag, nil
 }
@@ -271,6 +282,7 @@ func (h *Handler) createPolicy(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreatePolicy(in)
 
 	return reply(q, v, etag, err)

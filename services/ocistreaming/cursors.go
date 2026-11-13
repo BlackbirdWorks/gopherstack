@@ -219,6 +219,10 @@ func (b *InMemoryBackend) GetMessages(streamID, cursor string, limit int) ([]mes
 	cur.Issued = now.UnixMilli()
 
 	msgs := s.read(cur.Part, cur.Offset, limit)
+	if cerr := b.chargeRead(s.ID, cur.Part, msgs, now); cerr != nil {
+		return nil, "", cerr
+	}
+
 	cur.Offset = max(cur.Offset, s.Parts[cur.Part].Base)
 
 	if n := len(msgs); n > 0 {
@@ -347,7 +351,7 @@ func (b *InMemoryBackend) CreateGroupCursor(streamID string, in CreateGroupCurso
 	b.mu.Lock("CreateGroupCursor")
 	defer b.mu.Unlock()
 
-	s, aerr := b.activeStream(streamID)
+	s, aerr := b.dataStream(streamID)
 	if aerr != nil {
 		return cursorWire{}, aerr
 	}
@@ -415,6 +419,10 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 			return nil, "", cerr
 		}
 
+		if cerr := b.chargeRead(s.ID, part, msgs, b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
+
 		g.Rotation[cur.Instance] = idx + 1
 		end := msgs[len(msgs)-1].Offset + 1
 
@@ -461,8 +469,7 @@ func (b *InMemoryBackend) ConsumerCommit(streamID, cursor string) (cursorWire, e
 
 	for part, off := range cur.Pending {
 		if !owned[part] {
-			return cursorWire{}, errState("The consumer instance no longer holds the reservation for partition " +
-				strconv.Itoa(part))
+			return cursorWire{}, errParam("Trying to commit unreserved partition " + strconv.Itoa(part))
 		}
 
 		g.Next[part] = max(g.Next[part], min(off, s.Parts[part].end()))
@@ -670,6 +677,39 @@ func (h *Handler) consumerHeartbeat(q *req) error {
 type getWindow struct {
 	sec   int64
 	count int
+	bytes int
+}
+
+// chargeRead enforces 2 MiB/s of read throughput per partition across all consumers.
+func (b *InMemoryBackend) chargeRead(streamID string, part int, msgs []messageWire, now time.Time) *APIError {
+	size := 0
+	for _, m := range msgs {
+		size += len(m.Key) + len(m.Value)
+	}
+
+	if size == 0 {
+		return nil
+	}
+
+	k := "read/" + streamID + "/" + strconv.Itoa(part)
+
+	w := b.getWindows[k]
+	if w == nil {
+		w = &getWindow{}
+		b.getWindows[k] = w
+	}
+
+	if w.sec != now.Unix() {
+		w.sec, w.count, w.bytes = now.Unix(), 0, 0
+	}
+
+	if w.bytes > 0 && w.bytes+size > maxPartitionReadBytes {
+		return errThrottled("Partition " + strconv.Itoa(part) + " exceeded the 2 MiB/s read limit")
+	}
+
+	w.bytes += size
+
+	return nil
 }
 
 // chargeGet enforces 5 GetMessages requests per second per partition per consumer group.

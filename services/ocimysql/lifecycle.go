@@ -12,6 +12,7 @@ import (
 
 const (
 	hoursPerDay       = 24
+	softDeleteGrace   = 7 * hoursPerDay * time.Hour
 	shutdownImmediate = "IMMEDIATE"
 )
 

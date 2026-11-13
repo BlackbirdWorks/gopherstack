@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -37,8 +39,10 @@ type InMemoryBackend struct {
 	groups     map[string]*Group
 	workReqs   map[string]*WorkRequest
 	getWindows map[string]*getWindow
+	retry      *ociretry.Store
 	Auth       *ociauth.Registry
 	keyChecker KeyChecker
+	tagLookup  ocitags.Lookup
 	transition time.Duration
 	seq        int64
 }
@@ -56,6 +60,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.pools, b.streams, b.harnesses = map[string]*Pool{}, map[string]*Stream{}, map[string]*Harness{}
 	b.groups, b.workReqs = map[string]*Group{}, map[string]*WorkRequest{}
 	b.getWindows = map[string]*getWindow{}
+	b.retry = ociretry.New()
 }
 
 // SetClock injects the time source used for lifecycle transitions, retention and reservations.
@@ -226,6 +231,8 @@ func settle(state string, at *time.Time, now time.Time) (string, *time.Time) {
 	switch state {
 	case stateCreating:
 		return stateActive, nil
+	case stateUpdating:
+		return stateActive, nil
 	case stateDeleting:
 		return stateDeleted, nil
 	}
@@ -251,4 +258,21 @@ func (b *InMemoryBackend) dropGroups(streamID string) {
 			delete(b.groups, k)
 		}
 	}
+}
+
+const headerRetry = "Opc-Retry-Token"
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
 }

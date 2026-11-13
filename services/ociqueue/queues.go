@@ -12,20 +12,22 @@ import (
 )
 
 const (
-	minRetention     = 10
-	maxRetention     = 604800
-	defaultRetention = 86400
-	maxVisibility    = 43200
-	defaultVisible   = 30
-	maxPollTimeout   = 30
-	defaultTimeout   = 30
-	maxDLQCount      = 20
-	defaultDLQCount  = 5
-	maxChannelLimit  = 100
+	minRetention       = 10
+	maxRetention       = 604800
+	defaultRetention   = 86400
+	maxVisibility      = 43200
+	minQueueVisibility = 1
+	defaultVisible     = 30
+	maxPollTimeout     = 30
+	defaultTimeout     = 30
+	maxDLQCount        = 20
+	defaultDLQCount    = 5
+	maxChannelLimit    = 100
 )
 
 // CreateQueueIn is the CreateQueue request body.
 type CreateQueueIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Retention    *int              `json:"retentionInSeconds"`
 	Visibility   *int              `json:"visibilityInSeconds"`
@@ -169,6 +171,19 @@ func (b *InMemoryBackend) mutableQueue(id string) (*Queue, *APIError) {
 	return q, nil
 }
 
+func (b *InMemoryBackend) replayCreate(wrID string) (string, error) {
+	wr, ok := b.workReqs[wrID]
+	if !ok {
+		return "", errInvalidatedToken()
+	}
+
+	if q, found := b.queues[wr.EntityID]; !found || q.State == stateDeleting || q.State == stateDeleted {
+		return "", errInvalidatedToken()
+	}
+
+	return wrID, nil
+}
+
 // CreateQueue creates a queue in CREATING state and returns its work request.
 func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 	if in.Compartment == "" {
@@ -178,7 +193,7 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 	if aerr := firstErr(
 		validateName(in.Name),
 		inRange("retentionInSeconds", in.Retention, minRetention, maxRetention),
-		inRange("visibilityInSeconds", in.Visibility, 0, maxVisibility),
+		inRange("visibilityInSeconds", in.Visibility, minQueueVisibility, maxVisibility),
 		inRange("timeoutInSeconds", in.Timeout, 0, maxPollTimeout),
 		inRange("deadLetterQueueDeliveryCount", in.DLQCount, 0, maxDLQCount),
 		inRange("channelConsumptionLimit", in.ChannelLimit, 1, maxChannelLimit),
@@ -191,6 +206,14 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 	defer b.mu.Unlock()
 
 	now := b.nowUTC()
+	if wr, ok := b.retry.Lookup("CreateQueue", in.RetryToken, now); ok {
+		return b.replayCreate(wr)
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	q := &Queue{
 		ID: newOCID("queue"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating,
 		TimeCreated: now, TimeUpdated: now, TransitionAt: b.transitionAt(), Tags: in.Tags, Etag: newEtag(),
@@ -209,7 +232,10 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 
 	b.queues[q.ID] = q
 
-	return b.newWR("CREATE_QUEUE", q.CompartmentID, q.ID, "CREATED", "/queues/"+q.ID, *q.TransitionAt), nil
+	wr := b.newWR("CREATE_QUEUE", q.CompartmentID, q.ID, "CREATED", "/queues/"+q.ID, *q.TransitionAt)
+	b.retry.Remember("CreateQueue", in.RetryToken, wr, now)
+
+	return wr, nil
 }
 
 // GetQueue returns one queue and its etag.
@@ -270,7 +296,7 @@ func (b *InMemoryBackend) ListQueues(
 // UpdateQueue changes the mutable settings of a queue; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateQueue(id, ifMatch string, in UpdateQueueIn) (string, error) {
 	if aerr := firstErr(
-		inRange("visibilityInSeconds", in.Visibility, 0, maxVisibility),
+		inRange("visibilityInSeconds", in.Visibility, minQueueVisibility, maxVisibility),
 		inRange("timeoutInSeconds", in.Timeout, 0, maxPollTimeout),
 		inRange("deadLetterQueueDeliveryCount", in.DLQCount, 0, maxDLQCount),
 		inRange("channelConsumptionLimit", in.ChannelLimit, 1, maxChannelLimit),
@@ -296,6 +322,10 @@ func (b *InMemoryBackend) UpdateQueue(id, ifMatch string, in UpdateQueueIn) (str
 	}
 
 	if aerr = checkEtag(q.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 
@@ -429,6 +459,8 @@ func (h *Handler) createQueue(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateQueue(in)
 

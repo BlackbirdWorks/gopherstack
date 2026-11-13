@@ -4,10 +4,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type harnessIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Name        string `json:"name"`
 	Compartment string `json:"compartmentId"`
@@ -56,6 +58,21 @@ func (b *InMemoryBackend) CreateHarness(in harnessIn) (harnessWire, string, stri
 	b.mu.Lock("CreateHarness")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateConnectHarness", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+
+		h, live := b.harnesses[id]
+		if !live || h.State == stateDeleting || h.State == stateDeleted {
+			return harnessWire{}, "", "", errInvalidatedToken()
+		}
+
+		return harnessView(h), h.Etag, wr, nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return harnessWire{}, "", "", aerr
+	}
+
 	h := &Harness{
 		ID: newOCID("connectharness"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating,
 		TimeCreated: b.nowUTC(), TransitionAt: b.transitionAt(), Tags: in.Tags, Etag: newEtag(), Seq: b.nextSeq(),
@@ -63,6 +80,8 @@ func (b *InMemoryBackend) CreateHarness(in harnessIn) (harnessWire, string, stri
 	b.harnesses[h.ID] = h
 	wr := b.newWR("CREATE_CONNECT_HARNESS", h.CompartmentID, "connectharness", h.ID, "CREATED",
 		"/connectharnesses/"+h.ID, *h.TransitionAt)
+
+	b.retry.Remember("CreateConnectHarness", in.RetryToken, ociretry.Join(h.ID, wr), b.nowUTC())
 
 	return harnessView(h), h.Etag, wr, nil
 }
@@ -126,10 +145,14 @@ func (b *InMemoryBackend) UpdateHarness(id, ifMatch string, tags Tags) (harnessW
 		return harnessWire{}, "", "", aerr
 	}
 
+	if aerr = b.checkTags(tags); aerr != nil {
+		return harnessWire{}, "", "", aerr
+	}
+
 	h.Tags.merge(tags)
-	h.Etag = newEtag()
+	h.State, h.TransitionAt, h.Etag = stateUpdating, b.transitionAt(), newEtag()
 	wr := b.newWR("UPDATE_CONNECT_HARNESS", h.CompartmentID, "connectharness", h.ID, "UPDATED",
-		"/connectharnesses/"+h.ID, b.nowUTC())
+		"/connectharnesses/"+h.ID, *h.TransitionAt)
 
 	return harnessView(h), h.Etag, wr, nil
 }
@@ -172,10 +195,10 @@ func (b *InMemoryBackend) ChangeHarnessCompartment(id, ifMatch, compartment stri
 		return "", aerr
 	}
 
-	h.CompartmentID, h.Etag = compartment, newEtag()
+	h.CompartmentID, h.State, h.TransitionAt, h.Etag = compartment, stateUpdating, b.transitionAt(), newEtag()
 
 	return b.newWR("UPDATE_CONNECT_HARNESS", compartment, "connectharness", h.ID, "UPDATED",
-		"/connectharnesses/"+h.ID, b.nowUTC()), nil
+		"/connectharnesses/"+h.ID, *h.TransitionAt), nil
 }
 
 func (h *Handler) createHarness(q *req) error {
@@ -183,6 +206,8 @@ func (h *Handler) createHarness(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	v, etag, wr, err := h.Backend.CreateHarness(in)
 

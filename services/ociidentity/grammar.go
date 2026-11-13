@@ -99,8 +99,21 @@ func lexWord(rs []rune, i int) (*token, int, error) {
 }
 
 type parser struct {
-	toks []token
-	pos  int
+	toks     []token
+	pos      int
+	dynGroup bool
+}
+
+func dynamicGroupVariable(v string) bool {
+	switch strings.ToLower(v) {
+	case "instance.compartment.id", "instance.id", "resource.id", "resource.compartment.id", "resource.type":
+		return true
+	}
+
+	parts := strings.Split(v, ".")
+
+	return len(parts) == 4 && strings.EqualFold(parts[0], "tag") && strings.EqualFold(parts[3], "value") &&
+		parts[1] != "" && parts[2] != ""
 }
 
 func (p *parser) done() bool { return p.pos >= len(p.toks) }
@@ -210,6 +223,10 @@ func (p *parser) condition() error {
 		return fmt.Errorf("%w: %q is not a variable", ErrGrammar, v.text)
 	}
 
+	if p.dynGroup && !dynamicGroupVariable(v.text) {
+		return fmt.Errorf("%w: %q is not a supported dynamic group variable", ErrGrammar, v.text)
+	}
+
 	return p.operatorAndValue()
 }
 
@@ -298,7 +315,7 @@ func ValidateMatchingRule(rule string) error {
 		return err
 	}
 
-	p := &parser{toks: toks}
+	p := &parser{toks: toks, dynGroup: true}
 
 	if !p.peekIs("any") && !p.peekIs("all") {
 		return fmt.Errorf("%w: a rule must start with ANY or ALL", ErrGrammar)

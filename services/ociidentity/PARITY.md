@@ -88,8 +88,13 @@ items_still_open:
   - "Customer secret keys, auth tokens, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, registry, SMTP or console authentication."
   - "DeleteCompartment only checks the IAM resources it owns; resources other emulated OCI services keep in a compartment do not block deletion."
   - "Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists."
-  - "Error codes and statuses for duplicate names, per-user credential limits and tenancy limits (400 LimitExceeded, 409 Conflict) and the MOVE_COMPARTMENT operation type are unverified against the live service."
-  - "Dynamic group matchingRule supports a single ANY or ALL group of simple comparisons; the documented variable set is not enforced."
+  - "Per-operation error mapping for duplicate names (409 Conflict), per-user credential limits and tenancy limits (400 LimitExceeded) is undocumented, and MOVE_COMPARTMENT is not among the SDK's work request operation types (DELETE_COMPARTMENT and DELETE_TAG_DEFINITION)."
   - "Access levels are not modelled: accessLevel is validated but every caller sees every compartment, and inactive states other than DELETING and DELETED are never produced."
-  - "opc-retry-token idempotency, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "opc-retry-token replay is not applied to credential creation (auth tokens, secret keys, SMTP credentials, API keys), whose replies carry secrets that are not stored; resource principals and instance principals are not applied and only API-key signatures are verified."
 ---
+
+## 2026-11-13 pass
+
+- Dynamic group matching rules accept `any|all {condition, ...}` over the documented variables only: instance.compartment.id, instance.id, resource.id, resource.compartment.id, resource.type and tag.<namespace>.<key>.value (https://docs.oracle.com/iaas/Content/Identity/dynamicgroups/Writing_Matching_Rules_to_Define_Dynamic_Groups.htm). The page documents `=` and `!=`; the emulator also accepts the other comparison operators shared with policy conditions.
+- CreateCompartment, CreateUser, CreateGroup, CreateDynamicGroup, CreatePolicy, CreateTagNamespace, CreateTag and CreateTagDefault replay on opc-retry-token for 24 hours (SDK request docs) and answer 409 InvalidatedRetryToken once the resource was deleted (https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm); tokens persist in the snapshot as retryTokens.
+- TagDefinition resolves a namespace and key (case-insensitive, documented in https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm) for the tag checks of OCI Streaming and OCI Queue; retired namespaces and keys are reported as retired.

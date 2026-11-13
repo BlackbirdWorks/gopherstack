@@ -23,6 +23,7 @@ const (
 	opUpdateBackup      = "UpdateBackup"
 	opDeleteBackup      = "DeleteBackup"
 	opChangeBackupComp  = "ChangeBackupCompartment"
+	opCancelBackupDel   = "CancelBackupDeletion"
 	opCreateChannel     = "CreateChannel"
 	opGetChannel        = "GetChannel"
 	opListChannels      = "ListChannels"
@@ -79,6 +80,7 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPut, Path: backupPath, Op: opUpdateBackup},
 	{Method: http.MethodDelete, Path: backupPath, Op: opDeleteBackup},
 	{Method: http.MethodPost, Path: backupPath + "/actions/changeCompartment", Op: opChangeBackupComp},
+	{Method: http.MethodPost, Path: backupPath + "/actions/cancelDeletion", Op: opCancelBackupDel},
 	{Method: http.MethodPost, Path: base + "/channels", Op: opCreateChannel},
 	{Method: http.MethodGet, Path: base + "/channels", Op: opListChannels},
 	{Method: http.MethodGet, Path: channelPath, Op: opGetChannel},

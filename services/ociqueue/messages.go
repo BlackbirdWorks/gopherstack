@@ -15,7 +15,7 @@ import (
 
 const (
 	maxBatch        = 20
-	maxContentBytes = 128 * 1024
+	maxContentBytes = 256 * 1024
 	maxBatchBytes   = 512 * 1024
 	maxChannelID    = 64
 	defaultGetLimit = 1
@@ -136,7 +136,7 @@ func validatePut(in putMessagesIn) *APIError {
 		}
 
 		if len(*m.Content) > maxContentBytes {
-			return errParam("a message content is limited to 128 KiB")
+			return errParam("a message content is limited to 256 KiB")
 		}
 
 		total += len(*m.Content)

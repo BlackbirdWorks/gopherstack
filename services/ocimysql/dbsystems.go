@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -88,6 +89,7 @@ type SourceIn struct {
 
 // CreateDBSystemIn is the CreateDBSystem body.
 type CreateDBSystemIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Extra             map[string]json.RawMessage `json:"-"`
 	IsHighlyAvailable *bool                      `json:"isHighlyAvailable"`
@@ -638,6 +640,24 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 	b.mu.Lock("CreateDbSystem")
 	defer b.mu.Unlock()
 
+	id, rwr, hit, rerr := b.replayCreate("CreateDbSystem", in.RetryToken, func(id string) (string, bool) {
+		s, ok := b.systems[id]
+		if !ok {
+			return "", false
+		}
+
+		return s.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		s := b.systems[id]
+
+		return b.systemDoc(s), s.Etag, rwr, nil
+	}
+
 	plan, aerr := b.buildSystem(in)
 	if aerr != nil {
 		return nil, "", "", aerr
@@ -652,6 +672,7 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 
 	wr := b.newWR(wrCreateDBSystem, s.CompartmentID, entityDBSystem, s.ID, actionCreated, s.TransitionAt)
 	b.systems[s.ID] = s
+	b.retry.Remember("CreateDbSystem", in.RetryToken, ociretry.Join(s.ID, wr), b.nowUTC())
 
 	if b.eng != nil {
 		b.spawn(s.ID, wr, b.launchWork(s.ID, launchIn{
@@ -895,6 +916,7 @@ func (h *Handler) createDBSystem(q *req) error {
 	}
 
 	in.Extra = extras(q.body)
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, wr, err := h.Backend.CreateDBSystem(in)
 	if err != nil {

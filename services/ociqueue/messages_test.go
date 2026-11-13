@@ -144,7 +144,7 @@ func TestPutValidation(t *testing.T) {
 	}{
 		{"empty", []queue.PutMessagesDetailsEntry{}},
 		{"too many", many},
-		{"too large", []queue.PutMessagesDetailsEntry{{Content: new(strings.Repeat("x", 128*1024+1))}}},
+		{"too large", []queue.PutMessagesDetailsEntry{{Content: new(strings.Repeat("x", 256*1024+1))}}},
 		{"long channel", []queue.PutMessagesDetailsEntry{{
 			Content: new("x"), Metadata: &queue.MessageMetadata{ChannelId: new(strings.Repeat("c", 65))},
 		}}},
@@ -164,7 +164,7 @@ func TestPutValidation(t *testing.T) {
 	_, err := c.GetMessages(t.Context(), queue.GetMessagesRequest{QueueId: q.Id, Limit: new(21)})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
-	put(t, c, q, "", strings.Repeat("x", 128*1024))
+	put(t, c, q, "", strings.Repeat("x", 256*1024))
 }
 
 func TestChannels(t *testing.T) {

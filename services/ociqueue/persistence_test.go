@@ -115,3 +115,44 @@ func TestAdminKeyEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	assert.Contains(t, body, testTenancy)
 }
+
+func TestRetryTokenSurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	in := oci.CreateQueueIn{Compartment: testCompartment, Name: "tok", RetryToken: "tok"}
+
+	first, err := e.backend.CreateQueue(in)
+	require.NoError(t, err)
+
+	restored := oci.NewInMemoryBackend()
+	restored.SetClock(e.clock.Now)
+	require.NoError(t, restored.Restore(t.Context(), e.backend.Snapshot(t.Context())))
+
+	again, err := restored.CreateQueue(in)
+	require.NoError(t, err)
+	assert.Equal(t, first, again)
+}
+
+func TestRetryTokenInvalidatedByDelete(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	in := oci.CreateQueueIn{Compartment: testCompartment, Name: "gone", RetryToken: "tok"}
+
+	_, err := e.backend.CreateQueue(in)
+	require.NoError(t, err)
+
+	e.settle()
+
+	list, err := e.admin.ListQueues(t.Context(), queue.ListQueuesRequest{CompartmentId: new(testCompartment)})
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+
+	_, err = e.admin.DeleteQueue(t.Context(), queue.DeleteQueueRequest{QueueId: list.Items[0].Id})
+	require.NoError(t, err)
+
+	_, err = e.backend.CreateQueue(in)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidatedRetryToken")
+}

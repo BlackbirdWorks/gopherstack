@@ -5,7 +5,7 @@ last_audit_commit: 3a4fe760a
 last_audit_date: 2026-10-27
 overall: B
 ops:
-  CreateQueue: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body, as the SDK response declares. CREATING then ACTIVE after the transition window on the injectable clock. retentionInSeconds 10 to 604800 (default 86400), visibilityInSeconds 0 to 43200 (default 30), timeoutInSeconds 0 to 30 (default 30), deadLetterQueueDeliveryCount 0 to 20 (default 5, 0 disables the DLQ), channelConsumptionLimit 1 to 100 (default 100). customEncryptionKeyId must be an OCID of an ENABLED OCI Vault key when the Vault backend is wired. A non-empty capabilities list is rejected 400 (see items_still_open)."}
+  CreateQueue: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body, as the SDK response declares; opc-retry-token replays the original work request for 24 hours and answers 409 InvalidatedRetryToken once the queue was deleted. CREATING then ACTIVE after the transition window on the injectable clock. retentionInSeconds 10 to 604800 (default 86400), visibilityInSeconds 1 to 43200 (default 30), timeoutInSeconds 0 to 30 (default 30), deadLetterQueueDeliveryCount 0 to 20 (default 5, 0 disables the DLQ), channelConsumptionLimit 1 to 100 (default 100). customEncryptionKeyId must be an OCID of an ENABLED OCI Vault key when the Vault backend is wired. A non-empty capabilities list is rejected 400 (see items_still_open)."}
   GetQueue: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; messagesEndpoint is the base URL the client addressed, so it works as the QueueClient host; DELETED queues stay readable."}
   ListQueues: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId or id required; displayName, lifecycleState filters; sortBy timeCreated or displayName; items envelope, paged with opc-next-page."}
   UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "202 with work request; displayName, visibility, timeout, DLQ count, channel limit, key and tags apply immediately and the queue reports UPDATING for the transition window while data plane calls keep working. If-Match gives 412 NoEtagMatch."}
@@ -16,7 +16,7 @@ ops:
   ListWorkRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId or workRequestId, resourceId filter; items envelope."}
   ListWorkRequestErrors: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Always empty: no emulated operation fails asynchronously."}
   ListWorkRequestLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Accepted and succeeded entries."}
-  PutMessages: {wire: ok, errors: partial, state: ok, persist: ok, note: "Up to 20 messages and 512 KiB per request, 128 KiB per message, channelId up to 64 characters (metadata requires channelId). Returns per message id and expireAfter (now + retention). Wakes parked long polls."}
+  PutMessages: {wire: ok, errors: partial, state: ok, persist: ok, note: "Up to 20 messages and 512 KiB per request, 256 KiB per message, channelId up to 64 characters (metadata requires channelId). Returns per message id and expireAfter (now + retention). Wakes parked long polls."}
   GetMessages: {wire: ok, errors: partial, state: ok, persist: ok, note: "limit 1 to 20 (default 1), visibilityInSeconds 0 to 43200 (default queue value; 0 peeks but still counts a delivery), timeoutInSeconds 0 to 30 (default queue value; 0 is a short poll). Long polling parks on a per-queue wake channel plus timers for the poll deadline and the next message becoming visible, so it never spins; it ends on a put, a visibility change, the deadline, client disconnect, queue deletion or listener shutdown. channelFilter matches a channel id exactly."}
   UpdateMessage: {wire: ok, errors: partial, state: ok, persist: ok, note: "Sets the visibility of the message that holds the receipt (0 to 43200 seconds from now); returns id and visibleAfter. Unknown or superseded receipt is 404."}
   UpdateMessages: {wire: ok, errors: partial, state: ok, persist: ok, note: "Up to 20 entries; each entry reports id and visibleAfter or errorCode 404 with errorMessage, with clientFailures counted."}
@@ -38,12 +38,17 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
   - "Consumer groups (CreateConsumerGroup, GetConsumerGroup, ListConsumerGroups, UpdateConsumerGroup, DeleteConsumerGroup) are not routed, the consumerGroupId query parameter is ignored by the data plane and the CONSUMER_GROUPS capability is rejected."
-  - "The LARGE_MESSAGES capability is rejected; only the standard 128 KiB message limit exists."
-  - "The DLQ cannot be consumed: the SDK has no API to read dead lettered messages, so they are only counted by GetStats and cleared by PurgeQueue."
-  - "Limits (retention 10 to 604800 s, visibility 0 to 43200 s, poll timeout 0 to 30 s, DLQ count 0 to 20, batch of 20 messages, 128 KiB per message, 512 KiB per request, 64 character channel ids) and the channelConsumptionLimit semantics are recalled from the Oracle documentation and SDK comments, not verified against the live service."
-  - "channelFilter is an exact match on GetMessages and a substring match on ListChannels; the live matching rules are unverified."
-  - "Throughput limits and per-queue storage quotas (and therefore channelConsumptionLimit enforcement) are not applied."
+  - "The LARGE_MESSAGES capability is rejected; the 256 KB standard message limit applies and the capability's larger limit is not documented in the pages read."
+  - "The 64 character channel id limit and the 1 to 100 channelConsumptionLimit range are undocumented (the SDK describes channelConsumptionLimit only as the percentage of queue capacity one channel may use); deadLetterQueueDeliveryCount 0 disables the DLQ per the SDK while the overview states a range of 1 to 20."
+  - "channelFilter is an exact match on GetMessages and a substring match on ListChannels; the documentation says a filter can match several channels (one is chosen at random) but not how ids are matched."
+  - "The documented service limits (1,000 requests/s per API per queue, 10 MB/s ingress and egress, 2 GB storage per queue and 20 GB per tenancy, 100,000 in-flight messages, 256 channels per queue, 10 queues per tenancy per region) and channelConsumptionLimit are not enforced; their error codes are undocumented."
   - "Messages are held in memory and in snapshots, so large backlogs grow the snapshot."
-  - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
+
+## 2026-11-13 pass
+
+- Limits from https://docs.oracle.com/en-us/iaas/Content/queue/overview.htm: 256 KB per message, 20 messages and 512 KB per PutMessages request, retention 10 seconds to 7 days (default 1 day), visibility 1 second to 12 hours at queue level and 0 at message level (default 30 seconds), long poll 0 to 30 seconds, 256 channels per queue.
+- The SDK exposes no operation that reads the DLQ (queue/*_client.go lists CreateConsumerGroup, GetMessages, GetStats, PurgeQueue and the other operations routed here), so a DLQ that is only counted and purged matches the service.
+- opc-retry-token: SDK request docs state the token expires after 24 hours; 409 InvalidatedRetryToken comes from https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm. Tokens persist in the snapshot as retryTokens.
+- Tags are checked by pkgs/ocitags against OCI Identity when linked (https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm).
