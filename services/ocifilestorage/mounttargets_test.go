@@ -160,7 +160,7 @@ func TestMountTargetShape(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	mt := e.createMT(t, nil)
 
-	for _, bad := range []int64{1, 0, 21} {
+	for _, bad := range []int64{1, 0, 4, 21, 81} {
 		_, err := e.client.UpgradeShapeMountTarget(t.Context(), filestorage.UpgradeShapeMountTargetRequest{
 			MountTargetId: mt.Id, RequestedThroughput: new(bad),
 		})
@@ -168,14 +168,14 @@ func TestMountTargetShape(t *testing.T) {
 	}
 
 	up, err := e.client.UpgradeShapeMountTarget(t.Context(), filestorage.UpgradeShapeMountTargetRequest{
-		MountTargetId: mt.Id, RequestedThroughput: new(int64(4)),
+		MountTargetId: mt.Id, RequestedThroughput: new(int64(40)),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, filestorage.MountTargetLifecycleStateUpdating, up.LifecycleState)
 	assert.NotNil(t, up.TimeBillingCycleEnd)
 
 	e.settle()
-	assert.Equal(t, int64(4), *e.getMT(t, mt.Id).RequestedThroughput)
+	assert.Equal(t, int64(40), *e.getMT(t, mt.Id).RequestedThroughput)
 
 	_, err = e.client.CancelDowngradeShapeMountTarget(
 		t.Context(),
@@ -186,7 +186,7 @@ func TestMountTargetShape(t *testing.T) {
 	_, err = e.client.ScheduleDowngradeShapeMountTarget(
 		t.Context(),
 		filestorage.ScheduleDowngradeShapeMountTargetRequest{
-			MountTargetId: mt.Id, RequestedThroughput: new(int64(6)),
+			MountTargetId: mt.Id, RequestedThroughput: new(int64(80)),
 		},
 	)
 	assertStatus(t, err, http.StatusBadRequest, "InvalidParameter")
@@ -194,15 +194,15 @@ func TestMountTargetShape(t *testing.T) {
 	_, err = e.client.ScheduleDowngradeShapeMountTarget(
 		t.Context(),
 		filestorage.ScheduleDowngradeShapeMountTargetRequest{
-			MountTargetId: mt.Id, RequestedThroughput: new(int64(2)),
+			MountTargetId: mt.Id, RequestedThroughput: new(int64(20)),
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int64(4), *e.getMT(t, mt.Id).RequestedThroughput, "downgrades wait for the billing cycle")
+	assert.Equal(t, int64(40), *e.getMT(t, mt.Id).RequestedThroughput, "downgrades wait for the billing cycle")
 
 	e.clock.Advance(31 * 24 * time.Hour)
 	e.backend.Sweep()
-	assert.Equal(t, int64(2), *e.getMT(t, mt.Id).RequestedThroughput)
+	assert.Equal(t, int64(20), *e.getMT(t, mt.Id).RequestedThroughput)
 
 	_, err = e.client.ScheduleDowngradeShapeMountTarget(
 		t.Context(),

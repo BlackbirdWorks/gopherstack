@@ -45,6 +45,8 @@ type InMemoryBackend struct {
 	nsMeta       nsMetaWire
 	namespace    string
 	pending      []ObjectEvent
+	bucketSink   func(BucketEvent)
+	pendingBkts  []BucketEvent
 	minPartSize  int64
 }
 
@@ -229,6 +231,8 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		return nil, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
@@ -261,6 +265,7 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		PARs: map[string]*PAR{}, Retention: map[string]*Retention{},
 	}
 	b.buckets[bk.Name] = bk
+	b.recordBucketEvent(EventCreateBucket, bk)
 
 	return b.bucketWire(ns, bk, nil), nil
 }
@@ -282,6 +287,8 @@ type UpdateBucketInput struct {
 
 // UpdateBucket applies a partial update.
 func (b *InMemoryBackend) UpdateBucket(ns, name string, in UpdateBucketInput, pre Preconds) (*BucketWire, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateBucket")
 	defer b.mu.Unlock()
 
@@ -299,6 +306,7 @@ func (b *InMemoryBackend) UpdateBucket(ns, name string, in UpdateBucketInput, pr
 	}
 
 	bk.Etag = newEtag()
+	b.recordBucketEvent(EventUpdateBucket, bk)
 
 	return b.bucketWire(ns, bk, nil), nil
 }
@@ -410,6 +418,8 @@ func (b *InMemoryBackend) GetBucket(ns, name string, fields []string, pre Precon
 
 // DeleteBucket removes an empty bucket.
 func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
@@ -441,6 +451,7 @@ func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
 	}
 
 	delete(b.buckets, name)
+	b.recordBucketEvent(EventDeleteBucket, bk)
 
 	return nil
 }

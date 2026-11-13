@@ -58,6 +58,10 @@ func (b *InMemoryBackend) fsView(e *entry[*FileSystem]) FileSystem {
 
 // targetable reports whether a file system is unexported, unreplicated and free of user snapshots.
 func (b *InMemoryBackend) targetable(id string) bool {
+	if e, ok := b.fss[id]; ok && e.W.FilesystemSnapshotPolicyID != "" {
+		return false
+	}
+
 	for _, x := range b.exps {
 		if x.W.FileSystemID == id && x.W.State != stDeleted {
 			return false

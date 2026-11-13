@@ -29,6 +29,7 @@ const (
 	freeOCPU      = 1
 	freeTierMax   = 2
 	defaultECPU   = 2
+	paidECPU      = 4
 	maxACLEntries = 1024
 	versionOldest = "19c"
 	versionNew    = "26ai"

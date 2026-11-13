@@ -1,13 +1,52 @@
 package ociobjectstorage
 
-import "time"
+import (
+	"maps"
+	"time"
+)
 
 // Object event types (https://docs.oracle.com/en-us/iaas/Content/Events/Reference/eventsproducers.htm).
 const (
 	EventCreateObject = "com.oraclecloud.objectstorage.createobject"
 	EventUpdateObject = "com.oraclecloud.objectstorage.updateobject"
 	EventDeleteObject = "com.oraclecloud.objectstorage.deleteobject"
+	EventCreateBucket = "com.oraclecloud.objectstorage.createbucket"
+	EventUpdateBucket = "com.oraclecloud.objectstorage.updatebucket"
+	EventDeleteBucket = "com.oraclecloud.objectstorage.deletebucket"
 )
+
+// BucketEvent describes a bucket create, update or delete; buckets emit regardless of objectEventsEnabled.
+type BucketEvent struct {
+	Time             time.Time
+	FreeformTags     map[string]string
+	DefinedTags      map[string]map[string]any
+	EventType        string
+	CompartmentID    string
+	Namespace        string
+	BucketName       string
+	BucketID         string
+	ETag             string
+	PublicAccessType string
+}
+
+// SetBucketEventSink installs the receiver of bucket events; it is called outside the backend lock.
+func (b *InMemoryBackend) SetBucketEventSink(fn func(BucketEvent)) {
+	b.mu.Lock("SetBucketEventSink")
+	b.bucketSink = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) recordBucketEvent(eventType string, bk *Bucket) {
+	if b.bucketSink == nil {
+		return
+	}
+
+	b.pendingBkts = append(b.pendingBkts, BucketEvent{
+		Time: b.nowUTC(), EventType: eventType, CompartmentID: bk.CompartmentID, Namespace: b.namespace,
+		BucketName: bk.Name, BucketID: bk.ID, ETag: bk.Etag, PublicAccessType: bk.PublicAccessType,
+		FreeformTags: maps.Clone(bk.FreeformTags), DefinedTags: maps.Clone(bk.DefinedTags),
+	})
+}
 
 // ObjectEvent describes an object state change in a bucket with objectEventsEnabled.
 type ObjectEvent struct {
@@ -43,15 +82,20 @@ func (b *InMemoryBackend) recordEvent(bk *Bucket, eventType, object, etag string
 func (b *InMemoryBackend) flushEvents() {
 	b.mu.Lock("flushEvents")
 	evs, sink := b.pending, b.sink
-	b.pending = nil
+	bevs, bsink := b.pendingBkts, b.bucketSink
+	b.pending, b.pendingBkts = nil, nil
 	b.mu.Unlock()
 
-	if sink == nil {
-		return
+	if sink != nil {
+		for _, e := range evs {
+			sink(e)
+		}
 	}
 
-	for _, e := range evs {
-		sink(e)
+	if bsink != nil {
+		for _, e := range bevs {
+			bsink(e)
+		}
 	}
 }
 

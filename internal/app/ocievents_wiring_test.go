@@ -97,6 +97,16 @@ func TestOCIEventsMapping(t *testing.T) {
 	assert.Equal(t, "b", obj.AdditionalDetails["bucketName"])
 	assert.Nil(t, obj.AdditionalDetails["archivalState"])
 
+	bk := bucketEvent(ociobjectstorage.BucketEvent{
+		Time: at, EventType: ociobjectstorage.EventCreateBucket, CompartmentID: "c", Namespace: "ns",
+		BucketName: "b", BucketID: "bid", ETag: "e", PublicAccessType: "NoPublicAccess",
+		FreeformTags: map[string]string{"Department": "Finance"},
+	})
+	assert.Equal(t, "b", bk.ResourceName)
+	assert.Equal(t, "bid", bk.ResourceID)
+	assert.Equal(t, "NoPublicAccess", bk.AdditionalDetails["publicAccessType"])
+	assert.Equal(t, "Finance", bk.FreeformTags["Department"])
+
 	fn := functionsEvent(ocifunctions.ResourceEvent{
 		Time: at, EventType: ocifunctions.EventCreateFunction, CompartmentID: "c", ResourceName: "f", ResourceID: "fid",
 	})

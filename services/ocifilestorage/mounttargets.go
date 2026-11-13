@@ -16,7 +16,9 @@ const (
 	schemaRFC2307BIS   = "RFC2307BIS"
 	maxNsgs            = 5
 	baseThroughput     = 1
-	maxThroughput      = 20
+	shape20            = 20
+	shape40            = 40
+	shape80            = 80
 	billingCycleDays   = 30
 	defaultLDAPCache   = 300
 	maxHostnameLabel   = 63
@@ -700,8 +702,8 @@ func (b *InMemoryBackend) shapeTarget(id, ifMatch string, in throughputIn) (*ent
 		return nil, errMissing("requestedThroughput is required")
 	}
 
-	if *in.RequestedThroughput < baseThroughput || *in.RequestedThroughput > maxThroughput {
-		return nil, errParam("requestedThroughput must be between 1 and 20 Gbps")
+	if !validShape(*in.RequestedThroughput) {
+		return nil, errParam("requestedThroughput must be one of 1, 20, 40 or 80 Gbps")
 	}
 
 	if e.W.Int == nil {
@@ -927,4 +929,14 @@ func (b *InMemoryBackend) UpdateExportSet(id, ifMatch string, in updateSetIn) (E
 	e.Etag = newEtag()
 
 	return b.setView(e), e.Etag, nil
+}
+
+// validShape reports whether gbps is a mount target performance level (Content/File/Tasks/managingmounttargets.htm).
+func validShape(gbps int64) bool {
+	switch gbps {
+	case baseThroughput, shape20, shape40, shape80:
+		return true
+	default:
+		return false
+	}
 }

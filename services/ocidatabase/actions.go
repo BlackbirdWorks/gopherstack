@@ -85,6 +85,10 @@ func (b *InMemoryBackend) RestoreDatabase(id, ifMatch string, in restoreIn) (adb
 }
 
 func (b *InMemoryBackend) checkRestore(db *ADB, in restoreIn) *APIError {
+	if db.IsFreeTier {
+		return errParam("Always Free databases do not support restore")
+	}
+
 	given := 0
 
 	for _, ok := range []bool{in.Timestamp != nil, in.SCN != nil, deref(in.Latest, false)} {

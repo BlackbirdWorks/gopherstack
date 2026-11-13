@@ -254,3 +254,30 @@ func TestReplicationListsAndGuards(t *testing.T) {
 	})
 	assertStatus(t, err, http.StatusConflict, "Conflict")
 }
+
+func TestReplicationLimits(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	src := e.createFS(t, nil)
+	pol := e.createPolicy(t, nil)
+	withPolicy := e.createFS(t, func(d *filestorage.CreateFileSystemDetails) {
+		d.FilesystemSnapshotPolicyId = pol.Id
+	})
+
+	create := func(s, d *string) error {
+		_, err := e.client.CreateReplication(t.Context(), filestorage.CreateReplicationRequest{
+			CompartmentId: new(testCompartment), SourceId: s, TargetId: d,
+		})
+
+		return err
+	}
+
+	assertStatus(t, create(src.Id, withPolicy.Id), http.StatusConflict, "Conflict")
+
+	for range 3 {
+		require.NoError(t, create(src.Id, e.createFS(t, nil).Id))
+	}
+
+	assertStatus(t, create(src.Id, e.createFS(t, nil).Id), http.StatusBadRequest, "LimitExceeded")
+}

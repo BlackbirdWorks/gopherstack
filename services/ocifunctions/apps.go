@@ -277,6 +277,8 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 		return "", aerr
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
@@ -310,6 +312,7 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 	a.ImagePolicy = cmpPtr(in.ImagePolicy, a.ImagePolicy)
 	a.Tags.replace(in.Tags)
 	a.TimeUpdated, a.Etag = b.nowUTC(), newEtag()
+	b.recordEvent(EventUpdateApplication, a.CompartmentID, a.Name, a.ID)
 
 	return b.newWR("UPDATE_APPLICATION", a.CompartmentID, "application", a.ID, "UPDATED",
 		"/applications/"+a.ID, a.TimeUpdated), nil
@@ -358,6 +361,8 @@ func (b *InMemoryBackend) ChangeApplicationCompartment(id, ifMatch, compartment 
 		return "", errMissing("compartmentId is required")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("ChangeApplicationCompartment")
 	defer b.mu.Unlock()
 
@@ -381,6 +386,8 @@ func (b *InMemoryBackend) ChangeApplicationCompartment(id, ifMatch, compartment 
 			f.CompartmentID = compartment
 		}
 	}
+
+	b.recordEvent(EventChangeApplicationCompartment, compartment, a.Name, a.ID)
 
 	return b.newWR("UPDATE_APPLICATION", compartment, "application", a.ID, "UPDATED",
 		"/applications/"+a.ID, a.TimeUpdated), nil

@@ -281,6 +281,8 @@ func (b *InMemoryBackend) UpdateFunction(id, ifMatch string, in fnIn) (string, e
 		}
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateFunction")
 
 	f, aerr := b.activeFn(id)
@@ -300,6 +302,7 @@ func (b *InMemoryBackend) UpdateFunction(id, ifMatch string, in fnIn) (string, e
 
 	applyFnUpdate(f, in)
 	f.TimeUpdated, f.Etag = b.nowUTC(), newEtag()
+	b.recordEvent(EventUpdateFunction, f.CompartmentID, f.Name, f.ID)
 	wr := b.newWR("UPDATE_FUNCTION", f.CompartmentID, "function", f.ID, "UPDATED", "/functions/"+f.ID, f.TimeUpdated)
 	b.mu.Unlock()
 

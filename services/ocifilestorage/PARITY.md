@@ -88,7 +88,7 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-filestorage-port / OCI_FILESTORAGE_PORT (default 8171); never on the shared AWS router; cli.go reserves the port. NFS ports come from the shared allocator."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Unverified, chosen by the emulator: minimum replicationInterval of 15 minutes and default of 60, mount target throughput ceiling of 20 Gbps, export set maxFsStat defaults, LDAP idmap cache defaults and schemaType default, the 409 status for lock and duplicate conflicts, the same-AD rule for clones, deleting a file system together with its snapshots, policy deletion detaching file systems, REGIONAL_DATA_CENTER_TIME mapped to America/New_York, and the EstimateReplication figures."
+  - "Unverified, chosen by the emulator: default replicationInterval of 60, export set maxFsStat defaults, LDAP idmap cache defaults and schemaType default, the same-AD rule for clones, deleting a file system together with its snapshots, policy deletion detaching file systems, REGIONAL_DATA_CENTER_TIME mapped to America/New_York, and the EstimateReplication figures. The Go SDK filestorage package, oci-python-sdk and the Content/File pages (FSreplication.htm, managingmounttargets.htm, managingsnapshots.htm) give no values or rules for these."
   - "Quota rules are stored but not enforced: no per-user accounting, usageInBytes is 0 and hard quotas never block writes."
   - "identitySquash, anonymousUid/anonymousGid, isAnonymousAccessAllowed, allowedAuth and Kerberos or LDAP id mapping are stored and validated but not applied by the NFS server (it runs as the emulator's user; go-nfs exposes no credentials to the file system); chown/chmod through NFS act as the emulator's user."
   - "NFS data plane is NFSv3 over TCP on a loopback port per mount target without portmapper or NLM; clients mount with explicit port and mountport (mount -o port=N,mountport=N,nolock,tcp). The mount target's private IP lives in OCI Core only. Snapshots are full copies taken while writes may be in flight (not atomic) and meteredBytes counts apparent sizes with no deduplication; exclusiveBytes is always 0."
@@ -100,3 +100,8 @@ items_still_open:
 # OCI File Storage parity
 
 Control plane for File Storage API 20171215 (74 operations, all of oci-go-sdk filestorage.FileStorageClient) on its own port (default 8171) with an opt-in NFSv3 data plane.
+
+## 2026-11-13
+
+- Mount target shapes are 1, 20, 40 and 80 Gbps (Content/File/Tasks/managingmounttargets.htm, performance table); UpgradeShape and ScheduleDowngradeShape reject any other value (the old ceiling of 20 was wrong).
+- Replication: minimum interval 15 minutes, at most 3 replications per source file system, and a file system with a snapshot policy attached cannot be a target (Content/File/Tasks/FSreplication.htm, "Limitations and Considerations"; LimitExceeded is 400 per Content/API/References/apierrors.htm, which also lists Conflict as 409).

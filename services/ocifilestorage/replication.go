@@ -8,17 +8,18 @@ import (
 )
 
 const (
-	deltaIdle         = "IDLE"
-	deltaCapturing    = "CAPTURING"
-	deltaTransferring = "TRANSFERRING"
-	deltaApplying     = "APPLYING"
-	modeFinishAny     = "FINISH_CYCLE_IF_CAPTURING_OR_APPLYING"
-	modeOneMore       = "ONE_MORE_CYCLE"
-	modeFinishApply   = "FINISH_CYCLE_IF_APPLYING"
-	defaultInterval   = 60
-	progressStep      = 33
-	progressStepApply = 66
-	progressDone      = 100
+	deltaIdle                = "IDLE"
+	deltaCapturing           = "CAPTURING"
+	deltaTransferring        = "TRANSFERRING"
+	deltaApplying            = "APPLYING"
+	modeFinishAny            = "FINISH_CYCLE_IF_CAPTURING_OR_APPLYING"
+	modeOneMore              = "ONE_MORE_CYCLE"
+	modeFinishApply          = "FINISH_CYCLE_IF_APPLYING"
+	defaultInterval          = 60
+	maxReplicationsPerSource = 3
+	progressStep             = 33
+	progressStepApply        = 66
+	progressDone             = 100
 )
 
 type createReplicationIn struct {
@@ -203,6 +204,10 @@ func (b *InMemoryBackend) checkReplicable(src, dst *FileSystem) *APIError {
 	if !b.targetable(dst.ID) {
 		return errConflict("The file system " + dst.ID + " is not targetable: it is exported, " +
 			"already a replication target or holds user snapshots")
+	}
+
+	if src.ReplicationSourceCount >= maxReplicationsPerSource {
+		return errLimit("A file system can have at most 3 replications")
 	}
 
 	if b.isReplicationTarget(src.ID) {

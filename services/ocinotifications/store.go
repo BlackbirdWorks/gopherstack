@@ -46,6 +46,7 @@ type InMemoryBackend struct {
 	topics     map[string]*Topic
 	subs       map[string]*Subscription
 	deliveries map[string]*Delivery
+	published  map[string][]time.Time
 	retry      *ociretry.Store
 	tagLookup  ocitags.Lookup
 	Auth       *ociauth.Registry
@@ -67,6 +68,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.topics, b.subs, b.deliveries = map[string]*Topic{}, map[string]*Subscription{}, map[string]*Delivery{}
+	b.published = map[string][]time.Time{}
 	b.retry = ociretry.New()
 }
 
@@ -213,6 +215,7 @@ func (b *InMemoryBackend) sweepLocked() {
 			t.State = stateActive
 		case stateDeleting:
 			delete(b.topics, id)
+			delete(b.published, id)
 			b.dropTopicChildren(id)
 		}
 	}

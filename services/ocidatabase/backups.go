@@ -71,6 +71,10 @@ func (b *InMemoryBackend) CreateBackup(in backupIn) (backupWire, string, string,
 		return backupWire{}, "", "", aerr
 	}
 
+	if db.IsFreeTier {
+		return backupWire{}, "", "", errParam("Always Free databases do not support manual or long-term backups")
+	}
+
 	bk := b.newBackup(db, in, long)
 
 	wr := b.begin(db, step{

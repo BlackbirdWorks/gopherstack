@@ -305,3 +305,69 @@ func TestWorkRequests(t *testing.T) {
 	_, err = e.wrs.ListWorkRequests(t.Context(), workrequests.ListWorkRequestsRequest{CompartmentId: new("")})
 	require.Error(t, err)
 }
+
+func TestAlwaysFreeLimits(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	free := e.available(
+		t,
+		createOpts{mutate: func(d *database.CreateAutonomousDatabaseDetails) { d.IsFreeTier = new(true) }},
+	)
+
+	tests := []struct {
+		call func() error
+		name string
+	}{
+		{name: "manual-backup", call: func() error {
+			_, err := e.client.CreateAutonomousDatabaseBackup(
+				t.Context(),
+				database.CreateAutonomousDatabaseBackupRequest{
+					AutonomousDatabaseId: free.Id, DisplayName: new("manual"),
+				},
+			)
+
+			return err
+		}},
+		{name: "restore", call: func() error {
+			_, err := e.client.RestoreAutonomousDatabase(t.Context(), database.RestoreAutonomousDatabaseRequest{
+				AutonomousDatabaseId: free.Id,
+				Latest:               new(true),
+			})
+
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.call()
+			require.Error(t, err)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}
+
+func TestFreeToPaidMinimum(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	free := e.available(
+		t,
+		createOpts{mutate: func(d *database.CreateAutonomousDatabaseDetails) { d.IsFreeTier = new(true) }},
+	)
+
+	_, err := e.client.UpdateAutonomousDatabase(t.Context(), database.UpdateAutonomousDatabaseRequest{
+		AutonomousDatabaseId: free.Id,
+		IsFreeTier:           new(false),
+	})
+	require.NoError(t, err)
+	e.settle()
+
+	got := e.get(t, free.Id)
+	assert.False(t, *got.IsFreeTier)
+	assert.InDelta(t, 4, *got.ComputeCount, 0)
+	assert.Equal(t, 1024, *got.DataStorageSizeInGBs)
+}

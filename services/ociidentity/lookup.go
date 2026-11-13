@@ -82,3 +82,19 @@ func tagDef(n *TagNamespace, d *TagDef) ocitags.Def {
 
 	return def
 }
+
+// CompartmentName returns the name of the tenancy or a known compartment, empty when id is unknown.
+func (b *InMemoryBackend) CompartmentName(id string) string {
+	b.mu.RLock("CompartmentName")
+	defer b.mu.RUnlock()
+
+	if id == TenancyID {
+		return tenancyName
+	}
+
+	if c, ok := b.compartment[id]; ok {
+		return c.Name
+	}
+
+	return ""
+}

@@ -332,6 +332,23 @@ func applyTier(db *ADB, in updateIn, ch *change) *APIError {
 	}
 
 	db.IsFreeTier, ch.other = false, true
+	paidMinimum(db)
 
 	return nil
+}
+
+// paidMinimum applies the compute and storage a paid Transaction Processing or Lakehouse database gets when an
+// Always Free one is updated (Always Free Autonomous Database page, "update to paid"): 4 ECPUs and 1 TB.
+func paidMinimum(db *ADB) {
+	switch db.Workload {
+	case workloadOLTP, workloadDW, workloadLH:
+	default:
+		return
+	}
+
+	if db.ComputeModel == modelECPU {
+		db.ComputeCount = paidECPU
+	}
+
+	db.StorageGBs = gbPerTB
 }
