@@ -33,7 +33,7 @@ func sqlNull() driver.Value { return nil }
 // translator targets; the driver registry is process-wide.
 func registerEngineFuncs() {
 	registerFuncsOnce.Do(func() {
-		reg := sqlitedriver.MustRegisterDeterministicScalarFunction
+		reg := registerScalar
 		reg("athena_date_trunc", argsTwo, udfDateTrunc)
 		reg("athena_date_add", argsThree, udfDateAdd)
 		reg("athena_date_diff", argsThree, udfDateDiff)

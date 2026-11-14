@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	sqlitedriver "modernc.org/sqlite"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -416,8 +414,8 @@ func udfRowCast(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func registerRowFuncs() {
-	sqlitedriver.MustRegisterDeterministicScalarFunction("athena_row", -1, udfRow)
-	sqlitedriver.MustRegisterDeterministicScalarFunction("athena_row_cast", argsTwo, udfRowCast)
+	registerScalar("athena_row", -1, udfRow)
+	registerScalar("athena_row_cast", argsTwo, udfRowCast)
 }
 
 // itemBounds returns the select-item span around toks[i]: from the previous comma or SELECT to

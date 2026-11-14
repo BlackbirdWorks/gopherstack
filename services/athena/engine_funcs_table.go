@@ -4,8 +4,6 @@ import (
 	"database/sql/driver"
 	"net/url"
 	"time"
-
-	sqlitedriver "modernc.org/sqlite"
 )
 
 type scalarFn = func(*fnCtx, []driver.Value) (driver.Value, error)
@@ -77,12 +75,12 @@ func registerExtraFuncs() {
 		}
 
 		if d.name == "rand" {
-			sqlitedriver.MustRegisterScalarFunction(d.name, d.nargs, d.fn)
+			registerNondeterministic(d.name, d.nargs, d.fn)
 
 			continue
 		}
 
-		sqlitedriver.MustRegisterDeterministicScalarFunction(d.name, d.nargs, d.fn)
+		registerScalar(d.name, d.nargs, d.fn)
 	}
 }
 

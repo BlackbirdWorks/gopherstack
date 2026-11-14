@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	sqlitedriver "modernc.org/sqlite"
 )
 
 const (
@@ -583,7 +581,7 @@ func udfIntervalOp(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func registerIntervalFuncs() {
-	reg := sqlitedriver.MustRegisterDeterministicScalarFunction
+	reg := registerScalar
 	reg("athena_iv_ym", 1, udfIntervalYM)
 	reg("athena_iv_dt", 1, udfIntervalDT)
 	reg("athena_iv_str", 1, udfIntervalStr)

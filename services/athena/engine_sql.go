@@ -28,6 +28,7 @@ type translator struct {
 	unnestAliases []string
 	nUnnest       int
 	intervals     bool
+	embedded      bool
 }
 
 type scope struct {
@@ -179,6 +180,12 @@ func collectCTEs(toks []token) map[string]bool {
 // translateSQL rewrites Presto/Trino SQL into SQLite SQL and resolves every
 // table reference through resolve.
 func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string, []string, error) {
+	return translateSQLFor(sql, resolve, false)
+}
+
+// translateSQLFor translates for Athena or, when embedded, for another service that shares the engine
+// and registers its own to_milliseconds and parse_duration.
+func translateSQLFor(sql string, resolve func(parts []string) resolvedRef, embedded bool) (string, []string, error) {
 	toks, err := tokenize(sql)
 	if err != nil {
 		return "", nil, err
@@ -197,7 +204,7 @@ func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string,
 	toks = addNullsLast(toks)
 
 	x := &translator{
-		resolve: resolve, ctes: collectCTEs(toks), intervals: intervals,
+		resolve: resolve, ctes: collectCTEs(toks), intervals: intervals, embedded: embedded,
 		qualifiers: map[string]bool{}, structCols: map[string]bool{},
 	}
 	learnRowAliases(toks, x.structCols)
@@ -370,6 +377,10 @@ func (x *translator) rewriteCall(
 	}
 
 	if r := renamedFunc(lw); r != "" {
+		return []token{{kind: tkWord, text: r}}, i, stack, true
+	}
+
+	if r, ok := athenaFunc(lw); ok && (!x.embedded || !isEmbedderOwned(lw)) {
 		return []token{{kind: tkWord, text: r}}, i, stack, true
 	}
 

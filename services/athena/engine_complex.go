@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	sqlitedriver "modernc.org/sqlite"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -270,7 +268,7 @@ func udfIndexList(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func registerComplexFuncs() {
-	reg := sqlitedriver.MustRegisterDeterministicScalarFunction
+	reg := registerScalar
 	reg("athena_array", -1, udfAthenaArray)
 	reg("athena_subscript", argsTwo, udfSubscript)
 	reg("athena_field", argsTwo, udfStructField)
