@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 52 (42 ok, 10 partial) |
 | Feature families | 19 (6 ok, 13 partial) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -19,7 +19,6 @@
 - Not published (checked apigatewayoverview.htm, apigatewayusinghttpbackend.htm, apigatewaylimits.htm and the SDK doc comments): route precedence between overlapping paths, trailing-slash handling, 405 with Allow for a method mismatch, the 200 status of CORS preflight answers, the data plane error body shape, Retry-After on 429, 400 for failed request validations (Oracle says only 4xx), 401/403 for missing, unknown or unentitled usage-plan tokens, 401 for a mutualTls SAN mismatch, the 409 for operations on a locked resource, 404 for removing an absent lock, the order filter then rename then set for transformations, isRequired defaulting to true for verifyClaims, the Monday start of WEEK quota windows (all emulator choices)
 - Not published (checked authorizer function page apigatewayusingauthorizerfunction.htm and the SDK TokenAuthenticationPolicy/ApiSpecification comments): whether tokenHeader values reach the authorizer without the scheme, the OpenAPI-derived Api fields (specificationType text, validation check names) and the SDK language catalog
 - TLS is served on the shared emulator port, not on 443: deployment endpoints use the https://<hostname> form that does not resolve locally (clients must connect to the emulator port with SNI set to the gateway hostname), HTTP/2 is not offered, a gateway without a certificate cannot be reached over TLS, and PRIVATE gateways are served exactly like PUBLIC ones.
-- OCI Certificates is not emulated: CA bundle PEMs are registered through the emulator-only /_gopherstack/oci/apigateway/ca-bundles endpoint. The mTLS chain-depth rule counts CA certificates only; the 'no default CA bundle' rule is implicit because only registered bundles are trusted.
 - The external response cache server is never contacted (in-process cache instead), cache server outage and timeouts are not emulated, and cache entries and usage-plan counters are in memory only (not persisted, per process).
 - SDK resources are stored only: no client library is generated, so artifactUrl is never set. The Api resource never reaches FAILED for semantically bad content (validations report it instead).
 - OAuth2 login/logout backends, validationFailurePolicy OAUTH2, REMOTE_DISCOVERY with VALIDATION_BLOCK client or source details, body validationType other than NONE and JSON-schema body validation are rejected with 400; access and execution log policies are stored but nothing is written to OCI Logging.

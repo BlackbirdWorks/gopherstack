@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 56 (56 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | fixed |
-
-### Known gaps
-
-- ListApplicationAuthenticationMethods/ListApplicationGrants/ListTagsForResource: the SDK gives these ops NextToken but no MaxResults, and documents no server page size, so when to paginate cannot be determined.
 
 ## More
 

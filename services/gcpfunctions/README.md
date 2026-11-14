@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
 | Feature families | 13 (6 ok, 7 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,7 +20,6 @@
 - Audit-log and custom-channel (Eventarc) event types are rejected; Storage and Firestore events are delivered in-process, not through an Eventarc trigger or a Pub/Sub transport topic.
 - available_memory and available_cpu are validated but not enforced: dependency install and serving share one container, and limiting it would OOM-kill the install (real builds run in Cloud Build with their own resources); enforcing them needs a separate unlimited install container or a runtime update call.
 - vpc_connector is stored but not applied (no VPC data plane); ingress internal is an explicit header marker, not network provenance.
-- The Locations service is not served: the REST reference publishes no region catalogue for functions (docs.cloud.google.com/functions/docs/locations covers Cloud Run only), so a location list would be invented.
 - GetFunction rejects the revision field, which the reference limits to 1st gen functions (not implemented); ListFunctions rejects filter and order_by because the reference only says AIP-160 and a comma separated field list without naming the filterable or sortable fields.
 - URLs are http .localhost addresses, not https://*.cloudfunctions.net or *.run.app, and the upload bucket is synthetic rather than a GCS bucket.
 - The container build path (npm/pip/go get at start) needs network access and has only been exercised against a fake runtime.

@@ -9,24 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 27 (26 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 5 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Iceberg (untouched): equality deletes, ORC data files, writing nested (array/map/struct) columns, the $partitions metadata table, partition pruning from manifest bounds (all data files are read), timestamp precision above milliseconds, OPTIMIZE output is one file per partition (no write_target_data_file_size_bytes splitting), VACUUM/OPTIMIZE/MERGE error wording (MERGE_TARGET_ROW_MULTIPLE_MATCHES, the non-transactional Hive DELETE message) is UNVERIFIED against live Athena, DML conflicts fail instead of retrying, and the written manifests/delete files are checked only by this emulator's reader and spec-driven unit tests (no third-party Iceberg reader is available offline).
-- ORC input and output formats (untouched): no ORC library is in go.mod and no maintained pure-Go one exists (scritchley/orc was last updated 2021 and is read-only), so ORC SELECT/CTAS/UNLOAD stay NOT_SUPPORTED. Avro tables with avro.schema.literal/url and no Glue columns are not derived.
-- ROW values: field order of ROW columns read from tables is not preserved (printed by sorted field name; values built by ROW()/CAST are ordered); ordering comparison, ORDER BY, min and max over ROW values compare canonical JSON text, and equality requires identical field names; CTAS/INSERT/UNLOAD write ROW values nested only in JSON, and Parquet/Avro/text outputs carry them as JSON strings (the Parquet writer has no nested columns). Integral doubles inside arrays render without the .0 suffix; boolean result typing is inferred syntactically from the outermost SELECT list so an unlisted boolean-returning function renders 1/0; SELECT * after such an expression disables the inference.
-- Partition projection: the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter, an injected IN list over 1,000 values, a non-string injected column or an oversized enumeration is modeled, UNVERIFIED against live Athena (the docs state only that these queries fail).
-- QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as "The kind of query statement that was run" with no enum or value list, so the vocabulary cannot be verified.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- ORC tables cannot be read or written (no maintained pure-Go ORC library): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR.
+- SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR.
 - DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated.
 - WorkGroup.IdentityCenterApplicationArn is never set: the IAM Identity Center application AWS provisions for an Identity Center workgroup does not exist here.
 - WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored: it only matters for IAM Identity Center-enabled Glue catalogs, which do not exist here.

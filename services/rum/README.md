@@ -9,18 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 6 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Evidently destinations: destinations and their metric definitions are stored but no events are published to Evidently (no Evidently service)
 - PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
 - DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
-- BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
-- GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted API_TimeRange.html and API_GetAppMonitorData.html (checked 2026-11-13) give Long values with no unit.
 - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
 
 ### Structural gaps

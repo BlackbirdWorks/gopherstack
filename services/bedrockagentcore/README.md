@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 30 (30 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 10 |
+| Known gaps | 9 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,7 +17,6 @@
 ### Known gaps
 
 - Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, InvokeAgentRuntimeCommand, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser, UpdateBrowserStream and CompleteResourceTokenAuth have no routes
-- Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
 - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
 - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
 - Runtimes: runtimes without a customJWTAuthorizer accept any caller and no IAM policy is evaluated

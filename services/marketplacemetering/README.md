@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 4 (4 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,8 +18,6 @@
 
 - License-based metering (LicenseArn / concurrent agreements): BatchMeterUsage needs a ProductCode and LicenseArn is only echoed; there is no license catalog
 - Seeding is Go-API only (RegisterProduct, Subscribe, IssueRegistrationToken); there is no HTTP or config surface to declare products for out-of-process clients
-- RegisterUsage signature is HS256 with an emulator key and PublicKeyRotationTimestamp is the product's first-seen time plus 90 days; clients cannot verify it against the AWS Marketplace public key
-- BatchMeterUsage deduplicates per second-resolution timestamp: API_BatchMeterUsage.html (checked 2026-11-13) states idempotency for identical requests but no hourly aggregation rule; only MeterUsage rounds down to the hour (API_MeterUsage.html).
 - InvalidRegionException, InvalidEndpointRegionException, PlatformNotSupportedException, DisabledApiException, InvalidLicenseException and ThrottlingException are never raised
 
 ### Structural gaps

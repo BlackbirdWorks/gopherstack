@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 39 (35 ok, 4 partial) |
 | Feature families | 12 (11 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,9 +17,6 @@
 
 - ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id.
 - No bucket relocation (buckets.relocate and the bucket operations resource) or restoreToken (hierarchical-namespace restore): neither is modelled.
-- Notification error bodies for a missing topic or a missing publish grant are not documented (notifications.insert lists no errors) and the status/message used are the emulator's choice; there is no publish permission check.
-- HMAC error status and message for deleting an ACTIVE key, updating a DELETED key and exceeding the per-service-account key limit are not documented (the hmacKeys reference lists none) and are the emulator's choice; the service account is not checked against Cloud IAM.
-- Signed URL gaps: the canonical-requests page says X-Goog-Date is when the URL becomes usable but names no error code, so RequestTimeTooSkewed for a future date is the emulator's choice; POST policy documents are not verified; bearer tokens are never validated.
 - Lifecycle gaps: AbortIncompleteMultipartUpload (XML multipart is not served), matchesPattern (absent from the buckets reference and the Go client, so its semantics are undocumented) and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (the pubsub-notifications page does not say whether it should); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced.
 - Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported.
 - No data is encrypted with a Cloud KMS key (kmsKeyName), and reads are not blocked when it is disabled; resumable chunk requests are not re-checked for the customer-supplied key headers (the key is read on the initiating request).

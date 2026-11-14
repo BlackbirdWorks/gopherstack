@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 37 (37 ok) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ListCostCategoryResourceAssociations.CostCategoryArn: the SDK documents no required-field check and no behaviour for a nonexistent ARN, so the error (if any) cannot be determined.
 
 ### Structural gaps
 

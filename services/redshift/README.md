@@ -9,17 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 9 (9 ok) |
 | Feature families | 34 (33 ok, 1 partial) |
-| Known gaps | 4 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetReservedNodeExchangeConfigurationOptions validates ActionType/ClusterIdentifier/SnapshotIdentifier and pages, but does not narrow options by the cluster or snapshot node type: the SDK does not state the matching rule.
 - DeleteClusterSnapshot, AuthorizeSnapshotAccess and RevokeSnapshotAccess SnapshotClusterIdentifier, CopyClusterSnapshot.SourceSnapshotClusterIdentifier and RestoreFromClusterSnapshot.OwnerAccount are accepted and ignored: the SDK docs say they only scope IAM resource ARNs, and the mismatch behaviour is unspecified.
 - Tags on CreateUsageLimit are stored and echoed but usage limits are not CreateTags/DescribeTags targets (the SDK gives no usage limit ARN shape); CopyClusterSnapshot does not carry tags and RestoreFromClusterSnapshot tag propagation is unspecified.
-- Not documented (API_CreateCluster/API_Cluster pages list only the ManageMasterPassword/MasterUserPassword, MasterPasswordSecretKmsKeyId and public-ElasticIp conflicts, not their error code): new clusters report IpAddressType ipv4 (documented values ipv4/dualstack, default unstated), ElasticIpStatus Status active, AvailabilityZoneRelocationStatus enabled/disabled, and InvalidParameterCombination for those conflicts (MaintenanceTrackName current and HsmStatus active are documented).
 
 ### Structural gaps
 

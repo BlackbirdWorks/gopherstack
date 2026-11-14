@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Terminology import does not report Message and treats only empty source/target texts and blank lines as skipped (SDK doc: 'skipped'); other skip reasons AWS may apply are not specified in the pinned SDK.
 
 ### Structural gaps
 

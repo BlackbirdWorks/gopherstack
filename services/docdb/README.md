@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; ModifyDBCluster docs say only that aws/secretsmanager is used, not the KmsKeyId value AWS returns (key ARN vs alias).
-- UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK or API reference), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (no interval stated), CloneGroupId (no documented format), and the cluster parameters beyond audit_logs/tls/ttl_monitor (the developer guide examples list only those three with AllowedValues).
 
 ### Structural gaps
 

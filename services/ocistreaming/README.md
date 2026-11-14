@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 30 (19 ok, 11 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -17,7 +17,6 @@
 
 - The Kafka compatibility API (bootstrap servers, SASL and the Kafka wire protocol) is not implemented; kafkaSettings are stored and returned and bootstrapServers is whatever the caller set.
 - The documented tenancy partition allowance (default 200 on Monthly Universal Credits, 50 on Pay-as-You-Go or Promo) is not enforced and the status for exceeding it is undocumented; the 1 to 1000 partitions per stream range, stream counts per tenancy and the error code strings of failed PutMessages entries have no documentation.
-- Per-operation error mapping for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) is undocumented; the common errors page lists the codes but not which operation returns them.
 - Private stream pools only store their subnet and NSG settings; endpoints are not network-isolated and endpointFqdn is the addressed host.
 - Messages and consumer group state are held in memory and in snapshots, so large retained volumes grow the snapshot.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.

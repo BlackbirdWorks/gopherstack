@@ -9,15 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 48 (41 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DescribePackageVersion displayName is set for npm only (the one format the SDK documents: '@vue/ui'); the SDK says only that displayName 'varies depending on the package version's format', and summary/homePage/sourceCodeRepository/licenses key mapping beyond npm package.json is undocumented.
-- GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: API_GetRepositoryEndpoint gives the enum and no dualstack hostname.
 - Error codes for blocked publishes and the undeletable root group are not published: API_PublishPackageVersion and API_DeletePackageGroup model AccessDeniedException 403, ConflictException 409 and ValidationException 400 without saying which applies, and package-group-origin-controls describes the PUBLISH BLOCK setting without an error; the emulator returns ValidationException for a PUBLISH restriction and for DeletePackageGroup on '/*'
 
 ### Structural gaps

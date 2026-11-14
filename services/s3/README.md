@@ -9,16 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 26 (25 ok, 1 gap) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS.
-- ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size).
-- Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape.
 
 ### Structural gaps
 

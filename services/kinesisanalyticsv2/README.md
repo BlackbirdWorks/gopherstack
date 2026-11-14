@@ -9,15 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 33 (31 ok, 1 partial, 1 deferred) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented.
-- Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time.
 - DeleteApplication is synchronous (ApplicationStatusDeleting unused); without the docker Flink engine Start/Stop are instantaneous (API docs give no durations). No container runtime -> applications stay state-only (logged, not a stub: no job ever claims to run).
 
 ### Structural gaps

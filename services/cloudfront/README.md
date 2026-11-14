@@ -9,17 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 60 (60 ok) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 4 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 4 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched.
-- AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable.
-- CloudFront Functions origin helpers: parameters are validated against the documented shape but sslProtocols, ipAddressType, originShield, connectionTimeout, keepAliveTimeout and originAccessControlConfig signing settings have no data-plane effect; the exact AWS validation messages and the originIds object form are unverified against real AWS. The origin choice does not enter the cache key.
-- Lambda@Edge data plane (dataplane_edge*.go): the X-Cache labels LambdaGeneratedResponse/LambdaValidationError/LambdaExecutionError/LambdaLimitExceeded, the 5 s viewer-event cap (docs list only a 30 s quota), ignoring a viewer-response status change, and the origin-request header set (rebuilt from the outbound request, not the AWS-internal one) are unverified against real AWS. Origin failover groups do not re-run origin-request/response per member.
 
 ### Structural gaps
 

@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- SECRET_ROTATE delivery is a single best-effort publish per due time (no 7-day retry), failures are dropped; a one-shot rotation clears next_rotation_time (inferred, not documented); TOPIC_CONFIGURED and other event types are not sent.
 - Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed.
 - Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list.
 

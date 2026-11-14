@@ -8,14 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 39 (37 ok, 2 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- ValidationMethod=HTTP on a direct RequestCertificate is accepted with a placeholder HttpRedirect: the pinned SDK says HttpRedirect exists for CloudFront-requested certificates but never says direct requests are rejected.
 
 ### Structural gaps
 

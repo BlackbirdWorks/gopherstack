@@ -9,16 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 81 (81 ok) |
 | Feature families | 25 (25 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and neither the SDK nor the API reference documents a projection.
-- KnowledgeBaseSummary.Type is a free string (*string, no enum) and no doc says what it is derived from.
-- Embed/ingestion edge semantics not documented: the error code for AdditionalDashboardIds with a non-ANONYMOUS identity (InvalidParameterValueException used; IdentityTypeNotSupportedException's doc names only IAM/QUICKSIGHT), the INITIAL_INGESTION and EDIT dataset-triggered ingestion request types, and RestoreToFolders=false dropping folder memberships.
 
 ### Structural gaps
 

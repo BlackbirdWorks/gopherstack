@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 85 (85 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,7 +17,6 @@
 ### Known gaps
 
 - CapacityUsageSummary resolves only managed prefix list references; resource group, address list and container association references count 0 CIDRs because no Resource Groups, address list or container runtime backs them (bd: gopherstack-cefu7.79)
-- Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)
 
 ### Structural gaps
 

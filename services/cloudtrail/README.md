@@ -8,15 +8,10 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 60 (49 ok, 11 partial) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
-
-### Known gaps
-
-- gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable.
-- GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented.
 
 ### Structural gaps
 

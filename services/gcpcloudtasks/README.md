@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 10 (5 ok, 5 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented.
 - Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt.
 
 ## More

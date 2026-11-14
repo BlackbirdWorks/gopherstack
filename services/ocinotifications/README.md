@@ -9,18 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 16 (11 ok, 5 partial) |
 | Feature families | 10 (9 ok, 1 partial) |
-| Known gaps | 7 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- EMAIL, SMS, SLACK and PAGERDUTY messages are recorded but never sent (no mail, SMS or Slack/PagerDuty egress exists in the emulator); Slack formatting, PagerDuty incident creation and friendly email formatting are not modelled.
-- Per-protocol initial state (PENDING versus ACTIVE) for CUSTOM_HTTPS, SLACK, SMS and PAGERDUTY, the confirmation body and the X-OCI-NS-MessageType values: the Go SDK ons package and the overview page only say a new subscription is PENDING until confirmed; neither lists per-protocol exceptions or MessageType values.
 - Signed deliveries (X-OCI-NS-Signature, X-OCI-NS-Timestamp, X-OCI-NS-SignatureVersion, X-OCI-NS-SigningCertURL): the overview lists the headers but not the signed string or the certificate format, so they are not emitted; the friendly-formatting setting is not implemented.
-- Per-subscription delivery rates (Email 10, HTTP 60, Functions 60, Slack 60, SMS 6 per minute) are not enforced: the page says over-rate messages are delayed or dropped without defining which; SMS is not restricted to Announcements, Monitoring and Connector Hub because the emulator cannot tell the publishing service.
-- The maxRetryDuration range (10 s to 24 h), topic name character rules, the status code of DeleteSubscription and DeleteTopic, and the error codes for bad confirmation tokens: the Go SDK, oci-python-sdk, oci-cli and the Content pages state none of them.
-- Deleted topics and unsubscribed subscriptions disappear instead of passing through a DELETED state (the SDK enum has DELETED for subscriptions; no source says when it is observable).
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More

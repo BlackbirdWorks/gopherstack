@@ -9,15 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 38 (34 ok, 2 partial, 2 deferred) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- PutResourcePolicy LockoutPreventionException only detects an unconditional explicit Deny of xray:PutResourcePolicy matching the caller (principal, account root or wildcard): the SDK says only the policy 'would prevent the caller from calling PutResourcePolicy' and documents no fuller evaluation (conditions, implicit denies).
-- GetTraceSummaries Sampling/SamplingStrategy do not subset results: Name is enum-validated (PartialScan|FixedRate) but API_SamplingStrategy and the Sampling doc give no Value range or selection rule.
 
 ### Structural gaps
 

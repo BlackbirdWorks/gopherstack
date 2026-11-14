@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 30 (28 ok, 2 partial) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- gopherstack-i5ss: ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs. Re-checked 2026-10-07: ImportCrl declares only AccessDeniedException/ValidationException (SDK deserializers + API reference), and the API reference and user-guide trust-model/revocation pages state neither behavior.
 
 ### Structural gaps
 

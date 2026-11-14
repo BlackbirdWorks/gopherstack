@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Emulator behaviour, not transcription: without --transcribe-engine=docker (TRANSCRIBE_ENGINE, or --engines=docker) jobs finish with a valid transcript document whose transcript is empty and whose items are [] -- no words are invented. The media object is still read from S3 and validated, and the document, subtitle files and redacted transcript are written to the output bucket or the managed fetch URL. The docker engine (pinned Vosk image, small per-language models cached locally) produces real text and word timings for 16-bit PCM WAV media in 18 language codes.
 - StartMedicalScribeJob still reports synthetic s3://synthetic-transcripts/ output locations and writes no objects (gopherstack-49qct.78 covered transcription, medical transcription and call analytics only).
 - Under the docker engine, ShowSpeakerLabels, ContentRedaction and MedicalContentIdentificationType jobs FAIL (Vosk cannot diarize or detect PII); only ChannelIdentification and single-stream transcription are real. Vocabularies, vocabulary filters and custom language models are not applied to recognition.
 - IdentifyLanguage/IdentifyMultipleLanguages still report the first LanguageOptions entry with a fixed IdentifiedLanguageScore; no language is detected from audio.

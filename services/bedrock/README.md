@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 80 (80 ok) |
 | Feature families | 10 (9 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateModelInvocationJob/CreateEvaluationJob client-token replays are remembered for 5 minutes; the pinned SDK does not state how long AWS keeps a token, so the window is unverified.
 
 ### Structural gaps
 

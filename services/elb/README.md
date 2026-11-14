@@ -9,13 +9,9 @@
 | --- | --- |
 | PARITY entries audited | 29 (29 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateLoadBalancerPolicy has no TooManyPolicies limit: the SDK models TooManyPoliciesException for the op, but the Classic ELB quota table lists only load balancers per region (20), listeners per load balancer (100) and registered instances per load balancer (1,000), so no per-LB policy count can be sourced. Unverifiable (gopherstack-6851).
 
 ### Deferred
 

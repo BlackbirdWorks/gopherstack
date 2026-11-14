@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 34 (33 ok, 1 deferred) |
 | Feature families | 14 (14 ok) |
-| Known gaps | 4 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,9 +17,6 @@
 ### Known gaps
 
 - RegisterWorkspaceDirectory EnableSelfService is accepted but not applied: API_RegisterWorkspaceDirectory says only 'whether self-service capabilities are enabled'; the admin guide lists the self-service toggles (restart, volume size, compute type, running mode, rebuild, remember-me, diagnostic uploads) without stating which EnableSelfService=true turns on.
-- RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs: API_RegisterWorkspaceDirectory documents the valid values but no defaults.
-- DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only: the WorkspaceDirectoryType enum has no MicrosoftAD/SharedMicrosoftAD value and no doc maps them to CUSTOMER_MANAGED.
-- Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK says only 'ensure idempotent creation' and no doc gives the error for a mismatched token.
 
 ### Structural gaps
 

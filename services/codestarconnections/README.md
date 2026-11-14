@@ -9,14 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 27 (26 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- CreateRepositoryLink.ConnectionArn and CreateSyncConfiguration.RepositoryLinkId are not existence-checked: neither op declares ResourceNotFoundException (codestarconnections@v1.38.4 deserializers) and the field docs do not say AWS validates them (gopherstack-42j). Same for codeconnections.
 
 ### Structural gaps
 

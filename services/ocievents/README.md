@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 6 (5 ok, 1 partial) |
 | Feature families | 10 (3 ok, 7 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
@@ -18,7 +18,6 @@
 - Event producers cover Object Storage objects and buckets and Functions applications and functions (create, update, delete, changeapplicationcompartment). Other services emit nothing, including NoSQL, whose event names were not found in a reachable primary source; Object Storage RenameObject is not in the producer reference's object event list, so it emits nothing.
 - Not published (checked filterevents.htm, which documents arrays, wildcards and null handling only): case-sensitive value comparison; numbers and booleans compared by their text form; unknown top-level condition keys are accepted and matched against the whole envelope; no rejection of conditions that can never match; rule displayName limit of 255 and no uniqueness rule (all emulator choices)
 - Not published (checked eventsoverview.htm, filterevents.htm and the events SDK comments, which give enums only): the eventrule/eventaction OCID prefixes, rules going ACTIVE with no CREATING state (the SDK enum has CREATING and UPDATING), 404 for a missing action target, lifecycleMessage always empty, and DELETE answering 204
-- Delivery is best effort and unordered across events with no retry on Events' side; eventsoverview.htm and managingrules.htm state no at-least-once or retry behaviour. Delivery to ONS, OSS and FAAS in other compartments is not restricted.
 - IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set. The dashboard has no OCI Events page.
 
 ## More

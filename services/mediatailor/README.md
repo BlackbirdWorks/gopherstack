@@ -9,16 +9,10 @@
 | --- | --- |
 | PARITY entries audited | 48 (46 ok, 2 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- GetChannelSchedule.DurationMinutes is not applied: the pinned SDK doc says only 'duration in minutes of the channel schedule' with no windowing baseline, so any choice would be invented.
-- CreateProgram accepts both VodSourceName and LiveSourceName: neither the API reference nor the pinned SDK (v1.63.4) documents an error for it. Unreferenced-source rejection is proven by TestCreateProgram_RejectsUnknownReferences.
-- PlaybackConfiguration dual-stack response prefixes (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, HlsConfiguration.DualStackManifestEndpointPrefix) are never set: the SDK gives only the dual-stack API host (api.mediatailor.{region}.api.aws), not the playback host pattern, so deriving one would be invented.
 
 ### Structural gaps
 

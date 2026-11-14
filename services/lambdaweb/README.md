@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 2 (1 ok, 1 partial) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -26,7 +26,6 @@
 - Metrics: AWS/Lambda/Web (FunctionName, EndpointName: ExecutedRequests, HTTPResponseStatusClass4XX/5XX; FunctionName: EnvironmentActiveTime, EnvironmentConcurrentRequests, ResponseBytes every 60s per environment and at shutdown) and AWS/Lambda/Web/Usage (FunctionName, EndpointName, ExecutionRegion: ExecutedRequests, EndpointActiveEnvironments, EndpointRequestThrottles, EndpointActiveEnvironmentThrottles, AccountActiveVCPUArm64Throttles) are emitted to the in-process CloudWatch backend, sparse as documented. Not emitted: EnvironmentCPUTime and EnvironmentMaxMemoryUsage (no container stats) and AccountRequestThrottles (no account request-rate quota).
 - CloudFormation resource types AWS::Lambda::WebFunction, WebFunctionRevision and WebFunctionEndpoint are not provisioned: they are absent from the pinned CloudFormation resource spec snapshot (cmd/cfnattrgen/testdata/cfn_resource_spec.json).
 - Request limits not enforced: header block 128 KiB is checked on the parsed headers only; HTTP/1.0 is rejected with 505 only when the server surfaces the protocol; no response streaming guarantees beyond io.Copy.
-- Unspecified in the docs and chosen here: ValidationException for a missing/unversioned bucket or missing object at revision creation, ConflictException for weights that name a non-Active revision, ConflictException for an update while one is InProgress, and the Pending/Deleting dwell windows (500ms-1s, override with --lifecycle-lambdaweb).
 
 ### Structural gaps
 

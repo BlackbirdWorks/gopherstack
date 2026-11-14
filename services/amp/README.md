@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 7 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,9 +20,7 @@
 - AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); sigv4 settings are accepted and ignored; the `templates` list is not consulted (every template_files entry is loaded); the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source; the EKS emulator exposes no pod or node metrics endpoints to scrape, so there is no in-process target
 - RemoteWrite: exemplars keep the newest 100 per series (emulator choice; Prometheus uses one circular buffer of max_exemplars=100000 across all series) and over-128-rune exemplars are silently dropped; per-workspace ingestion-rate and active-series quotas (default active series up to 1.5 billion, rate 1/30 of that) and the 1-hour sample-age refusal are not enforced
-- LoggingConfiguration: the delivered log line layout (JSON with level, component, ts, msg) and the stream names ruler and alertmanager are not documented by AWS and are unverified; only rule evaluation failures and alert notification failures are delivered
 - Authorization: with --validate-sigv4 the data plane requires an aps-scoped SigV4 signature checked against --sigv4-secret and evaluates the workspace resource policy by account only (the IAM evaluator ignores Principal); not published: checked AMP APIReference CommonErrors.html and the user guide troubleshooting page, which list IncompleteSignature and AccessDeniedException but not the data-plane codes for a missing or mis-scoped signature (emulator answers MissingAuthenticationToken and IncompleteSignatureException, 403); cross-account callers resolve workspaces in their own account, so a cross-account allow still answers 404
-- CreateWorkspace: a missing or disabled KMS key is a ValidationException; the real error code is unverified, and the key is not used to encrypt anything API_CreateWorkspace.html (checked 2026-11-13) lists no KMS-specific error and its kmsKeyArn pattern is the only constraint.
 
 ### Structural gaps
 
