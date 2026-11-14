@@ -39,8 +39,9 @@ func wireAzureFunctions(byName map[string]service.Registerable) {
 // wireAzureFunctionsSlots gives the data plane ARM's traffic routing rules and auto swap.
 func wireAzureFunctionsSlots(backend *azurefunctions.InMemoryBackend, armH *azurearm.Handler) {
 	rules := func(app string) []azurefunctions.RoutingRule {
-		var out []azurefunctions.RoutingRule
-		for _, r := range armH.Registry.SiteRampUpRules(app) {
+		ramp := armH.Registry.SiteRampUpRules(app)
+		out := make([]azurefunctions.RoutingRule, 0, len(ramp))
+		for _, r := range ramp {
 			out = append(out, azurefunctions.RoutingRule{Slot: r.Name, Percent: r.Percent})
 		}
 

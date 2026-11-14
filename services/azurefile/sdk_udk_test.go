@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 type fakeToken struct{}
@@ -29,17 +30,23 @@ func (fakeToken) GetToken(context.Context, policy.TokenRequestOptions) (azcore.A
 
 // hostRewrite sends https://<account>.file.core.windows.net requests to the test server, because the SDK derives
 // the SAS account name from an https host label.
-type hostRewrite struct{ target string }
+type hostRewrite struct {
+	client *http.Client
+	target string
+}
 
 func (h hostRewrite) Do(r *http.Request) (*http.Response, error) {
 	c := r.Clone(r.Context())
 	c.URL.Scheme, c.URL.Host = "http", h.target
 
-	return http.DefaultClient.Do(c)
+	return h.client.Do(c)
 }
 
 func (e *env) transport() azcore.ClientOptions {
-	return azcore.ClientOptions{Transport: hostRewrite{target: strings.TrimPrefix(e.url, "http://")}}
+	return azcore.ClientOptions{Transport: hostRewrite{
+		client: httpclient.New(30 * time.Second),
+		target: strings.TrimPrefix(e.url, "http://"),
+	}}
 }
 
 func hostURL(account string) string { return "https://" + account + ".file.core.windows.net/" }

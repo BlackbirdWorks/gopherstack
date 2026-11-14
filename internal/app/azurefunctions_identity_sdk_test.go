@@ -55,7 +55,7 @@ func TestAzureFunctionsARMSDK_ManagedIdentityToken(t *testing.T) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
 		s.fnSrv.URL+"/MSI/token?resource=https://vault.azure.net&api-version=2019-08-01", nil)
 	require.NoError(t, err)
-	req.Header.Set("X-IDENTITY-HEADER", header)
+	req.Header.Set("X-Identity-Header", header)
 
 	resp, err := s.fnSrv.Client().Do(req)
 	require.NoError(t, err)

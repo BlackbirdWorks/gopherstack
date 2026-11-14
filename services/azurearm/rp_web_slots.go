@@ -221,6 +221,44 @@ func (p *WebProvider) checkSlotName(app, slot string) error {
 	return nil
 }
 
+func newSlotRecord(
+	parent *storedWebSite,
+	sub, slot string,
+	body, props map[string]any,
+	ident resourceIdentity,
+	existing *storedWebSite,
+) *storedWebSite {
+	rec := &storedWebSite{
+		Name:          parent.Name,
+		Sub:           sub,
+		Slot:          slot,
+		ResourceGroup: parent.ResourceGroup,
+		Location:      parent.Location,
+		Kind:          parent.Kind,
+		Created:       time.Now().UTC(),
+		Tags:          stringTags(body[fieldTags]),
+		Managed:       ident,
+		Configs:       map[string]map[string]any{},
+		Extra:         webSiteExtra(props),
+	}
+	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
+
+	if existing != nil {
+		rec.Created, rec.Location, rec.Configs, rec.LastSwap = existing.Created, existing.Location, existing.Configs,
+			existing.LastSwap
+	}
+
+	if loc, _ := body[fieldLocation].(string); loc != "" {
+		rec.Location = loc
+	}
+
+	if kind, _ := body[webFieldKind].(string); kind != "" && isFunctionAppKind(kind) == isFunctionAppKind(parent.Kind) {
+		rec.Kind = kind
+	}
+
+	return rec
+}
+
 func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	parent, ok := p.site(id.ResourceGroup, id.Names[0])
 	if !ok {
@@ -240,33 +278,7 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	rec := &storedWebSite{
-		Name:          parent.Name,
-		Sub:           id.SubscriptionID,
-		Slot:          slot,
-		ResourceGroup: parent.ResourceGroup,
-		Location:      parent.Location,
-		Kind:          parent.Kind,
-		Created:       time.Now().UTC(),
-		Tags:          stringTags(body[fieldTags]),
-		Managed:       ident,
-		Configs:       map[string]map[string]any{},
-		Extra:         webSiteExtra(props),
-	}
-	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
-
-	if exists {
-		rec.Created, rec.Location, rec.Configs, rec.LastSwap = existing.Created, existing.Location, existing.Configs,
-			existing.LastSwap
-	}
-
-	if loc, _ := body[fieldLocation].(string); loc != "" {
-		rec.Location = loc
-	}
-
-	if kind, _ := body[webFieldKind].(string); kind != "" && isFunctionAppKind(kind) == isFunctionAppKind(parent.Kind) {
-		rec.Kind = kind
-	}
+	rec := newSlotRecord(parent, id.SubscriptionID, slot, body, props, ident, existing)
 
 	settings, err := p.applySlotProps(parent, rec, props, !exists)
 	if err != nil {
