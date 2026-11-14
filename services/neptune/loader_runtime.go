@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -144,7 +145,7 @@ func (rs *rdfService) fetchFeed(
 	cache feedCache,
 	key string,
 ) (objectData, *feedFailure) {
-	if fail := rs.authorizeRole(job, "s3:GetObject", "arn:aws:s3:::"+job.bucket+"/"+key); fail != nil {
+	if fail := rs.authorizeRole(job, "s3:GetObject", arn.BuildS3(job.bucket+"/"+key)); fail != nil {
 		return objectData{}, fail
 	}
 

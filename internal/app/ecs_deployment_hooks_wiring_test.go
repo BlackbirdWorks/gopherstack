@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -40,13 +41,23 @@ func newECSBlueGreenService(
 	require.NoError(t, err)
 	require.NotEmpty(t, list.ServiceDeployments)
 
-	desc, err := client.DescribeServiceDeployments(ctx, &ecs.DescribeServiceDeploymentsInput{
-		ServiceDeploymentArns: []string{aws.ToString(list.ServiceDeployments[0].ServiceDeploymentArn)},
-	})
-	require.NoError(t, err)
-	require.Len(t, desc.ServiceDeployments, 1)
+	var got ecstypes.ServiceDeployment
 
-	return desc.ServiceDeployments[0]
+	require.Eventually(t, func() bool {
+		desc, derr := client.DescribeServiceDeployments(ctx, &ecs.DescribeServiceDeploymentsInput{
+			ServiceDeploymentArns: []string{aws.ToString(list.ServiceDeployments[0].ServiceDeploymentArn)},
+		})
+		if derr != nil || len(desc.ServiceDeployments) != 1 {
+			return false
+		}
+
+		got = desc.ServiceDeployments[0]
+
+		return got.Status != ecstypes.ServiceDeploymentStatusInProgress &&
+			got.Status != ecstypes.ServiceDeploymentStatusPending
+	}, 10*time.Second, 10*time.Millisecond)
+
+	return got
 }
 
 func TestECSDeploymentAlarmsReadCloudWatchState(t *testing.T) {
