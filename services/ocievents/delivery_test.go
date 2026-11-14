@@ -19,13 +19,14 @@ import (
 )
 
 type notifier struct {
+	t testing.TB
 	b *ocinotifications.InMemoryBackend
 }
 
 func (n notifier) TopicActive(id string) bool { return n.b.TopicActive(id) }
 
 func (n notifier) PublishEvent(topicID, body string) error {
-	_, err := n.b.PublishMessage(topicID, "JSON", ocinotifications.PublishIn{Body: &body})
+	_, err := n.b.PublishMessage(n.t.Context(), topicID, "JSON", ocinotifications.PublishIn{Body: &body})
 
 	return err
 }
@@ -317,7 +318,7 @@ func newPipeline(t *testing.T) *pipeline {
 
 	p.topic = topic.TopicID
 
-	sub, err := p.ons.CreateSubscription(ocinotifications.CreateSubscriptionIn{
+	sub, err := p.ons.CreateSubscription(t.Context(), ocinotifications.CreateSubscriptionIn{
 		TopicID: p.topic, Compartment: testCompartment, Protocol: "HTTPS", Endpoint: srv.URL,
 	}, "http://localhost")
 	require.NoError(t, err)
@@ -343,7 +344,7 @@ func newPipeline(t *testing.T) *pipeline {
 	p.stream = st.ID
 	p.streams.Sweep()
 
-	p.backend.SetNotifier(notifier{p.ons})
+	p.backend.SetNotifier(notifier{t: t, b: p.ons})
 	p.backend.SetStreamer(streamer{p.streams})
 	p.backend.SetFunctionInvoker(p.fn)
 
