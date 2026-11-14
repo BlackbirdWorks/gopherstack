@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
 
@@ -83,7 +84,7 @@ func TestExportArtifact(t *testing.T) {
 			},
 		},
 		{
-			name: "docker repository", want: codes.FailedPrecondition,
+			name: "docker unknown version", want: codes.NotFound,
 			req: &artifactregistrypb.ExportArtifactRequest{
 				Repository: repoName("dock"),
 				SourceArtifact: &artifactregistrypb.ExportArtifactRequest_SourceVersion{
@@ -187,4 +188,38 @@ func TestCancelledExportWritesNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, codes.Canceled, got.GetError().GetCode())
 	assert.Empty(t, store)
+}
+
+func TestExportDockerArtifact(t *testing.T) {
+	t.Parallel()
+
+	store := memStore{}
+	e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) { b.SetObjectStore(store) })
+	e.createRepo(t, "dock", dockerRepo())
+
+	img := pushTo(e.docker(t), "dock", "app", "v1")
+	version := pkgName("dock", "app") + "/versions/" + img.Digest
+
+	for name, src := range map[string]*artifactregistrypb.ExportArtifactRequest{
+		"version": {SourceArtifact: &artifactregistrypb.ExportArtifactRequest_SourceVersion{SourceVersion: version}},
+		"tag": {SourceArtifact: &artifactregistrypb.ExportArtifactRequest_SourceTag{
+			SourceTag: pkgName("dock", "app") + "/tags/v1",
+		}},
+	} {
+		src.Repository = repoName("dock")
+		src.Destination = &artifactregistrypb.ExportArtifactRequest_GcsPath{GcsPath: "bkt-docker/" + name}
+
+		op, err := e.client.ExportArtifact(t.Context(), src)
+		require.NoError(t, err, name)
+
+		resp, err := op.Wait(t.Context())
+		require.NoError(t, err, name)
+		assert.Equal(t, version, resp.GetExportedVersion().GetName())
+
+		meta, err := op.Metadata()
+		require.NoError(t, err)
+		assert.Len(t, meta.GetExportedFiles(), 3, "manifest, config and layer")
+		assert.Equal(t, img.Body, store["bkt-docker/"+name+"/"+img.Digest], name)
+		assert.Equal(t, img.Layer, store["bkt-docker/"+name+"/"+ocitest.Digest(img.Layer)], name)
+	}
 }

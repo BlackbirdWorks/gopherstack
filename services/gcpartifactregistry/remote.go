@@ -56,25 +56,27 @@ func (b *InMemoryBackend) upstreamClient() *http.Client {
 	return b.remote.client
 }
 
+// publicUpstreams maps the preset repositories to the URLs listed on
+// docs.cloud.google.com/artifact-registry/docs/repositories/remote-overview; apt and yum bases are hosts to which
+// repository_path is appended.
 var publicUpstreams = map[string]string{ //nolint:gochecknoglobals // immutable catalog
 	"DOCKER_HUB":      "https://registry-1.docker.io",
 	"MAVEN_CENTRAL":   "https://repo.maven.apache.org/maven2",
 	"NPMJS":           "https://registry.npmjs.org",
-	"PYPI":            "https://pypi.org",
-	"DEBIAN":          "https://deb.debian.org/debian",
-	"UBUNTU":          "http://archive.ubuntu.com/ubuntu",
-	"DEBIAN_SNAPSHOT": "https://snapshot.debian.org/archive/debian",
-	"CENTOS":          "https://vault.centos.org",
-	"CENTOS_DEBUG":    "https://debuginfo.centos.org",
+	"PYPI":            "https://pypi.io",
+	"DEBIAN":          "http://deb.debian.org",
+	"UBUNTU":          "http://archive.ubuntu.com",
+	"DEBIAN_SNAPSHOT": "https://snapshot.debian.org",
+	"CENTOS":          "http://mirror.centos.org",
+	"CENTOS_DEBUG":    "http://debuginfo.centos.org",
 	"CENTOS_VAULT":    "https://vault.centos.org",
 	"CENTOS_STREAM":   "https://mirror.stream.centos.org",
-	"ROCKY":           "https://download.rockylinux.org/pub/rocky",
-	"FEDORA_LINUX":    "https://dl.fedoraproject.org/pub/fedora/linux",
+	"ROCKY":           "http://dl.rockylinux.org",
 	"EPEL":            "https://dl.fedoraproject.org/pub/epel",
 }
 
 // upstreamBase resolves the remote repository's upstream URL: its custom or common repository URI, else the
-// public repository it names. The mapping of public repositories to URLs is not published by Google (unverified).
+// public repository it names.
 func upstreamBase(cfg *artifactregistrypb.RemoteRepositoryConfig) (string, error) {
 	uri := cfg.GetCommonRepository().GetUri()
 	public := ""

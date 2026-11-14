@@ -2,6 +2,7 @@ package gcpartifactregistry
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -254,6 +255,7 @@ func (b *InMemoryBackend) downloadDenied(_ context.Context, ref repoRef, res rul
 	}
 
 	res.repository = ref.id
+	res.annotations = b.versionAnnotationsLocked(ref, res.pkg, res.version)
 	pkg := res.pkg
 	now := b.now()
 
@@ -277,6 +279,24 @@ func (b *InMemoryBackend) downloadDenied(_ context.Context, ref repoRef, res rul
 	}
 
 	return repoRule != nil && repoRule.GetAction() == artifactregistrypb.Rule_DENY
+}
+
+// versionAnnotationsLocked returns the user annotations of a version, whichever store keeps it. Must hold b.mu.
+func (b *InMemoryBackend) versionAnnotationsLocked(ref repoRef, pkg, version string) map[string]string {
+	if version == "" {
+		return nil
+	}
+
+	name := ref.packageName(pkg) + "/versions/" + version
+	out := map[string]string{}
+
+	for _, store := range []map[string]*resMeta{b.genVers, b.meta} {
+		if m := store[name]; m != nil {
+			maps.Copy(out, m.Annotations)
+		}
+	}
+
+	return out
 }
 
 func ruleMatchesPackage(ruleID, pkg string) bool {

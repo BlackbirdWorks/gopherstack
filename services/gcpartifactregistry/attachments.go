@@ -120,7 +120,7 @@ func (b *InMemoryBackend) CreateAttachment(
 	}
 
 	fresh := cloneAttachment(att)
-	fresh.Name, fresh.OciVersionName = name, ""
+	fresh.Name, fresh.OciVersionName = name, b.ociVersionName(ref, att.GetFiles())
 
 	return b.startOp(ref.parent(), metaOp(), true, func() (proto.Message, error) {
 		b.mu.Lock("CreateAttachment")
@@ -287,4 +287,52 @@ func (b *InMemoryBackend) DeleteAttachment(name string) (*longrunningpb.Operatio
 
 		return &emptypb.Empty{}, nil
 	})
+}
+
+// ociVersionName is the version of a DOCKER repository whose manifest one of the files is, which is the OCI
+// version an attachment created; empty for other formats and for blob files.
+func (b *InMemoryBackend) ociVersionName(ref repoRef, files []string) string {
+	for _, f := range files {
+		fr, err := parseFile(f)
+		if err != nil || !strings.HasPrefix(fr.id, "sha256:") {
+			continue
+		}
+
+		for _, s := range b.imageSnaps(ref, "") {
+			if _, ok := s.manifests[fr.id]; ok {
+				return ref.packageName(s.image) + "/versions/" + fr.id
+			}
+		}
+	}
+
+	return ""
+}
+
+// dropAttachmentsOfTargetLocked removes the attachments of a deleted version or package, and of the versions
+// under a deleted package. Must hold b.mu for writing.
+func (b *InMemoryBackend) dropAttachmentsOfTargetLocked(target string) {
+	for name, a := range b.attach {
+		if a.GetTarget() == target || strings.HasPrefix(a.GetTarget(), target+"/versions/") {
+			delete(b.attach, name)
+		}
+	}
+}
+
+// dropAttachmentFileLocked removes a deleted file from the attachments that list it; an attachment left without
+// files goes too. Must hold b.mu for writing.
+func (b *InMemoryBackend) dropAttachmentFileLocked(file string) {
+	for name, a := range b.attach {
+		if !slices.Contains(a.GetFiles(), file) {
+			continue
+		}
+
+		a.Files = slices.DeleteFunc(a.GetFiles(), func(f string) bool { return f == file })
+		if len(a.GetFiles()) == 0 {
+			delete(b.attach, name)
+
+			continue
+		}
+
+		a.UpdateTime = b.ts()
+	}
 }

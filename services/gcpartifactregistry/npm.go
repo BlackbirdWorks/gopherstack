@@ -332,7 +332,7 @@ func (b *InMemoryBackend) serveNPMTarball(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, pkg) {
+	if b.packageDenied(r.Context(), rc, pkg, f.Owner) {
 		writeNPMError(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

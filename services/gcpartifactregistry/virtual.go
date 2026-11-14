@@ -92,11 +92,15 @@ func (b *InMemoryBackend) upstreamsOf(rc repoCtx) []repoCtx {
 }
 
 // serveVirtual answers a read with the first upstream, by descending priority, that has the artifact; npm,
-// Python and Maven package indices combine the entries of every upstream that has the package.
+// Python and Maven package indices and apt and yum indices combine the entries of every upstream.
 func (b *InMemoryBackend) serveVirtual(w http.ResponseWriter, r *http.Request, rc repoCtx, path string) {
 	if !isRead(r) {
 		writePlain(w, http.StatusMethodNotAllowed, "Virtual repositories are read-only; upload to an upstream.")
 
+		return
+	}
+
+	if r.Method == http.MethodGet && b.serveVirtualOSIndex(w, r, rc, path) {
 		return
 	}
 

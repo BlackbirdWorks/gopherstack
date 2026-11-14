@@ -23,6 +23,8 @@ import (
 const (
 	maxRepositories = 256
 	defaultPage     = 100
+
+	registryNameParts = 4
 )
 
 type repoRec struct {
@@ -126,12 +128,16 @@ func (b *InMemoryBackend) SetRegistryAddress(host, port string) {
 func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.now()) }
 
 func (b *InMemoryBackend) registryURI(r repoRef) string {
+	if r.id == "gcr.io" || strings.HasSuffix(r.id, ".gcr.io") {
+		return r.id + "/" + r.project
+	}
+
 	host := b.host
 	if b.hostPort != "" {
 		host += ":" + b.hostPort
 	}
 
-	return host + "/" + r.dockerKey()
+	return host + "/" + r.clientPath()
 }
 
 // store returns the embedded registry, building it on first use. Must hold b.mu for writing.
@@ -197,12 +203,13 @@ type DockerRepoInfo struct {
 	Docker    bool
 }
 
-// LookupDockerRepo resolves project/repository to its location and format.
-func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, bool) {
+// LookupDockerRepo resolves project/repository to its location and format; an empty location takes the first
+// repository by name that has the id.
+func (b *InMemoryBackend) LookupDockerRepo(project, id, location string) (DockerRepoInfo, bool) {
 	b.mu.RLock("LookupDockerRepo")
 	defer b.mu.RUnlock()
 
-	name, rec, ok := b.repoByKey(project, id, "", artifactregistrypb.Repository_DOCKER)
+	name, rec, ok := b.repoByKey(project, id, location, artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		return DockerRepoInfo{}, false
 	}
@@ -217,7 +224,7 @@ func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, 
 	}, true
 }
 
-// RecordManifestPut notes a manifest stored through the Docker API.
+// RecordManifestPut notes a manifest stored through the Docker API; repo is the embedded registry name.
 func (b *InMemoryBackend) RecordManifestPut(repo, ref, digest string) {
 	b.mu.Lock("RecordManifestPut")
 	defer b.mu.Unlock()
@@ -230,7 +237,31 @@ func (b *InMemoryBackend) RecordManifestDelete(repo, ref string) {
 	b.mu.Lock("RecordManifestDelete")
 	defer b.mu.Unlock()
 
+	b.dropDeletedManifestLocked(repo, ref)
 	b.ledger.RecordDelete(repo, ref)
+}
+
+// dropDeletedManifestLocked removes the attachments of a manifest about to leave the ledger, and of its
+// package once its last manifest goes. Must hold b.mu for writing.
+func (b *InMemoryBackend) dropDeletedManifestLocked(repo, ref string) {
+	parts := strings.SplitN(repo, "/", registryNameParts)
+	entry, ok := b.ledger[repo]
+
+	if len(parts) != registryNameParts || !ok || !ociregistry.IsDigest(ref) {
+		return
+	}
+
+	if _, isManifest := entry.Manifests[ref]; !isManifest {
+		return
+	}
+
+	rr := repoRef{project: parts[0], location: parts[1], id: parts[2]}
+	b.dropAttachmentsOfTargetLocked(rr.packageName(parts[3]) + "/versions/" + ref)
+	b.dropAttachmentFileLocked(rr.fileName(ref))
+
+	if len(entry.Manifests) == 1 {
+		b.dropAttachmentsOfTargetLocked(rr.packageName(parts[3]))
+	}
 }
 
 // TagExists reports whether tag already points at a manifest in repo.
@@ -248,12 +279,12 @@ func (b *InMemoryBackend) TagExists(repo, tag string) bool {
 	return ok
 }
 
-// ImageNames lists the images in the repository at registry path prefix project/repository, sorted.
-func (b *InMemoryBackend) ImageNames(project, id string) []string {
-	b.mu.RLock("ImageNames")
+// imageNames lists the images in a Docker repository, sorted.
+func (b *InMemoryBackend) imageNames(ref repoRef) []string {
+	b.mu.RLock("imageNames")
 	defer b.mu.RUnlock()
 
-	return b.imagesLocked(repoRef{project: project, id: id})
+	return b.imagesLocked(ref)
 }
 
 func (b *InMemoryBackend) imagesLocked(r repoRef) []string {

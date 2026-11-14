@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"path/filepath"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -40,6 +41,7 @@ type backendSnapshot struct {
 	SigningKeys  map[string][]byte            `json:"signingKeys,omitempty"`
 	Operations   map[string]jsontext.Value    `json:"operations"`
 	Version      int                          `json:"version"`
+	Layout       int                          `json:"layout,omitempty"`
 }
 
 func marshalPB(m proto.Message) jsontext.Value {
@@ -63,6 +65,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	snap := backendSnapshot{
 		Version:      snapshotVersion,
+		Layout:       snapshotLayout,
 		Ledger:       b.ledger,
 		Operations:   b.ops.Snapshot(),
 		Repositories: make(map[string]repoSnap, len(b.repos)),
@@ -134,6 +137,20 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.ops.AbortPending(grpcstatus.New(codes.Aborted, "The operation did not survive a restart."))
+
+	if snap.Layout < snapshotLayout {
+		owners := legacyDockerLocations(repos)
+		snap.Ledger = migrateLedger(snap.Ledger, owners)
+
+		b.repos, b.ledger = repos, snap.Ledger
+		b.release(false)
+
+		if b.dataDir == "" {
+			return nil
+		}
+
+		return migrateImageDirs(filepath.Join(b.dataDir, "images"), owners)
+	}
 
 	b.repos, b.ledger = repos, snap.Ledger
 	b.release(false)

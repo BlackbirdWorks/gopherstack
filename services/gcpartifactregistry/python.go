@@ -242,7 +242,7 @@ func (b *InMemoryBackend) pyDownload(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, segs[0]) {
+	if b.packageDenied(r.Context(), rc, segs[0], f.Owner) {
 		writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

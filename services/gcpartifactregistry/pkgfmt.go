@@ -332,6 +332,7 @@ func (b *InMemoryBackend) removePackage(ref repoRef, pkgID string) bool {
 
 	delete(b.genPkgs, pkg)
 	delete(b.pkgTags, pkg)
+	b.dropAttachmentsOfTargetLocked(pkg)
 
 	return true
 }
@@ -457,6 +458,11 @@ func (b *InMemoryBackend) packageIDs(ref repoRef) []string {
 	return out
 }
 
-func (b *InMemoryBackend) packageDenied(ctx context.Context, rc repoCtx, pkgID string) bool {
-	return b.downloadDenied(ctx, rc.ref, ruleResource{pkg: pkgID})
+// packageDenied applies the download rules to a file of the package; owner is the name of the version holding it.
+func (b *InMemoryBackend) packageDenied(ctx context.Context, rc repoCtx, pkgID, owner string) bool {
+	if owner == "" {
+		return b.downloadDenied(ctx, rc.ref, ruleResource{pkg: pkgID})
+	}
+
+	return b.downloadDenied(ctx, rc.ref, b.fileResource(pkgID, owner))
 }

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -65,19 +67,43 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dp, ok := splitDockerPath(strings.TrimPrefix(rest, "/"))
+	dp, ok := splitDockerPath(r.Host, strings.TrimPrefix(rest, "/"))
+	if ok && dp.createOnPush && isWrite(r.Method) {
+		b.createGCRRepo(dp)
+	}
+
 	if !ok {
 		writeRegError(w, http.StatusNotFound, "NAME_INVALID", "Repository path must be <project>/<repository>/<image>.")
 
 		return
 	}
 
-	if !b.dockerRepoOK(w, r, dp.project, dp.id) {
+	b.serveDockerAt(w, r, dp)
+}
+
+// createGCRRepo creates the project's gcr.io repository for a host the first time an image is pushed to it.
+func (b *InMemoryBackend) createGCRRepo(dp dockerPath) {
+	ref := dp.ref()
+	pb := b.buildRepository(ref, &artifactregistrypb.Repository{
+		Format: artifactregistrypb.Repository_DOCKER, Description: "gcr.io repository",
+	})
+
+	b.mu.Lock("createGCRRepo")
+	defer b.mu.Unlock()
+
+	if _, ok := b.repos[ref.full()]; !ok && len(b.repos) < maxRepositories {
+		b.repos[ref.full()] = &repoRec{pb: pb}
+	}
+}
+
+// serveDockerAt serves a request whose path is already split; a preset dp.location skips Host-based resolution.
+func (b *InMemoryBackend) serveDockerAt(w http.ResponseWriter, r *http.Request, dp dockerPath) {
+	if !b.dockerRepoOK(w, r, &dp) {
 		return
 	}
 
 	if dp.tail == "_catalog" {
-		b.serveCatalog(w, r, dp.project, dp.id)
+		b.serveCatalog(w, r, dp)
 
 		return
 	}
@@ -92,7 +118,7 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b.proxy(w, r, dp.project, dp.id)
+	b.proxy(w, r, dp)
 }
 
 // dockerPullDenied reports whether a download rule blocks a manifest or blob read.
@@ -115,9 +141,7 @@ func (b *InMemoryBackend) dockerPullDenied(r *http.Request, dp dockerPath) bool 
 				}
 			}
 
-			info, _ := b.LookupDockerRepo(dp.project, dp.id)
-
-			return b.downloadDenied(r.Context(), repoRef{project: dp.project, location: info.Location, id: dp.id}, res)
+			return b.downloadDenied(r.Context(), dp.ref(), res)
 		}
 	}
 
@@ -142,15 +166,54 @@ func serveToken(w http.ResponseWriter) {
 	_, _ = w.Write(body)
 }
 
-// dockerPath is a registry path split into <project>/<repository>/<tail>.
+// dockerPath is a registry path split into <project>/<repository>/<tail>; location is resolved from the Host
+// (or preset for a virtual repository's upstream) once the repository is looked up.
 type dockerPath struct {
-	project string
-	id      string
-	tail    string
+	project  string
+	id       string
+	tail     string
+	location string
+
+	createOnPush bool
 }
 
-// splitDockerPath splits <project>/<repository>/<rest>, where rest is the image path and API tail.
-func splitDockerPath(path string) (dockerPath, bool) {
+func (dp dockerPath) ref() repoRef {
+	return repoRef{project: dp.project, location: dp.location, id: dp.id}
+}
+
+var gcrHostRe = regexp.MustCompile(`^((?:us|eu|asia)\.)?gcr\.io(?::\d+)?$`)
+
+// gcrLocations maps a Container Registry host to the multi-region of its gcr.io repository, per
+// docs.cloud.google.com/artifact-registry/docs/transition/gcr-repositories.
+func gcrLocation(prefix string) string {
+	switch prefix {
+	case "eu.":
+		return "europe"
+	case "asia.":
+		return "asia"
+	default:
+		return "us"
+	}
+}
+
+func isWrite(method string) bool {
+	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch
+}
+
+// splitDockerPath splits <project>/<repository>/<rest>, where rest is the image path and API tail. On a gcr.io
+// host the path is <project>/<image path>: the repository is the host's predefined gcr.io repository.
+func splitDockerPath(host, path string) (dockerPath, bool) {
+	if m := gcrHostRe.FindStringSubmatch(host); m != nil {
+		project, tail, ok := strings.Cut(path, "/")
+		if !ok || project == "" || tail == "" {
+			return dockerPath{}, false
+		}
+
+		return dockerPath{
+			project: project, id: m[1] + "gcr.io", tail: tail, location: gcrLocation(m[1]), createOnPush: true,
+		}, true
+	}
+
 	parts := strings.SplitN(path, "/", minImageSegs)
 	if len(parts) < minImageSegs || parts[0] == "" || parts[1] == "" {
 		return dockerPath{}, false
@@ -159,29 +222,79 @@ func splitDockerPath(path string) (dockerPath, bool) {
 	return dockerPath{project: parts[0], id: parts[1], tail: parts[2]}, true
 }
 
-func (b *InMemoryBackend) dockerRepoOK(w http.ResponseWriter, r *http.Request, project, id string) bool {
-	info, ok := b.LookupDockerRepo(project, id)
+func (b *InMemoryBackend) dockerRepoOK(w http.ResponseWriter, r *http.Request, dp *dockerPath) bool {
+	loc := dp.location
+	if m := dockerHostRe.FindStringSubmatch(r.Host); m != nil && loc == "" {
+		loc = m[1]
+	}
+
+	info, ok := b.LookupDockerRepo(dp.project, dp.id, loc)
 	if !ok || !info.Docker {
-		writeRegError(w, http.StatusNotFound, "NAME_UNKNOWN", "Repository \""+id+"\" not found")
+		msg := "Repository \"" + dp.id + "\" not found"
+		if loc != "" {
+			msg += " in " + loc
+		}
+
+		writeRegError(w, http.StatusNotFound, "NAME_UNKNOWN", msg)
 
 		return false
 	}
 
-	if m := dockerHostRe.FindStringSubmatch(r.Host); m != nil && m[1] != info.Location {
-		writeRegError(w, http.StatusNotFound, "NAME_UNKNOWN", "Repository \""+id+"\" not found in "+m[1])
-
-		return false
-	}
+	dp.location = info.Location
 
 	return true
 }
 
-func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, project, id string) {
-	app := b.Registry()
+// regRewriter maps the embedded registry's location-carrying names in Location and Link headers back to the
+// project/repository path the client used.
+type regRewriter struct {
+	http.ResponseWriter
+	from, to string
+}
 
-	ociregistry.ServeObserved(app, w, r, ociregistry.Observer{
+func (w *regRewriter) WriteHeader(code int) {
+	h := w.Header()
+	for _, k := range []string{"Location", "Link"} {
+		if v := h.Get(k); v != "" {
+			h.Set(k, strings.ReplaceAll(v, w.from, w.to))
+		}
+	}
+
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *regRewriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, dp dockerPath) {
+	app := b.Registry()
+	ref := dp.ref()
+	from, to := "/v2/"+ref.dockerKey()+"/", "/v2/"+ref.clientPath()+"/"
+	if dp.createOnPush {
+		to = "/v2/" + ref.project + "/"
+	}
+
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = from + dp.tail
+	r2.URL.RawPath = ""
+
+	rw := &regRewriter{ResponseWriter: w, from: from, to: to}
+	if strings.HasSuffix(dp.tail, "/tags/list") {
+		rec := newBufResponse()
+		app.ServeHTTP(rec, r2)
+
+		name := strings.TrimPrefix(from, "/v2/")
+		body := strings.ReplaceAll(rec.body.String(), `"`+name, `"`+strings.TrimPrefix(to, "/v2/"))
+		rec.body.Reset()
+		rec.body.WriteString(body)
+		rec.header.Del("Content-Length")
+		rec.replay(rw)
+
+		return
+	}
+
+	ociregistry.ServeObserved(app, rw, r2, ociregistry.Observer{
 		Permit: func(w http.ResponseWriter, repo, ref, op string) bool {
-			if op == ociregistry.OpWrite && !ociregistry.IsDigest(ref) && b.immutableTag(project, id, repo, ref) {
+			if op == ociregistry.OpWrite && !ociregistry.IsDigest(ref) && b.immutableTag(dp, repo, ref) {
 				writeRegError(w, http.StatusConflict, "TAG_INVALID", "The tag is immutable.")
 
 				return false
@@ -194,15 +307,15 @@ func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, project,
 	})
 }
 
-func (b *InMemoryBackend) immutableTag(project, id, repo, tag string) bool {
-	info, ok := b.LookupDockerRepo(project, id)
+func (b *InMemoryBackend) immutableTag(dp dockerPath, repo, tag string) bool {
+	info, ok := b.LookupDockerRepo(dp.project, dp.id, dp.location)
 
 	return ok && info.Immutable && b.TagExists(repo, tag)
 }
 
 // serveCatalog lists a repository's images from the ledger, paged with n and last.
-func (b *InMemoryBackend) serveCatalog(w http.ResponseWriter, r *http.Request, project, id string) {
-	images := b.ImageNames(project, id)
+func (b *InMemoryBackend) serveCatalog(w http.ResponseWriter, r *http.Request, dp dockerPath) {
+	images := b.imageNames(dp.ref())
 	sort.Strings(images)
 
 	n := catalogLimit

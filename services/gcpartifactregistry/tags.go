@@ -95,7 +95,7 @@ func (b *InMemoryBackend) UpdateTag(
 	}
 
 	for _, path := range in.GetUpdateMask().GetPaths() {
-		if path != "version" {
+		if path != celVersion {
 			return nil, errInvalid("Update mask path %q is not an updatable field.", path)
 		}
 	}

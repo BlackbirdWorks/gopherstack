@@ -240,7 +240,7 @@ func (b *InMemoryBackend) serveGoFile(w http.ResponseWriter, r *http.Request, rc
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, mod) {
+	if b.packageDenied(r.Context(), rc, mod, f.Owner) {
 		writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

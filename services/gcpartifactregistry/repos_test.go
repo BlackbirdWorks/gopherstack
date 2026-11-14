@@ -99,11 +99,6 @@ func TestCreateRepositoryErrors(t *testing.T) {
 	}{
 		{name: "duplicate", req: &artifactregistrypb.CreateRepositoryRequest{
 			Parent: loc, RepositoryId: "exists", Repository: dockerRepo()}, want: codes.AlreadyExists},
-		{name: "duplicate in other location", req: &artifactregistrypb.CreateRepositoryRequest{
-			Parent:       "projects/" + project + "/locations/europe-west1",
-			RepositoryId: "exists",
-			Repository:   dockerRepo(),
-		}, want: codes.AlreadyExists},
 		{name: "bad id", req: &artifactregistrypb.CreateRepositoryRequest{
 			Parent: loc, RepositoryId: "Bad_ID", Repository: dockerRepo()}, want: codes.InvalidArgument},
 		{name: "empty id", req: &artifactregistrypb.CreateRepositoryRequest{
@@ -235,8 +230,8 @@ func TestRepositoryIDPerLocation(t *testing.T) {
 	assert.Equal(t, codes.AlreadyExists, status.Code(create(other, "shared", mavenRepo())))
 
 	require.NoError(t, create(other, "shared-docker", dockerRepo()))
-	assert.Equal(t, codes.AlreadyExists, status.Code(create(loc, "shared-docker", dockerRepo())),
-		"docker registry paths carry no location")
+	require.NoError(t, create(loc, "shared-docker", dockerRepo()), "docker ids are per location too")
+	assert.Equal(t, codes.AlreadyExists, status.Code(create(loc, "shared-docker", dockerRepo())))
 	require.NoError(t, create("projects/"+project+"/locations/asia-east1", "shared", dockerRepo()),
 		"docker may share an id with maven repositories")
 

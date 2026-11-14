@@ -90,9 +90,13 @@ func (b *InMemoryBackend) rpmEntries(rc repoCtx) []rpmEntry {
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	sortRPMEntries(out)
 
 	return out
+}
+
+func sortRPMEntries(out []rpmEntry) {
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
 }
 
 type xmlEntry struct {
@@ -326,8 +330,16 @@ func (b *InMemoryBackend) serveYum(w http.ResponseWriter, r *http.Request, rc re
 		return
 	}
 
-	entries := b.rpmEntries(rc)
+	b.serveYumPath(w, r, rc, b.rpmEntries(rc), p)
+}
 
+func (b *InMemoryBackend) serveYumPath(
+	w http.ResponseWriter,
+	r *http.Request,
+	rc repoCtx,
+	entries []rpmEntry,
+	p string,
+) {
 	switch {
 	case strings.HasPrefix(p, "repodata/"):
 		b.serveRepodata(w, rc, entries, p)
@@ -337,7 +349,7 @@ func (b *InMemoryBackend) serveYum(w http.ResponseWriter, r *http.Request, rc re
 				continue
 			}
 
-			if b.packageDenied(r.Context(), rc, e.pkg) {
+			if b.packageDenied(r.Context(), rc, e.pkg, e.file.Owner) {
 				writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 				return

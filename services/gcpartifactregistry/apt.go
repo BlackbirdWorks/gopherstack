@@ -131,6 +131,12 @@ func (b *InMemoryBackend) debEntries(rc repoCtx) []debEntry {
 		}
 	}
 
+	sortDebEntries(out)
+
+	return out
+}
+
+func sortDebEntries(out []debEntry) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].pkg != out[j].pkg {
 			return out[i].pkg < out[j].pkg
@@ -138,8 +144,6 @@ func (b *InMemoryBackend) debEntries(rc repoCtx) []debEntry {
 
 		return out[i].path < out[j].path
 	})
-
-	return out
 }
 
 func (e debEntry) stanza() string {
@@ -261,8 +265,16 @@ func (b *InMemoryBackend) serveApt(w http.ResponseWriter, r *http.Request, rc re
 		return
 	}
 
-	entries := b.debEntries(rc)
+	b.serveAptPath(w, r, rc, b.debEntries(rc), p)
+}
 
+func (b *InMemoryBackend) serveAptPath(
+	w http.ResponseWriter,
+	r *http.Request,
+	rc repoCtx,
+	entries []debEntry,
+	p string,
+) {
 	switch {
 	case strings.HasPrefix(p, "dists/"+rc.ref.id+"/") && isAptSignedFile(strings.TrimPrefix(p, "dists/"+rc.ref.id+"/")):
 		b.serveAptRelease(w, rc, entries, strings.TrimPrefix(p, "dists/"+rc.ref.id+"/"))
@@ -367,7 +379,7 @@ func (b *InMemoryBackend) serveDeb(w http.ResponseWriter, r *http.Request, rc re
 			continue
 		}
 
-		if b.packageDenied(r.Context(), rc, e.pkg) {
+		if b.packageDenied(r.Context(), rc, e.pkg, e.file.Owner) {
 			writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 			return

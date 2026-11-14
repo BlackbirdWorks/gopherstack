@@ -9,6 +9,8 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
@@ -78,6 +80,7 @@ func TestRemoteUpstreamCredentialsFromSecretManager(t *testing.T) {
 
 			cfg := npmUpstream(up.URL)
 			cfg.UpstreamCredentials = upstreamCreds("robot", tt.version)
+			cfg.DisableUpstreamValidation = true
 			e.createRepo(t, "npm-auth", remoteRepo(artifactregistrypb.Repository_NPM, cfg))
 
 			code, body := getBody(t, "http://127.0.0.1:"+e.port+"/npm/"+project+"/npm-auth/left-pad")
@@ -101,5 +104,73 @@ func upstreamCreds(user, secretVersion string) *artifactregistrypb.RemoteReposit
 		Credentials: &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials_UsernamePasswordCredentials_{
 			UsernamePasswordCredentials: &pw{Username: user, PasswordSecretVersion: secretVersion},
 		},
+	}
+}
+
+func TestRemoteUpstreamValidation(t *testing.T) {
+	t.Parallel()
+
+	const secretVersion = "projects/p/secrets/up-pass/versions/1"
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if user, pass, ok := r.BasicAuth(); !ok || user != "robot" || pass != "s3cret-pass" {
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(up.Close)
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	downURL := down.URL
+
+	down.Close()
+
+	tests := []struct {
+		name    string
+		url     string
+		secret  string
+		skip    bool
+		offline bool
+		want    codes.Code
+	}{
+		{name: "valid credentials", url: up.URL, secret: "s3cret-pass"},
+		{name: "wrong credentials", url: up.URL, secret: "nope", want: codes.InvalidArgument},
+		{name: "wrong credentials skipped", url: up.URL, secret: "nope", skip: true},
+		{name: "unreachable upstream", url: downURL, secret: "s3cret-pass", want: codes.InvalidArgument},
+		{name: "unreachable upstream skipped", url: downURL, secret: "s3cret-pass", skip: true},
+		{name: "fetching disabled", url: downURL, secret: "s3cret-pass", offline: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) {
+				b.SetRemoteUpstreams(!tt.offline)
+				b.SetSecretResolver(secretMap{secretVersion: tt.secret})
+			})
+
+			cfg := npmUpstream(tt.url)
+			cfg.UpstreamCredentials = upstreamCreds("robot", secretVersion)
+			cfg.DisableUpstreamValidation = tt.skip
+
+			_, err := e.client.CreateRepository(t.Context(), &artifactregistrypb.CreateRepositoryRequest{
+				Parent: loc, RepositoryId: "validated", Repository: remoteRepo(artifactregistrypb.Repository_NPM, cfg),
+			})
+			assert.Equal(t, tt.want, status.Code(err), "%v", err)
+
+			if tt.want != codes.OK {
+				return
+			}
+
+			repo, err := e.client.GetRepository(
+				t.Context(), &artifactregistrypb.GetRepositoryRequest{Name: repoName("validated")},
+			)
+			require.NoError(t, err)
+			assert.False(t, repo.GetRemoteRepositoryConfig().GetDisableUpstreamValidation(), "input only")
+		})
 	}
 }

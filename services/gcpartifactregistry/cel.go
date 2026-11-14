@@ -9,20 +9,25 @@ import (
 	"google.golang.org/genproto/googleapis/type/expr"
 )
 
+const celVersion = "version"
+
 var errNoCEL = errors.New("CEL environment unavailable")
 
-// ruleResource is what a rule condition sees as `resource`.
+// ruleResource is the artifact a download rule condition is evaluated for.
 type ruleResource struct {
-	repository string
-	pkg        string
-	version    string
-	tags       []string
+	annotations map[string]string
+	repository  string
+	pkg         string
+	version     string
+	tags        []string
 }
 
-// newRuleEnv declares the variables rule conditions may use: request.time and resource.{repository,package,
-// version,tags}. The variable set is the emulator's choice; Google does not publish it (unverified).
+// newRuleEnv declares the variables rule conditions may use: pkg.id, pkg.version.{id,tag,annotations} as
+// documented on docs.cloud.google.com/artifact-registry/docs/restrict-artifact-downloads, plus request.time and
+// resource.{repository,package,version,tags}, which are the emulator's own.
 func newRuleEnv() (*cel.Env, error) {
 	env, err := cel.NewEnv(
+		cel.Variable("pkg", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("request", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("resource", cel.MapType(cel.StringType, cel.DynType)),
 	)
@@ -82,7 +87,21 @@ func (b *InMemoryBackend) conditionHolds(c *expr.Expr, res ruleResource, now tim
 		tags = append(tags, t)
 	}
 
+	annotations := make(map[string]any, len(res.annotations))
+	for k, v := range res.annotations {
+		annotations[k] = v
+	}
+
+	tag := ""
+	if len(res.tags) > 0 {
+		tag = res.tags[0]
+	}
+
 	out, _, err := prg.Eval(map[string]any{
+		"pkg": map[string]any{
+			"id":       res.pkg,
+			celVersion: map[string]any{"id": res.version, "tag": tag, "annotations": annotations},
+		},
 		"request": map[string]any{"time": now.UTC()},
 		"resource": map[string]any{
 			"repository": res.repository, "package": res.pkg, "version": res.version, "tags": tags,

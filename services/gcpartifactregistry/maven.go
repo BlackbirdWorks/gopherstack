@@ -262,7 +262,8 @@ func (b *InMemoryBackend) getMaven(w http.ResponseWriter, r *http.Request, rc re
 		return
 	}
 
-	if t.kind != mavenArtifactMeta && b.packageDenied(r.Context(), rc, t.pkgID) {
+	if t.kind != mavenArtifactMeta &&
+		b.packageDenied(r.Context(), rc, t.pkgID, rc.ref.packageName(t.pkgID)+"/versions/"+t.version) {
 		writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

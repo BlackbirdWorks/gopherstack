@@ -184,11 +184,13 @@ func (b *InMemoryBackend) genGetVersion(l leafRef) (*artifactregistrypb.Version,
 func (b *InMemoryBackend) dropGenericVersionLocked(name string) {
 	delete(b.genVers, name)
 	b.untagLocked(name)
+	b.dropAttachmentsOfTargetLocked(name)
 
 	for fn, f := range b.genFiles {
 		if f.Owner == name {
 			delete(b.genFiles, fn)
 			delete(b.meta, fn)
+			b.dropAttachmentFileLocked(fn)
 		}
 	}
 }
@@ -208,6 +210,7 @@ func (b *InMemoryBackend) genDeletePackage(parent repoRef, p pkgRef) (*longrunni
 
 	delete(b.genPkgs, p.full())
 	delete(b.pkgTags, p.full())
+	b.dropAttachmentsOfTargetLocked(p.full())
 	b.mu.Unlock()
 
 	return b.done(parent.parent(), &emptypb.Empty{})

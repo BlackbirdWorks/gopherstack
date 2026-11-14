@@ -276,6 +276,8 @@ func (b *InMemoryBackend) RunCleanup(ctx context.Context) []CleanupResult {
 		}
 
 		sort.Strings(res.Versions)
+		b.auditCleanup(ctx, t.ref, res.Versions, t.dryRun)
+
 		results = append(results, res)
 	}
 

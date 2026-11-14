@@ -221,7 +221,7 @@ func (b *InMemoryBackend) downloadKFP(w http.ResponseWriter, r *http.Request, rc
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, pkgID) {
+	if b.packageDenied(r.Context(), rc, pkgID, f.Owner) {
 		writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

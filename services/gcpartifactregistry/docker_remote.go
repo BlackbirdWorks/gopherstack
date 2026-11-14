@@ -30,7 +30,7 @@ var errDockerAuth = errors.New("the upstream registry refused authentication")
 // dockerModeHandled serves virtual and remote Docker repositories. It reports true when it answered; false
 // leaves the request to the regular local handler (standard repositories, and remote ones once filled).
 func (b *InMemoryBackend) dockerModeHandled(w http.ResponseWriter, r *http.Request, dp dockerPath) bool {
-	info, ok := b.LookupDockerRepo(dp.project, dp.id)
+	info, ok := b.LookupDockerRepo(dp.project, dp.id, dp.location)
 	if !ok {
 		return false
 	}
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) serveDockerVirtual(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rc, ok := b.repoOfFormat(dp.project, dp.id, "", artifactregistrypb.Repository_DOCKER)
+	rc, ok := b.repoOfFormat(dp.project, dp.id, dp.location, artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		writeRegError(w, http.StatusNotFound, "NAME_UNKNOWN", "Repository not found")
 
@@ -64,11 +64,10 @@ func (b *InMemoryBackend) serveDockerVirtual(w http.ResponseWriter, r *http.Requ
 	}
 
 	for _, up := range b.upstreamsOf(rc) {
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/v2/" + up.ref.project + "/" + up.ref.id + "/" + dp.tail
-
 		rec := newBufResponse()
-		b.serveDocker(rec, r2)
+		b.serveDockerAt(rec, r, dockerPath{
+			project: up.ref.project, id: up.ref.id, tail: dp.tail, location: up.ref.location,
+		})
 
 		if st := rec.status(); st < http.StatusBadRequest || st == http.StatusForbidden {
 			rec.replay(w)
@@ -91,7 +90,7 @@ func (b *InMemoryBackend) fillDockerRemote(w http.ResponseWriter, r *http.Reques
 	}
 
 	image, ref := m[1], m[2]
-	repo := dp.project + "/" + dp.id + "/" + image
+	repo := dp.ref().dockerKey() + "/" + image
 	_, haveErr := b.client().GetManifest(r.Context(), repo, ref)
 	have := haveErr == nil
 
@@ -99,7 +98,7 @@ func (b *InMemoryBackend) fillDockerRemote(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 
-	rc, ok := b.repoOfFormat(dp.project, dp.id, "", artifactregistrypb.Repository_DOCKER)
+	rc, ok := b.repoOfFormat(dp.project, dp.id, dp.location, artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		return false
 	}
@@ -237,7 +236,8 @@ func (b *InMemoryBackend) pullBlob(ctx context.Context, base, name, repo, digest
 func (b *InMemoryBackend) pushBlob(ctx context.Context, repo, digest string, data []byte) error {
 	app := b.Registry()
 
-	start, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v2/"+repo+"/blobs/uploads/", nil)
+	start, err := http.NewRequestWithContext( //nolint:gosec // in-process request, no host
+		ctx, http.MethodPost, "/v2/"+repo+"/blobs/uploads/", nil)
 	if err != nil {
 		return fmt.Errorf("blob upload: %w", err)
 	}
