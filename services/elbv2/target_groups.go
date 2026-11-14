@@ -3,6 +3,7 @@ package elbv2
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -123,6 +124,15 @@ func checkAllTGNamesFound(names []string, result []TargetGroup) error {
 	return nil
 }
 
+// clone copies the slice and map fields that backend code mutates in place.
+func (tg *TargetGroup) clone() TargetGroup {
+	cp := *tg
+	cp.Targets = slices.Clone(tg.Targets)
+	cp.TargetGroupAttributes = maps.Clone(tg.TargetGroupAttributes)
+
+	return cp
+}
+
 // CreateTargetGroup creates a new target group.
 func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error) {
 	b.mu.Lock("CreateTargetGroup")
@@ -201,7 +211,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	b.targetGroups.Put(tg)
 
-	cp := *tg
+	cp := tg.clone()
 
 	return &cp, nil
 }
@@ -415,7 +425,7 @@ func (b *InMemoryBackend) DescribeTargetGroups(
 				continue
 			}
 
-			cp := *tg
+			cp := tg.clone()
 			cp.LoadBalancerArns = sortedLBArns(tgLBMap[tg.TargetGroupArn])
 			result = append(result, cp)
 		}
@@ -484,7 +494,7 @@ func (b *InMemoryBackend) filterTargetGroupsLocked(
 			continue
 		}
 
-		cp := *tg
+		cp := tg.clone()
 		cp.LoadBalancerArns = sortedLBArns(tgLBMap[tg.TargetGroupArn])
 		result = append(result, cp)
 	}
@@ -602,7 +612,7 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.UnhealthyThresholdCount = *input.UnhealthyThresholdCount
 	}
 
-	cp := *tg
+	cp := tg.clone()
 
 	return &cp, nil
 }
@@ -626,7 +636,7 @@ func (b *InMemoryBackend) ModifyTargetGroupAttributes(
 
 	maps.Copy(tg.TargetGroupAttributes, attrs)
 
-	cp := *tg
+	cp := tg.clone()
 
 	return &cp, nil
 }

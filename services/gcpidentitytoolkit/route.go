@@ -11,8 +11,21 @@ import (
 var (
 	hostPrefixes = []string{"/identitytoolkit.googleapis.com", "/securetoken.googleapis.com"}
 	accountVerbs = []string{
-		"signUp", "signInWithPassword", "signInWithCustomToken", "signInWithEmailLink", "lookup", "update", "delete",
-		"sendOobCode", opResetPassword, "createAuthUri", opBatchCreate, opBatchDelete, opQuery,
+		"signUp",
+		"signInWithPassword",
+		"signInWithCustomToken",
+		"signInWithEmailLink",
+		"lookup",
+		"update",
+		"delete",
+		"sendOobCode",
+		"sendVerificationCode",
+		"signInWithPhoneNumber",
+		opResetPassword,
+		"createAuthUri",
+		opBatchCreate,
+		opBatchDelete,
+		opQuery,
 	}
 )
 
@@ -65,6 +78,10 @@ func parseRoute(r *http.Request) route {
 func emulatorRoute(r *http.Request, parts []string) route {
 	const emulatorPathLen = 5
 
+	if len(parts) == 2 && parts[1] == "action" && r.Method == http.MethodGet {
+		return route{op: opEmulatorAction}
+	}
+
 	if len(parts) != emulatorPathLen || parts[1] != "v1" || parts[2] != "projects" {
 		return route{}
 	}
@@ -74,6 +91,8 @@ func emulatorRoute(r *http.Request, parts []string) route {
 	switch {
 	case parts[4] == "oobCodes" && r.Method == http.MethodGet:
 		rt.op = opListOobCodes
+	case parts[4] == "verificationCodes" && r.Method == http.MethodGet:
+		rt.op = opListVerificationCodes
 	case parts[4] == "accounts" && r.Method == http.MethodDelete:
 		rt.op = opClearAccounts
 	}
@@ -91,6 +110,8 @@ func versionedRoute(r *http.Request, rt route, rest []string) route {
 		return projectRoute(r, rt, rest[1], rest[2:])
 	case rt.version == "v1" && len(rest) == 1:
 		rt.op = accountVerb(r, rest[0])
+	case rt.version == "v2" && len(rest) == 1:
+		return v2ClientRoute(r, rt, rest[0])
 	}
 
 	return rt
@@ -171,6 +192,23 @@ func accountVerb(r *http.Request, seg string) string {
 	}
 
 	return ""
+}
+
+func v2ClientRoute(r *http.Request, rt route, seg string) route {
+	if r.Method != http.MethodGet {
+		return rt
+	}
+
+	rt.tenant = r.URL.Query().Get("tenantId")
+
+	switch seg {
+	case "passwordPolicy":
+		rt.op = opGetPasswordPolicy
+	case "recaptchaConfig":
+		rt.op = opGetRecaptchaConfig
+	}
+
+	return rt
 }
 
 func v2Route(r *http.Request, rt route, tail []string) route {

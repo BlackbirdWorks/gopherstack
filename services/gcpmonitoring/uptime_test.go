@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
@@ -23,6 +24,7 @@ const checkPassed = "monitoring.googleapis.com/uptime_check/check_passed"
 
 type target struct {
 	body   atomic.Value
+	agent  atomic.Value
 	srv    *httptest.Server
 	host   string
 	status atomic.Int32
@@ -38,6 +40,7 @@ func newTarget(t *testing.T) *target {
 	tg.body.Store("service is ok")
 	tg.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tg.hits.Add(1)
+		tg.agent.Store(r.Header.Get("User-Agent"))
 
 		if r.URL.Path == "/redirect" {
 			http.Redirect(w, r, "/health", http.StatusFound)
@@ -119,15 +122,15 @@ func TestUptimeCheckProbesOnTheInjectedClock(t *testing.T) {
 
 	b := e.handler.Backend
 	b.Tick(t.Context())
-	assert.EqualValues(t, 1, tg.hits.Load())
+	assert.EqualValues(t, 6, tg.hits.Load(), "each checker location probes the target")
 
 	b.Tick(t.Context())
-	assert.EqualValues(t, 1, tg.hits.Load(), "period has not elapsed on the injected clock")
+	assert.EqualValues(t, 6, tg.hits.Load(), "period has not elapsed on the injected clock")
 
 	e.clk.advanceMinute()
 	tg.status.Store(http.StatusInternalServerError)
 	b.Tick(t.Context())
-	assert.EqualValues(t, 2, tg.hits.Load())
+	assert.EqualValues(t, 12, tg.hits.Load())
 
 	got := e.passed(t)
 	require.Len(t, got, 6, "one series per checker location")
@@ -405,6 +408,144 @@ func TestUptimeCheckValidation(t *testing.T) {
 			_, err := e.uptime(t).CreateUptimeCheckConfig(t.Context(),
 				&monitoringpb.CreateUptimeCheckConfigRequest{Parent: proj, UptimeCheckConfig: cfg})
 			assert.Equal(t, "InvalidArgument", codeOf(err).String(), "%v", err)
+		})
+	}
+}
+
+func TestUptimeCheckProbesEachSelectedLocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		regions []monitoringpb.UptimeCheckRegion
+		want    int32
+	}{
+		{"two regions", []monitoringpb.UptimeCheckRegion{
+			monitoringpb.UptimeCheckRegion_EUROPE, monitoringpb.UptimeCheckRegion_ASIA_PACIFIC,
+		}, 2},
+		{"usa covers three", []monitoringpb.UptimeCheckRegion{monitoringpb.UptimeCheckRegion_USA}, 3},
+		{"all by default", nil, 6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			tg := newTarget(t)
+			cfg := tg.check("regions", &monitoringpb.UptimeCheckConfig_HttpCheck{Path: "/health"})
+			cfg.SelectedRegions = tt.regions
+			e.createCheck(t, cfg)
+
+			e.handler.Backend.Tick(t.Context())
+
+			assert.Equal(t, tt.want, tg.hits.Load())
+			assert.Contains(t, tg.agent.Load(), "GoogleStackdriverMonitoring-UptimeChecks")
+			assert.Len(t, e.passed(t), int(tt.want))
+		})
+	}
+}
+
+func jsonMatcher(
+	kind monitoringpb.UptimeCheckConfig_ContentMatcher_ContentMatcherOption,
+	path, content string,
+	how monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_JsonPathMatcherOption,
+) *monitoringpb.UptimeCheckConfig_ContentMatcher {
+	return &monitoringpb.UptimeCheckConfig_ContentMatcher{
+		Content: content, Matcher: kind,
+		AdditionalMatcherInfo: &monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_{
+			JsonPathMatcher: &monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher{
+				JsonPath: path, JsonMatcher: how,
+			},
+		},
+	}
+}
+
+func TestUptimeJSONPathMatchers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		matches = monitoringpb.UptimeCheckConfig_ContentMatcher_MATCHES_JSON_PATH
+		absent  = monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_MATCHES_JSON_PATH
+		exact   = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_EXACT_MATCH
+		regex   = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_REGEX_MATCH
+		body    = `{"status":"ok","n":3,"ok":true,"items":[{"id":"a"},{"id":"b"}],"nested":{"k":null}}`
+	)
+
+	tests := []struct {
+		m    *monitoringpb.UptimeCheckConfig_ContentMatcher
+		name string
+		pass bool
+	}{
+		{name: "exact string", m: jsonMatcher(matches, "$.status", "ok", exact), pass: true},
+		{name: "exact mismatch", m: jsonMatcher(matches, "$.status", "bad", exact), pass: false},
+		{name: "exact number", m: jsonMatcher(matches, "$.n", "3", exact), pass: true},
+		{name: "exact bool", m: jsonMatcher(matches, "$.ok", "true", exact), pass: true},
+		{name: "exact null", m: jsonMatcher(matches, "$.nested.k", "null", exact), pass: true},
+		{name: "index", m: jsonMatcher(matches, "$.items[1].id", "b", exact), pass: true},
+		{name: "wildcard any", m: jsonMatcher(matches, "$.items[*].id", "b", exact), pass: true},
+		{name: "bracket name", m: jsonMatcher(matches, "$['status']", "ok", exact), pass: true},
+		{name: "regex", m: jsonMatcher(matches, "$.status", "^o.$", regex), pass: true},
+		{name: "regex mismatch", m: jsonMatcher(matches, "$.status", "^x", regex), pass: false},
+		{name: "missing path", m: jsonMatcher(matches, "$.nope", "ok", exact), pass: false},
+		{name: "negated passes", m: jsonMatcher(absent, "$.status", "bad", exact), pass: true},
+		{name: "negated fails", m: jsonMatcher(absent, "$.status", "ok", exact), pass: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			tg := newTarget(t)
+			tg.body.Store(body)
+
+			cfg := tg.check("json", &monitoringpb.UptimeCheckConfig_HttpCheck{Path: "/"})
+			cfg.ContentMatchers = []*monitoringpb.UptimeCheckConfig_ContentMatcher{tt.m}
+			e.createCheck(t, cfg)
+
+			e.handler.Backend.Tick(t.Context())
+
+			for loc, vals := range e.passed(t) {
+				assert.Equal(t, []bool{tt.pass}, vals, loc)
+			}
+		})
+	}
+}
+
+func TestUptimeJSONPathMatcherValidation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		matches = monitoringpb.UptimeCheckConfig_ContentMatcher_MATCHES_JSON_PATH
+		exact   = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_EXACT_MATCH
+		regex   = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_REGEX_MATCH
+		unset   = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_JSON_PATH_MATCHER_OPTION_UNSPECIFIED
+	)
+
+	tests := []struct {
+		m    *monitoringpb.UptimeCheckConfig_ContentMatcher
+		name string
+	}{
+		{name: "no matcher info", m: &monitoringpb.UptimeCheckConfig_ContentMatcher{Content: "x", Matcher: matches}},
+		{name: "bad path", m: jsonMatcher(matches, "status", "x", exact)},
+		{name: "empty step", m: jsonMatcher(matches, "$..", "x", exact)},
+		{name: "no json matcher", m: jsonMatcher(matches, "$.a", "x", unset)},
+		{name: "bad regex", m: jsonMatcher(matches, "$.a", "(", regex)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			tg := newTarget(t)
+			cfg := tg.check("json", &monitoringpb.UptimeCheckConfig_HttpCheck{Path: "/"})
+			cfg.ContentMatchers = []*monitoringpb.UptimeCheckConfig_ContentMatcher{tt.m}
+
+			_, err := e.uptime(t).CreateUptimeCheckConfig(t.Context(),
+				&monitoringpb.CreateUptimeCheckConfigRequest{Parent: proj, UptimeCheckConfig: cfg})
+			assert.Equal(t, codes.InvalidArgument, codeOf(err))
 		})
 	}
 }

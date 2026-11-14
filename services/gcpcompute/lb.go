@@ -56,9 +56,11 @@ type lbSpec[T any] struct {
 	prep func(b *InMemoryBackend, c lbCtx, in *T, raw map[string]any) *APIError
 	refs func(v *T) []string
 	view func(v *T)
-	coll string
-	kind string
-	noun string
+	// viewB derives output-only fields from backend state; it runs under the backend lock.
+	viewB func(b *InMemoryBackend, v *T)
+	coll  string
+	kind  string
+	noun  string
 }
 
 func lbTargetOf(c lbCtx, coll, name string, id uint64) target {
@@ -128,13 +130,17 @@ func lbGet[T any](b *InMemoryBackend, sp lbSpec[T], c lbCtx, name string) (*T, e
 		return nil, errNotFound(relPath(c.project, c.scope, c.loc, sp.coll, name))
 	}
 
-	return lbView(sp, v), nil
+	return lbView(b, sp, v), nil
 }
 
-func lbView[T any](sp lbSpec[T], v *T) *T {
+func lbView[T any](b *InMemoryBackend, sp lbSpec[T], v *T) *T {
 	out := clone(v)
 	if sp.view != nil {
 		sp.view(out)
+	}
+
+	if sp.viewB != nil {
+		sp.viewB(b, out)
 	}
 
 	return out
@@ -163,7 +169,7 @@ func lbList[T any](b *InMemoryBackend, sp lbSpec[T], project, scope, loc string)
 			es += "/" + eloc
 		}
 
-		out = append(out, entry{scope: es, item: lbView(sp, v)})
+		out = append(out, entry{scope: es, item: lbView(b, sp, v)})
 	}
 
 	return out
@@ -372,6 +378,22 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 	lbCollectUsers(b, tcpProxySpec(), self, &users)
 	lbCollectUsers(b, sslProxySpec(), self, &users)
 	lbCollectUsers(b, fwdRuleSpec(), self, &users)
+	lbCollectUsers(b, targetPoolSpec(), self, &users)
+	lbCollectUsers(b, vpnTunnelSpec(), self, &users)
+
+	for _, r := range b.routes {
+		if r.NextHopVpnTunnel == self {
+			users = append(users, r.SelfLink)
+		}
+	}
+
+	for _, rec := range b.routers {
+		for _, ifc := range rec.Router.Interfaces {
+			if ifc.LinkedVpnTunnel == self {
+				users = append(users, rec.Router.SelfLink)
+			}
+		}
+	}
 
 	for _, m := range b.migs {
 		for _, p := range m.Mgr.AutoHealingPolicies {

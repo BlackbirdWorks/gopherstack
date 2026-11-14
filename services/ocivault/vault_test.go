@@ -60,6 +60,12 @@ func TestVaultLifecycle(t *testing.T) {
 
 	got, err = e.vaults.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: created.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.VaultLifecycleStateSchedulingDeletion, got.LifecycleState)
+
+	e.settle()
+
+	got, err = e.vaults.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: created.Id})
+	require.NoError(t, err)
 	assert.Equal(t, keymanagement.VaultLifecycleStatePendingDeletion, got.LifecycleState)
 	require.NotNil(t, got.TimeOfDeletion)
 	assert.WithinDuration(t, deadline, got.TimeOfDeletion.Time, time.Second)
@@ -67,6 +73,7 @@ func TestVaultLifecycle(t *testing.T) {
 	cancel, err := e.vaults.CancelVaultDeletion(ctx, keymanagement.CancelVaultDeletionRequest{VaultId: created.Id})
 	require.NoError(t, err)
 	assert.Equal(t, keymanagement.VaultLifecycleStateCancellingDeletion, cancel.LifecycleState)
+	e.settle()
 
 	got, err = e.vaults.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: created.Id})
 	require.NoError(t, err)

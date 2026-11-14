@@ -39,6 +39,7 @@ type InMemoryBackend struct {
 	containers       *store.Table[containerRecord]
 	subnets          SubnetResolver
 	tgws             TransitGatewayResolver
+	nets             NetworkResolver
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string

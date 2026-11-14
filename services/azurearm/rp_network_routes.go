@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -56,6 +57,18 @@ func isNamespaceOperation(segs []string, ns string) bool {
 //nolint:gochecknoglobals // static route table, read-only after init
 var networkRoutes = []armRoute{
 	{
+		match:  isPLSAction,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handlePLSAction(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPost && isNamespaceScope(segs, namespaceMicrosoftNetwork) &&
+				len(segs) == agwActionSegs && segAt(segs, agwTypeIdx, netAGWs) &&
+				containsFold([]string{agwActionStart, agwActionStop, "backendhealth"}, segs[len(segs)-1])
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAGWAction(c, segs) },
+	},
+	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodGet && isNamespaceOperation(segs, namespaceMicrosoftNetwork)
 		},
@@ -72,6 +85,12 @@ var networkRoutes = []armRoute{
 //nolint:gochecknoglobals // static route table, read-only after init
 var managedIdentityRoutes = []armRoute{
 	{
+		match: isMSIAssociatedAction,
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleListAssociated(c, segs)
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return isNamespaceScope(segs, namespaceMicrosoftManagedIdentity)
 		},
@@ -81,8 +100,69 @@ var managedIdentityRoutes = []armRoute{
 	},
 }
 
+const (
+	agwActionSegs = 9
+	agwTypeIdx    = 6
+)
+
+func (h *Handler) handleAGWAction(c *echo.Context, segs []string) error {
+	if !h.checkNSAPIVersion(c, namespaceMicrosoftNetwork, networkAPIVersions(), "Microsoft.Network/"+netAGWs) {
+		return nil
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	np, ok := h.networkProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	opID := uuid.NewString()
+	action := strings.ToLower(segs[len(segs)-1])
+
+	if action == "backendhealth" {
+		out, herr := np.BackendHealth(c.Request().Context(), id)
+		if herr != nil {
+			return h.writeAPIError(c, herr)
+		}
+
+		np.storeOpResult(opID, out)
+	} else if aerr := np.AGWAction(id, action); aerr != nil {
+		return h.writeAPIError(c, aerr)
+	}
+
+	h.setNSOperationID(c, id, true, opID)
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+func (p *NetworkProvider) storeOpResult(opID string, body map[string]any) {
+	p.mu.Lock("storeOpResult")
+	defer p.mu.Unlock()
+
+	p.ops[opID] = body
+}
+
+func (p *NetworkProvider) opResult(opID string) (map[string]any, bool) {
+	p.mu.RLock("opResult")
+	defer p.mu.RUnlock()
+
+	out, ok := p.ops[opID]
+
+	return out, ok
+}
+
 func (h *Handler) handleNSOperation(c *echo.Context, segs []string) error {
 	if segAt(segs, nsOpKindIdx, nsOperationRes) {
+		if np, ok := h.networkProvider(); ok && strings.EqualFold(segs[nsOpSegs-5], namespaceMicrosoftNetwork) {
+			if body, found := np.opResult(segs[nsOpSegs-1]); found {
+				return h.writeJSON(c, http.StatusOK, body)
+			}
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	}
 
@@ -242,10 +322,42 @@ func (h *Handler) handleNSList(c *echo.Context, id ResourceID, segs []string) er
 		return h.writeAPIError(c, err)
 	}
 
+	if isDNSRecordList(id) {
+		values = filterRecordSuffix(values, c.QueryParam("$recordsetnamesuffix"))
+
+		return h.writeJSON(c, http.StatusOK, h.pageNS(c, values, dnsDefaultTop))
+	}
+
 	return h.writeJSON(c, http.StatusOK, h.pageNS(c, values, nsDefaultTop(id.Namespace)))
 }
 
-const computePageSize = 100
+const (
+	computePageSize = 100
+	dnsDefaultTop   = 100
+)
+
+func isDNSRecordList(id ResourceID) bool {
+	return strings.EqualFold(id.Namespace, namespaceMicrosoftNetwork) && len(id.Types) == 2 &&
+		strings.EqualFold(id.Types[0], netZones) && !strings.EqualFold(id.Types[1], netLinks)
+}
+
+// filterRecordSuffix keeps record sets whose name ends with ".suffix", as $recordsetnamesuffix defines.
+func filterRecordSuffix(values []map[string]any, suffix string) []map[string]any {
+	if suffix == "" {
+		return values
+	}
+
+	want := "." + strings.ToLower(suffix)
+	out := values[:0:0]
+
+	for _, v := range values {
+		if strings.HasSuffix(strings.ToLower(strOf(v, fieldName)), want) {
+			out = append(out, v)
+		}
+	}
+
+	return out
+}
 
 // nsDefaultTop is the page size applied when the caller sends no $top; 0 means everything in one page.
 func nsDefaultTop(ns string) int {
@@ -303,21 +415,28 @@ func (h *Handler) handleCheckIP(c *echo.Context, segs []string) error {
 }
 
 // isSyncType reports whether writes to id complete without a long-running operation.
+//
+//nolint:gochecknoglobals // static read-only list
+var computeSyncTypes = []string{cmpAvSets, cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpRPCs}
+
 func isSyncType(id ResourceID) bool {
 	if id.Namespace == namespaceMicrosoftManagedIdentity ||
 		strings.EqualFold(id.Namespace, namespaceMicrosoftManagedIdentity) {
 		return true
 	}
 
-	if strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) && strings.EqualFold(firstType(id), cmpAvSets) {
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) && len(id.Types) == 1 &&
+		slices.ContainsFunc(computeSyncTypes, func(t string) bool { return strings.EqualFold(firstType(id), t) }) {
 		return true
 	}
 
-	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) && acaTargetOf(id).kind == acaKindStorage {
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) &&
+		slices.Contains([]acaKind{acaKindStorage, acaKindDapr, acaKindCert, acaKindAuth}, acaTargetOf(id).kind) {
 		return true
 	}
 
-	if strings.EqualFold(id.Namespace, namespaceMicrosoftContainerService) && aksTargetOf(id).kind == aksKindMaint {
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftContainerService) &&
+		slices.Contains([]aksKind{aksKindMaint, aksKindSnapshot}, aksTargetOf(id).kind) {
 		return true
 	}
 
@@ -329,7 +448,10 @@ func isSyncType(id ResourceID) bool {
 }
 
 func (h *Handler) setNSOperation(c *echo.Context, id ResourceID, withLocation bool) {
-	opID := uuid.NewString()
+	h.setNSOperationID(c, id, withLocation, uuid.NewString())
+}
+
+func (h *Handler) setNSOperationID(c *echo.Context, id ResourceID, withLocation bool, opID string) {
 	base := h.baseURLFor(c.Request()) + "/subscriptions/" + id.SubscriptionID + "/providers/" + id.Namespace +
 		"/locations/" + DefaultLocation + "/"
 	query := "?api-version=" + url.QueryEscape(c.QueryParam(nsAPIVersionKey))
@@ -509,12 +631,16 @@ func (h *Handler) managedIdentityProvider() (*ManagedIdentityProvider, bool) {
 
 // createAnswers201 is false for the Compute types whose SDK operations accept only 200 or 202 on PUT.
 func createAnswers201(id ResourceID) bool {
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) {
+		return !slices.Contains([]acaKind{acaKindDapr, acaKindCert, acaKindAuth}, acaTargetOf(id).kind)
+	}
+
 	if !strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) {
 		return true
 	}
 
 	switch canonicalCmpType(firstType(id)) {
-	case cmpDisks, cmpSnaps, cmpAvSets:
+	case cmpDisks, cmpSnaps, cmpAvSets, cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpDiskEncSets, cmpDiskAccess:
 		return false
 	}
 

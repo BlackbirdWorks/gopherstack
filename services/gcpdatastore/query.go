@@ -45,14 +45,14 @@ type queryResult struct {
 	resultType datastorepb.EntityResult_ResultType
 }
 
-func (b *InMemoryBackend) candidates(p *queryPlan, rv *readView) ([]*cand, error) {
+func (b *InMemoryBackend) candidates(p *queryPlan, rv *readView) []*cand {
 	switch p.kind {
 	case kindProperty:
-		return b.kindCandidates(p, rv), nil
+		return b.kindCandidates(p, rv)
 	case nsProperty:
-		return b.namespaceCandidates(p, rv), nil
+		return b.namespaceCandidates(p, rv)
 	case propProperty:
-		return nil, errUnimplemented("__property__ metadata queries are not supported.")
+		return b.propertyCandidates(p, rv)
 	}
 
 	var out []*cand
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) candidates(p *queryPlan, rv *readView) ([]*cand, error
 		out = append(out, &cand{key: rec.key, ent: ver.ent, ver: ver})
 	}
 
-	return out, nil
+	return out
 }
 
 func (b *InMemoryBackend) metaCandidate(part partition, id *datastorepb.Key_PathElement) *cand {
@@ -517,10 +517,7 @@ func (b *InMemoryBackend) execQuery(p *queryPlan, rv *readView) (*queryResult, e
 		return nil, err
 	}
 
-	cands, err := b.candidates(p, rv)
-	if err != nil {
-		return nil, err
-	}
+	cands := b.candidates(p, rv)
 
 	byKey := make(map[*datastorepb.Key]*cand, len(cands))
 	for _, c := range cands {
@@ -689,10 +686,6 @@ func (b *InMemoryBackend) RunQuery(in *datastorepb.RunQueryRequest) (*datastorep
 		return nil, err
 	}
 
-	if in.GetExplainOptions() != nil {
-		return nil, errUnimplemented("Query explain is not supported.")
-	}
-
 	part, err := queryPartition(req, in.GetPartitionId())
 	if err != nil {
 		return nil, err
@@ -710,6 +703,18 @@ func (b *InMemoryBackend) RunQuery(in *datastorepb.RunQueryRequest) (*datastorep
 
 	resp := &datastorepb.RunQueryResponse{Query: parsed}
 
+	if opts := in.GetExplainOptions(); opts != nil && !opts.GetAnalyze() {
+		if err = b.checkIndex(plan); err != nil {
+			return nil, err
+		}
+
+		resp.ExplainMetrics = explainMetrics(plan, opts, 0, 0)
+
+		return resp, nil
+	}
+
+	started := b.now()
+
 	err = b.read(in.GetReadOptions(), req, func(rv *readView) error {
 		res, qerr := b.execQuery(plan, rv)
 		if qerr != nil {
@@ -722,6 +727,10 @@ func (b *InMemoryBackend) RunQuery(in *datastorepb.RunQueryRequest) (*datastorep
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if opts := in.GetExplainOptions(); opts != nil {
+		resp.ExplainMetrics = explainMetrics(plan, opts, len(resp.GetBatch().GetEntityResults()), b.now().Sub(started))
 	}
 
 	return resp, nil

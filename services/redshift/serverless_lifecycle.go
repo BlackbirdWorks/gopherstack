@@ -47,6 +47,21 @@ func (b *InMemoryBackend) SetServerlessLifecycleDelay(d time.Duration) {
 	b.slLifecycleDelay = d
 }
 
+// SetServerlessClock replaces the clock lifecycle transitions are timed against (nil restores time.Now).
+func (b *InMemoryBackend) SetServerlessClock(now func() time.Time) {
+	b.mu.Lock("SetServerlessClock")
+	defer b.mu.Unlock()
+	b.slClock = now
+}
+
+func (b *InMemoryBackend) slNowLocked() time.Time {
+	if b.slClock != nil {
+		return b.slClock()
+	}
+
+	return time.Now()
+}
+
 // slBeginLocked parks a resource in interim for the lifecycle delay and returns
 // the status it should now carry; with no delay it returns final immediately
 // (or interim for a removal, which the caller reports and deletes at once).
@@ -56,7 +71,7 @@ func (b *InMemoryBackend) slBeginLocked(kind, name, interim, final string, remov
 	}
 
 	b.slPending[slPendingKey(kind, name)] = &slTransition{
-		at: time.Now().Add(b.slLifecycleDelay), final: final, remove: remove,
+		at: b.slNowLocked().Add(b.slLifecycleDelay), final: final, remove: remove,
 	}
 
 	return interim
@@ -116,7 +131,7 @@ func slBusy(kind, name string) error {
 func (b *InMemoryBackend) WorkgroupStatus(name string) (string, bool) {
 	b.mu.Lock("WorkgroupStatus")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	wg, ok := b.slWorkgroups.Get(name)
 	if !ok {

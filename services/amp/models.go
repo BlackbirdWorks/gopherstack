@@ -183,4 +183,5 @@ type SeriesRecord struct {
 	Key         string          `json:"key"`
 	WorkspaceID string          `json:"workspaceId"`
 	Samples     []promql.Sample `json:"samples"`
+	Exemplars   []Exemplar      `json:"exemplars,omitempty"`
 }

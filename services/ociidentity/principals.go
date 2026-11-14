@@ -20,6 +20,7 @@ const (
 
 // CreateUserIn is the CreateUser request body.
 type CreateUserIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	CompartmentID string `json:"compartmentId"`
 	Name          string `json:"name"`
@@ -37,6 +38,7 @@ type UpdateUserIn struct {
 
 // CreateGroupIn is the CreateGroup request body.
 type CreateGroupIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	CompartmentID string `json:"compartmentId"`
 	Name          string `json:"name"`
@@ -51,6 +53,7 @@ type UpdateGroupIn struct {
 
 // CreateDynamicGroupIn is the CreateDynamicGroup request body.
 type CreateDynamicGroupIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	CompartmentID string `json:"compartmentId"`
 	Name          string `json:"name"`
@@ -138,6 +141,21 @@ func (b *InMemoryBackend) CreateUser(in CreateUserIn) (userWire, string, error) 
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateUser",
+		in.RetryToken,
+		b.users,
+		func(r *User) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return userWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	if len(b.users) >= maxUsers {
 		return userWire{}, "", errLimit("The tenancy user limit (2000) has been reached")
 	}
@@ -155,6 +173,7 @@ func (b *InMemoryBackend) CreateUser(in CreateUserIn) (userWire, string, error) 
 		Capabilities: defaultCapabilities(), Internal: b.newInternal(),
 	}
 	b.users[u.ID] = u
+	b.retry.Remember("CreateUser", in.RetryToken, u.ID, b.nowUTC())
 
 	return u.view(), u.Internal.Etag, nil
 }
@@ -297,6 +316,21 @@ func (b *InMemoryBackend) CreateGroup(in CreateGroupIn) (Meta, string, error) {
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateGroup",
+		in.RetryToken,
+		b.groups,
+		func(r *Group) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return Meta{}, "", aerr
+		}
+
+		return r.Meta, r.Internal.Etag, nil
+	}
+
 	if len(b.groups) >= maxGroups {
 		return Meta{}, "", errLimit("The tenancy group limit (250) has been reached")
 	}
@@ -311,6 +345,7 @@ func (b *InMemoryBackend) CreateGroup(in CreateGroupIn) (Meta, string, error) {
 
 	g := &Group{Meta: b.newMeta("group", TenancyID, in.Name, in.Description, in.Tags), Internal: b.newInternal()}
 	b.groups[g.ID] = g
+	b.retry.Remember("CreateGroup", in.RetryToken, g.ID, b.nowUTC())
 
 	return g.Meta, g.Internal.Etag, nil
 }
@@ -540,6 +575,21 @@ func (b *InMemoryBackend) CreateDynamicGroup(in CreateDynamicGroupIn) (dynamicGr
 	b.mu.Lock("CreateDynamicGroup")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateDynamicGroup",
+		in.RetryToken,
+		b.dynGroups,
+		func(r *DynamicGroup) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return dynamicGroupWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	if len(b.dynGroups) >= maxDynamicGroups {
 		return dynamicGroupWire{}, "", errLimit("The tenancy dynamic group limit (50) has been reached")
 	}
@@ -557,6 +607,7 @@ func (b *InMemoryBackend) CreateDynamicGroup(in CreateDynamicGroupIn) (dynamicGr
 		MatchingRule: in.MatchingRule, Internal: b.newInternal(),
 	}
 	b.dynGroups[d.ID] = d
+	b.retry.Remember("CreateDynamicGroup", in.RetryToken, d.ID, b.nowUTC())
 
 	return d.view(), d.Internal.Etag, nil
 }
@@ -658,6 +709,7 @@ func (h *Handler) createUser(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateUser(in)
 
 	return reply(q, v, etag, err)
@@ -696,6 +748,7 @@ func (h *Handler) createGroup(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateGroup(in)
 
 	return reply(q, v, etag, err)
@@ -765,6 +818,7 @@ func (h *Handler) createDynamicGroup(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateDynamicGroup(in)
 
 	return reply(q, v, etag, err)

@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (10 ok, 1 partial) |
+| PARITY entries audited | 13 (10 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 13 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,16 +18,13 @@
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering (shardCount, replicasPerPrimary), VNet injection, private endpoints, zones allocation and geo-replication data flow are not modelled; a cache is one Redis server.
 - redisConfiguration is stored and echoed; miniredis has no CONFIG, so maxmemory-policy, maxclients and notify-keyspace-events are not enforced. rdb/aof backup settings only decide whether a full reboot keeps data.
-- disableAccessKeyAuthentication and Entra ID (aad-enabled) authentication, access policies and policy assignments are not implemented.
-- Reboots do not drop open connections; firewall rules do not filter connections.
+- Entra authentication: tokens are not re-checked for expiry on an open connection; the three built-in access policies use permission strings derived from their names (+@all allkeys; +@all -@dangerous allkeys; +@read +@connection allkeys) because Learn (azure-cache-for-redis/cache-configure-role-based-access-control) and REST 2024-11-01 access-policy list publish no built-in permission strings; deleting a custom policy that an assignment uses answers 400 InvalidRequestBody (the REST page documents no such rule).
 - Import accepts one RDB file; compact ziplist/listpack/intset encodings and streams fail with a 400.
 - Create completes the server immediately; only the reported provisioningState lags.
 - Microsoft.Cache/redisEnterprise (Redis Enterprise and Azure Managed Redis) is not implemented.
 - Clustering, VNet injection, private endpoints and geo-replication data flow are not modelled.
 - redisConfiguration settings are stored but not enforced (no CONFIG in miniredis).
-- Entra ID authentication, disableAccessKeyAuthentication and access policies are not implemented.
-- Reboots do not drop connections and firewall rules do not filter them.
-- No dashboard page.
+- Entra authentication: tokens are not re-checked for expiry on an open connection; the built-in access policy permission strings are not published by Learn or the REST reference and are derived from the policy names; deleting a custom policy that an assignment uses is refused although the REST page documents no such rule.
 
 ## More
 

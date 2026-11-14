@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -25,6 +26,7 @@ type Handler struct {
 	handlers      map[string]*Handler
 	accountID     string
 	secretsStore  SecretsStore
+	keyChecker    cmek.KeyChecker
 	sgEnforcer    *sgfilter.Enforcer
 	defaultRegion string
 	mu            sync.Mutex
@@ -57,6 +59,10 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 		return handler
 	}
 	backend := NewInMemoryBackend(h.accountID, region)
+	if h.keyChecker != nil {
+		backend.SetKeyChecker(h.keyChecker)
+	}
+
 	if h.secretsStore != nil {
 		backend.SetSecretsStore(h.secretsStore)
 	}
@@ -544,6 +550,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExists"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrInvalidParameterCombination, "InvalidParameterCombination"},
+		{ErrKMSKeyNotAccessible, "KMSKeyNotAccessibleFault"},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidDBInstanceState, "InvalidDBInstanceState"},
 		{ErrResourceNotFound, "ResourceNotFoundFault"},
@@ -979,5 +986,22 @@ func (h *Handler) SetSecretsStore(s SecretsStore) {
 
 	for _, b := range backends {
 		b.SetSecretsStore(s)
+	}
+}
+
+// SetKeyChecker resolves KMS keys on the home backend and every region backend, including ones created later.
+func (h *Handler) SetKeyChecker(c cmek.KeyChecker) {
+	h.mu.Lock()
+	h.keyChecker = c
+	backends := make([]*InMemoryBackend, 0, len(h.backends)+1)
+	backends = append(backends, h.Backend)
+
+	for _, b := range h.backends {
+		backends = append(backends, b)
+	}
+	h.mu.Unlock()
+
+	for _, b := range backends {
+		b.SetKeyChecker(c)
 	}
 }

@@ -36,7 +36,7 @@ AZURE_PORTS = {
     "cosmosdb": 8081,
 }
 
-OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157, "containerengine": 8158, "mysql": 8159, "logging": 8160, "monitoring": 8161, "nosql": 8162, "apigateway": 8163, "events": 8164, "loadbalancer": 8165, "artifacts": 8166, "containerinstances": 8167}
+OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157, "containerengine": 8158, "mysql": 8159, "logging": 8160, "monitoring": 8161, "nosql": 8162, "apigateway": 8163, "events": 8164, "loadbalancer": 8165, "artifacts": 8166, "containerinstances": 8167, "dns": 8168, "dnsserver": 8169, "database": 8170, "filestorage": 8171}
 
 GCP_PORTS = {
     "storage": 4443,
@@ -85,6 +85,14 @@ class GopherstackContainer(DockerContainer):
         for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values(), *OCI_PORTS.values()]:
             self.with_exposed_ports(port)
 
+    def with_user(self, user: str) -> GopherstackContainer:
+        """Run the container as user (e.g. "1000:1000"), keeping every other container kwarg.
+
+        testcontainers' with_kwargs replaces the whole kwargs dict, so merge instead.
+        """
+        self.with_kwargs(**{**self._kwargs, "user": user})
+        return self
+
     def with_services(self, *names: str) -> GopherstackContainer:
         """Restrict the emulator to the named services (GOPHERSTACK_SERVICES)."""
         self._services.extend(names)
@@ -92,7 +100,11 @@ class GopherstackContainer(DockerContainer):
         return self
 
     def with_persistence(self, host_dir: str) -> GopherstackContainer:
-        """Enable snapshot persistence, bind-mounting host_dir at /data."""
+        """Enable snapshot persistence, bind-mounting host_dir at /data.
+
+        The image runs as UID 65532; a host bind mount is rarely writable by it, so the container runs as root.
+        """
+        self.with_user("0:0")
         self.with_env("PERSIST", "true")
         self.with_env("GOPHERSTACK_DATA_DIR", DATA_DIR)
         self.with_volume_mapping(host_dir, DATA_DIR, "rw")
@@ -102,8 +114,9 @@ class GopherstackContainer(DockerContainer):
         """Mount the host Docker socket (Lambda/RDS/ECS docker engines).
 
         This gives the emulator control of the host Docker daemon; use only in
-        trusted test environments.
+        trusted test environments. The container runs as root to open the socket.
         """
+        self.with_user("0:0")
         self.with_volume_mapping(DOCKER_SOCK, DOCKER_SOCK, "rw")
         return self
 

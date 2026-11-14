@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -225,7 +224,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region, c.CreatedAt, c.dataEndpoint())
+		shards = buildShards(c, region)
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -321,39 +320,53 @@ func shardName(clusterName string, index int) string {
 	return fmt.Sprintf("%s-0001-%04d", clusterName, index)
 }
 
-// buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
-func buildShards(
-	clusterName string, numShards, numReplicas, port int32, region string, created time.Time,
-	dataEP *endpointObject,
-) []shardObject {
+// buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes. Docker clusters report each
+// node's own address.
+func buildShards(c *Cluster, region string) []shardObject {
 	zones := []string{region + "a", region + "b", region + "c"}
-	ranges := shardSlotRanges(numShards)
+	ranges := shardSlotRanges(c.NumShards)
 	shards := make([]shardObject, 0) //nolint:prealloc // no capacity hint: CodeQL flags user-derived sizes
+	dataEP := c.dataEndpoint()
+	nodeStatus := clusterStatusAvailable
+
+	if c.dock != nil {
+		nodeStatus = c.Status
+	}
 
 	for i, slots := range ranges {
-		nodes := make([]nodeObject, 0, 1+int(numReplicas))
+		nodes := make([]nodeObject, 0, 1+int(c.NumReplicasPerShard))
 
-		for ni := range 1 + int(numReplicas) {
-			nodeName := fmt.Sprintf("%s-0001-%04d-%04d", clusterName, i, ni)
+		for ni := range 1 + int(c.NumReplicasPerShard) {
+			nodeName := fmt.Sprintf("%s-0001-%04d-%04d", c.Name, i, ni)
 			nodes = append(nodes, nodeObject{
 				Name:             nodeName,
-				Status:           clusterStatusAvailable,
+				Status:           nodeStatus,
 				AvailabilityZone: zones[ni%len(zones)],
-				CreateTime:       float64(created.Unix()),
-				Endpoint:         nodeEndpoint(dataEP, nodeName, region, port),
+				CreateTime:       float64(c.CreatedAt.Unix()),
+				Endpoint:         c.nodeEndpointFor(i, ni, dataEP, nodeName, region),
 			})
 		}
 
 		shards = append(shards, shardObject{
-			Name:          shardName(clusterName, i),
-			Status:        clusterStatusAvailable,
+			Name:          shardName(c.Name, i),
+			Status:        nodeStatus,
 			Slots:         slots,
-			NumberOfNodes: int32(1 + int(numReplicas)), //nolint:gosec // clamped above
+			NumberOfNodes: int32(1 + int(c.NumReplicasPerShard)), //nolint:gosec // clamped above
 			Nodes:         nodes,
 		})
 	}
 
 	return shards
+}
+
+func (c *Cluster) nodeEndpointFor(shard, node int, dataEP *endpointObject, name, region string) *endpointObject {
+	if shard < len(c.endpoints) && node < len(c.endpoints[shard]) {
+		ep := c.endpoints[shard][node]
+
+		return &endpointObject{Address: ep.Host, Port: int32(ep.Port)} //nolint:gosec // TCP port fits int32
+	}
+
+	return nodeEndpoint(dataEP, name, region, c.Port)
 }
 
 func nodeEndpoint(dataEP *endpointObject, nodeName, region string, port int32) *endpointObject {

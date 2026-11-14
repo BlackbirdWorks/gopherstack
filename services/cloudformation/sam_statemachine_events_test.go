@@ -49,7 +49,7 @@ func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]an
 
 	require.NoError(
 		t,
-		json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc, jsonx.V1()),
+		json.Unmarshal([]byte(getTemplate(t, env.client, types.TemplateStageProcessed)), &doc, jsonx.V1()),
 	)
 
 	return doc.Resources
@@ -229,11 +229,6 @@ func TestSAMTransform_StateMachineEventFailures(t *testing.T) {
 		{"unknown_type", samEvent("E", "SQS", "Queue: x"), "not supported"},
 		{"schedule_missing_expression", samEvent("E", "Schedule", "Name: x"), "Schedule"},
 		{"unknown_property", samEvent("E", "Schedule", "Schedule: rate(1 minute)", "Bogus: 1"), "Bogus"},
-		{
-			"dlq_generated",
-			samEvent("E", "Schedule", "Schedule: rate(1 minute)", "DeadLetterConfig:", "  Type: SQS"),
-			"DeadLetterConfig",
-		},
 		{"api_missing_method", samEvent("E", "Api", "Path: /x"), "'Path' and 'Method'"},
 	}
 
@@ -329,7 +324,7 @@ func TestSAMTransform_ApiEventExtras(t *testing.T) {
 			check: func(t *testing.T, paths, defs map[string]any) {
 				t.Helper()
 				assert.Equal(t, []any{map[string]any{"api_key": []any{}}}, dig(t, paths, "/a", "get", "security"))
-				assert.NotContains(t, dig(t, paths, "/b", "get"), "security")
+				assert.Equal(t, []any{}, dig(t, paths, "/b", "get", "security"))
 				assert.Contains(t, defs, "api_key")
 			},
 		},

@@ -16,6 +16,7 @@ const (
 	resLogging      = "loggingconfiguration"
 	resQueryLogging = "queryloggingconfiguration"
 	resPolicy       = "resourcepolicy"
+	resSilence      = "silence"
 )
 
 func notFound(resType, id, format string, args ...any) error {

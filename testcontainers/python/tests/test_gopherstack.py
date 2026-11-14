@@ -40,3 +40,16 @@ def test_helpers(gs):
     assert gs.get_gcp_endpoint("storage").count(":") == 1
     with pytest.raises(ValueError):
         gs.get_gcp_endpoint("nope")
+
+
+@pytest.mark.parametrize("method", ["with_persistence", "with_docker_socket"])
+def test_root_user_keeps_earlier_kwargs(method, tmp_path):
+    c = GopherstackContainer(IMAGE, mem_limit="256m")
+    c.with_user("1000:1000")
+    getattr(c, method)(*([str(tmp_path)] if method == "with_persistence" else []))
+    assert c._kwargs == {"mem_limit": "256m", "user": "0:0"}
+
+
+def test_with_user_overrides_and_merges(tmp_path):
+    c = GopherstackContainer(IMAGE, mem_limit="256m").with_persistence(str(tmp_path)).with_user("1000:1000")
+    assert c._kwargs == {"mem_limit": "256m", "user": "1000:1000"}

@@ -63,6 +63,32 @@ func (h *Handler) getIndex(ctx context.Context, _ *restroute.Request) (any, int,
 	return out, 0, err
 }
 
+func (h *Handler) getServiceIndex(ctx context.Context, _ *restroute.Request) (any, int, error) {
+	d, err := h.Backend.GetIndex(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return map[string]string{"Arn": d.Arn, "Type": d.Type}, 0, nil
+}
+
+func (h *Handler) listServiceIndexes(ctx context.Context, req *restroute.Request) (any, int, error) {
+	var in struct {
+		listIn
+		Regions []string
+	}
+	if err := req.Decode(&in); err != nil {
+		return nil, 0, err
+	}
+
+	pg, err := h.Backend.ListIndexes(ctx, in.Regions, "", in.NextToken, in.max())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return listOut("Indexes", pg), 0, nil
+}
+
 func (h *Handler) updateIndexType(ctx context.Context, req *restroute.Request) (any, int, error) {
 	var in struct{ Arn, Type string }
 	if err := req.Decode(&in); err != nil {

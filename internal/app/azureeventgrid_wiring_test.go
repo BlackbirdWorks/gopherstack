@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
@@ -37,12 +36,11 @@ func TestReserveFixedServicePorts_AzureEventGrid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(10000, 10100)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.want, tt.port)
 
-			cli := CLI{AzureEventGrid: azureeventgrid.Settings{Port: tt.port}}
+			cli := CLI{AzureEventGrid: azureeventgrid.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
-			assert.Equal(t, tt.want, alloc.IsAllocated(tt.port))
+			assert.Equal(t, tt.want, alloc.IsAllocated(port))
 		})
 	}
 }
@@ -122,7 +120,7 @@ func TestAzureEventGridDeliversIntoSiblingEmulators(t *testing.T) {
 	list, err := blobs.ListBlobs("dead")
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	assert.Contains(t, list[0].Name, "t1/dl/")
+	assert.Contains(t, list[0].Name, "DL/")
 }
 
 func jsonField(t *testing.T, raw []byte, key string) string {

@@ -73,7 +73,7 @@ func paginate[T any](all []T, token string, size int32) ([]T, string, error) {
 		return nil, "", errInvalid("Invalid page_token.")
 	}
 
-	pg := page.New(all, token, int(size), defaultPageSize)
+	pg := page.New(all, token, int(min(size, maxPageSize)), defaultPageSize)
 
 	return pg.Data, pg.Next, nil
 }

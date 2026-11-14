@@ -1,6 +1,11 @@
 package gcpcompute
 
-import "strings"
+import (
+	"slices"
+	"strings"
+
+	"github.com/blackbirdworks/gopherstack/services/gcpcontainer"
+)
 
 // NetworkExists reports whether the VPC network exists in project.
 func (b *InMemoryBackend) NetworkExists(project, network string) bool {
@@ -60,5 +65,43 @@ func (b *InMemoryBackend) MachineTypeExists(machineType string) bool {
 		return ok
 	default:
 		return false
+	}
+}
+
+// EachSubnetwork calls fn for every subnetwork of project in a stable order.
+func (b *InMemoryBackend) EachSubnetwork(project string, fn func(gcpcontainer.SubnetInfo)) {
+	b.mu.RLock("EachSubnetwork")
+	var infos []gcpcontainer.SubnetInfo
+
+	for k, s := range b.subnets {
+		if !strings.HasPrefix(k, project+"/") {
+			continue
+		}
+
+		net := trimURL(s.Network)
+		info := gcpcontainer.SubnetInfo{
+			Network: net, Subnetwork: trimURL(s.SelfLink), CIDR: s.IpCidrRange, Region: lastSegment(s.Region),
+			Secondary: map[string]string{},
+		}
+
+		if parts := strings.Split(net, "/"); len(parts) > 1 {
+			info.NetworkProj = parts[1]
+		}
+
+		for _, r := range s.SecondaryIpRanges {
+			info.Secondary[r.RangeName] = r.IpCidrRange
+		}
+
+		infos = append(infos, info)
+	}
+	b.mu.RUnlock()
+
+	slices.SortFunc(
+		infos,
+		func(a, c gcpcontainer.SubnetInfo) int { return strings.Compare(a.Subnetwork, c.Subnetwork) },
+	)
+
+	for _, i := range infos {
+		fn(i)
 	}
 }

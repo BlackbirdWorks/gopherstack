@@ -29,6 +29,7 @@ type storedACIGroup struct {
 	Created       time.Time         `json:"created"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	Name          string            `json:"name"`
+	Sub           string            `json:"sub,omitempty"`
 	ResourceGroup string            `json:"resourceGroup"`
 	Location      string            `json:"location"`
 	Props         aciPropsWire      `json:"props"`
@@ -109,8 +110,9 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 	}
 
 	rec := &storedACIGroup{
-		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Props: props, Zones: zones,
+		Name: name, Sub: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Location: DefaultLocation,
+		Created: time.Now().UTC(),
+		Tags:    stringTags(body[fieldTags]), Props: props, Zones: zones,
 	}
 
 	if loc, _ := body[fieldLocation].(string); loc != "" {

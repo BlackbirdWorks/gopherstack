@@ -142,9 +142,9 @@ func (b *InMemoryBackend) riDetail(
 		AccountID: b.accountID,
 		InstanceDetails: map[string]any{
 			"EC2InstanceDetails": map[string]string{
-				"InstanceType": syntheticInstanceType,
-				mapKeyRegion:   b.region,
-				"Platform":     "Linux/UNIX",
+				mapKeyInstanceType: syntheticInstanceType,
+				mapKeyRegion:       b.region,
+				"Platform":         "Linux/UNIX",
 			},
 		},
 		RecommendedNumberOfInstancesToPurchase:    "2",

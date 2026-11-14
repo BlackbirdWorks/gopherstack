@@ -8,21 +8,20 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 23 (22 ok, 1 partial) |
-| Feature families | 10 (7 ok, 3 partial) |
-| Known gaps | 8 |
+| Feature families | 11 (8 ok, 3 partial) |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Not served: routines, models, row access policies, table and dataset IAM policies, datasets undelete, snapshots/clones as storage objects, materialized views, external and BigLake tables, reservations, connections, data transfers, analytics hub, and the Storage Read/Write gRPC APIs.
-- Unsupported GoogleSQL: WITH RECURSIVE, GROUP BY ROLLUP/CUBE/GROUPING SETS, PIVOT/UNPIVOT, TABLESAMPLE, FOR SYSTEM_TIME AS OF, named WINDOW clauses, ARRAY_AGG ... LIMIT, INTERSECT/EXCEPT ALL, CAST ... FORMAT, AT TIME ZONE, scripting (DECLARE, SET, IF, LOOP, several statements, transactions), CREATE FUNCTION/PROCEDURE and other UDFs, wildcard tables (_TABLE_SUFFIX), partition pseudo columns, selecting a whole row as a STRUCT, legacy SQL.
-- Unsupported functions: GEOGRAPHY (ST_*), INTERVAL and RANGE values, HLL and approximate aggregates other than APPROX_COUNT_DISTINCT, APPROX_QUANTILES/TOP_COUNT, FARM_FINGERPRINT, NET.*, ML.*, SEARCH, JSON constructors and mutators beyond JSON_VALUE/JSON_QUERY/PARSE_JSON/TO_JSON_STRING, FORMAT patterns beyond %s %d %i %f %g %e %t %T %x %o, collation.
-- Engine fidelity: integer overflow in +, - and * is not detected, an out-of-range array OFFSET returns NULL instead of an error, NUMERIC and BIGNUMERIC are computed in float64, and result types of untyped expressions (for example an all-NULL column) default to STRING.
-- Jobs run synchronously: there are no PENDING/RUNNING states, no slot or priority scheduling, no query cache, no timeoutMs waiting, no cancellation of running work and no requestId idempotency; anonymous result tables are not created.
-- Table settings are stored but not enforced: partitioning and clustering do not prune, requirePartitionFilter and expirationTime do nothing, and streaming-buffer metadata is not reported.
+- Unsupported GoogleSQL: WITH RECURSIVE, GROUP BY ROLLUP/CUBE/GROUPING SETS, PIVOT/UNPIVOT, TABLESAMPLE, FOR SYSTEM_TIME AS OF, CAST ... FORMAT, AT TIME ZONE, scripting (DECLARE, SET, IF, LOOP, several statements, transactions), CREATE FUNCTION/PROCEDURE and other UDFs, wildcard tables (_TABLE_SUFFIX), partition pseudo columns, selecting a whole row as a STRUCT, legacy SQL.
+- Unsupported functions: GEOGRAPHY (ST_*), INTERVAL and RANGE values, HLL and approximate aggregates other than APPROX_COUNT_DISTINCT, APPROX_QUANTILES and APPROX_TOP_COUNT, FARM_FINGERPRINT, NET.*, ML.*, SEARCH, JSON constructors and mutators beyond JSON_VALUE/JSON_QUERY/PARSE_JSON/TO_JSON_STRING, FORMAT patterns beyond %s %d %i %f %g %e %t %T %x %o, collation.
+- Engine fidelity: the int64 overflow error text ("int64 overflow: a + b") is not documented (the operators page only says all operators throw on overflow); NUMERIC and BIGNUMERIC are computed in float64, and result types of untyped expressions (for example an all-NULL column) default to STRING.
+- Jobs run synchronously: there are no PENDING/RUNNING states, no slot or priority scheduling, no query cache, no timeoutMs waiting and no cancellation of running work; anonymous result tables are not created.
+- Table settings are stored but not enforced: partitioning and clustering do not prune, requirePartitionFilter is not enforced, and streaming-buffer metadata is not reported.
 - Load: AVRO, ORC, Datastore and Firestore backups, hive partitioning, nested CSV, custom quote characters, schemaUpdateOptions and column-name flexibility options are not supported. Extract: AVRO is not supported, output is a single object (no size-based sharding, only the first destination URI is written), and the NDJSON TIMESTAMP and CSV float rendering have not been checked against the live service.
-- insertAll does not honour templateSuffix and de-duplicates by insertId only within one minute; getQueryResults ignores timeoutMs.
 
 ## More
 

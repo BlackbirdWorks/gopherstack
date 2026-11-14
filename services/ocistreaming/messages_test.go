@@ -163,6 +163,18 @@ func TestCursorTypes(t *testing.T) {
 			assert.Equal(t, tt.want, values(getMsgs(t, c, s, cur, 0).Items))
 		})
 	}
+}
+
+func TestCursorLimitAndNextCursor(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	s := e.mkStream(t, "cursors-limit", 1)
+	c := e.msgs(t, s)
+
+	for _, v := range []string{"m0", "m1", "m2", "m3"} {
+		putOne(t, c, s, "", v)
+	}
 
 	cur := plainCursor(t, c, s, "0", streaming.CreateCursorDetailsTypeTrimHorizon, nil)
 	limited := getMsgs(t, c, s, cur, 2)
@@ -286,9 +298,9 @@ func TestPutMessagesLimits(t *testing.T) {
 	}{
 		{
 			name:       "request over 1 MiB",
-			wantCode:   "RequestEntityTooLarge",
+			wantCode:   "InvalidParameter",
 			entries:    []streaming.PutMessagesDetailsEntry{{Value: make([]byte, 1<<20+1)}},
-			wantHTTP:   413,
+			wantHTTP:   400,
 			wantFailed: 0,
 		},
 		{
@@ -438,4 +450,32 @@ func TestPutToInactiveStream(t *testing.T) {
 		Messages: []streaming.PutMessagesDetailsEntry{{Value: []byte("x")}},
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
+}
+
+func TestReadThroughputLimit(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	s := e.mkStream(t, "readcap", 1)
+	c := e.msgs(t, s)
+	big := string(make([]byte, 900<<10))
+
+	for range 3 {
+		putOne(t, c, s, "", big)
+		e.clock.Advance(time.Second)
+	}
+
+	cur := plainCursor(t, c, s, "0", streaming.CreateCursorDetailsTypeTrimHorizon, nil)
+	first := getMsgs(t, c, s, cur, 2)
+	require.Len(t, first.Items, 2)
+
+	_, err := c.GetMessages(t.Context(), streaming.GetMessagesRequest{
+		StreamId: s.Id, Cursor: first.OpcNextCursor, Limit: new(1),
+	})
+	se := svcErr(t, err)
+	assert.Equal(t, http.StatusTooManyRequests, se.GetHTTPStatusCode())
+	assert.Contains(t, se.GetMessage(), "read limit")
+
+	e.clock.Advance(time.Second)
+	assert.Len(t, getMsgs(t, c, s, *first.OpcNextCursor, 1).Items, 1)
 }

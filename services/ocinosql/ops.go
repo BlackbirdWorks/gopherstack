@@ -21,6 +21,9 @@ func buildOps() map[string]opFunc {
 		opSummarizeStmt:  (*Handler).summarizeStatement,
 		opGetWorkRequest: (*Handler).getWorkRequest, opListWorkRequests: (*Handler).listWorkRequests,
 		opListWorkReqErrors: (*Handler).listWorkRequestErrors, opListWorkReqLogs: (*Handler).listWorkRequestLogs,
+		opCreateReplica: (*Handler).createReplica, opDeleteReplica: (*Handler).deleteReplica,
+		opGetConfiguration: (*Handler).getConfiguration, opUpdateConfig: (*Handler).updateConfiguration,
+		opUnassignKmsKey: (*Handler).unassignKmsKey, opDeleteWorkRequest: (*Handler).deleteWorkRequest,
 	}
 }
 

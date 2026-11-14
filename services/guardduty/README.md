@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- The 12 CustomDetectionRule* operations (listed in sdk_completeness_test.go notImplemented): Get/ListCustomDetectionRule(s) and the Association and OrgConfiguration CRUD all hang off a rule ID, but the SDK has no operation that creates or edits a rule (rules are authored outside the GuardDuty API), so this backend can never hold one and every call would be NotFound or an empty list. Implementing them needs a rule source first.
+- CustomDetectionRule catalog content: all 12 CustomDetectionRule* ops are routed with real state (associations, org configurations, tags, 14-day DRY_RUN expiry, persistence), but the rule catalog itself is owned by GuardDuty and no SDK operation or doc page publishes its rule IDs/definitions (api_op_ListCustomDetectionRules.go, user guide custom-detection-rules-managing), so the backend ships empty and rules enter only through InMemoryBackend.RegisterCustomDetectionRule; until a rule is registered every Create/Get is ResourceNotFoundException and ListCustomDetectionRules is empty. Also not modelled: member-account association fan-out from an org configuration (the emulator serves one caller account), the AccessDeniedException a member account gets, and findings generation from live rules.
 
 ### Structural gaps
 

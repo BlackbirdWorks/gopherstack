@@ -66,7 +66,8 @@ func (ce *cryptoEnv) encrypt(
 	t.Helper()
 
 	r, err := ce.c.Encrypt(t.Context(), keymanagement.EncryptRequest{
-		KeyId: key.Id, Plaintext: new(b64([]byte(pt))), AssociatedData: aad, EncryptionAlgorithm: alg})
+		KeyId: key.Id, Plaintext: new(b64([]byte(pt))), AssociatedData: aad, EncryptionAlgorithm: alg,
+	})
 
 	return r.EncryptedData, err
 }
@@ -81,7 +82,8 @@ func (ce *cryptoEnv) decrypt(
 	t.Helper()
 
 	r, err := ce.c.Decrypt(t.Context(), keymanagement.DecryptRequest{
-		KeyId: key.Id, Ciphertext: new(ct), AssociatedData: aad, EncryptionAlgorithm: alg})
+		KeyId: key.Id, Ciphertext: new(ct), AssociatedData: aad, EncryptionAlgorithm: alg,
+	})
 
 	return r.DecryptedData, err
 }
@@ -385,7 +387,8 @@ func (ce *cryptoEnv) sign(
 
 	r, err := ce.c.Sign(t.Context(), keymanagement.SignRequest{
 		KeyId: key.Id, Message: new(b64(msg)), SigningAlgorithm: keymanagement.SignDataDetailsSigningAlgorithmEnum(alg),
-		MessageType: keymanagement.SignDataDetailsMessageTypeEnum(mtype)})
+		MessageType: keymanagement.SignDataDetailsMessageTypeEnum(mtype),
+	})
 
 	return r.SignedData, err
 }
@@ -396,7 +399,8 @@ func (ce *cryptoEnv) verify(t *testing.T, key keymanagement.Key, ver, alg, mtype
 	r, err := ce.c.Verify(t.Context(), keymanagement.VerifyRequest{
 		KeyId: key.Id, KeyVersionId: new(ver), Message: new(b64(msg)), Signature: new(b64(sig)),
 		SigningAlgorithm: keymanagement.VerifyDataDetailsSigningAlgorithmEnum(alg),
-		MessageType:      keymanagement.VerifyDataDetailsMessageTypeEnum(mtype)})
+		MessageType:      keymanagement.VerifyDataDetailsMessageTypeEnum(mtype),
+	})
 	require.NoError(t, err)
 
 	return *r.IsSignatureValid

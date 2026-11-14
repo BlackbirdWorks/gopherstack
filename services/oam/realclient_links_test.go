@@ -481,3 +481,35 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	})
 	assert.Equal(t, "ConflictException", apiCode(err))
 }
+
+func TestLinks_MonitoringAccountQuota(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	url := serveBackend(t, f.backend)
+
+	for i := range 6 {
+		monitor := clientFor(t, url, "20000000000"+string(rune('0'+i)))
+
+		sink, err := monitor.CreateSink(t.Context(), &oamsdk.CreateSinkInput{Name: aws.String("central")})
+		require.NoError(t, err)
+
+		_, err = monitor.PutSinkPolicy(t.Context(), &oamsdk.PutSinkPolicyInput{
+			SinkIdentifier: sink.Arn, Policy: aws.String(allowPolicy(sourceAccount, "")),
+		})
+		require.NoError(t, err)
+
+		_, err = f.source.CreateLink(t.Context(), &oamsdk.CreateLinkInput{
+			LabelTemplate: aws.String("l"), ResourceTypes: toTypes([]string{"AWS::CloudWatch::Metric"}),
+			SinkIdentifier: sink.Arn,
+		})
+
+		if i < 5 {
+			require.NoError(t, err)
+
+			continue
+		}
+
+		assert.Equal(t, "ServiceQuotaExceededException", apiCode(err))
+	}
+}

@@ -27,7 +27,12 @@ type env struct {
 	jobs     *run.JobsClient
 	execs    *run.ExecutionsClient
 	tasks    *run.TasksClient
+	pools    *run.WorkerPoolsClient
+	insts    *run.InstancesClient
+	builds   *run.BuildsClient
+	locs     *run.LocationsClient
 	http     *http.Client
+	opts     []option.ClientOption
 }
 
 func newEnv(t *testing.T, withRuntime bool) *env {
@@ -63,7 +68,7 @@ func newEnvWith(t *testing.T, rt *fakeRuntime, source func() (gcprun.Runner, err
 		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	}
 
-	e := &env{rt: rt, handler: h, http: &http.Client{Transport: &http.Transport{}}}
+	e := &env{rt: rt, handler: h, opts: opts, http: &http.Client{Transport: &http.Transport{}}}
 	t.Cleanup(e.http.CloseIdleConnections)
 
 	var err error
@@ -87,6 +92,22 @@ func newEnvWith(t *testing.T, rt *fakeRuntime, source func() (gcprun.Runner, err
 	e.tasks, err = run.NewTasksClient(t.Context(), opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = e.tasks.Close() })
+
+	e.pools, err = run.NewWorkerPoolsClient(t.Context(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.pools.Close() })
+
+	e.insts, err = run.NewInstancesClient(t.Context(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.insts.Close() })
+
+	e.builds, err = run.NewBuildsClient(t.Context(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.builds.Close() })
+
+	e.locs, err = run.NewLocationsClient(t.Context(), opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.locs.Close() })
 
 	return e
 }

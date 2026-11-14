@@ -146,7 +146,7 @@ ops:
   SetTokenVaultCMK: {wire: ok, errors: ok, state: ok, persist: ok, note: "CustomerManagedKey needs a KMS key ARN"}
   StartPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "always ends in GENERATE_FAILED: there is no generative model to derive policies from"}
   SubmitRegistryRecordForApproval: {wire: ok, errors: ok, state: ok, persist: ok, note: "DRAFT or REJECTED to PENDING_APPROVAL, or APPROVED when the registry auto-approves"}
-  SynchronizeGatewayTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "stamps lastSynchronizedAt and passes through SYNCHRONIZING; no tool discovery happens"}
+  SynchronizeGatewayTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "rediscovers tools outside the lock (Lambda and OpenAPI schemas inline or from S3, MCP servers over streamable HTTP tools/list); failure ends SYNCHRONIZE_UNSUCCESSFUL with statusReasons; success stamps lastSynchronizedAt and caches MCP server tools; passes through SYNCHRONIZING"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "any resource with an ARN; 50 tags, aws: prefix reserved"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAgentRuntime: {wire: ok, errors: ok, state: ok, persist: ok, note: "every update snapshots a new numeric version and moves the DEFAULT endpoint to it; merges optional members"}
@@ -193,18 +193,17 @@ families:
   Wire: {status: ok, note: "Operation routes, member sets, required members, enums and per-shape timestamp formats (epoch seconds or date-time) are extracted from the pinned SDK serializers, deserializers and validators into ops.json; outputs are projected onto exactly the SDK output members."}
 gaps: []
 items_still_open:
-  - Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
+  - Gateway MCP endpoint: Smithy model, API Gateway and connector targets expose no tools, and the SEMANTIC search tool is not served
+  - Gateway targets: OAuth targets using AUTHORIZATION_CODE never reach a PENDING_AUTH status (their tool calls return an error result), and CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
+  - Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized
+  - "Gateway and runtime challenges advertise a resource_metadata URL (/.well-known/oauth-protected-resource) but the emulator serves no protected-resource metadata document (GetRuntimeProtectedResourceMetadata and the gateway well-known path); MCP protocol version 2026-07-28 (Mcp-Method header and per-request _meta version fields, gateway-using-mcp-list.html) is not served, the defaults being 2025-11-25, 2025-06-18 and 2025-03-26; not published: checked gateway-using-mcp-list, gateway-add-target-lambda and API_CustomJWTAuthorizerConfiguration, which give no tools/list page size (emulator 100), no Lambda result wrapping rule (emulator wraps as text content) and no OpenAPI parameter and body flattening rule"
   - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
   - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
-  - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
+  - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles are checked for ARN shape only
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
-  - Gateway targets: SynchronizeGatewayTargets only stamps lastSynchronizedAt; Lambda, OpenAPI and MCP tool discovery never runs and OAuth targets never reach a PENDING_AUTH status
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-  - Authorizers: JWT and IAM authorizer configuration is stored, not enforced
-  - GetMemory: the view query parameter is accepted and ignored
-  - Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
-  - Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence
-  - Quotas: no per-account resource limits are enforced
+  - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
+  - Quotas: resource-count limits are enforced as listed on bedrock-agentcore-limits.html, but request-rate limits (TPS throttling), the per-memory strategy count, memory/gateway payload sizes and the "active" concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned.
 structural_gaps:
   - StartPolicyGeneration: deriving Cedar from natural language needs a generative model, so every generation ends GENERATE_FAILED with no assets
   - Evaluators and online evaluation configs: evaluation needs a model and live agent traces, so configurations are validated and stored but never run
@@ -226,3 +225,20 @@ UpdateGateway exceptionLevel and UpdateGatewayTarget certificateConfigurations a
 Identifier formats: name-based ids are `<name>-<10 hex>`, target, rule and rate-limit ids are 10 uppercase hex characters, registry and record ids are 12 hex characters. Gateway ids are lowercased.
 
 Resources are scoped by account and Region; the two system resources (`aws.browser.v1`, `aws.codeinterpreter.v1`) are visible everywhere.
+
+## Gateway MCP endpoint
+
+The generated `gatewayUrl` (`https://<id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`) is served when the Host header matches it; the emulator also serves `/agentcore/gateways/<id>/mcp` on its own address for clients that cannot rewrite hosts. Evidence: SDK `types.McpTargetConfiguration*`, `ToolSchema*`, `MCPGatewayConfiguration` (supportedVersions, instructions, disableMcpListToolsPagination), `CustomJWTAuthorizerConfiguration`, `AuthorizerType` (serializers.go claim members); MCP specification (initialize, ping, tools/list with cursor, tools/call, JSON-RPC 2.0, streamable HTTP POST with JSON responses, 202 for notifications, 405 for GET). Tools are named `<target>___<tool>`. Lambda targets are invoked in-process with the arguments as the event and a base64 client context carrying `bedrockAgentCore*` members; OpenAPI operations with an operationId become tools and call the first server URL; MCP server targets are reached through the official Go MCP client. Outbound API key and OAuth client-credentials providers are applied. Targets and JWKS fetches dial loopback only unless `--agentcore-allow-external-gateway-targets` is set (checked on the resolved peer, redirects and proxies off, certificates are always verified; `--agentcore-gateway-extra-ca-file` adds trusted CAs). Credentials and tokens are never logged.
+
+## Success and error statuses
+
+Success statuses come from the HTTP/1.1 line of each operation's Response Syntax in the AgentCore Control Plane API Reference (docs.aws.amazon.com/bedrock-agentcore-control/latest/APIReference/API_<Operation>.html, table in status.go): 201 for most Create operations of non-asynchronous resources, 202 for asynchronous creates and the dataset, registry and gateway-synchronization operations, 204 (no body) for the credential-provider, workload-identity and resource-policy deletes and for tagging. Error statuses on the same pages: ValidationException 400, AccessDeniedException 403, ResourceNotFoundException 404, ConflictException 409, ServiceQuotaExceededException 402, ThrottlingException 429, InternalServerException 500.
+
+### 2026-11-13
+
+Creates return ServiceQuotaExceededException (402) at the documented resource-count limits per account and Region: runtimes 1,000, endpoints 10 per runtime (the DEFAULT endpoint is not counted), gateways 1,000, targets 100 per gateway, memories 150, code interpreters 1,000, browsers 1,000, browser profiles 100, capacity providers 1,000, configuration bundles 1,000, evaluators 10,000, online evaluation configurations 1,000, policy engines 1,000, policies 1,000 per engine, registries 10, API key / OAuth2 / payment credential providers 50 each, workload identities 11,000.
+
+Pass 2026-11-13: every kmsKeyArn and encryptionKeyArn member (including kmsConfiguration.kmsKeyArn) resolves against the KMS emulator when wired: an existing, enabled, symmetric ENCRYPT_DECRYPT key is required, else ValidationException (the error code is the emulator's choice; the API Reference gives none).
+
+## Primary-source checks (2026-11-13)
+- bedrockagentcorecontrol: gateway-inbound-auth.html documents 401 (resource_metadata and scope) and 403 insufficient_scope (error, scope, resource_metadata) challenges, now emitted; API_CustomJWTAuthorizerConfiguration names allowedAudience (aud claim), allowedClients (client id), allowedScopes and advertisedScopeMapping; gateway-add-target-lambda.html lists the bedrockAgentCore* client-context members the emulator sends.

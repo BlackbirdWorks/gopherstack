@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,12 +14,13 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Topics     map[string]*Topic        `json:"topics"`
-	Subs       map[string]*Subscription `json:"subscriptions"`
-	Deliveries map[string]*Delivery     `json:"deliveries"`
-	Auth       []ociauth.KeyRecord      `json:"authKeys"`
-	Version    int                      `json:"version"`
-	Seq        int64                    `json:"seq"`
+	Topics     map[string]*Topic         `json:"topics"`
+	Subs       map[string]*Subscription  `json:"subscriptions"`
+	Deliveries map[string]*Delivery      `json:"deliveries"`
+	Retry      map[string]ociretry.Entry `json:"retryTokens"`
+	Auth       []ociauth.KeyRecord       `json:"authKeys"`
+	Version    int                       `json:"version"`
+	Seq        int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -29,7 +31,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocinotifications", backendSnapshot{
-		Version: snapshotVersion, Topics: b.topics, Subs: b.subs, Deliveries: b.deliveries, Auth: keys, Seq: b.seq,
+		Version:    snapshotVersion,
+		Topics:     b.topics,
+		Subs:       b.subs,
+		Deliveries: b.deliveries,
+		Retry:      b.retry.Entries(),
+		Auth:       keys,
+		Seq:        b.seq,
 	})
 }
 
@@ -57,6 +65,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.topics, b.subs, b.deliveries, b.seq = snap.Topics, snap.Subs, snap.Deliveries, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 	b.Kick()
 

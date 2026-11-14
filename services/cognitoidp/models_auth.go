@@ -99,6 +99,7 @@ type signUpAccurateInput struct {
 
 type signUpAccurateOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+	Session             string            `json:"Session,omitempty"`
 	UserSub             string            `json:"UserSub,omitempty"`
 	UserConfirmed       bool              `json:"UserConfirmed"`
 }
@@ -108,6 +109,7 @@ type initiateAuthAccurateInput struct {
 	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
 	AuthFlow       string            `json:"AuthFlow,omitempty"`
 	ClientID       string            `json:"ClientId,omitempty"`
+	Session        string            `json:"Session,omitempty"`
 }
 
 type adminInitiateAuthAccurateInput struct {
@@ -124,10 +126,13 @@ type confirmSignUpAccurateInput struct {
 	ConfirmationCode   string            `json:"ConfirmationCode,omitempty"`
 	ClientID           string            `json:"ClientId,omitempty"`
 	SecretHash         string            `json:"SecretHash,omitempty"`
+	Session            string            `json:"Session,omitempty"`
 	ForceAliasCreation bool              `json:"ForceAliasCreation,omitempty"`
 }
 
-type confirmSignUpAccurateOutput struct{}
+type confirmSignUpAccurateOutput struct {
+	Session string `json:"Session,omitempty"`
+}
 
 type forgotPasswordAccurateInput struct {
 	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`

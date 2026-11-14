@@ -575,8 +575,12 @@ func (h *Handler) updateBackend(q *req) error {
 			return errMissing("weight, backup, drain and offline are required")
 		}
 
-		if *in.Weight < 1 || (in.MaxConnections != nil && *in.MaxConnections < 1) {
-			return errParam("weight and maxConnections must be at least 1")
+		if *in.Weight < 1 {
+			return errParam("weight must be at least 1")
+		}
+
+		if aerr := validMaxConnections("maxConnections", in.MaxConnections); aerr != nil {
+			return aerr
 		}
 
 		bs.Backends[i].Weight, bs.Backends[i].Backup = *in.Weight, *in.Backup

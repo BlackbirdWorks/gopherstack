@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 const token = "unit-test-cluster-token-0123"
@@ -94,6 +95,13 @@ func TestScript(t *testing.T) {
 
 	assert.Contains(t, k3sengine.Script(false), "--disable servicelb")
 	assert.NotContains(t, k3sengine.Script(true), "servicelb")
+
+	// umask 077 for the CA key must not leak into k3s/containerd: it would make every image root 0700.
+	for _, lb := range []bool{false, true} {
+		sc := k3sengine.Script(lb)
+		assert.Less(t, strings.Index(sc, "umask 077"), strings.Index(sc, "umask 022"))
+		assert.Less(t, strings.Index(sc, "umask 022"), strings.Index(sc, "exec /bin/k3s"))
+	}
 
 	for _, lb := range []bool{false, true} {
 		s := k3sengine.Script(lb)
@@ -198,8 +206,7 @@ func (r *runtime) StopAndRemove(_ context.Context, id string) error {
 func newEngine(t *testing.T, rt *runtime, mod func(*k3sengine.Config)) (*k3sengine.Engine, *portalloc.Allocator) {
 	t.Helper()
 
-	ports, err := portalloc.New(42000, 42050)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 50)
 
 	cfg := k3sengine.Config{Runtime: rt, Ports: ports, Prefix: "test", Token: token}
 	if mod != nil {

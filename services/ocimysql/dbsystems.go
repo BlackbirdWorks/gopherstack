@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -48,7 +49,7 @@ var (
 		"mysql.session", "mysql.infoschema", "mysql_option_tracker_persister", "mysql_rest_service_admin",
 		"mysql_rest_service_data_provider", "mysql_rest_service_dev", "mysql_rest_service_meta_provider",
 		"mysql_rest_service_schema_admin", "mysql_rest_service_user", "mysql_task_admin", "mysql_task_user",
-		"rrhhuser", "mysqlexport", "root",
+		"rrhhuser", "mysqlexport",
 	}
 	hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 	extraKeys   = []string{
@@ -90,6 +91,7 @@ type SourceIn struct {
 
 // CreateDBSystemIn is the CreateDBSystem body.
 type CreateDBSystemIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Extra             map[string]jsontext.Value `json:"-"`
 	IsHighlyAvailable *bool                     `json:"isHighlyAvailable"`
@@ -640,6 +642,24 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 	b.mu.Lock("CreateDbSystem")
 	defer b.mu.Unlock()
 
+	id, rwr, hit, rerr := b.replayCreate("CreateDbSystem", in.RetryToken, func(id string) (string, bool) {
+		s, ok := b.systems[id]
+		if !ok {
+			return "", false
+		}
+
+		return s.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		s := b.systems[id]
+
+		return b.systemDoc(s), s.Etag, rwr, nil
+	}
+
 	plan, aerr := b.buildSystem(in)
 	if aerr != nil {
 		return nil, "", "", aerr
@@ -654,6 +674,7 @@ func (b *InMemoryBackend) CreateDBSystem(in CreateDBSystemIn) (Doc, string, stri
 
 	wr := b.newWR(wrCreateDBSystem, s.CompartmentID, entityDBSystem, s.ID, actionCreated, s.TransitionAt)
 	b.systems[s.ID] = s
+	b.retry.Remember("CreateDbSystem", in.RetryToken, ociretry.Join(s.ID, wr), b.nowUTC())
 
 	if b.eng != nil {
 		b.spawn(s.ID, wr, b.launchWork(s.ID, launchIn{
@@ -752,14 +773,26 @@ func (b *InMemoryBackend) channelsOf(id string) []Doc {
 
 func (b *InMemoryBackend) systemBase(s *DBSystem) Doc {
 	d := Doc{
-		"id": s.ID, keyDisplayName: s.Name, keyCompartment: s.CompartmentID, keyLifecycle: s.State,
-		"mysqlVersion": s.Version, keyTimeCreated: s.TimeCreated, keyTimeUpdated: s.TimeUpdated,
-		"databaseMode": s.DatabaseMode, "accessMode": s.AccessMode, "isHighlyAvailable": s.HA,
-		"isHeatWaveClusterAttached": false, "availabilityDomain": s.AD, "faultDomain": s.FD, "shapeName": s.Shape,
-		"currentPlacement": Doc{"availabilityDomain": s.AD, "faultDomain": s.FD},
-		"endpoints":        []Doc{b.endpointDoc(s)}, "deletionPolicy": b.deletionDoc(s.Deletion),
-		"backupPolicy": b.policyDoc(s.BackupPolicy), "crashRecovery": s.CrashRecovery,
-		"databaseManagement": s.DBManagement,
+		"id":                        s.ID,
+		keyDisplayName:              s.Name,
+		keyCompartment:              s.CompartmentID,
+		keyLifecycle:                s.State,
+		"mysqlVersion":              s.Version,
+		keyTimeCreated:              s.TimeCreated,
+		keyTimeUpdated:              s.TimeUpdated,
+		"databaseMode":              s.DatabaseMode,
+		"accessMode":                s.AccessMode,
+		"isHighlyAvailable":         s.HA,
+		"isHeatWaveClusterAttached": s.HeatWave != nil,
+		"availabilityDomain":        s.AD,
+		"faultDomain":               s.FD,
+		keyShapeName:                s.Shape,
+		"currentPlacement":          Doc{"availabilityDomain": s.AD, "faultDomain": s.FD},
+		"endpoints":                 []Doc{b.endpointDoc(s)},
+		"deletionPolicy":            b.deletionDoc(s.Deletion),
+		"backupPolicy":              b.policyDoc(s.BackupPolicy),
+		"crashRecovery":             s.CrashRecovery,
+		"databaseManagement":        s.DBManagement,
 	}
 	putTags(d, s.Tags)
 
@@ -787,6 +820,10 @@ func (b *InMemoryBackend) systemDoc(s *DBSystem) Doc {
 	d["maintenance"], d["source"] = s.Maintenance, b.sourceDoc(s.Source)
 	d["configurationId"], d["ipAddress"], d["port"], d["portX"] = s.ConfigID, ip, port, s.PortX
 	d["channels"] = b.channelsOf(s.ID)
+
+	if s.HeatWave != nil {
+		d["heatWaveCluster"] = b.heatWaveSummary(s)
+	}
 
 	if s.Hostname != "" {
 		d["hostnameLabel"] = s.Hostname
@@ -838,7 +875,7 @@ type DBSystemListIn struct {
 func (in DBSystemListIn) matches(s *DBSystem) bool {
 	if s.CompartmentID != in.Compartment || (in.ID != "" && s.ID != in.ID) ||
 		(in.Name != "" && s.Name != in.Name) || (in.ConfigurationID != "" && s.ConfigID != in.ConfigurationID) ||
-		(in.HeatWave != nil && *in.HeatWave) {
+		(in.HeatWave != nil && *in.HeatWave != (s.HeatWave != nil)) {
 		return false
 	}
 
@@ -897,6 +934,7 @@ func (h *Handler) createDBSystem(q *req) error {
 	}
 
 	in.Extra = extras(q.body)
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, wr, err := h.Backend.CreateDBSystem(in)
 	if err != nil {

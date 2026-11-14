@@ -95,6 +95,7 @@ type Vnic struct {
 	PublicIP            string   `json:"publicIp,omitempty"`
 	SubnetID            string   `json:"subnetId"`
 	NsgIDs              []string `json:"nsgIds"`
+	Ipv6Addresses       []string `json:"ipv6Addresses,omitempty"`
 	IsPrimary           bool     `json:"isPrimary"`
 	SkipSourceDestCheck bool     `json:"skipSourceDestCheck"`
 }
@@ -127,13 +128,15 @@ type VnicAttachment struct {
 type Volume struct {
 	SourceDetails *VolumeSource `json:"sourceDetails,omitempty"`
 	Base
-	AvailabilityDomain string `json:"availabilityDomain"`
-	KmsKeyID           string `json:"kmsKeyId,omitempty"`
-	SizeInMBs          int64  `json:"sizeInMBs"`
-	SizeInGBs          int64  `json:"sizeInGBs"`
-	VpusPerGB          int64  `json:"vpusPerGB"`
-	IsHydrated         bool   `json:"isHydrated"`
-	IsAutoTuneEnabled  bool   `json:"isAutoTuneEnabled"`
+	AvailabilityDomain  string                   `json:"availabilityDomain"`
+	KmsKeyID            string                   `json:"kmsKeyId,omitempty"`
+	VolumeGroupID       string                   `json:"volumeGroupId,omitempty"`
+	BlockVolumeReplicas []BlockVolumeReplicaInfo `json:"blockVolumeReplicas,omitempty"`
+	SizeInMBs           int64                    `json:"sizeInMBs"`
+	SizeInGBs           int64                    `json:"sizeInGBs"`
+	VpusPerGB           int64                    `json:"vpusPerGB"`
+	IsHydrated          bool                     `json:"isHydrated"`
+	IsAutoTuneEnabled   bool                     `json:"isAutoTuneEnabled"`
 }
 
 // VolumeSource is the polymorphic volume source (type volume, volumeBackup or bootVolume).
@@ -149,6 +152,7 @@ type BootVolume struct {
 	AvailabilityDomain string `json:"availabilityDomain"`
 	ImageID            string `json:"imageId,omitempty"`
 	KmsKeyID           string `json:"kmsKeyId,omitempty"`
+	VolumeGroupID      string `json:"volumeGroupId,omitempty"`
 	SizeInMBs          int64  `json:"sizeInMBs"`
 	SizeInGBs          int64  `json:"sizeInGBs"`
 	VpusPerGB          int64  `json:"vpusPerGB"`
@@ -190,14 +194,18 @@ type BootVolumeAttachment struct {
 type VolumeBackup struct {
 	TimeRequestReceived time.Time `json:"timeRequestReceived"`
 	Base
-	Type            string `json:"type"`
-	SourceType      string `json:"sourceType"`
-	VolumeID        string `json:"volumeId"`
-	KmsKeyID        string `json:"kmsKeyId,omitempty"`
-	SizeInMBs       int64  `json:"sizeInMBs"`
-	SizeInGBs       int64  `json:"sizeInGBs"`
-	UniqueSizeInGBs int64  `json:"uniqueSizeInGBs"`
-	UniqueSizeInMbs int64  `json:"uniqueSizeInMbs"`
+	Retention
+	Type                 string `json:"type"`
+	SourceType           string `json:"sourceType"`
+	VolumeID             string `json:"volumeId"`
+	SourceVolumeBackupID string `json:"sourceVolumeBackupId,omitempty"`
+	VolumeGroupBackupID  string `json:"volumeGroupBackupId,omitempty"`
+	Region               string `json:"region,omitempty"`
+	KmsKeyID             string `json:"kmsKeyId,omitempty"`
+	SizeInMBs            int64  `json:"sizeInMBs"`
+	SizeInGBs            int64  `json:"sizeInGBs"`
+	UniqueSizeInGBs      int64  `json:"uniqueSizeInGBs"`
+	UniqueSizeInMbs      int64  `json:"uniqueSizeInMbs"`
 }
 
 // BackupSchedule is one schedule of a volume backup policy.
@@ -248,84 +256,84 @@ func (v *VolumeBackup) vcnRef() string           { return "" }
 func (v *VolumeBackupPolicy) vcnRef() string     { return "" }
 func (v *BackupPolicyAssignment) vcnRef() string { return "" }
 
-func (v *Instance) view() resource {
+func (v *Instance) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Image) view() resource {
+func (v *Image) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Vnic) view() resource {
+func (v *Vnic) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *PrivateIP) view() resource {
+func (v *PrivateIP) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VnicAttachment) view() resource {
+func (v *VnicAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *Volume) view() resource {
+func (v *Volume) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *BootVolume) view() resource {
+func (v *BootVolume) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeAttachment) view() resource {
+func (v *VolumeAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *BootVolumeAttachment) view() resource {
+func (v *BootVolumeAttachment) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeBackup) view() resource {
+func (v *VolumeBackup) view() Resource {
+	c := *v
+	c.Internal, c.Region = nil, ""
+
+	return &c
+}
+
+func (v *VolumeBackupPolicy) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
 
-func (v *VolumeBackupPolicy) view() resource {
-	c := *v
-	c.Internal = nil
-
-	return &c
-}
-
-func (v *BackupPolicyAssignment) view() resource {
+func (v *BackupPolicyAssignment) view() Resource {
 	c := *v
 	c.Internal = nil
 

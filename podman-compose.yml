@@ -9,6 +9,11 @@ services:
     container_name: gopherstack
     volumes:
       - gopherstack-data:/data
+      # Docker-backed engines (Lambda, ECS, ...): the image runs as UID 65532, so also mount the socket and
+      # join its group, e.g. `DOCKER_GID=$(stat -c %g /var/run/docker.sock) podman compose -f podman-compose.yml up`.
+      # Rootless podman: mount $XDG_RUNTIME_DIR/podman/podman.sock instead of /var/run/docker.sock.
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # group_add: ["${DOCKER_GID}"]
 
 volumes:
   gopherstack-data:

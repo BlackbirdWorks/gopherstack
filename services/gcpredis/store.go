@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -39,6 +40,7 @@ type InMemoryBackend struct {
 	wg        *sync.WaitGroup
 	instances map[string]*instRec
 	gate      func()
+	keys      cmek.Checker
 }
 
 // NewInMemoryBackend creates an empty backend that serves instances on ephemeral loopback ports.

@@ -30,6 +30,7 @@ const (
 	smtpCannotVRFY     = 252
 	smtpStartData      = 354
 	smtpTempFail       = 400
+	smtpShuttingDown   = 421
 	smtpTooManyRcpts   = 452
 	smtpSyntaxErr      = 500
 	smtpArgErr         = 501
@@ -141,6 +142,10 @@ func (s *inboundServer) serve(ctx context.Context, conn net.Conn) {
 	defer stop()
 
 	sess := &smtpSession{conn: conn, br: bufio.NewReaderSize(conn, inboundMaxLine)}
+
+	defer logger.Recover(ctx, "ses.inbound_smtp", func(any) {
+		sess.reply(smtpShuttingDown, "4.3.0 Internal server error; closing connection")
+	})
 
 	if ap, err := netip.ParseAddrPort(conn.RemoteAddr().String()); err == nil {
 		sess.clientIP = ap.Addr().String()

@@ -168,7 +168,7 @@ func (b *Backend) updateQuickConnect(
 	ctx context.Context,
 	in *UpdateQuickConnectInput,
 	apply func(q *quickConnectRec) error,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateQuickConnect")
 	defer b.mu.Unlock()
 
@@ -188,11 +188,11 @@ func (b *Backend) updateQuickConnect(
 
 	q.Connect.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateQuickConnectName renames a quick connect.
-func (b *Backend) UpdateQuickConnectName(ctx context.Context, in *UpdateQuickConnectInput) (*empty, error) {
+func (b *Backend) UpdateQuickConnectName(ctx context.Context, in *UpdateQuickConnectInput) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
@@ -205,7 +205,7 @@ func (b *Backend) UpdateQuickConnectName(ctx context.Context, in *UpdateQuickCon
 }
 
 // UpdateQuickConnectConfig replaces the destination of a quick connect.
-func (b *Backend) UpdateQuickConnectConfig(ctx context.Context, in *UpdateQuickConnectInput) (*empty, error) {
+func (b *Backend) UpdateQuickConnectConfig(ctx context.Context, in *UpdateQuickConnectInput) (*EmptyOutput, error) {
 	if in.QuickConnectConfig == nil {
 		return nil, invalidParamErr("QuickConnectConfig is required")
 	}
@@ -222,7 +222,7 @@ func (b *Backend) UpdateQuickConnectConfig(ctx context.Context, in *UpdateQuickC
 }
 
 // DeleteQuickConnect removes a quick connect that no queue uses.
-func (b *Backend) DeleteQuickConnect(inst, id string) (*empty, error) {
+func (b *Backend) DeleteQuickConnect(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteQuickConnect")
 	defer b.mu.Unlock()
 

@@ -2,8 +2,10 @@ package gcpartifactregistry
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
+	"strings"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"google.golang.org/protobuf/proto"
@@ -22,7 +24,7 @@ func cloneRule(r *artifactregistrypb.Rule) *artifactregistrypb.Rule {
 	return out
 }
 
-func validateRule(r *artifactregistrypb.Rule) error {
+func (b *InMemoryBackend) validateRule(r *artifactregistrypb.Rule) error {
 	if r.GetAction() == artifactregistrypb.Rule_ACTION_UNSPECIFIED {
 		return errInvalid("rule.action is required.")
 	}
@@ -39,7 +41,7 @@ func validateRule(r *artifactregistrypb.Rule) error {
 		return errInvalid("Unknown rule operation.")
 	}
 
-	return nil
+	return b.validateCondition(r.GetCondition())
 }
 
 // ruleInRepo lists the stored rules of a repository. Must hold b.mu.
@@ -88,7 +90,7 @@ func (b *InMemoryBackend) CreateRule(in *artifactregistrypb.CreateRuleRequest) (
 		return nil, errInvalid("rule is required.")
 	}
 
-	if err = validateRule(in.GetRule()); err != nil {
+	if err = b.validateRule(in.GetRule()); err != nil {
 		return nil, err
 	}
 
@@ -210,7 +212,7 @@ func (b *InMemoryBackend) UpdateRule(in *artifactregistrypb.UpdateRuleRequest) (
 		}
 	}
 
-	if err = validateRule(next); err != nil {
+	if err = b.validateRule(next); err != nil {
 		return nil, err
 	}
 
@@ -242,26 +244,25 @@ func (b *InMemoryBackend) DeleteRule(name string) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
 }
 
-// downloadDenied reports whether a DENY rule without a condition forbids downloading the package. The rule of
-// the package wins over the repository rule. Rules with a condition are stored but never evaluated.
-func (b *InMemoryBackend) downloadDenied(_ context.Context, project, repoID, pkg string) bool {
+// downloadDenied reports whether a DENY download rule applies to res. A rule with a condition applies only when
+// the condition holds; the rule of the package wins over the repository rule.
+func (b *InMemoryBackend) downloadDenied(_ context.Context, ref repoRef, res ruleResource) bool {
 	b.mu.RLock("downloadDenied")
 	defer b.mu.RUnlock()
 
-	name, _, ok := b.repoByKey(project, repoID)
-	if !ok {
+	if _, ok := b.repos[ref.full()]; !ok {
 		return false
 	}
 
-	ref, err := parseRepo(name)
-	if err != nil {
-		return false
-	}
+	res.repository = ref.id
+	res.annotations = b.versionAnnotationsLocked(ref, res.pkg, res.version)
+	pkg := res.pkg
+	now := b.now()
 
 	var repoRule, pkgRule *artifactregistrypb.Rule
 
 	for _, r := range b.rulesOfLocked(ref) {
-		if r.GetOperation() != artifactregistrypb.Rule_DOWNLOAD || r.GetCondition() != nil {
+		if r.GetOperation() != artifactregistrypb.Rule_DOWNLOAD || !b.conditionHolds(r.GetCondition(), res, now) {
 			continue
 		}
 
@@ -280,6 +281,24 @@ func (b *InMemoryBackend) downloadDenied(_ context.Context, project, repoID, pkg
 	return repoRule != nil && repoRule.GetAction() == artifactregistrypb.Rule_DENY
 }
 
+// versionAnnotationsLocked returns the user annotations of a version, whichever store keeps it. Must hold b.mu.
+func (b *InMemoryBackend) versionAnnotationsLocked(ref repoRef, pkg, version string) map[string]string {
+	if version == "" {
+		return nil
+	}
+
+	name := ref.packageName(pkg) + "/versions/" + version
+	out := map[string]string{}
+
+	for _, store := range []map[string]*resMeta{b.genVers, b.meta} {
+		if m := store[name]; m != nil {
+			maps.Copy(out, m.Annotations)
+		}
+	}
+
+	return out
+}
+
 func ruleMatchesPackage(ruleID, pkg string) bool {
 	if ruleID == pkg {
 		return true
@@ -288,4 +307,30 @@ func ruleMatchesPackage(ruleID, pkg string) bool {
 	id, ok := unescapeImage(ruleID)
 
 	return ok && id == pkg
+}
+
+// fileResource describes the version a file belongs to for rule conditions.
+func (b *InMemoryBackend) fileResource(pkg, owner string) ruleResource {
+	_, version, _ := strings.Cut(owner, "/versions/")
+
+	return ruleResource{pkg: pkg, version: version, tags: b.tagsOf(owner)}
+}
+
+func (b *InMemoryBackend) tagsOf(versionName string) []string {
+	pkg, version, _ := strings.Cut(versionName, "/versions/")
+
+	b.mu.RLock("tagsOf")
+	defer b.mu.RUnlock()
+
+	var out []string
+
+	for tag, v := range b.pkgTags[pkg] {
+		if v == version {
+			out = append(out, tag)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
 }

@@ -80,6 +80,12 @@ func TestGCPContainerProxy(t *testing.T) {
 			},
 			{http.MethodGet, cluster + ":poolSizes", "", `"default-pool":4`, 200},
 		}},
+		{"kubeconfig", []gcpStep{
+			{http.MethodPost, cluster + ":kubeconfig", ``, "gke-gcloud-auth-plugin", 200},
+			{http.MethodPost, cluster + ":kubeconfig", ``, "gke_p_us-central1-a_c1", 200},
+			{http.MethodGet, cluster + ":kubeconfig", ``, "NOT_FOUND", 404},
+			{http.MethodPost, gkeBase + "/us-central1-a/clusters/nope:kubeconfig", ``, "NOT_FOUND", 404},
+		}},
 		{"operations", []gcpStep{
 			{http.MethodGet, gkeBase + "/-/operations", "", "CREATE_CLUSTER", 200},
 		}},
@@ -115,6 +121,18 @@ func TestGCPContainerProxy(t *testing.T) {
 			assert.NotContains(t, rec.Body.String(), "private-key")
 			assert.NotContains(t, rec.Body.String(), "admin")
 		}
+	})
+
+	t.Run("kubeconfig headers", func(t *testing.T) {
+		t.Parallel()
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, cluster+":kubeconfig", nil)
+		require.NoError(t, newGKEDashboard(t).Handler()(echo.NewContext(req, rec)))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+		assert.NotContains(t, rec.Body.String(), "correct-horse-battery")
+		assert.NotContains(t, rec.Body.String(), "private-key")
 	})
 
 	t.Run("unavailable", func(t *testing.T) {

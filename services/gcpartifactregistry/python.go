@@ -178,8 +178,13 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 	norm := pyNormalize(name)
 	if norm != name {
 		prefix := repoPrefix(isPkgHost(r), pythonRoute, rc)
-		//nolint:gosec // same-origin path: repository prefix plus an escaped normalised name
-		http.Redirect(w, r, prefix+"/simple/"+url.PathEscape(norm)+"/", http.StatusMovedPermanently)
+
+		http.Redirect(
+			w,
+			r,
+			prefix+"/simple/"+url.PathEscape(norm)+"/",
+			http.StatusMovedPermanently,
+		) // #nosec G710 -- same-origin path built from a stored repository
 
 		return
 	}
@@ -204,7 +209,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 			_ = json.Unmarshal(nf.file.Doc, &d, jsonx.V1())
 
 			filename := nf.id[strings.LastIndex(nf.id, ":")+1:]
-			href := "/python/" + rc.ref.project + "/" + rc.ref.id + "/packages/" + url.PathEscape(norm) + "/" +
+			href := repoPrefix(false, pythonRoute, rc) + "/packages/" + url.PathEscape(norm) + "/" +
 				url.PathEscape(v.version) + "/" + url.PathEscape(filename) + "#sha256=" + d.SHA256
 
 			attr := ""
@@ -237,7 +242,7 @@ func (b *InMemoryBackend) pyDownload(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, segs[0]) {
+	if b.packageDenied(r.Context(), rc, segs[0], f.Owner) {
 		writePlain(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return

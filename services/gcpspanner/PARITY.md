@@ -9,7 +9,7 @@ overall: B
 ops:
   CreateInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns a pending operation; a background job mirrors the instance into the Spanner emulator (when a container runtime is reachable) and moves it CREATING to READY. Exactly one of node_count and processing_units is required (units: multiples of 100 below 1000, else of 1000) and the other is derived; config must be an existing instanceConfig (emulator-config, regional-*, nam3, nam6, nam-eur-asia1, eur3, eur5, asia1); display_name 4-30 characters. Edition defaults to STANDARD."}
   GetInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
-  ListInstances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged through pkgs/page. The filter parameter is UNIMPLEMENTED."}
+  ListInstances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged through pkgs/page. filter on name, display_name and labels.key (':' contains, '*' presence, AND/OR/NOT, case insensitive) per the ListInstancesRequest field docs."}
   UpdateInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "field_mask is required. Mutable: display_name, node_count, processing_units, labels, edition, default_backup_schedule_type; anything else is INVALID_ARGUMENT. Capacity changes keep node_count and processing_units consistent. Returns a finished operation."}
   DeleteInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "Removes the instance, its databases and its IAM policy, and deletes the instance in the emulator."}
   ListInstanceConfigs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "A fixed catalog of Google-managed configs per project."}
@@ -34,10 +34,12 @@ items_still_open:
   - "Table data is in the emulator's memory only: it is lost on restart. Persistence stores instances, policies, databases and their DDL, and replays the schema into a fresh emulator on first use."
   - "Without a container runtime database DDL is stored but not validated or executed: GetDatabaseDdl returns the statements as submitted, DROP and ALTER statements are not folded in."
   - "RestoreDatabase and ListDatabaseOperations are UNIMPLEMENTED: restoring would create emulator databases the backend does not track. Backups created through the proxy live only in the emulator and are lost on restart."
-  - "User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, replica_compute_capacity and the ListInstances filter are not implemented."
+  - "User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, and replica_compute_capacity are not implemented."
   - "The emulator runs every instance in its single emulator-config with 1 node; node_count and processing_units are metadata only, and the data plane is one shared emulator process."
-  - "Customer-managed encryption on databases is UNIMPLEMENTED; backend instance and database create_time values are not shared with the emulator."
+  - "Customer-managed encryption is validated on CreateDatabase for single-region instance configs only (kms_key_names coverage of a multi-region config's replicas is not checked); backend instance and database create_time values are not shared with the emulator."
 leaks: {status: clean, note: "Background resources are the grpc.Server, the emulator container with its gRPC client and the operation jobs, all stopped and joined by Shutdown and Reset."}
 ---
 
 Initial implementation (2026-10-22): instance admin in-process, database metadata in-process with DDL executed by the official emulator image, data plane proxied. Verified against cloud.google.com/go/spanner v1.95.0 (data, instance and database admin clients) in services/gcpspanner, and against the hashicorp/google provider (google_spanner_instance, google_spanner_database) in test/terraform/gcp.
+
+Pass 2026-11-13: CreateDatabase encryption_config (kms_key_name / kms_key_names) resolves against gcpkms when wired (UNIMPLEMENTED when it is not): keys must exist, be ENCRYPT_DECRYPT with an enabled primary version and, on regional-<region> configs, sit in that region. Database.encryption_info reports CUSTOMER_MANAGED_ENCRYPTION with the primary key version and an encryption_status of FAILED_PRECONDITION while a key is unusable (Spanner CMEK documentation, cloud.google.com/spanner/docs/cmek).

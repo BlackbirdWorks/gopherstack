@@ -311,6 +311,7 @@ func webEnv(a *appState, rt webRuntime, host string, port int) []string {
 		env["PYTHONPATH"] = siteRoot
 	}
 
+	maps.Copy(env, a.ConnEnv)
 	maps.Copy(env, a.Settings)
 
 	keys := make([]string, 0, len(env))
@@ -378,6 +379,8 @@ func (a *app) webServable() bool {
 
 // launchWeb starts a web app's container and waits until it answers, honouring siteConfig.healthCheckPath.
 func (b *InMemoryBackend) launchWeb(st *appState, host string) (box, error) {
+	st = b.forContainer(st)
+
 	rt, err := chooseWebRuntime(st.LinuxFx)
 	if err != nil {
 		return box{}, err

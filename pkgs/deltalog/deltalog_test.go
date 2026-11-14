@@ -124,10 +124,10 @@ func TestLoad(t *testing.T) {
 		},
 		{name: "empty log", files: memStorage{}, wantErr: deltalog.ErrNotDeltaTable},
 		{
-			name: "deletion vectors",
+			name: "unsupported reader feature",
 			files: memStorage{
 				"_delta_log/00000000000000000000.json": []byte(meta + "\n" +
-					`{"add":{"path":"a.parquet","deletionVector":{"storageType":"u","pathOrInlineDv":"x"}}}` + "\n"),
+					`{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["v2Checkpoint"]}}` + "\n"),
 			},
 			wantErr: deltalog.ErrUnsupported,
 		},

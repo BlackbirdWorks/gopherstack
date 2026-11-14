@@ -212,9 +212,9 @@ func TestHTTP_SASAuthorization(t *testing.T) {
 
 	token := func(name, key string, expiry time.Time) map[string]string {
 		exp := expiry.Unix()
-		sig := azureeventhubs.SignSAS("res", exp, key)
+		sig := azureeventhubs.SignSAS(nsAudience, exp, key)
 
-		return map[string]string{"Authorization": "SharedAccessSignature sr=res&sig=" + urlEscape(sig) +
+		return map[string]string{"Authorization": "SharedAccessSignature sr=" + nsAudience + "&sig=" + urlEscape(sig) +
 			"&se=" + strconv.FormatInt(exp, 10) + "&skn=" + name}
 	}
 
@@ -289,4 +289,46 @@ func TestHandler_Metadata(t *testing.T) {
 
 	_, err := p.Init(nil)
 	require.ErrorIs(t, err, azureeventhubs.ErrNilAppContext)
+}
+
+func TestHTTP_SASAudienceScope(t *testing.T) {
+	t.Parallel()
+
+	srv, b := newHTTP(t, true)
+	require.NoError(t, b.EnsureNamespace(testNS))
+	_, err := b.CreateHub(hubRef(), azureeventhubs.HubConfig{})
+	require.NoError(t, err)
+	_, err = b.CreateHub(azureeventhubs.HubRef{Namespace: testNS, Hub: "other"}, azureeventhubs.HubConfig{})
+	require.NoError(t, err)
+
+	exp := time.Now().Add(time.Hour).Unix()
+	hdr := func(resource string) map[string]string {
+		sig := azureeventhubs.SignSAS(resource, exp, azureeventhubs.DefaultKeyValue)
+
+		return map[string]string{"Authorization": "SharedAccessSignature sr=" + resource + "&sig=" + urlEscape(sig) +
+			"&se=" + strconv.FormatInt(exp, 10) + "&skn=" + azureeventhubs.DefaultKeyName}
+	}
+
+	hubAud := nsAudience + testHub
+
+	tests := []struct {
+		name string
+		path string
+		aud  string
+		want int
+	}{
+		{name: "own hub", path: "/" + testHub, aud: hubAud, want: http.StatusOK},
+		{name: "other hub", path: "/other", aud: hubAud, want: http.StatusUnauthorized},
+		{name: "namespace audience", path: "/other", aud: nsAudience, want: http.StatusOK},
+		{name: "hub audience on listing", path: "/$Resources/EventHubs", aud: hubAud, want: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			code, _ := do(t, http.MethodGet, srv.URL+tt.path, "", hdr(tt.aud))
+			assert.Equal(t, tt.want, code)
+		})
+	}
 }

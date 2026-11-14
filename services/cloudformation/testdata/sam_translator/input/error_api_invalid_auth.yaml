@@ -1,0 +1,304 @@
+Resources:
+  InvalidAuthorizationScopes:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3
+      Handler: index.handler
+      CodeUri: s3://bucket/key
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Auth:
+              AuthorizationScopes:
+              - https://foobar.acme.net/full-api
+            Method: POST
+            Path: /hello/world
+
+  NoAuthApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+
+  NoAuthFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NoAuthApi
+            Path: /
+            Method: get
+            Auth:
+              Authorizer: MyAuth
+
+  NoAuthorizersApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: Foo
+
+  NoAuthorizersFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NoAuthorizersApi
+            Path: /
+            Method: get
+            Auth:
+              Authorizer: MyAuth
+
+  MissingAuthorizerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyCognitoAuthorizer:
+            UserPoolArn: arn:aws
+
+  MissingAuthorizerFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MissingAuthorizerApi
+            Path: /
+            Method: get
+            Auth:
+              Authorizer: UnspecifiedAuthorizer
+
+  NoDefaultAuthorizerWithNoneApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyCognitoAuthorizer:
+            UserPoolArn: arn:aws
+
+  NoDefaultAuthorizerWithNoneFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref NoDefaultAuthorizerWithNoneApi
+            Path: /
+            Method: get
+            Auth:
+              Authorizer: NONE
+
+  AuthNotDictApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth: notadict
+
+  AuthorizersNotDictApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers: notadict
+
+  AuthWithDefinitionUriApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      DefinitionUri: s3://bucket/key
+      Auth:
+        DefaultAuthorizer: Foo
+
+  AuthWithAdditionalPropertyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        MyBad: Foo
+
+  AuthWithInvalidDefinitionBodyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      DefinitionBody: {invalid: true}
+      Auth:
+        DefaultAuthorizer: Foo
+
+  AuthWithMissingDefaultAuthorizerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: NotThere
+        Authorizers:
+          MyCognitoAuthorizer:
+            UserPoolArn: arn:aws
+
+  NoApiAuthorizerFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: get
+            Auth:
+              Authorizer: MyAuth
+
+
+  InvalidFunctionPayloadTypeApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyLambdaAuthorizer:
+            FunctionArn: arn:aws
+            FunctionPayloadType: INVALID
+
+  NoIdentityOnRequestAuthorizer:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyLambdaRequestAuthorizer:
+            FunctionArn: arn:aws
+            FunctionPayloadType: REQUEST
+
+  NoIdentitySourceOnRequestAuthorizer:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyLambdaRequestAuthorizer:
+            FunctionArn: arn:aws
+            FunctionPayloadType: REQUEST
+            Identity:
+              ReauthorizeEvery: 10
+
+  AuthorizerNotDict:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyCognitoAuthorizer:
+
+  NonStringDefaultAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: s3://bucket/key
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Events:
+        GetRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: NonStringDefaultAuthorizerApi
+            Path: /
+            Method: get
+
+  IntrinsicDefaultAuthorizerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          MyAuth:
+            JwtConfiguration:
+              audience: https://test-sam.com
+              issuer: https://test-sam.com
+            IdentitySource: $request.header.Authorization
+        # Correct usage: DefaultAuthorizer: MyAuth
+        DefaultAuthorizer: !Ref MyAuth
+
+  NonStringDefaultAuthorizerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          MyAuth:
+            JwtConfiguration:
+              audience: https://test-sam.com
+              issuer: https://test-sam.com
+            IdentitySource: $request.header.Authorization
+        # Correct usage: DefaultAuthorizer: MyAuth
+        DefaultAuthorizer:
+          This: should not be a dict
+
+  NonDictAuthorizerRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyAuth: AWS_IAM # It should be a dict
+
+  NonDictAuthorizerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          MyAuth: AWS_IAM # It should be a dict
+
+  AuthorizerWithBadDisableFunctionDefaultPermissionsType:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        Authorizers:
+          MyAuth:
+            FunctionArn: !GetAtt MyAuthFn.Arn
+            DisableFunctionDefaultPermissions: foo
+
+  NonDictExternalApiAuthorizer:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName:
+        Ref: stage
+      Auth:
+        Authorizers:
+        - FunctionArn: test
+
+  NonDictExternalApiAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3
+      Handler: index.handler
+      CodeUri: s3://bucket/key
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: NonDictExternalApiAuthorizer
+            Path: /hello
+            Method: get
+            Auth:
+              ApiKeyRequired: true
+              Authorizer: AWS_IAM

@@ -97,11 +97,17 @@ func TestRealClient_MasterUserSecret(t *testing.T) {
 			assert.Equal(t, secretKMSKey, aws.ToString(on.DBInstance.MasterUserSecret.KmsKeyId))
 
 			const other = "alias/other"
-			re, err := c.ModifyDBInstance(t.Context(), &rdssdk.ModifyDBInstanceInput{
+			_, err = c.ModifyDBInstance(t.Context(), &rdssdk.ModifyDBInstanceInput{
 				DBInstanceIdentifier: aws.String("sec-i4"), MasterUserSecretKmsKeyId: aws.String(other),
 			})
+			require.Error(t, err)
+			assert.Equal(t, "InvalidParameterCombination", apiErrCode(t, err))
+
+			re, err := c.ModifyDBInstance(t.Context(), &rdssdk.ModifyDBInstanceInput{
+				DBInstanceIdentifier: aws.String("sec-i4"), MasterUserSecretKmsKeyId: aws.String(secretKMSKey),
+			})
 			require.NoError(t, err)
-			assert.Equal(t, other, aws.ToString(re.DBInstance.MasterUserSecret.KmsKeyId))
+			assert.Equal(t, secretKMSKey, aws.ToString(re.DBInstance.MasterUserSecret.KmsKeyId))
 			assert.Equal(t, aws.ToString(on.DBInstance.MasterUserSecret.SecretArn),
 				aws.ToString(re.DBInstance.MasterUserSecret.SecretArn))
 
@@ -141,11 +147,11 @@ func TestRealClient_MasterUserSecret(t *testing.T) {
 			assert.Equal(t, secretKMSKey, aws.ToString(out.DBCluster.MasterUserSecret.KmsKeyId))
 			assert.Contains(t, aws.ToString(out.DBCluster.MasterUserSecret.SecretArn), ":secret:rds!cluster-")
 
-			mod, err := c.ModifyDBCluster(t.Context(), &rdssdk.ModifyDBClusterInput{
+			_, err = c.ModifyDBCluster(t.Context(), &rdssdk.ModifyDBClusterInput{
 				DBClusterIdentifier: aws.String("sec-c1"), MasterUserSecretKmsKeyId: aws.String("alias/other"),
 			})
-			require.NoError(t, err)
-			assert.Equal(t, "alias/other", aws.ToString(mod.DBCluster.MasterUserSecret.KmsKeyId))
+			require.Error(t, err)
+			assert.Equal(t, "InvalidParameterCombination", apiErrCode(t, err))
 
 			_, err = c.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
 				DBClusterIdentifier: aws.String("sec-c2"), Engine: aws.String("aurora-postgresql"),
@@ -224,12 +230,12 @@ func TestRealClient_MasterUserSecret(t *testing.T) {
 			require.NotNil(t, out.TenantDatabase.MasterUserSecret)
 			assert.Equal(t, secretKMSKey, aws.ToString(out.TenantDatabase.MasterUserSecret.KmsKeyId))
 
-			mod, err := c.ModifyTenantDatabase(t.Context(), &rdssdk.ModifyTenantDatabaseInput{
+			_, err = c.ModifyTenantDatabase(t.Context(), &rdssdk.ModifyTenantDatabaseInput{
 				DBInstanceIdentifier: aws.String("sec-i9"), TenantDBName: aws.String("t1"),
 				MasterUserSecretKmsKeyId: aws.String("alias/other"),
 			})
-			require.NoError(t, err)
-			assert.Equal(t, "alias/other", aws.ToString(mod.TenantDatabase.MasterUserSecret.KmsKeyId))
+			require.Error(t, err)
+			assert.Equal(t, "InvalidParameterCombination", apiErrCode(t, err))
 		}},
 	}
 

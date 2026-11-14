@@ -121,3 +121,42 @@ func TestTagNamespacesAndTags(t *testing.T) {
 	_, err = e.client.DeleteTagNamespace(ctx, identity.DeleteTagNamespaceRequest{TagNamespaceId: ns.Id})
 	require.NoError(t, err)
 }
+
+func TestTagDefinitionLookup(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+
+	ns, err := e.client.CreateTagNamespace(ctx, identity.CreateTagNamespaceRequest{
+		CompartmentId: new(testTenancy), Name: new("Ops"), Description: new("ops tags"),
+	})
+	require.NoError(t, err)
+
+	_, err = e.client.CreateTag(ctx, identity.CreateTagRequest{
+		TagNamespaceId: ns.Id, Name: new("Env"), Description: new("e"),
+		Validator: identity.EnumTagDefinitionValidator{Values: []string{"prod", "dev"}},
+	})
+	require.NoError(t, err)
+
+	def, found := e.backend.TagDefinition("OPS", "env")
+	require.True(t, found)
+	assert.True(t, def.HasEnum)
+	assert.ElementsMatch(t, []string{"prod", "dev"}, def.EnumValues)
+	assert.False(t, def.Retired)
+
+	_, found = e.backend.TagDefinition("ops", "missing")
+	assert.False(t, found)
+
+	_, found = e.backend.TagDefinition("nope", "env")
+	assert.False(t, found)
+
+	_, err = e.client.UpdateTag(ctx, identity.UpdateTagRequest{
+		TagNamespaceId: ns.Id, TagName: new("Env"), IsRetired: new(true),
+	})
+	require.NoError(t, err)
+
+	def, found = e.backend.TagDefinition("ops", "env")
+	require.True(t, found)
+	assert.True(t, def.Retired)
+}

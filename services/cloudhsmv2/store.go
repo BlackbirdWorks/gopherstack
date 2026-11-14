@@ -35,6 +35,25 @@ type Network interface {
 	DeleteENI(region, id string)
 }
 
+// Sharing reports whether a resource is shared with an account through AWS RAM.
+type Sharing interface {
+	SharedWith(resourceARN, accountID string) bool
+}
+
+// SetSharing wires the RAM lookup consulted for shared backups.
+func (b *InMemoryBackend) SetSharing(s Sharing) {
+	b.mu.Lock("SetSharing")
+	defer b.mu.Unlock()
+
+	b.sharing = s
+}
+
+// IPv6Network is implemented by a Network that can give an ENI an IPv6 address from its subnet's IPv6 CIDR.
+type IPv6Network interface {
+	// AssignENIIPv6 returns "" with a nil error when the ENI's subnet has no IPv6 CIDR.
+	AssignENIIPv6(region, subnetID, eniID string) (string, error)
+}
+
 // Subnet is the EC2 view of a subnet.
 type Subnet struct{ VpcID, Zone string }
 
@@ -48,6 +67,7 @@ type InMemoryBackend struct {
 	mu            *lockmetrics.RWMutex
 	now           func() time.Time
 	network       Network
+	sharing       Sharing
 	accountID     string
 	region        string
 	dwellOverride time.Duration

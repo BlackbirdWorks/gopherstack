@@ -16,7 +16,7 @@ If Podman is the reachable runtime and `CONTAINER_RUNTIME` is unset, it is set t
 
 A per-service flag (`--rds-engine`, ...), its env var (`RDS_ENGINE`, ...) or a non-default value always wins over
 `--engines`, so `GOPHERSTACK_ENGINES=auto RDS_ENGINE=stub` runs everything real except RDS. The ECS task runtime is
-`--ecs-runtime` / `GOPHERSTACK_ECS_RUNTIME` (`none` or `docker`); Timestream for InfluxDB follows
+`--ecs-runtime` / `GOPHERSTACK_ECS_RUNTIME` (`none` or `docker`; with `CONTAINER_RUNTIME=kubernetes` each task runs as a Pod, see [kubernetes.md](kubernetes.md)); Timestream for InfluxDB follows
 `TIMESTREAM_INFLUXDB_ENGINE`.
 
 Resolved modes are not written to persisted config.
@@ -46,7 +46,7 @@ Adopting services: Cloud SQL (gcpsql), EC2 docker instances, ECS docker tasks an
 - ECS: a restored RUNNING task claims one container per container definition (`taskArn|containerName`). All must
   exist, run, and use the definition's image; then exit, health and log watching resume (logs from adoption time on).
   Otherwise every claimed container is removed and the task is STOPPED ("Task containers were lost when the
-  emulator restarted"). Containers behind security-group relays are never adopted.
+  emulator restarted"). Containers behind security-group relays and awsvpc tasks (pause container and task network) are never adopted.
 - Batch: containers carry the identity and service labels but no resource key. A job lost to a crash is failed
   ("Container execution was interrupted") and its container removed at the next startup.
 

@@ -95,17 +95,18 @@ const (
 
 // MessageRequest describes one message to deliver to a user.
 type MessageRequest struct {
-	PoolID        string
-	Username      string
-	Code          string
-	Attribute     string
-	Medium        string
-	Destination   string
-	CustomMessage string
-	CustomSubject string
-	Flow          string
-	Mediums       []string
-	Kind          MessageKind
+	PoolID         string
+	Username       string
+	Code           string
+	Attribute      string
+	Medium         string
+	Destination    string
+	CustomMessage  string
+	CustomSubject  string
+	Flow           string
+	ClientMetadata map[string]string
+	Mediums        []string
+	Kind           MessageKind
 }
 
 // MessageResult reports where a message went; Destination is masked as AWS does.

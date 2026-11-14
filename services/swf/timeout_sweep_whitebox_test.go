@@ -254,6 +254,59 @@ func TestSweepExpiredClosedExecutionsLocked_Evaluation(t *testing.T) {
 	}
 }
 
+// TestSweepExpiredClosedExecutionsLocked_DSTZone pins retention to elapsed
+// 24h days regardless of the injected clock's zone (a local calendar day is
+// 23h or 25h across a DST change).
+func TestSweepExpiredClosedExecutionsLocked_DSTZone(t *testing.T) {
+	t.Parallel()
+
+	ny, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	tests := []struct {
+		evalAt      time.Time
+		name        string
+		closedAge   time.Duration
+		wantEvicted bool
+	}{
+		{
+			name:      "fall back 24h30m old is evicted",
+			evalAt:    time.Date(2026, time.November, 1, 12, 0, 0, 0, ny),
+			closedAge: 24*time.Hour + 30*time.Minute, wantEvicted: true,
+		},
+		{
+			name:      "spring forward 23h30m old is kept",
+			evalAt:    time.Date(2026, time.March, 8, 12, 0, 0, 0, ny),
+			closedAge: 23*time.Hour + 30*time.Minute, wantEvicted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", "1"))
+
+			started, startErr := b.StartWorkflowExecution(StartWorkflowExecutionInput{
+				Domain: "dom", WorkflowID: "wf-1", TaskList: "tasks",
+			})
+			require.NoError(t, startErr)
+			require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", started.RunID, "", "", ""))
+
+			live := mustLiveExecution(t, b, "wf-1", started.RunID)
+			live.CloseTimestamp = float64(tt.evalAt.Add(-tt.closedAge).Unix())
+
+			b.mu.Lock("test")
+			b.sweepExpiredClosedExecutionsLocked(tt.evalAt)
+			b.mu.Unlock()
+
+			_, present := b.executions.Get(executionKey("dom", "wf-1", started.RunID))
+			assert.Equal(t, !tt.wantEvicted, present)
+		})
+	}
+}
+
 // TestListClosedWorkflowExecutions_SweepsRetentionOnRead verifies the
 // retention sweep is wired into a public entry point, not just callable in
 // isolation: a closed execution backdated past its domain's retention

@@ -93,6 +93,7 @@ type Alarm struct {
 	Etag                string            `json:"etag"`
 	Destinations        []string          `json:"destinations"`
 	History             []HistoryEntry    `json:"history,omitempty"`
+	DimStates           []DimState        `json:"dimensionStates,omitempty"`
 	Seq                 int64             `json:"seq"`
 	Enabled             bool              `json:"isEnabled"`
 }

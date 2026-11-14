@@ -236,7 +236,8 @@ func TestWebSocketOversizedFrameClosesConnection(t *testing.T) {
 	t.Parallel()
 
 	c := dial(t, newServer(t, opencypher.NewGraph()))
-	require.NoError(t, c.WriteMessage(websocket.BinaryMessage, make([]byte, 5<<20)))
+	// The server closes mid-frame, so the client's write may itself be reset.
+	_ = c.WriteMessage(websocket.BinaryMessage, make([]byte, 5<<20))
 
 	_, _, err := c.ReadMessage()
 	require.Error(t, err)

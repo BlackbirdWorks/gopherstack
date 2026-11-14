@@ -11,13 +11,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) error {
-	b.mu.Lock("DeleteStack")
-	defer b.mu.Unlock()
-
-	return b.deleteStackLocked(ctx, nameOrID)
-}
-
 // DescribeStack returns details for a single stack.
 func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
 	b.mu.RLock("DescribeStack")
@@ -124,6 +117,10 @@ func (b *InMemoryBackend) ContinueUpdateRollback(_ context.Context, nameOrID str
 		return ErrStackNotFound
 	}
 
+	if stack.StackStatus == statusRollbackInProgress || stack.StackStatus == statusUpdateRollbackInProgress {
+		delete(b.pendingOps, stack.StackID)
+	}
+
 	switch stack.StackStatus {
 	case statusRollbackInProgress:
 		stack.StackStatus = statusRollbackComplete
@@ -138,10 +135,10 @@ func (b *InMemoryBackend) ContinueUpdateRollback(_ context.Context, nameOrID str
 	return nil
 }
 
-// CancelUpdateStack cancels an in-progress stack update, transitioning it to
+// CancelUpdateStack cancels an in-progress stack update, rolling it back to
 // UPDATE_ROLLBACK_COMPLETE. Real AWS: "You can cancel only stacks that are
 // in the UPDATE_IN_PROGRESS state".
-func (b *InMemoryBackend) CancelUpdateStack(_ context.Context, nameOrID string) error {
+func (b *InMemoryBackend) CancelUpdateStack(ctx context.Context, nameOrID string) error {
 	b.mu.Lock("CancelUpdateStack")
 	defer b.mu.Unlock()
 
@@ -154,12 +151,18 @@ func (b *InMemoryBackend) CancelUpdateStack(_ context.Context, nameOrID string) 
 		return ErrCancelUpdateStackInvalidState
 	}
 
-	stack.StackStatus = statusUpdateRollbackInProgress
-	b.addEvent(stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusUpdateRollbackInProgress, reasonUserInitiated)
-	stack.StackStatus = statusUpdateRollbackComplete
-	b.addEvent(stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusUpdateRollbackComplete, "")
+	if op := b.pendingOps[stack.StackID]; op != nil && op.Kind == pendingUpdate {
+		delete(b.pendingOps, stack.StackID)
+
+		stack.TemplateBody = op.OldTemplateBody
+		stack.Parameters = op.OldParams
+	}
+
+	b.stepAsync = true
+
+	defer func() { b.stepAsync = false }()
+
+	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reasonUserInitiated, false)
 
 	return nil
 }
@@ -177,8 +180,12 @@ func (b *InMemoryBackend) DescribeAccountLimits() []AccountLimit {
 // RollbackStack rolls a CREATE_FAILED stack back: every resource it managed to create is deleted
 // (Retain/Snapshot ones too when retainExceptOnCreate), per RollbackStackInput.RetainExceptOnCreate.
 func (b *InMemoryBackend) RollbackStack(
-	ctx context.Context, nameOrID string, retainExceptOnCreate bool,
+	ctx context.Context, nameOrID string, retainExceptOnCreate bool, roleARN string,
 ) (*Stack, error) {
+	if err := ValidateRoleARN(roleARN); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("RollbackStack")
 	defer b.mu.Unlock()
 	stack, ok := b.resolveStack(nameOrID)
@@ -189,17 +196,21 @@ func (b *InMemoryBackend) RollbackStack(
 		return nil, fmt.Errorf("%w: stack %s is in %s", ErrRollbackStackInvalidState, nameOrID, stack.StackStatus)
 	}
 
+	if roleARN != "" {
+		stack.RoleARN = roleARN
+	}
+
 	arn, name := stack.StackID, stack.StackName
 	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, reasonUserInitiated)
-	if b.rollbackCreateResources(ctx, stack, b.creationOrderLocked(stack), retainExceptOnCreate) {
-		b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
-		stack.StackStatus = statusRollbackComplete
-	} else {
-		reason := reasonRollbackDeleteFailed
-		b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
-		stack.StackStatus = statusRollbackFailed
-		stack.StackStatusReason = reason
+	stack.StackStatus = statusRollbackInProgress
+
+	created := b.creationOrderLocked(stack)
+	op := &pendingStackOp{Kind: pendingRollbackCreate, Created: created, RetainExceptOnCreate: retainExceptOnCreate}
+
+	if !b.scheduleLocked(ctx, stack.StackID, op) {
+		b.finishCreateRollbackLocked(ctx, stack, created, createFinish{retainExceptOnCreate: retainExceptOnCreate})
 	}
+
 	cp := *stack
 
 	return &cp, nil

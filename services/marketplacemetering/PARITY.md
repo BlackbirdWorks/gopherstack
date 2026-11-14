@@ -18,7 +18,7 @@ items_still_open:
   - "License-based metering (LicenseArn / concurrent agreements): BatchMeterUsage needs a ProductCode and LicenseArn is only echoed; there is no license catalog"
   - "Seeding is Go-API only (RegisterProduct, Subscribe, IssueRegistrationToken); there is no HTTP or config surface to declare products for out-of-process clients"
   - "RegisterUsage signature is HS256 with an emulator key and PublicKeyRotationTimestamp is the product's first-seen time plus 90 days; clients cannot verify it against the AWS Marketplace public key"
-  - "Usage is deduplicated per second-resolution timestamp; the real service aggregates per hour"
+  - "BatchMeterUsage deduplicates per second-resolution timestamp: API_BatchMeterUsage.html (checked 2026-11-13) states idempotency for identical requests but no hourly aggregation rule; only MeterUsage rounds down to the hour (API_MeterUsage.html)."
   - "InvalidRegionException, InvalidEndpointRegionException, PlatformNotSupportedException, DisabledApiException, InvalidLicenseException and ThrottlingException are never raised"
 structural_gaps:
   - "No EC2 instance, ECS task or EKS pod identity exists to bind a product code to, so the region/platform checks of MeterUsage and RegisterUsage have no data source."
@@ -32,3 +32,7 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; th
 Protocol is awsjson1.1 (`X-Amz-Target: AWSMPMeteringService.<Op>`, SigV4 signing name `aws-marketplace`). Timestamps are epoch-seconds numbers. The caller account is the SigV4 account of the request. Exceptions are 400 except IdempotencyConflictException (409) and InternalServiceErrorException (500). ValidationException and DryRunOperation are used where the SDK documents the condition but ships no typed exception.
 
 Wiring: `internal/app/marketplace_wiring.go` sets the Entitlement Service backend as the sink, so a ResolveCustomer on a declared product shows up in GetEntitlements.
+
+## 2026-11-13 MeterUsage hour rounding
+
+MeterUsage rounds Timestamp down to the hour for the once-per-hour idempotency/DuplicateRequestException rule (API_MeterUsage.html); IdempotencyConflictException answers 400 as documented (was 409).

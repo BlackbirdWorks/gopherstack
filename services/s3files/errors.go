@@ -12,6 +12,8 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrConflict is returned when the request conflicts with the resource's current state.
 	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrQuotaExceeded is returned when a request would exceed a documented service quota.
+	ErrQuotaExceeded = errors.New("service quota exceeded")
 	// ErrValidation is returned for malformed or out-of-range input.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
@@ -33,6 +35,8 @@ func conflict(resourceType, resourceID, msg string) error {
 
 func validation(msg string) error { return awserr.New(msg, ErrValidation) }
 
+func quotaExceeded(msg string) error { return awserr.New(msg, ErrQuotaExceeded) }
+
 func notFound(msg string) error { return awserr.New(msg, ErrNotFound) }
 
 // errCodeLookup maps backend sentinels to wire codes (types/errors.go in service/s3files).
@@ -46,6 +50,7 @@ var errCodeLookup = []struct {
 	{ErrValidation, "ValidationException", http.StatusBadRequest},
 	{ErrNotFound, "ResourceNotFoundException", http.StatusNotFound},
 	{ErrConflict, "ConflictException", http.StatusConflict},
+	{ErrQuotaExceeded, "ServiceQuotaExceededException", http.StatusPaymentRequired},
 }
 
 func classify(err error) (string, int) {

@@ -214,12 +214,10 @@ func tryRouteToDLQ(q *Queue, msg *Message, now time.Time) bool {
 		}
 		defer q.dlq.mu.Unlock()
 
-		msg.ReceiptHandle = ""
-
-		if msg.Attributes == nil {
-			msg.Attributes = make(map[string]string, 1)
-		}
-		msg.Attributes[attrDeadLetterQueueSourceArn] = q.Attributes[attrQueueArn]
+		moved := msg.withOwnAttributes()
+		moved.ReceiptHandle = ""
+		moved.Attributes[attrDeadLetterQueueSourceArn] = q.Attributes[attrQueueArn]
+		msg = moved
 
 		q.dlq.messages = append(q.dlq.messages, msg)
 		if now.Before(msg.VisibleAt) {

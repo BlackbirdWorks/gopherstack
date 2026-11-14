@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 23 (23 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,7 +17,6 @@
 ### Known gaps
 
 - DataIntegrationAssociation.LastExecutionStatus: never emitted because no AppFlow execution exists
-- KmsKey: stored as given, not looked up in the KMS emulator
 - CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException
 
 ### Structural gaps

@@ -44,6 +44,8 @@ func (h *Handler) createLB(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.retryToken()
+
 	wr, err := h.Backend.CreateLoadBalancer(in)
 
 	return acceptedWR(q, wr, err)
@@ -74,25 +76,25 @@ func (h *Handler) listLBs(q *req) error {
 
 func (h *Handler) updateLB(q *req) error {
 	return withBody(q, func(in updateLBIn) (string, error) {
-		return h.Backend.UpdateLoadBalancer(q.param("loadBalancerId"), q.ifMatch(), in)
+		return h.Backend.UpdateLoadBalancer(q.param("loadBalancerId"), q.ifMatch(), q.retryToken(), in)
 	})
 }
 
 func (h *Handler) updateShape(q *req) error {
 	return withBody(q, func(in updateShapeIn) (string, error) {
-		return h.Backend.UpdateShape(q.param("loadBalancerId"), q.ifMatch(), in)
+		return h.Backend.UpdateShape(q.param("loadBalancerId"), q.ifMatch(), q.retryToken(), in)
 	})
 }
 
 func (h *Handler) updateNSGs(q *req) error {
 	return withBody(q, func(in nsgIn) (string, error) {
-		return h.Backend.UpdateNSGs(q.param("loadBalancerId"), q.ifMatch(), in)
+		return h.Backend.UpdateNSGs(q.param("loadBalancerId"), q.ifMatch(), q.retryToken(), in)
 	})
 }
 
 func (h *Handler) changeCompartment(q *req) error {
 	return withBody(q, func(in changeCompartmentIn) (string, error) {
-		return h.Backend.ChangeCompartment(q.param("loadBalancerId"), q.ifMatch(), in)
+		return h.Backend.ChangeCompartment(q.param("loadBalancerId"), q.ifMatch(), q.retryToken(), in)
 	})
 }
 
@@ -150,17 +152,31 @@ func mutateBody[I any](
 	fn func(b *InMemoryBackend, lb *LoadBalancer, in *I) *APIError,
 ) error {
 	return withBody(q, func(in I) (string, error) {
-		return h.Backend.Mutate(q.param("loadBalancerId"), q.ifMatch(), typ, false, func(lb *LoadBalancer) *APIError {
-			return fn(h.Backend, lb, &in)
-		})
+		return h.Backend.Mutate(
+			q.param("loadBalancerId"),
+			q.ifMatch(),
+			typ,
+			q.retryToken(),
+			false,
+			func(lb *LoadBalancer) *APIError {
+				return fn(h.Backend, lb, &in)
+			},
+		)
 	})
 }
 
 // mutateDelete applies fn to the addressed load balancer; dangling references answer 409.
 func mutateDelete(h *Handler, q *req, typ string, fn func(b *InMemoryBackend, lb *LoadBalancer) *APIError) error {
-	wr, err := h.Backend.Mutate(q.param("loadBalancerId"), q.ifMatch(), typ, true, func(lb *LoadBalancer) *APIError {
-		return fn(h.Backend, lb)
-	})
+	wr, err := h.Backend.Mutate(
+		q.param("loadBalancerId"),
+		q.ifMatch(),
+		typ,
+		"",
+		true,
+		func(lb *LoadBalancer) *APIError {
+			return fn(h.Backend, lb)
+		},
+	)
 
 	return acceptedWR(q, wr, err)
 }

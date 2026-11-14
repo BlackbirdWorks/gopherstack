@@ -122,7 +122,7 @@ func elementID(v any) string {
 
 func vertexLabel(n *opencypher.Node) string {
 	if len(n.Labels) == 0 {
-		return "vertex"
+		return labelVertex
 	}
 
 	return strings.Join(n.Labels, "::")
@@ -292,6 +292,8 @@ func keyOf(v any) string {
 		return "m:" + mapKey(t)
 	case *Path:
 		return "P:" + joinKeys(t.Objects)
+	case *Tree:
+		return "T:" + mapKey(t.asMap())
 	}
 
 	if isInt(v) {

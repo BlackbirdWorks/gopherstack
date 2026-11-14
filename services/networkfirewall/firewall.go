@@ -34,6 +34,7 @@ type CreateFirewallInput struct {
 	SubnetChangeProtection           bool                      `json:"SubnetChangeProtection"`
 	FirewallPolicyChangeProtection   bool                      `json:"FirewallPolicyChangeProtection"`
 	AvailabilityZoneChangeProtection bool                      `json:"AvailabilityZoneChangeProtection"`
+	NoSourcePreservation             bool                      `json:"NoSourcePreservation"`
 }
 
 // FirewallOutput is the CreateFirewall and DeleteFirewall response.
@@ -96,8 +97,8 @@ func validateCreateFirewall(in *CreateFirewallInput) error {
 		return invalid("FirewallPolicyArn is required")
 	}
 
-	if len(in.NatGatewayMappings) > 0 || in.VpcEndpoint != nil {
-		return unsupported("NatGatewayMappings and VpcEndpoint are not supported")
+	if err := validateProxyFirewall(in); err != nil {
+		return err
 	}
 
 	if err := validateProxySettings(in.ProxySettings); err != nil {
@@ -124,6 +125,10 @@ func validateCreateFirewall(in *CreateFirewallInput) error {
 }
 
 func validateFirewallPlacement(in *CreateFirewallInput) error {
+	if in.NoSourcePreservation {
+		return nil
+	}
+
 	if in.TransitGatewayID != "" {
 		if in.VpcID != "" || len(in.SubnetMappings) > 0 {
 			return invalid("VpcId and SubnetMappings cannot be combined with TransitGatewayId")
@@ -315,7 +320,12 @@ func (b *InMemoryBackend) firewallViewLocked(r *firewallRecord, now time.Time) (
 		}
 	}
 
-	st := FirewallStatus{Status: status, ConfigurationSyncStateSummary: sync, SyncStates: syncStates}
+	r.applyProxyView(&fw, syncStates, attachment)
+
+	st := FirewallStatus{
+		Status: status, ConfigurationSyncStateSummary: sync, SyncStates: syncStates,
+		CapacityUsageSummary: b.capacityUsageLocked(r),
+	}
 	if r.TGWID != "" {
 		st.TGWAttachmentSyncState = &TransitGatewayAttachmentSyncState{
 			AttachmentID: r.TGWAttachmentID, TransitGatewayAttachmentStatus: r.tgwStatusAt(now),
@@ -370,7 +380,6 @@ func (b *InMemoryBackend) CreateFirewall(_ context.Context, in *CreateFirewallIn
 		ID:               newResourceID(),
 		ARN:              fwARN,
 		PolicyARN:        in.FirewallPolicyArn,
-		VpcID:            in.VpcID,
 		Description:      in.Description,
 		UpdateToken:      newToken(),
 		Encryption:       normalizeEncryption(in.EncryptionConfiguration),
@@ -387,7 +396,10 @@ func (b *InMemoryBackend) CreateFirewall(_ context.Context, in *CreateFirewallIn
 		SyncUntil:        b.deadline(now),
 	}
 
-	for _, m := range in.SubnetMappings {
+	r.VpcID, _ = proxyPlacement(in)
+
+	_, mappings := proxyPlacement(in)
+	for _, m := range mappings {
 		if m.IPAddressType == "" {
 			m.IPAddressType = "IPV4"
 		}
@@ -401,6 +413,12 @@ func (b *InMemoryBackend) CreateFirewall(_ context.Context, in *CreateFirewallIn
 		}
 	} else if err := b.resolveSubnetsLocked(r, r.VpcID, r.SubnetMappings); err != nil {
 		return nil, err
+	}
+
+	if in.NoSourcePreservation {
+		if err := b.attachNatGatewaysLocked(r, in); err != nil {
+			return nil, err
+		}
 	}
 
 	b.firewalls.Put(r)

@@ -9,6 +9,9 @@ const (
 	statTerminating  = "TERMINATING"
 	statTerminated   = "TERMINATED"
 	statAssigned     = "ASSIGNED"
+
+	sourceManual = "MANUAL"
+	orderAsc     = "ASC"
 )
 
 // Resource kinds, as they appear in OCIDs (ocid1.<kind>.oc1.iad.<id>).
@@ -52,10 +55,11 @@ type Base struct {
 
 func (b *Base) base() *Base { return b }
 
-type resource interface {
+// Resource is implemented by every stored OCI resource.
+type Resource interface {
 	base() *Base
 	vcnRef() string
-	view() resource
+	view() Resource
 }
 
 // Vcn is a virtual cloud network.
@@ -286,67 +290,67 @@ func (v *DhcpOptions) vcnRef() string          { return v.VcnID }
 func (v *LocalPeeringGateway) vcnRef() string  { return v.VcnID }
 func (v *PublicIP) vcnRef() string             { return "" }
 
-func (v *Vcn) view() resource {
+func (v *Vcn) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *Subnet) view() resource {
+func (v *Subnet) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *InternetGateway) view() resource {
+func (v *InternetGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *NatGateway) view() resource {
+func (v *NatGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *ServiceGateway) view() resource {
+func (v *ServiceGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *RouteTable) view() resource {
+func (v *RouteTable) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *SecurityList) view() resource {
+func (v *SecurityList) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *NetworkSecurityGroup) view() resource {
+func (v *NetworkSecurityGroup) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *DhcpOptions) view() resource {
+func (v *DhcpOptions) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *LocalPeeringGateway) view() resource {
+func (v *LocalPeeringGateway) view() Resource {
 	c := *v
 	c.Internal = nil
 
 	return &c
 }
-func (v *PublicIP) view() resource {
+func (v *PublicIP) view() Resource {
 	c := *v
 	c.Internal = nil
 

@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -25,6 +26,8 @@ const (
 	maxBucketName    = 256
 	anonymousUser    = "ocid1.user.oc1..anonymous"
 	ocidHexLen       = 40
+	// DefaultMinPartSize disables minimum part size enforcement; the OCI docs state no minimum.
+	DefaultMinPartSize = 0
 )
 
 var bucketNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -35,11 +38,18 @@ type InMemoryBackend struct {
 	now          func() time.Time
 	buckets      map[string]*Bucket
 	workRequests map[string]*WorkRequest
+	privateEnds  map[string]*PrivateEndpoint
+	net          *Network
 	Auth         *ociauth.Registry
-	namespace    string
-	nsMeta       nsMetaWire
 	sink         func(ObjectEvent)
+	keyState     func(string) (string, bool)
+	tagLookup    ocitags.Lookup
+	nsMeta       nsMetaWire
+	namespace    string
 	pending      []ObjectEvent
+	bucketSink   func(BucketEvent)
+	pendingBkts  []BucketEvent
+	minPartSize  int64
 }
 
 // NewInMemoryBackend creates an empty backend serving the default namespace.
@@ -49,8 +59,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		now:          time.Now,
 		buckets:      map[string]*Bucket{},
 		workRequests: map[string]*WorkRequest{},
+		privateEnds:  map[string]*PrivateEndpoint{},
 		Auth:         ociauth.NewRegistry(),
 		namespace:    DefaultNamespace,
+		minPartSize:  DefaultMinPartSize,
 	}
 }
 
@@ -58,6 +70,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.mu.Lock("SetClock")
 	b.now = now
+	b.mu.Unlock()
+}
+
+// SetMinPartSize overrides the minimum size of every multipart part except the last.
+func (b *InMemoryBackend) SetMinPartSize(n int64) {
+	b.mu.Lock("SetMinPartSize")
+	b.minPartSize = n
 	b.mu.Unlock()
 }
 
@@ -81,6 +100,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.buckets = map[string]*Bucket{}
 	b.workRequests = map[string]*WorkRequest{}
+	b.privateEnds = map[string]*PrivateEndpoint{}
 	b.mu.Unlock()
 	b.Auth.Reset()
 }
@@ -195,7 +215,7 @@ func (in *CreateBucketInput) normalize() error {
 	case !validAccess(in.PublicAccessType):
 		return errParam("Invalid publicAccessType")
 	case in.StorageTier != tierStandard && in.StorageTier != tierArchive:
-		return errParam("storageTier must be Standard or Archive")
+		return errInvalidTier("storageTier must be Standard or Archive")
 	case in.Versioning != versioningDisabled && in.Versioning != versioningEnabled:
 		return errParam("versioning must be Enabled or Disabled on create")
 	}
@@ -215,10 +235,16 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		return nil, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
 	if err := b.checkNS(ns); err != nil {
+		return nil, err
+	}
+
+	if err := b.checkTags(in.FreeformTags, in.DefinedTags); err != nil {
 		return nil, err
 	}
 
@@ -243,6 +269,7 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		PARs: map[string]*PAR{}, Retention: map[string]*Retention{},
 	}
 	b.buckets[bk.Name] = bk
+	b.recordBucketEvent(EventCreateBucket, bk)
 
 	return b.bucketWire(ns, bk, nil), nil
 }
@@ -264,6 +291,8 @@ type UpdateBucketInput struct {
 
 // UpdateBucket applies a partial update.
 func (b *InMemoryBackend) UpdateBucket(ns, name string, in UpdateBucketInput, pre Preconds) (*BucketWire, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateBucket")
 	defer b.mu.Unlock()
 
@@ -281,6 +310,7 @@ func (b *InMemoryBackend) UpdateBucket(ns, name string, in UpdateBucketInput, pr
 	}
 
 	bk.Etag = newEtag()
+	b.recordBucketEvent(EventUpdateBucket, bk)
 
 	return b.bucketWire(ns, bk, nil), nil
 }
@@ -305,6 +335,10 @@ func (in UpdateBucketInput) validate(bk *Bucket) error {
 
 func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) error {
 	if err := in.validate(bk); err != nil {
+		return err
+	}
+
+	if err := b.checkTags(in.FreeformTags, in.DefinedTags); err != nil {
 		return err
 	}
 
@@ -352,6 +386,10 @@ func (b *InMemoryBackend) renameBucket(bk *Bucket, name string) error {
 		return errConflict("BucketAlreadyExists", "The bucket '"+name+"' already exists")
 	}
 
+	if bk.Replication != nil || bk.ReplicationSource != nil {
+		return errConflict("BucketReplicationEnabled", "A bucket that takes part in replication cannot be renamed")
+	}
+
 	delete(b.buckets, bk.Name)
 	bk.Name = name
 	b.buckets[name] = bk
@@ -384,6 +422,8 @@ func (b *InMemoryBackend) GetBucket(ns, name string, fields []string, pre Precon
 
 // DeleteBucket removes an empty bucket.
 func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
@@ -396,6 +436,10 @@ func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
 		return err
 	}
 
+	if bk.ReplicationSource != nil {
+		return errReplReadOnly(name)
+	}
+
 	if len(bk.Objects) > 0 || len(bk.Uploads) > 0 {
 		return errConflict(
 			"BucketNotEmpty",
@@ -403,7 +447,15 @@ func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
 		)
 	}
 
+	if bk.Replication != nil {
+		if dst, ok := b.buckets[bk.Replication.DestinationBucketName]; ok && dst.ReplicationSource != nil &&
+			dst.ReplicationSource.SourceBucketName == name {
+			dst.ReplicationSource = nil
+		}
+	}
+
 	delete(b.buckets, name)
+	b.recordBucketEvent(EventDeleteBucket, bk)
 
 	return nil
 }
@@ -551,4 +603,19 @@ func bucketTotals(bk *Bucket) (int64, int64) {
 	}
 
 	return count, size
+}
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(free map[string]string, defined map[string]map[string]any) error {
+	if err := ocitags.Validate(free, defined, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
 }

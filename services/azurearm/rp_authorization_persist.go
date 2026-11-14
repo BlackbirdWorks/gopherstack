@@ -9,6 +9,7 @@ type authorizationSnapshot struct {
 	PolicyDefs    map[string]*storedPolicy       `json:"policyDefinitions,omitempty"`
 	PolicySets    map[string]*storedPolicy       `json:"policySetDefinitions,omitempty"`
 	PolicyAssigns map[string]*storedPolicyAssign `json:"policyAssignments,omitempty"`
+	PolicyExempts map[string]*storedPolicyExempt `json:"policyExemptions,omitempty"`
 }
 
 func (p *AuthorizationProvider) snapshot() *authorizationSnapshot {
@@ -18,7 +19,7 @@ func (p *AuthorizationProvider) snapshot() *authorizationSnapshot {
 	return &authorizationSnapshot{
 		RoleDefs: maps.Clone(p.roleDefs), RoleAssigns: maps.Clone(p.roleAssigns), Locks: maps.Clone(p.locks),
 		PolicyDefs: maps.Clone(p.policyDefs), PolicySets: maps.Clone(p.policySets),
-		PolicyAssigns: maps.Clone(p.policyAssigns),
+		PolicyAssigns: maps.Clone(p.policyAssigns), PolicyExempts: maps.Clone(p.policyExempts),
 	}
 }
 
@@ -39,6 +40,7 @@ func (p *AuthorizationProvider) restore(snap *authorizationSnapshot) {
 	copyNonNil(p.policyDefs, snap.PolicyDefs)
 	copyNonNil(p.policySets, snap.PolicySets)
 	copyNonNil(p.policyAssigns, snap.PolicyAssigns)
+	copyNonNil(p.policyExempts, snap.PolicyExempts)
 }
 
 func copyNonNil[T any](dst, src map[string]*T) {

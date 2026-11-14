@@ -234,6 +234,7 @@ func (b *InMemoryBackend) admitStackSetOp(
 
 	b.stackSetOpResults[stackSetName][opID] = results
 	b.trimStackSetOperations(stackSetName)
+	b.seedInstanceStatusLocked(stackSetName, opID, action, units)
 
 	b.enqueueStackSetOp(&stackSetOpPlan{
 		ctx:          context.WithoutCancel(ctx),
@@ -459,12 +460,18 @@ func (b *InMemoryBackend) stackSetStopRequested(opID string) bool {
 
 func (b *InMemoryBackend) runStackSetBatches(plan *stackSetOpPlan, st *stackSetRunState, batches []regionBatch) {
 	b.mu.Lock("StackSetBatchStart")
+	window := b.provisionDelay
+
 	for _, batch := range batches {
 		for _, u := range batch.units {
 			b.setStackSetUnitResult(plan.stackSetName, plan.opID, u, opResultRunning, "")
 		}
 	}
 	b.mu.Unlock()
+
+	if window > 0 {
+		time.Sleep(window)
+	}
 
 	for _, batch := range batches {
 		for _, u := range batch.units {
@@ -521,6 +528,7 @@ func (b *InMemoryBackend) finishStackSetOp(plan *stackSetOpPlan, st *stackSetRun
 
 	for _, u := range st.remainingUnits() {
 		b.setStackSetUnitResult(plan.stackSetName, plan.opID, u, opResultCancelled, "")
+		b.dropPlaceholderInstance(plan.stackSetName, plan.opID, u)
 	}
 
 	delete(b.stackSetRuns, plan.opID)
@@ -546,6 +554,8 @@ func (b *InMemoryBackend) finishStackSetOp(plan *stackSetOpPlan, st *stackSetRun
 }
 
 func (b *InMemoryBackend) setStackSetUnitResult(stackSetName, opID string, u stackSetUnit, status, reason string) {
+	b.setInstanceDetailedStatus(stackSetName, u, status)
+
 	results := b.stackSetOpResults[stackSetName][opID]
 
 	for i := range results {
@@ -556,6 +566,83 @@ func (b *InMemoryBackend) setStackSetUnitResult(stackSetName, opID string, u sta
 			return
 		}
 	}
+}
+
+func (b *InMemoryBackend) instanceIndexLocked(stackSetName string, u stackSetUnit) int {
+	return slices.IndexFunc(b.stackInstances[stackSetName], func(i StackInstance) bool {
+		return i.Account == u.account && i.Region == u.region
+	})
+}
+
+// seedInstanceStatusLocked marks every targeted instance PENDING at admission;
+// a CREATE operation also registers the not-yet-provisioned instances.
+func (b *InMemoryBackend) seedInstanceStatusLocked(stackSetName, opID, action string, units []stackSetUnit) {
+	ss, _ := b.stackSets.Get(stackSetName)
+
+	for _, u := range units {
+		i := b.instanceIndexLocked(stackSetName, u)
+
+		switch {
+		case i >= 0:
+			b.stackInstances[stackSetName][i].DetailedStatus = opResultPending
+		case action == "CREATE" && ss != nil:
+			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
+				StackSetID:           ss.StackSetID,
+				StackSetName:         stackSetName,
+				Account:              u.account,
+				Region:               u.region,
+				Status:               statusOutdated,
+				DetailedStatus:       opResultPending,
+				DriftStatus:          driftStatusNotChecked,
+				LastOperationID:      opID,
+				OrganizationalUnitID: u.ouID,
+			})
+		}
+	}
+}
+
+func (b *InMemoryBackend) setInstanceDetailedStatus(stackSetName string, u stackSetUnit, unitStatus string) {
+	i := b.instanceIndexLocked(stackSetName, u)
+	if i < 0 {
+		return
+	}
+
+	inst := &b.stackInstances[stackSetName][i]
+	inst.DetailedStatus = unitStatus
+
+	if unitStatus == cfnStatusFailed && inst.Status == statusInoperable {
+		inst.DetailedStatus = statusInoperable
+	}
+}
+
+// dropPlaceholderInstance removes an instance a CREATE operation registered
+// but cancelled before provisioning.
+func (b *InMemoryBackend) dropPlaceholderInstance(stackSetName, opID string, u stackSetUnit) {
+	i := b.instanceIndexLocked(stackSetName, u)
+	if i < 0 {
+		return
+	}
+
+	if inst := b.stackInstances[stackSetName][i]; inst.StackID == "" && inst.LastOperationID == opID {
+		b.stackInstances[stackSetName] = slices.Delete(b.stackInstances[stackSetName], i, i+1)
+	}
+}
+
+// effectiveDetailedStatus is the instance's StackInstanceStatus.DetailedStatus;
+// instances persisted before it was tracked derive it from their Status.
+func effectiveDetailedStatus(inst *StackInstance) string {
+	if inst.DetailedStatus != "" {
+		return inst.DetailedStatus
+	}
+
+	switch inst.Status {
+	case statusInoperable:
+		return statusInoperable
+	case statusOutdated:
+		return cfnStatusFailed
+	}
+
+	return opStatusSucceeded
 }
 
 // stackSetHasActiveOps reports whether any operation on the set is queued, running or stopping.

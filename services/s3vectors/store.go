@@ -28,6 +28,8 @@ type InMemoryBackend struct {
 	registry  *store.Registry
 	mu        *lockmetrics.RWMutex
 	now       func() time.Time
+	keys      KeyChecker
+	writes    map[string]*writeWindow
 	accountID string
 	region    string
 }
@@ -44,6 +46,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		now:       func() time.Time { return time.Now().UTC() },
 		accountID: accountID,
 		region:    region,
+		writes:    map[string]*writeWindow{},
 	}
 
 	b.buckets = store.Register(b.registry, "vectorBuckets", store.New(bucketKey))
@@ -65,6 +68,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	clear(b.writes)
 }
 
 // scope identifies the account and Region a request operates in.

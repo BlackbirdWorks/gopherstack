@@ -68,7 +68,10 @@ type InMemoryBackend struct {
 	prober         Prober
 	runCtx         context.Context
 	secrets        SecretResolver
+	builder        Builder
 	services       map[string]*svcRec
+	workerPools    map[string]*poolRec
+	instances      map[string]*instRec
 	runtime        func() (Runner, error)
 	transport      *http.Transport
 	ops            *gcplro.Store
@@ -113,6 +116,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.services = make(map[string]*svcRec)
+	b.workerPools = make(map[string]*poolRec)
+	b.instances = make(map[string]*instRec)
 	b.revisions = make(map[string]*revRec)
 	b.jobs = make(map[string]*runpb.Job)
 	b.executions = make(map[string]*execRec)

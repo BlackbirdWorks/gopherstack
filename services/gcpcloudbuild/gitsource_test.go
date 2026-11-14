@@ -37,9 +37,19 @@ func mountHost(spec container.Spec, dest string) string {
 // fakeGit stands in for the git container: it checks the arguments and writes the resolved commit.
 func fakeGit(seen *container.Spec) behavior {
 	return func(_ context.Context, spec container.Spec, out io.Writer) int {
+		aux := mountHost(spec, "/aux")
+
+		if strings.Contains(spec.Cmd[1], "ls-remote") {
+			refs := commit + "\trefs/heads/main\n" + commit + "\trefs/tags/v1\n" + commit + "\trefs/tags/v2\n" +
+				commit + "\trefs/tags/v2^{}\n"
+			_ = os.WriteFile(filepath.Join(aux, "git-refs"), []byte(refs), 0o600)
+
+			return 0
+		}
+
 		*seen = spec
 
-		if aux := mountHost(spec, "/aux"); aux != "" {
+		if aux != "" {
 			_ = os.WriteFile(filepath.Join(aux, "git-commit"), []byte(commit+"\n"), 0o600)
 		}
 

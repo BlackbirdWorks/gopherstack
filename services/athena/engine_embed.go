@@ -8,11 +8,11 @@ import "database/sql"
 func TranslateTrino(
 	query string, resolve func(parts []string) (schema, name string, ok bool),
 ) (string, []string, error) {
-	return translateSQL(query, func(parts []string) resolvedRef {
+	return translateSQLFor(query, func(parts []string) resolvedRef {
 		schema, name, ok := resolve(parts)
 
 		return resolvedRef{schema: schema, name: name, found: ok}
-	})
+	}, true)
 }
 
 // OpenEngineDB opens a private in-memory SQLite database with the Trino function set registered.

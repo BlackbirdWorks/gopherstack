@@ -1,11 +1,13 @@
 package iot
 
 import (
+	"cmp"
 	"encoding/json/v2"
 	"errors"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
@@ -84,6 +86,12 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 			return
 		}
 
+		if r.format == keyCBOR {
+			if out, err = service.JSONToCBOR(out, nil); err != nil {
+				return
+			}
+		}
+
 		_ = b.Publish(commandTopic(r.kind, r.id, r.executionID, "response/"+outcome+suffix), out, false, commandsQoS)
 	}
 
@@ -97,14 +105,19 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 	}
 
 	if r.format == keyCBOR {
-		reject(jobsCodeInvalidRequest, "CBOR payloads are not supported", "")
+		converted, err := service.CBORToJSON(payload)
+		if err != nil {
+			reject(jobsCodeInvalidJSON, "payload is not valid CBOR", "")
 
-		return
+			return
+		}
+
+		payload = converted
 	}
 
 	var body commandResponseBody
 	if err := json.Unmarshal(payload, &body, jsonx.V1()); err != nil {
-		reject(jobsCodeInvalidJSON, "payload is not valid JSON", "")
+		reject(jobsCodeInvalidJSON, "payload is not valid "+strings.ToUpper(cmp.Or(r.format, keyJSON)), "")
 
 		return
 	}

@@ -87,6 +87,8 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	defer home.mu.RUnlock()
 
 	b.orgDirectory = home.orgDirectory
+	b.provisionSchedule = home.provisionSchedule
+	b.provisionDelay = home.provisionDelay
 }
 
 // forRegion returns a creator whose backends are those serving region.

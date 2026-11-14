@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json/v2"
-	"net"
 	"net/netip"
 	"strconv"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const (
@@ -27,27 +27,17 @@ const (
 	kafkaDeliveryTimeout = 90 * time.Second
 )
 
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-
-	return addr.Port
-}
-
 // startKafkaBroker runs a single-node KRaft broker advertised on a fixed host port.
 func startKafkaBroker(t *testing.T) string {
 	t.Helper()
 
 	testcontainers.SkipIfProviderIsNotHealthy(t)
 
-	port := freeTCPPort(t)
+	// The advertised listener embeds the host port in the broker config, so it must be known before start.
+	port, err := portalloc.AcquireEphemeral()
+	require.NoError(t, err)
+	t.Cleanup(func() { portalloc.ReleaseEphemeral(port) })
+
 	bootstrap := "127.0.0.1:" + strconv.Itoa(port)
 
 	ctr, err := testcontainers.GenericContainer(t.Context(), testcontainers.GenericContainerRequest{

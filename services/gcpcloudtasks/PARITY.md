@@ -9,7 +9,7 @@ overall: B
 ops:
   CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "Queue ID [a-zA-Z0-9-]{1,100}; defaults filled (500/s, 1000 concurrent, 100 attempts, 0.1s-3600s backoff, 16 doublings; zero means unset); rate and retry validated; output-only max_burst_size derived (clamped 1-100, emulator-defined). A name deleted within 7 days is FAILED_PRECONDITION."}
   GetQueue: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListQueues: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged via pkgs/page. filter supports only AND-joined state=X, name=X and name:substring terms; anything else is INVALID_ARGUMENT."}
+  ListQueues: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged via pkgs/page. filter is the Logging query language over Queue fields (= != < <= > >= : and :*, AND/OR/NOT/-, parentheses, implicit AND; NOT > OR > AND per docs.cloud.google.com/logging/docs/view/logging-query-language); regex operators, unknown fields and message-valued comparisons are INVALID_ARGUMENT."}
   UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "Upsert (creates a missing queue, as Cloud Tasks does). update_mask paths: rate_limits(.max_dispatches_per_second|.max_concurrent_dispatches), retry_config(.*), http_target, app_engine_routing_override, stackdriver_logging_config(.sampling_ratio); empty mask replaces all mutable fields; other paths (state, name, max_burst_size) are INVALID_ARGUMENT. Limits are re-read on every dispatch pass."}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "Removes tasks and IAM policy; name reserved 7 days."}
   PurgeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "Deletes all tasks (names reserved 1h) and sets purge_time."}
@@ -39,7 +39,6 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; dropped tasks are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "ListQueues filter supports only state=, name= and name: terms."
   - "Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented."
   - "Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt."
 leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}

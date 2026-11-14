@@ -1,0 +1,166 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Conditions": {
+    "FalseCondition": {
+      "Fn::Equals": [
+        true,
+        false
+      ]
+    },
+    "TrueCondition": {
+      "Fn::Equals": [
+        true,
+        true
+      ]
+    }
+  },
+  "Description": "sam-app\nSample SAM Template for sam-app\n",
+  "Resources": {
+    "MyApi": {
+      "Properties": {
+        "Body": {
+          "components": {
+            "securitySchemes": {
+              "MyLambdaAuthUpdated": {
+                "in": "header",
+                "name": "Unused",
+                "type": "apiKey",
+                "x-amazon-apigateway-authorizer": {
+                  "authorizerCredentials": {
+                    "Fn::GetAtt": [
+                      "MyAuthFnRole",
+                      "Arn"
+                    ]
+                  },
+                  "authorizerPayloadFormatVersion": 1.0,
+                  "authorizerResultTtlInSeconds": 37,
+                  "authorizerUri": {
+                    "Fn::Sub": [
+                      "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${__FunctionArn__}/invocations",
+                      {
+                        "__FunctionArn__": {
+                          "Fn::GetAtt": [
+                            "MyAuthFn",
+                            "Arn"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "identitySource": [
+                    "$request.header.Authorization"
+                  ],
+                  "type": "request"
+                }
+              }
+            }
+          },
+          "info": {
+            "title": {
+              "Fn::Sub": "${AWS::StackName}-Api"
+            }
+          },
+          "openapi": "3.0",
+          "paths": {
+            "/post": {
+              "Fn::If": [
+                "FalseCondition",
+                {
+                  "Ref": "AWS::NoValue"
+                },
+                {
+                  "post": {
+                    "security": [
+                      {
+                        "MyLambdaAuthUpdated": []
+                      }
+                    ],
+                    "x-amazon-apigateway-integration": {
+                      "httpMethod": "POST",
+                      "payloadFormatVersion": "1.0",
+                      "type": "aws_proxy",
+                      "uri": "https://www.alphavantage.co/"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "tags": [
+            {
+              "name": "httpapi:createdBy",
+              "x-amazon-apigateway-tag-value": "SAM"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Api"
+    },
+    "MyApiApiGatewayDefaultStage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "MyApi"
+        },
+        "AutoDeploy": true,
+        "StageName": "$default",
+        "Tags": {
+          "httpapi:createdBy": "SAM"
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Stage"
+    },
+    "MyAuthFn": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MyAuthFnRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyAuthFnRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

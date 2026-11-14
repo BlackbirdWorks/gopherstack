@@ -19,17 +19,17 @@
 - Catalog: quotas without a documented code are absent (the General Reference prints codes only for adjustable quotas; SQS and SNS print none), and docs defaults that vary by Region use the Region-independent value, else us-east-1; codes are not verified against the live API.
 - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
 - QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
-- AutoManagement: NotifyAndAdjust only notifies (80% and 95% thresholds to the SNS topic); no automatic quota increase is filed
+- AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
 - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
-- Template: associating the template does not file increase requests for accounts that join the organization later
-- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
-- Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TemplatesNotAvailableInRegion, TooManyRequests and ServiceException are not raised
+- Template: associating the template does not file increase requests for accounts created in or joined to the organization later (Organizations exposes no account-created hook)
+- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, customer managed policies and instance profiles 10,000, groups 500); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
+- Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised (no emulated cause)
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No AWS Support case system exists in an emulator: CaseId values are synthetic numbers and no support case can be inspected.
+- Support staff never review a case: a request still auto-approves on the lifecycle dwell unless its Support case is resolved first (CASE_CLOSED).
 
 ## More
 

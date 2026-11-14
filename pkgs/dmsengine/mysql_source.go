@@ -147,6 +147,11 @@ func (s *mysqlSource) attachKeys(ctx context.Context, tables []Table, index map[
 }
 
 func (s *mysqlSource) Scan(ctx context.Context, t Table, fn func(Row) error) error {
+	return s.ScanWhere(ctx, t, nil, fn)
+}
+
+// ScanWhere is Scan restricted by a selection-rule filter, evaluated by the database.
+func (s *mysqlSource) ScanWhere(ctx context.Context, t Table, f *TableFilter, fn func(Row) error) error {
 	names := make([]string, len(t.Columns))
 	for i, c := range t.Columns {
 		names[i] = QuoteIdent(FamilyMySQL, c.Name)
@@ -155,7 +160,13 @@ func (s *mysqlSource) Scan(ctx context.Context, t Table, fn func(Row) error) err
 	q := stmt("SELECT ", strings.Join(names, ", "), " FROM ", QuoteIdent(FamilyMySQL, t.Schema), ".",
 		QuoteIdent(FamilyMySQL, t.Name))
 
-	rows, err := s.db.QueryContext(ctx, q)
+	var args []any
+
+	if where, wargs := f.SQL(FamilyMySQL, 1); where != "" {
+		q, args = q+" WHERE "+where, wargs
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}

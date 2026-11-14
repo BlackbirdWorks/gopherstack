@@ -51,7 +51,7 @@ func (h *Handler) json(c *echo.Context, status int, v any) error {
 
 func (h *Handler) entity(c *echo.Context, status int, context string, m map[string]any) error {
 	out := make(map[string]any, len(m))
-	out["@odata.context"] = odataBase(c.Request()) + "/$metadata#" + context + "/$entity"
+	out[keyODataContext] = odataBase(c.Request()) + "/$metadata#" + context + "/$entity"
 	maps.Copy(out, m)
 
 	return h.json(c, status, out)
@@ -72,7 +72,11 @@ func (h *Handler) list(
 	}
 
 	res := q.run(items)
-	out := map[string]any{"@odata.context": odataBase(r) + "/$metadata#" + context, propValue: res.items}
+	if err = h.expandAll(q, resource, res.items...); err != nil {
+		return h.writeErr(c, err)
+	}
+
+	out := map[string]any{keyODataContext: odataBase(r) + "/$metadata#" + context, propValue: res.items}
 
 	if q.count {
 		out["@odata.count"] = res.total
@@ -99,6 +103,16 @@ func (h *Handler) dispatch(c *echo.Context, segs []string, claims jwt.MapClaims)
 		return h.handleDirectoryObjects(c, segs)
 	case "oauth2PermissionGrants":
 		return h.handleGrants(c, segs)
+	case collDirectoryRoleTemplates:
+		return h.handleDirectoryRoleTemplates(c, segs)
+	case collDirectoryRoles:
+		return h.handleDirectoryRoles(c, segs)
+	case "directory":
+		return h.handleDirectory(c, segs)
+	case "roleManagement":
+		return h.handleRoleManagement(c, segs)
+	case "$batch":
+		return h.handleBatch(c, segs, claims)
 	}
 
 	coll, ok := h.colls[name]
@@ -162,7 +176,13 @@ func (h *Handler) entityOp(c *echo.Context, coll *collection, ref Ref) error {
 			return h.writeErr(c, qerr)
 		}
 
-		return h.entity(c, http.StatusOK, coll.name, q.project(m))
+		q.single = true
+		out := q.project(m)
+		if err = h.expandAll(q, coll.resource, out); err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return h.entity(c, http.StatusOK, coll.name, out)
 	case http.MethodPatch:
 		body, err := readJSON(c)
 		if err == nil {
@@ -206,7 +226,7 @@ func (h *Handler) createObject(c *echo.Context, coll *collection, claims jwt.Map
 		return h.entity(c, http.StatusCreated, coll.name, m)
 	}
 
-	if oid, _ := claims["oid"].(string); coll.kind != kindUser && oid != "" {
+	if oid, _ := claims["oid"].(string); coll.kind != kindUser && coll.kind != kindAdministrativeUnit && oid != "" {
 		if id, _ := m["id"].(string); id != "" {
 			_ = h.Backend.AddOwner(id, oid)
 		}
@@ -255,7 +275,7 @@ func (h *Handler) handleOrganization(c *echo.Context, segs []string) error {
 	}
 
 	org := map[string]any{
-		"id": h.Backend.TenantID(), "displayName": "Gopherstack", "tenantType": "AAD", "verifiedDomains": domains,
+		"id": h.Backend.TenantID(), propDisplayName: "Gopherstack", "tenantType": "AAD", "verifiedDomains": domains,
 		"assignedPlans": []any{}, "businessPhones": []any{}, "provisionedPlans": []any{},
 		"technicalNotificationMails": []any{}, "onPremisesSyncEnabled": nil, "countryLetterCode": "US",
 	}
@@ -330,8 +350,8 @@ func (h *Handler) getByIDs(c *echo.Context) error {
 	}
 
 	return h.json(c, http.StatusOK, map[string]any{
-		"@odata.context": odataBase(r) + "/$metadata#Collection(microsoft.graph.directoryObject)",
-		propValue:        typedObjects(objs),
+		keyODataContext: odataBase(r) + "/$metadata#Collection(microsoft.graph.directoryObject)",
+		propValue:       typedObjects(objs),
 	})
 }
 

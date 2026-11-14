@@ -88,6 +88,7 @@ func (s *sftpServer) accept(l *sftpListener) {
 
 func (s *sftpServer) serve(conn net.Conn) {
 	defer conn.Close()
+	defer logger.Recover(s.ctx, "transfer.sftp", nil)
 
 	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
 	defer stop()

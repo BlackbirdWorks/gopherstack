@@ -14,16 +14,20 @@ import (
 const softDeleteRetention = 7 * 24 * time.Hour
 
 type tombstones struct {
-	services   map[string]*runpb.Service
-	jobs       map[string]*runpb.Job
-	executions map[string]*runpb.Execution
+	workerPools map[string]*runpb.WorkerPool
+	instances   map[string]*runpb.Instance
+	services    map[string]*runpb.Service
+	jobs        map[string]*runpb.Job
+	executions  map[string]*runpb.Execution
 }
 
 func newTombstones() *tombstones {
 	return &tombstones{
-		services:   map[string]*runpb.Service{},
-		jobs:       map[string]*runpb.Job{},
-		executions: map[string]*runpb.Execution{},
+		workerPools: map[string]*runpb.WorkerPool{},
+		instances:   map[string]*runpb.Instance{},
+		services:    map[string]*runpb.Service{},
+		jobs:        map[string]*runpb.Job{},
+		executions:  map[string]*runpb.Execution{},
 	}
 }
 
@@ -61,6 +65,18 @@ func (b *InMemoryBackend) sweepLocked() {
 	for k, v := range b.deleted.services {
 		if !b.liveTomb(v.GetExpireTime()) {
 			delete(b.deleted.services, k)
+		}
+	}
+
+	for k, v := range b.deleted.workerPools {
+		if !b.liveTomb(v.GetExpireTime()) {
+			delete(b.deleted.workerPools, k)
+		}
+	}
+
+	for k, v := range b.deleted.instances {
+		if !b.liveTomb(v.GetExpireTime()) {
+			delete(b.deleted.instances, k)
 		}
 	}
 

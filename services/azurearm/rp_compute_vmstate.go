@@ -66,7 +66,7 @@ func (p *ComputeProvider) vmActionLocked(r *cmpRes, action string) error {
 		r.Aux[auxGeneralized] = cmpTrue
 	}
 
-	if next != power {
+	if next != power || strings.ToLower(action) == vmActionRestart {
 		r.Aux[auxPower] = next
 		r.Aux[auxPowerTime] = time.Now().UTC().Format(time.RFC3339Nano)
 	}

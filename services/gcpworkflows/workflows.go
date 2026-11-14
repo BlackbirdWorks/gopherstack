@@ -116,6 +116,10 @@ func (b *InMemoryBackend) CreateWorkflow(in *workflowspb.CreateWorkflowRequest) 
 		return nil, err
 	}
 
+	if err = b.checkKey(in.GetWorkflow().GetCryptoKeyName(), location); err != nil {
+		return nil, err
+	}
+
 	name := workflowName(project, location, in.GetWorkflowId())
 
 	b.mu.RLock("CreateWorkflow")
@@ -223,8 +227,9 @@ func (b *InMemoryBackend) ListWorkflows(
 		return nil, err
 	}
 
-	if in.GetFilter() != "" {
-		return nil, errInvalid("filter is not supported for workflows.")
+	keep, err := parseWorkflowFilter(in.GetFilter())
+	if err != nil {
+		return nil, err
 	}
 
 	if in.GetPageSize() < 0 {
@@ -236,7 +241,7 @@ func (b *InMemoryBackend) ListWorkflows(
 	var all []*workflowspb.Workflow
 
 	for name, rec := range b.workflows {
-		if inScope(name, project, location) {
+		if inScope(name, project, location) && keep(rec.latest()) {
 			all = append(all, clone(rec.latest()))
 		}
 	}
@@ -254,7 +259,7 @@ func (b *InMemoryBackend) ListWorkflows(
 }
 
 func orderWorkflows(all []*workflowspb.Workflow, orderBy string) error {
-	field, desc := "name", false
+	field, desc := fieldWfName, false
 
 	if strings.TrimSpace(orderBy) != "" {
 		parts := strings.Fields(orderBy)
@@ -358,7 +363,7 @@ func (b *InMemoryBackend) DeleteWorkflow(in *workflowspb.DeleteWorkflowRequest) 
 
 func (b *InMemoryBackend) applyWorkflowMask(next, src *workflowspb.Workflow, paths []string) error {
 	if len(paths) == 0 {
-		paths = presentWorkflowPaths(src)
+		paths = allWorkflowPaths()
 	}
 
 	for _, p := range paths {
@@ -397,30 +402,6 @@ func allWorkflowPaths() []string {
 	}
 }
 
-func presentWorkflowPaths(src *workflowspb.Workflow) []string {
-	var paths []string
-
-	add := func(ok bool, p string) {
-		if ok {
-			paths = append(paths, p)
-		}
-	}
-
-	add(src.GetDescription() != "", maskDescription)
-	add(len(src.GetLabels()) > 0, maskLabels)
-	add(src.GetServiceAccount() != "", maskAccount)
-	add(src.GetSourceContents() != "", maskSource)
-	add(src.GetCryptoKeyName() != "", maskCryptoKey)
-	add(src.GetCallLogLevel() != workflowspb.Workflow_CALL_LOG_LEVEL_UNSPECIFIED, maskCallLog)
-	add(len(src.GetUserEnvVars()) > 0, maskEnv)
-	add(
-		src.GetExecutionHistoryLevel() != workflowspb.ExecutionHistoryLevel_EXECUTION_HISTORY_LEVEL_UNSPECIFIED,
-		maskHistory,
-	)
-
-	return paths
-}
-
 // UpdateWorkflow updates the masked fields; changing the source or service account creates a revision.
 func (b *InMemoryBackend) UpdateWorkflow(in *workflowspb.UpdateWorkflowRequest) (*longrunningpb.Operation, error) {
 	src := in.GetWorkflow()
@@ -451,6 +432,12 @@ func (b *InMemoryBackend) UpdateWorkflow(in *workflowspb.UpdateWorkflowRequest) 
 
 	if err = validateWorkflow(next); err != nil {
 		return nil, err
+	}
+
+	if next.GetCryptoKeyName() != cur.GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
+		}
 	}
 
 	next.ServiceAccount = normalizeAccount(project, next.GetServiceAccount())

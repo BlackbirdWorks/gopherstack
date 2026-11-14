@@ -9,14 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 19 (18 ok, 1 partial) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 1 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Fine-grained access control models only the master user: the _plugins/_security internal-user, role and role-mapping APIs, SigV4 identity-to-role mapping and index-level permissions are not implemented (gopherstack-49qct.59).
+- FGAC enforcement on the built-in engine covers the routes it serves (doc index/get/delete, _search, _count, _bulk, index create/delete/get); DLS/FLS/masking apply to _search, _count and doc get only, and a bulk item denied for permissions is reported per item while a bulk request lacking cluster indices:data/write/bulk is rejected as a whole (gopherstack-49qct.92).
+- With OPENSEARCH_CUSTOM_BACKEND set, requests are proxied untouched and the upstream engine's own security plugin judges credentials; the emulated users/roles/mappings are not mirrored into it (gopherstack-49qct.92).
+- Security plugin tenants are stored and served by the REST API, but tenant_permissions are not enforced (no Dashboards), JWT/SAML/IAM-federation options are validated and stored but no JWT or SAML login is performed, and role-mapping hosts are not evaluated (gopherstack-49qct.92).
+- Not published and not in the upstream security plugin source (opensearch-project/security main, src/main grepped): the 'Please re-send this request with a password or hash.' 400 text (upstream has no mandatory password or hash rule on create), the 404 text for a rolesmapping PUT on an unknown role, the default role set beyond all_access/readall/kibana_user/security_manager/own_index, the FGAC prerequisite error wording, and masked_fields regex syntax (Go RE2, not Java) (gopherstack-49qct.92)
 
 ### Structural gaps
 

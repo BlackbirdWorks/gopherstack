@@ -9,22 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PromQL: native histograms are not ingested, so histogram_count, histogram_sum, histogram_avg, histogram_stddev and histogram_stdvar (which Prometheus defines on native histograms only) always return an empty vector for float samples; histogram_fraction works on classic le buckets only; limit_ratio samples by an FNV hash of the label set, not Prometheus' hash, so the selected series differ from Prometheus (the positive/negative ratio complement property holds).
-- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); silences, the v1 API and template_files are not served; sigv4 settings are accepted and ignored; the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
-- Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source
-- WorkspaceConfiguration: outOfOrderTimeWindowInSeconds is stored and returned but not enforced; limitsPerLabelSet does not apply to series written by rule evaluation
-- RemoteWrite: out-of-order samples are always accepted, native histograms and exemplars in the request are ignored, per-workspace ingestion limits and throttling do not exist
-- Query: query_exemplars always returns no exemplars (none are ingested); targets and status config, flags, runtimeinfo and tsdb endpoints are not served
-- LoggingConfiguration: the CloudWatch Logs log group ARN is checked for shape only, never looked up, and no log is delivered
-- Authorization: SigV4 signatures and resource policies are not evaluated on the data plane
-- CreateWorkspace: KMS key existence is not checked
+- PromQL: native histograms are queryable only through a bare selector (histogram_count/sum/avg/stddev/stdvar/quantile/fraction(metric) and the selector itself); rate, increase, sum, arithmetic and subqueries over native histograms are not implemented and treat them as absent; custom-bucket (NHCB, schema -53) histograms are rejected; the quantile, stddev and fraction maths follow the Prometheus histogram documentation from memory and are unverified against a real Prometheus; limit_ratio samples by an FNV hash of the label set, not Prometheus' hash, so the selected series differ from Prometheus (the positive/negative ratio complement property holds).
+- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); sigv4 settings are accepted and ignored; the `templates` list is not consulted (every template_files entry is loaded); the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
+- Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source; the EKS emulator exposes no pod or node metrics endpoints to scrape, so there is no in-process target
+- RemoteWrite: exemplars keep the newest 100 per series (emulator choice; Prometheus uses one circular buffer of max_exemplars=100000 across all series) and over-128-rune exemplars are silently dropped; per-workspace ingestion-rate and active-series quotas (default active series up to 1.5 billion, rate 1/30 of that) and the 1-hour sample-age refusal are not enforced
+- LoggingConfiguration: the delivered log line layout (JSON with level, component, ts, msg) and the stream names ruler and alertmanager are not documented by AWS and are unverified; only rule evaluation failures and alert notification failures are delivered
+- Authorization: with --validate-sigv4 the data plane requires an aps-scoped SigV4 signature checked against --sigv4-secret and evaluates the workspace resource policy by account only (the IAM evaluator ignores Principal); not published: checked AMP APIReference CommonErrors.html and the user guide troubleshooting page, which list IncompleteSignature and AccessDeniedException but not the data-plane codes for a missing or mis-scoped signature (emulator answers MissingAuthenticationToken and IncompleteSignatureException, 403); cross-account callers resolve workspaces in their own account, so a cross-account allow still answers 404
+- CreateWorkspace: a missing or disabled KMS key is a ValidationException; the real error code is unverified, and the key is not used to encrypt anything API_CreateWorkspace.html (checked 2026-11-13) lists no KMS-specific error and its kmsKeyArn pattern is the only constraint.
 
 ### Structural gaps
 

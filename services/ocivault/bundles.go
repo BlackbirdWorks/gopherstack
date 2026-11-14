@@ -174,7 +174,8 @@ func (b *InMemoryBackend) ListSecretBundleVersions(id string, o ListOpts) (page.
 	return page.Page[bundleVersionSummaryWire]{Data: out, Next: pg.Next}, nil
 }
 
-// SecretContent returns the decoded content of the current version of a secret.
+// SecretContent returns the decoded content of the latest version of a secret (Container Instances always uses
+// the latest version: docs vault-secrets-image-authorization.htm).
 func (b *InMemoryBackend) SecretContent(id string) (string, error) {
 	b.mu.RLock("SecretContent")
 	defer b.mu.RUnlock()
@@ -184,7 +185,7 @@ func (b *InMemoryBackend) SecretContent(id string) (string, error) {
 		return "", aerr
 	}
 
-	w, err := b.bundleOf(s, BundleSelector{Stage: "CURRENT"})
+	w, err := b.bundleOf(s, BundleSelector{Stage: stageLatest})
 	if err != nil {
 		return "", err
 	}

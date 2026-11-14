@@ -14,14 +14,14 @@ type entry struct {
 	op     string
 }
 
-func queryEq(q *req, key string, get func(resource) string) func(resource) bool {
+func queryEq(q *req, key string, get func(Resource) string) func(Resource) bool {
 	want := q.query(key)
 
-	return func(r resource) bool { return want == "" || get(r) == want }
+	return func(r Resource) bool { return want == "" || get(r) == want }
 }
 
-func and(fs ...func(resource) bool) func(resource) bool {
-	return func(r resource) bool {
+func and(fs ...func(Resource) bool) func(Resource) bool {
+	return func(r Resource) bool {
 		for _, f := range fs {
 			if !f(r) {
 				return false
@@ -32,20 +32,22 @@ func and(fs ...func(resource) bool) func(resource) bool {
 	}
 }
 
-func instanceFilter(q *req) func(resource) bool {
-	return queryEq(q, "availabilityDomain", func(r resource) string {
+func instanceFilter(q *req) func(Resource) bool {
+	return queryEq(q, "availabilityDomain", func(r Resource) string {
 		i, _ := r.(*Instance)
 
 		return i.AvailabilityDomain
 	})
 }
 
-func volumeFilter(q *req) func(resource) bool {
-	return queryEq(q, "availabilityDomain", func(r resource) string {
+func volumeFilter(q *req) func(Resource) bool {
+	return queryEq(q, "availabilityDomain", func(r Resource) string {
 		switch v := r.(type) {
 		case *Volume:
 			return v.AvailabilityDomain
 		case *BootVolume:
+			return v.AvailabilityDomain
+		case *VolumeGroup:
 			return v.AvailabilityDomain
 		}
 
@@ -53,34 +55,61 @@ func volumeFilter(q *req) func(resource) bool {
 	})
 }
 
-func backupFilter(q *req) func(resource) bool {
+func backupFilter(q *req) func(Resource) bool {
 	return and(
-		queryEq(q, "volumeId", func(r resource) string {
+		queryEq(q, "volumeId", func(r Resource) string {
 			b, _ := r.(*VolumeBackup)
 
 			return b.VolumeID
 		}),
-		queryEq(q, "sourceVolumeBackupId", func(resource) string { return "" }),
+		queryEq(q, "sourceVolumeBackupId", func(r Resource) string {
+			b, _ := r.(*VolumeBackup)
+
+			return b.SourceVolumeBackupID
+		}),
 	)
 }
 
-func volumeAttachmentFilter(q *req) func(resource) bool {
+func bootBackupFilter(q *req) func(Resource) bool {
+	return and(
+		queryEq(q, "bootVolumeId", func(r Resource) string {
+			b, _ := r.(*BootVolumeBackup)
+
+			return b.BootVolumeID
+		}),
+		queryEq(q, "sourceBootVolumeBackupId", func(r Resource) string {
+			b, _ := r.(*BootVolumeBackup)
+
+			return b.SourceBootVolumeBackupID
+		}),
+	)
+}
+
+func groupBackupFilter(q *req) func(Resource) bool {
+	return queryEq(q, "volumeGroupId", func(r Resource) string {
+		b, _ := r.(*VolumeGroupBackup)
+
+		return b.VolumeGroupID
+	})
+}
+
+func volumeAttachmentFilter(q *req) func(Resource) bool {
 	return and(
 		queryEq(
 			q,
 			"availabilityDomain",
-			func(r resource) string {
+			func(r Resource) string {
 				a, _ := r.(*VolumeAttachment)
 
 				return a.AvailabilityDomain
 			},
 		),
-		queryEq(q, "instanceId", func(r resource) string {
+		queryEq(q, "instanceId", func(r Resource) string {
 			a, _ := r.(*VolumeAttachment)
 
 			return a.InstanceID
 		}),
-		queryEq(q, "volumeId", func(r resource) string {
+		queryEq(q, "volumeId", func(r Resource) string {
 			a, _ := r.(*VolumeAttachment)
 
 			return a.VolumeID
@@ -88,18 +117,18 @@ func volumeAttachmentFilter(q *req) func(resource) bool {
 	)
 }
 
-func bootAttachmentFilter(q *req) func(resource) bool {
+func bootAttachmentFilter(q *req) func(Resource) bool {
 	return and(
 		queryEq(
 			q,
 			"availabilityDomain",
-			func(r resource) string {
+			func(r Resource) string {
 				a, _ := r.(*BootVolumeAttachment)
 
 				return a.AvailabilityDomain
 			},
 		),
-		queryEq(q, "instanceId", func(r resource) string {
+		queryEq(q, "instanceId", func(r Resource) string {
 			a, _ := r.(*BootVolumeAttachment)
 
 			return a.InstanceID
@@ -107,7 +136,7 @@ func bootAttachmentFilter(q *req) func(resource) bool {
 		queryEq(
 			q,
 			"bootVolumeId",
-			func(r resource) string {
+			func(r Resource) string {
 				a, _ := r.(*BootVolumeAttachment)
 
 				return a.BootVolumeID
@@ -116,23 +145,23 @@ func bootAttachmentFilter(q *req) func(resource) bool {
 	)
 }
 
-func vnicAttachmentFilter(q *req) func(resource) bool {
+func vnicAttachmentFilter(q *req) func(Resource) bool {
 	return and(
 		queryEq(
 			q,
 			"availabilityDomain",
-			func(r resource) string {
+			func(r Resource) string {
 				a, _ := r.(*VnicAttachment)
 
 				return a.AvailabilityDomain
 			},
 		),
-		queryEq(q, "instanceId", func(r resource) string {
+		queryEq(q, "instanceId", func(r Resource) string {
 			a, _ := r.(*VnicAttachment)
 
 			return a.InstanceID
 		}),
-		queryEq(q, "vnicId", func(r resource) string {
+		queryEq(q, "vnicId", func(r Resource) string {
 			a, _ := r.(*VnicAttachment)
 
 			return a.VnicID
@@ -143,7 +172,23 @@ func vnicAttachmentFilter(q *req) func(resource) bool {
 func idPath(base, id string) string { return base + "/{" + id + "}" }
 
 func computeEntries() []entry {
-	return slices.Concat(instanceEntries(), networkEntries(), storageEntries())
+	return slices.Concat(
+		instanceEntries(),
+		networkEntries(),
+		storageEntries(),
+		drgEntries(),
+		workRequestEntries(),
+		cidrEntries(),
+		bulkEntries(),
+		bulkIpv6Entries(),
+		ipv6Entries(),
+		kmsEntries(),
+		copyEntries(),
+		replicaEntries(),
+		inventoryEntries(),
+		topologyEntries(),
+		dnsResolverEntries(),
+	)
 }
 
 func instanceEntries() []entry {
@@ -222,6 +267,12 @@ func storageEntries() []entry {
 			http.MethodGet,
 			idPath("/volumeAttachments", "volumeAttachmentId"),
 			"GetVolumeAttachment",
+		},
+		{
+			updateOp("volumeAttachmentId", (*InMemoryBackend).UpdateVolumeAttachment),
+			http.MethodPut,
+			idPath("/volumeAttachments", "volumeAttachmentId"),
+			"UpdateVolumeAttachment",
 		},
 		{detachVolumeOp, http.MethodDelete, idPath("/volumeAttachments", "volumeAttachmentId"), "DetachVolume"},
 		{

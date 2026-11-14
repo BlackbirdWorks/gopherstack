@@ -31,7 +31,7 @@ func (b *InMemoryBackend) checkTarget(rule RouteRule, vcnID string) *APIError {
 	case kindPrivateIP:
 		aerr = b.checkPrivateIPTarget(id, vcnID)
 	case kindDRG:
-		// DRGs belong to a service this emulator does not model; the OCID shape is all we can check.
+		aerr = b.checkDrgTarget(id, vcnID)
 	default:
 		return errParam("networkEntityId " + id + " is not a valid route target")
 	}
@@ -140,11 +140,12 @@ func (b *InMemoryBackend) validateRules(vcnID string, rules []RouteRule) ([]Rout
 }
 
 // CreateRouteTable creates a route table.
-func (b *InMemoryBackend) CreateRouteTable(in CreateRouteTableIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateRouteTable")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateRouteTable(in CreateRouteTableIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
+	if aerr == nil {
+		aerr = b.vcnWritable(v.ID)
+	}
+
 	if aerr != nil {
 		return nil, "", aerr
 	}
@@ -173,8 +174,12 @@ type UpdateRouteTableIn struct {
 }
 
 // UpdateRouteTable changes a route table; routeRules replaces the whole list.
-func (b *InMemoryBackend) UpdateRouteTable(id, ifMatch string, in UpdateRouteTableIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateRouteTable(id, ifMatch string, in UpdateRouteTableIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(rt *RouteTable) *APIError {
+		if aerr := b.vcnWritable(rt.VcnID); aerr != nil {
+			return aerr
+		}
+
 		if in.RouteRules == nil {
 			return nil
 		}
@@ -265,10 +270,7 @@ func validateDhcpOption(o DhcpOption) *APIError {
 }
 
 // CreateDhcpOptions creates a DHCP options set.
-func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateDhcpOptions")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (Resource, string, *APIError) {
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, "")
 	if aerr != nil {
 		return nil, "", aerr
@@ -307,7 +309,7 @@ type UpdateDhcpOptionsIn struct {
 }
 
 // UpdateDhcpOptions changes a DHCP options set.
-func (b *InMemoryBackend) UpdateDhcpOptions(id, ifMatch string, in UpdateDhcpOptionsIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateDhcpOptions(id, ifMatch string, in UpdateDhcpOptionsIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(d *DhcpOptions) *APIError {
 		opts, dt := d.Options, d.DomainNameType
 

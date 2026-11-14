@@ -146,7 +146,7 @@ func (x *translator) structBase(parts []token) int {
 // rewriteStructFields turns col.field (ROW columns of the referenced tables)
 // into athena_field(col, 'field') chains.
 func (x *translator) rewriteStructFields(toks []token) []token {
-	if len(x.structCols) == 0 {
+	if len(x.structCols) == 0 && !hasParenDeref(toks) {
 		return toks
 	}
 
@@ -154,6 +154,16 @@ func (x *translator) rewriteStructFields(toks []token) []token {
 
 	for j := 0; j < len(toks); j++ {
 		t := toks[j]
+		if t.isPunct(")") || isCollapsedCall(t) {
+			var next int
+
+			if out, next = derefAfterParen(toks, j, append(out, t)); next > j {
+				j = next
+			}
+
+			continue
+		}
+
 		if !isStructChainToken(t) || (j > 0 && toks[j-1].isPunct(".")) {
 			out = append(out, t)
 
@@ -189,4 +199,64 @@ func structDeref(parts []token, base int) token {
 	}
 
 	return token{kind: tkWord, text: expr}
+}
+
+func isCollapsedCall(t token) bool {
+	return t.kind == tkWord && strings.HasSuffix(t.text, ")") && strings.Contains(t.text, "(")
+}
+
+// hasParenDeref reports `) . name`, a field access on a parenthesised or call result.
+func hasParenDeref(toks []token) bool {
+	for i, t := range toks {
+		if !t.isPunct(")") && !isCollapsedCall(t) {
+			continue
+		}
+
+		if d := nextSig(toks, i); d >= 0 && toks[d].isPunct(".") {
+			if f := nextSig(toks, d); f >= 0 && isStructChainToken(toks[f]) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// derefAfterParen rewrites `(expr).a.b` into athena_field chains; out already ends with the ')'.
+func derefAfterParen(toks []token, closeIdx int, out []token) ([]token, int) {
+	d := nextSig(toks, closeIdx)
+	if d < 0 || !toks[d].isPunct(".") {
+		return out, closeIdx
+	}
+
+	f := nextSig(toks, d)
+	if f < 0 || !isStructChainToken(toks[f]) {
+		return out, closeIdx
+	}
+
+	start := len(out) - 1
+	if out[start].isPunct(")") {
+		start = callBegin(out, start)
+	}
+
+	if start < 0 {
+		return out, closeIdx
+	}
+
+	expr := strings.TrimSpace(joinTokens(out[start:]))
+	end := closeIdx
+
+	for f >= 0 && d >= 0 && toks[d].isPunct(".") && isStructChainToken(toks[f]) {
+		expr = "athena_field(" + expr + ", '" + strings.ReplaceAll(toks[f].ident(), "'", "''") + "')"
+		end = f
+		d = nextSig(toks, f)
+
+		if d < 0 {
+			break
+		}
+
+		f = nextSig(toks, d)
+	}
+
+	return append(out[:start:start], token{kind: tkWord, text: expr}), end
 }

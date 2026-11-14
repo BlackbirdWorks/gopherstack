@@ -5,7 +5,7 @@ last_audit_commit: bfe657153
 last_audit_date: 2026-10-25
 overall: B
 ops:
-  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "compartmentId, displayName and non-empty subnetIds required; shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or https), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
+  CreateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "No opc-retry-token: no functions request struct in the pinned SDK carries OpcRetryToken. Free-form and defined tags are validated against the documented limits and the OCI Identity tag definitions. compartmentId, displayName and non-empty subnetIds required; shape GENERIC_X86 (default), GENERIC_ARM or GENERIC_X86_ARM; config (4096 bytes in total), networkSecurityGroupIds, syslogUrl (tcp, udp or https), traceConfig, logging, imagePolicyConfig and tags are stored and echoed. Names are unique per compartment among live applications (409 Conflict). CREATING then ACTIVE after the transition window on the injectable clock; returns etag and opc-work-request-id."}
   GetApplication: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; DELETED applications answer 404."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; id, displayName, lifecycleState filters; sortBy timeCreated (default, newest first), displayName or id; sortOrder; paged with opc-next-page. Summaries omit config and syslogUrl as in the SDK."}
   UpdateApplication: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with opc-work-request-id and no body, as the SDK response declares. config, networkSecurityGroupIds, syslogUrl, traceConfig, logging, imagePolicyConfig and tags replace the stored value when supplied; If-Match gives 412 NoEtagMatch. Applies immediately (no UPDATING state). A config change makes the next invocation start fresh containers."}
@@ -35,10 +35,20 @@ items_still_open:
   - "Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources, the pbfListings, functionsRuntimes and triggers APIs are not implemented; CreateFunction accepts only CONTAINER_IMAGE."
   - "Provisioned concurrency, failure and success destinations, syslogUrl, traceConfig, logging and imagePolicyConfig are stored and returned but have no effect: containers are not pre-warmed, detached results are not delivered to streams, queues or notifications, function output is not forwarded to syslog and image signatures are not verified."
   - "memoryInMBs is passed to the function as FN_MEMORY and FN_TMPSIZE is always 0; neither is enforced as a container memory or tmp limit, and shape (CPU architecture) does not select a platform."
-  - "The HTTP status of failed and timed out sync invocations (502 FunctionInvokeExecutionFailed, 504 FunctionInvokeTimeout), the 429 throttling code, 503 for an unavailable engine, the 6 MiB payload limit and the exact response headers (Fn-Http-Status and Fn-Http-H-* are passed through, status stays 200) are unverified against the live service."
+  - "What the live invoke endpoint does with the function's Fn-Http-Status and Fn-Http-H-* response headers (emulator: passed through, status stays 200) is not published (checked functionsinvokingfunctions.htm, functionsconcepts.htm and functionsusingapigateway.htm; the FDK source only shows the function side)"
   - "The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon)."
   - "Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent."
-  - "Subnet, network security group, KMS key and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull."
-  - "Application and function name syntax, per-tenancy limits, opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace."
+  - "Subnet, network security group and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull."
+  - "Application and function name syntax, per-tenancy limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
+
+## Verified against Oracle documentation
+
+- Invoke payload limit: oci-go-sdk functions/invoke_function_request_response.go states the 6MB request limit, matching maxPayload.
+
+- Invoke errors 502 FunctionInvokeExecutionFailed, 502 FunctionInvokeResponseBodyTooLarge, 504 FunctionInvokeTimeout, 429 TooManyRequests, 503 FunctionInvokeServiceUnavailable and 413 FunctionInvokeRequestContentTooLarge: https://docs.oracle.com/en-us/iaas/Content/Functions/Tasks/functionstroubleshooting.htm.
+
+Pass 2026-11-13: imagePolicyConfig.keyDetails[].kmsKeyId is validated against OCI Vault when wired (404 NotAuthorizedOrNotFound for an unknown key, 409 IncorrectState when it is not ENABLED).
+
+## Primary-source checks (2026-11-13)
+- ocifunctions: fnproject/fdk-go handler.go confirms a function reports its status as Fn-Http-Status and its headers as Fn-Http-H-*.

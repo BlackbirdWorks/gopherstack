@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -32,6 +33,7 @@ type limitsIn struct {
 
 type createTableIn struct {
 	Tags
+	RetryToken    string    `json:"-"`
 	TableLimits   *limitsIn `json:"tableLimits"`
 	AutoReclaim   *bool     `json:"isAutoReclaimable"`
 	Name          string    `json:"name"`
@@ -47,6 +49,7 @@ type updateTableIn struct {
 }
 
 type changeCompartmentIn struct {
+	RetryToken        string `json:"-"`
 	ToCompartmentID   string `json:"toCompartmentId"`
 	FromCompartmentID string `json:"fromCompartmentId"`
 }
@@ -140,6 +143,19 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateTable", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if b.tableGone(id) {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return "", aerr
 	}
@@ -170,11 +186,25 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 
 	now := b.nowUTC()
 	t := &Table{
-		ID: newOCID("nosqltable"), CompartmentID: in.CompartmentID, Name: in.Name, State: stateCreating,
-		Etag: newEtag(), Limits: lim, Columns: spec.cols, PrimaryKey: spec.pk,
-		ShardKey: spec.shard, Identity: spec.identity, AutoReclaim: reclaim, TimeCreated: now, TimeUpdated: now,
-		Rows: map[string]*Row{}, Indexes: map[string]*Index{}, Usage: map[int64]*Usage{}, Tags: in.Tags,
-		TransitionAt: b.transitionAt(),
+		ID:            newOCID("nosqltable"),
+		CompartmentID: in.CompartmentID,
+		Name:          in.Name,
+		State:         stateCreating,
+		Etag:          newEtag(),
+		Limits:        lim,
+		Columns:       spec.cols,
+		PrimaryKey:    spec.pk,
+		ShardKey:      spec.shard,
+		Identity:      spec.identity,
+		AutoReclaim:   reclaim,
+		SchemaFrozen:  spec.frozen,
+		TimeCreated:   now,
+		TimeUpdated:   now,
+		Rows:          map[string]*Row{},
+		Indexes:       map[string]*Index{},
+		Usage:         map[int64]*Usage{},
+		Tags:          in.Tags,
+		TransitionAt:  b.transitionAt(),
 	}
 
 	if len(t.ShardKey) == 0 {
@@ -187,8 +217,10 @@ func (b *InMemoryBackend) CreateTable(in createTableIn) (string, error) {
 
 	t.DDL = renderDDL(t)
 	b.tables[t.ID] = t
+	wr := b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.finishAt(t))
+	b.retry.Remember("CreateTable", in.RetryToken, ociretry.Join(t.ID, wr), now)
 
-	return b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.finishAt(t)), nil
+	return wr, nil
 }
 
 func (b *InMemoryBackend) createExisting(in createTableIn, spec *createSpec) (string, error) {
@@ -202,6 +234,12 @@ func (b *InMemoryBackend) createExisting(in createTableIn, spec *createSpec) (st
 	}
 
 	return b.newWR(wrCreate, t.CompartmentID, t.ID, "CREATED", b.nowUTC()), nil
+}
+
+func (b *InMemoryBackend) tableGone(id string) bool {
+	t, live := b.tables[id]
+
+	return !live || t.State == stateDeleting || t.State == stateDeleted
 }
 
 func (b *InMemoryBackend) modifiable(t *Table) *APIError {
@@ -228,6 +266,10 @@ func (b *InMemoryBackend) UpdateTable(ref, ifMatch string, in updateTableIn) (st
 
 	if in.DDL != "" && in.TableLimits != nil {
 		return "", errParam("ddlStatement and tableLimits cannot both be specified in one update")
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
 	}
 
 	changed := false
@@ -278,6 +320,11 @@ func (b *InMemoryBackend) DeleteTable(ref, compartment, ifMatch string, ifExists
 		return "", aerr
 	}
 
+	if len(t.Replicas) > 0 {
+		return "", errState("The table named " + t.Name + " can't be deleted, because it belongs to a set of " +
+			"replicas. A replica table cannot be deleted before its replicas are deleted.")
+	}
+
 	t.State, t.TransitionAt, t.TimeUpdated = stateDeleting, b.transitionAt(), b.nowUTC()
 
 	return b.newWR(wrDelete, t.CompartmentID, t.ID, "DELETED", b.finishAt(t)), nil
@@ -287,6 +334,15 @@ func (b *InMemoryBackend) DeleteTable(ref, compartment, ifMatch string, ifExists
 func (b *InMemoryBackend) ChangeTableCompartment(ref, ifMatch string, in changeCompartmentIn) (string, error) {
 	b.mu.Lock("ChangeTableCompartment")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("ChangeTableCompartment", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if b.tableGone(id) {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
 
 	t, aerr := b.resolve(ref, in.FromCompartmentID)
 	if aerr != nil {
@@ -303,8 +359,10 @@ func (b *InMemoryBackend) ChangeTableCompartment(ref, ifMatch string, in changeC
 	}
 
 	t.CompartmentID, t.Etag, t.TimeUpdated = in.ToCompartmentID, newEtag(), b.nowUTC()
+	wr := b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", b.nowUTC())
+	b.retry.Remember("ChangeTableCompartment", in.RetryToken, ociretry.Join(t.ID, wr), t.TimeUpdated)
 
-	return b.newWR(wrUpdate, t.CompartmentID, t.ID, "UPDATED", b.nowUTC()), nil
+	return wr, nil
 }
 
 // Table wire types.
@@ -346,12 +404,14 @@ type TableWire struct {
 	Schema            *schemaWire               `json:"schema,omitempty"`
 	FreeformTags      map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags       map[string]map[string]any `json:"definedTags,omitempty"`
-	DDLStatement      string                    `json:"ddlStatement,omitempty"`
-	ID                string                    `json:"id"`
-	CompartmentID     string                    `json:"compartmentId"`
+	LocalReplicaInit  *int                      `json:"localReplicaInitializationInPercent,omitempty"`
 	Name              string                    `json:"name"`
+	CompartmentID     string                    `json:"compartmentId"`
+	ID                string                    `json:"id"`
 	LifecycleState    string                    `json:"lifecycleState"`
 	SchemaState       string                    `json:"schemaState"`
+	DDLStatement      string                    `json:"ddlStatement,omitempty"`
+	Replicas          []replicaWire             `json:"replicas,omitempty"`
 	TableLimits       limitsWire                `json:"tableLimits"`
 	IsAutoReclaimable bool                      `json:"isAutoReclaimable"`
 	IsMultiRegion     bool                      `json:"isMultiRegion"`
@@ -397,8 +457,17 @@ func tableView(t *Table, full bool) TableWire {
 		IsAutoReclaimable: t.AutoReclaim, FreeformTags: t.Tags.FreeformTags, DefinedTags: t.Tags.DefinedTags,
 	}
 
+	if t.SchemaFrozen {
+		w.SchemaState = "FROZEN"
+	}
+
 	if full {
 		w.Schema, w.DDLStatement = schemaView2(t), t.DDL
+		w.Replicas = replicasView(t)
+
+		if w.IsMultiRegion = len(w.Replicas) > 0; w.IsMultiRegion {
+			w.LocalReplicaInit = new(percentDone)
+		}
 	}
 
 	return w
@@ -492,6 +561,8 @@ func (h *Handler) createTable(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	wr, err := h.Backend.CreateTable(in)
 
 	return acceptedWR(q, wr, err)
@@ -544,6 +615,8 @@ func (h *Handler) changeTableCompartment(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.ChangeTableCompartment(q.param("tableNameOrId"), q.ifMatch(), in)
 

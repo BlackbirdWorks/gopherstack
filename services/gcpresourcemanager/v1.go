@@ -96,7 +96,9 @@ func matchV1(r *http.Request) bool {
 		return false
 	}
 
-	return p == v1Projects || strings.HasPrefix(p, v1Projects+"/") || strings.HasPrefix(p, v1Projects+":") ||
+	return p == v1Liens || strings.HasPrefix(p, v1Liens+"/") || p == v1Projects ||
+		strings.HasPrefix(p, v1Projects+"/") ||
+		strings.HasPrefix(p, v1Projects+":") ||
 		strings.HasPrefix(p, v1Organizations)
 }
 
@@ -206,6 +208,14 @@ func readProtoBody(r *http.Request, into proto.Message) error {
 var v1Route = regexp.MustCompile(`^(projects|organizations)(?:/([^/:]+))?(/billingInfo)?(?::(\w+))?$`)
 
 func (h v1Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == v1Liens || strings.HasPrefix(r.URL.Path, v1Liens+"/") {
+		if err := h.liens(w, r); err != nil {
+			writeV1Error(w, err)
+		}
+
+		return
+	}
+
 	m := v1Route.FindStringSubmatch(strings.TrimPrefix(r.URL.Path, "/v1/"))
 	if m == nil {
 		writeV1Error(w, status.Error(codes.NotFound, "unknown resource "+r.URL.Path))

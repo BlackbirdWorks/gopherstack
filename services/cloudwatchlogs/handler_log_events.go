@@ -34,14 +34,47 @@ func validEntityKeyAttribute(k string) bool {
 	return false
 }
 
+const (
+	entityKeyAttrsMin     = 2
+	entityKeyAttrsMax     = 4
+	entityKeyNameMax      = 32
+	entityValueMax        = 512
+	entityAttrsMax        = 10
+	entityAttrNameMax     = 256
+	errTypeInvalidKeyAttr = "InvalidKeyAttributes"
+	errTypeInvalidAttrs   = "InvalidAttributes"
+)
+
+func entityMapValid(m map[string]string, minLen, maxLen, keyMax int, check func(string) bool) bool {
+	if len(m) < minLen || len(m) > maxLen {
+		return false
+	}
+
+	for k, v := range m {
+		if k == "" || len(k) > keyMax || v == "" || len(v) > entityValueMax || (check != nil && !check(k)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// rejectEntity applies the Entity constraints from API_Entity.html; the
+// errorType per violation follows the enum names (the reference does not map them).
 func rejectEntity(e *logEntity) *rejectedEntityInfo {
 	if e == nil {
 		return nil
 	}
-	for k := range e.KeyAttributes {
-		if !validEntityKeyAttribute(k) {
-			return &rejectedEntityInfo{ErrorType: "InvalidKeyAttributes"}
-		}
+
+	keysOK := entityMapValid(
+		e.KeyAttributes, entityKeyAttrsMin, entityKeyAttrsMax, entityKeyNameMax, validEntityKeyAttribute,
+	)
+	if len(e.KeyAttributes) > 0 && !keysOK {
+		return &rejectedEntityInfo{ErrorType: errTypeInvalidKeyAttr}
+	}
+
+	if len(e.Attributes) > 0 && !entityMapValid(e.Attributes, 0, entityAttrsMax, entityAttrNameMax, nil) {
+		return &rejectedEntityInfo{ErrorType: errTypeInvalidAttrs}
 	}
 
 	return nil

@@ -3,6 +3,7 @@ package ocimysql
 import (
 	"cmp"
 	"context"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -53,6 +55,7 @@ type InMemoryBackend struct {
 	Auth        *ociauth.Registry
 	channels    map[string]*Channel
 	configs     map[string]*Configuration
+	retry       *ociretry.Store
 	workReqs    map[string]*WorkRequest
 	defaults    map[string]*Configuration
 	stop        context.CancelFunc
@@ -90,6 +93,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.systems, b.backups, b.channels = map[string]*DBSystem{}, map[string]*Backup{}, map[string]*Channel{}
 	b.configs, b.workReqs = map[string]*Configuration{}, map[string]*WorkRequest{}
+	b.retry = ociretry.New()
 }
 
 // SetClock injects the time source used for lifecycle transitions, backup windows and retention.
@@ -320,4 +324,31 @@ func documentationAddr(n int64) string {
 
 func contextWithCancel() (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.Background())
+}
+
+const headerRetry = "Opc-Retry-Token"
+
+func errInvalidatedToken() *APIError {
+	return newErr(http.StatusConflict, "InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted")
+}
+
+// replayCreate resolves an opc-retry-token to the id and work request of the request that first used it.
+func (b *InMemoryBackend) replayCreate(
+	scope, token string,
+	state func(id string) (string, bool),
+) (string, string, bool, *APIError) {
+	v, ok := b.retry.Lookup(scope, token, b.nowUTC())
+	if !ok {
+		return "", "", false, nil
+	}
+
+	id, wr := ociretry.Split(v)
+
+	st, live := state(id)
+	if !live || st == stateDeleting || st == stateDeleted {
+		return "", "", true, errInvalidatedToken()
+	}
+
+	return id, wr, true, nil
 }

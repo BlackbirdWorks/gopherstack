@@ -95,7 +95,9 @@ func (f *fixture) newInstance(t *testing.T, alias string) string {
 func (f *fixture) defaultQueue(t *testing.T, inst string) (string, string, string) {
 	t.Helper()
 
-	qs, err := f.client.ListQueues(t.Context(), &sdk.ListQueuesInput{InstanceId: aws.String(inst)})
+	qs, err := f.client.ListQueues(t.Context(), &sdk.ListQueuesInput{
+		InstanceId: aws.String(inst), QueueTypes: []types.QueueType{types.QueueTypeStandard},
+	})
 	require.NoError(t, err)
 	require.Len(t, qs.QueueSummaryList, 1)
 
@@ -122,6 +124,7 @@ type fakeResolvers struct {
 	lambdas map[string]bool
 	buckets map[string]bool
 	objects map[string]bool
+	data    map[string][]byte
 }
 
 func (f fakeResolvers) LambdaFunctionExists(_ context.Context, arn string) bool {
@@ -129,3 +132,13 @@ func (f fakeResolvers) LambdaFunctionExists(_ context.Context, arn string) bool 
 }
 func (f fakeResolvers) BucketExists(_ context.Context, b string) bool    { return f.buckets[b] }
 func (f fakeResolvers) ObjectExists(_ context.Context, b, k string) bool { return f.objects[b+"/"+k] }
+
+var errNoObject = errors.New("no such object")
+
+func (f fakeResolvers) ReadObject(_ context.Context, b, k string) ([]byte, error) {
+	if d, ok := f.data[b+"/"+k]; ok {
+		return d, nil
+	}
+
+	return nil, errNoObject
+}

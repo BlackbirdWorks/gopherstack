@@ -20,13 +20,14 @@ import (
 )
 
 const (
-	maxMessageBytes = 64 * 1024
-	msgJSON         = "JSON"
-	msgRawText      = "RAW_TEXT"
-	maxBackoff      = 32 * time.Minute
-	immediateTries  = 2
-	maxErrBody      = 256
-	maxBackoffShift = 5
+	maxMessageBytes  = 64 * 1024
+	publishPerMinute = 60
+	msgJSON          = "JSON"
+	msgRawText       = "RAW_TEXT"
+	maxBackoff       = 32 * time.Minute
+	immediateTries   = 2
+	maxErrBody       = 256
+	maxBackoffShift  = 5
 )
 
 // PublishIn is the PublishMessage request body.
@@ -166,6 +167,10 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 
 	t, aerr := b.activeTopic(topicID)
 	if aerr != nil {
+		return PublishWire{}, aerr
+	}
+
+	if aerr = b.admitPublish(t.ID); aerr != nil {
 		return PublishWire{}, aerr
 	}
 
@@ -414,4 +419,20 @@ func (h *Handler) publishMessage(q *req) error {
 	}
 
 	return q.json(http.StatusOK, out, "")
+}
+
+// admitPublish enforces the documented 60 PublishMessage calls per minute per topic.
+func (b *InMemoryBackend) admitPublish(topicID string) *APIError {
+	now := b.nowUTC()
+	live := slices.DeleteFunc(b.published[topicID], func(at time.Time) bool { return !at.After(now.Add(-time.Minute)) })
+
+	if len(live) >= publishPerMinute {
+		b.published[topicID] = live
+
+		return errTooMany("The topic exceeded 60 published messages per minute")
+	}
+
+	b.published[topicID] = append(live, now)
+
+	return nil
 }

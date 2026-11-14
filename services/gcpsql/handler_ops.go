@@ -47,6 +47,24 @@ func (h *Handler) registerInstanceOps() {
 
 		return h.reply(c, v, err)
 	}
+	h.ops[opFailover] = h.failover
+	h.ops[opTruncateLog] = h.truncateLog
+	h.ops[opRotateServerCa] = h.rotateServerCa
+	h.ops[opResetSslConfig] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.ResetSslConfig(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opAddServerCa] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.AddServerCa(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opListServerCas] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.ListServerCas(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
 	h.ops[opExportInstance] = h.exportInstance
 	h.ops[opImportInstance] = h.importInstance
 	h.ops[opRestoreBackup] = h.restoreBackup
@@ -347,4 +365,49 @@ func (h *Handler) registerCertOps() {
 
 		return h.reply(c, v, err)
 	}
+}
+
+type failoverBody struct {
+	FailoverContext struct {
+		SettingsVersion string `json:"settingsVersion"`
+	} `json:"failoverContext"`
+}
+
+func (h *Handler) failover(c *echo.Context, rt route) error {
+	in, err := decode[failoverBody](c)
+	if err != nil {
+		return err
+	}
+
+	op, err := h.Backend.Failover(rt.project, rt.instance, in.FailoverContext.SettingsVersion)
+
+	return h.reply(c, op, err)
+}
+
+func (h *Handler) truncateLog(c *echo.Context, rt route) error {
+	in, _, err := decodeContext[struct {
+		LogType string `json:"logType"`
+	}](c, "truncateLogContext")
+	if err != nil {
+		return err
+	}
+
+	op, err := h.Backend.TruncateLog(rt.project, rt.instance, in.LogType)
+
+	return h.reply(c, op, err)
+}
+
+func (h *Handler) rotateServerCa(c *echo.Context, rt route) error {
+	in, err := decode[struct {
+		RotateServerCaContext struct {
+			NextVersion string `json:"nextVersion"`
+		} `json:"rotateServerCaContext"`
+	}](c)
+	if err != nil {
+		return err
+	}
+
+	op, err := h.Backend.RotateServerCa(rt.project, rt.instance, in.RotateServerCaContext.NextVersion)
+
+	return h.reply(c, op, err)
 }

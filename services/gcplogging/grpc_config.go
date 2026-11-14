@@ -177,3 +177,39 @@ func (s *configServer) UpdateSettings(
 ) (*loggingpb.Settings, error) {
 	return s.b.UpdateSettings(in)
 }
+
+func (s *configServer) CreateLink(
+	_ context.Context,
+	in *loggingpb.CreateLinkRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateLink(in)
+}
+
+func (s *configServer) DeleteLink(
+	_ context.Context,
+	in *loggingpb.DeleteLinkRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteLink(in)
+}
+
+func (s *configServer) GetLink(_ context.Context, in *loggingpb.GetLinkRequest) (*loggingpb.Link, error) {
+	return s.b.GetLink(in.GetName())
+}
+
+func (s *configServer) ListLinks(
+	_ context.Context,
+	in *loggingpb.ListLinksRequest,
+) (*loggingpb.ListLinksResponse, error) {
+	ls, next, err := s.b.ListLinks(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &loggingpb.ListLinksResponse{Links: ls, NextPageToken: next}, nil
+}
+
+func (s *configServer) CopyLogEntries(
+	_ context.Context, in *loggingpb.CopyLogEntriesRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CopyLogEntries(in)
+}

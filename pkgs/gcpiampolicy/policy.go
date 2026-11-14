@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 const (
@@ -219,3 +220,38 @@ func HasConditions(p *iampb.Policy) bool { return hasConditions(p) }
 
 // ConditionalVersion is the policy version required to read or write conditional bindings.
 const ConditionalVersion = conditionalVer
+
+// MergeMask applies in onto current for the paths of mask (default "bindings" and "etag", as iam_policy.proto
+// documents for SetIamPolicyRequest.update_mask). The result carries in's etag so Apply still checks it.
+func MergeMask(current, in *iampb.Policy, mask *fieldmaskpb.FieldMask) (*iampb.Policy, error) {
+	paths := mask.GetPaths()
+	if len(paths) == 0 {
+		paths = []string{"bindings", "etag"}
+	}
+
+	out := clonePolicy(current)
+	if current == nil {
+		out = &iampb.Policy{}
+	}
+
+	out.Etag = in.GetEtag()
+
+	for _, raw := range paths {
+		for p := range strings.SplitSeq(raw, ",") {
+			switch strings.TrimSpace(p) {
+			case "bindings":
+				out.Bindings = clonePolicy(in).GetBindings()
+				out.Version = in.GetVersion()
+			case "audit_configs", "auditConfigs":
+				out.AuditConfigs = clonePolicy(in).GetAuditConfigs()
+			case "version":
+				out.Version = in.GetVersion()
+			case "etag", "":
+			default:
+				return nil, status.Errorf(codes.InvalidArgument, "update_mask path %q is not a field of Policy.", p)
+			}
+		}
+	}
+
+	return out, nil
+}

@@ -8,7 +8,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
+	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
 // GetAzureFunctionsSettings returns Azure Functions settings (azurefunctions.ConfigProvider).
@@ -16,14 +19,35 @@ func (c *CLI) GetAzureFunctionsSettings() azurefunctions.Settings { return c.Azu
 
 // wireAzureFunctions gives ARM's Microsoft.Web provider the Azure Functions data plane.
 func wireAzureFunctions(byName map[string]service.Registerable) {
-	armH, ok := byName["AzureARM"].(*azurearm.Handler)
-	if !ok {
+	h, hOk := byName["AzureFunctions"].(*azurefunctions.Handler)
+	if !hOk {
 		return
 	}
 
-	if h, hOk := byName["AzureFunctions"].(*azurefunctions.Handler); hOk {
+	h.Backend.SetNetwork(azureFunctionsNetwork(byName))
+
+	if armH, ok := byName["AzureARM"].(*azurearm.Handler); ok {
 		armH.Registry.SetFunctionApps(&azureFunctionAppsAdapter{backend: h.Backend})
 	}
+}
+
+// azureFunctionsNetwork reports the storage listener ports function host containers connect to.
+func azureFunctionsNetwork(byName map[string]service.Registerable) azurefunctions.Network {
+	var n azurefunctions.Network
+
+	if h, ok := byName["AzureBlob"].(*azureblob.Handler); ok {
+		n.BlobPort = h.Port
+	}
+
+	if h, ok := byName["AzureQueue"].(*azurequeue.Handler); ok {
+		n.QueuePort = h.Port
+	}
+
+	if h, ok := byName["AzureTable"].(*azuretable.Handler); ok {
+		n.TablePort = h.Port
+	}
+
+	return n
 }
 
 // azureFunctionAppsAdapter adapts services/azurefunctions's backend to services/azurearm.FunctionApps.
@@ -39,6 +63,10 @@ func mapFunctionsError(err error) error {
 		return azurearm.ErrWebSiteNotFound
 	case errors.Is(err, azurefunctions.ErrFunctionNotFound):
 		return azurearm.ErrWebFunctionNotFound
+	case errors.Is(err, azurefunctions.ErrFunctionInCode):
+		return azurearm.ErrWebFunctionInCode
+	case errors.Is(err, azurefunctions.ErrFunctionAppOnly):
+		return azurearm.ErrWebNotFunctionApp
 	case errors.Is(err, azurefunctions.ErrKeyNotFound):
 		return azurearm.ErrWebKeyNotFound
 	case errors.Is(err, azurefunctions.ErrInvalidKeyType):
@@ -60,6 +88,7 @@ func (a *azureFunctionAppsAdapter) PutApp(
 ) (azurearm.FunctionAppInfo, error) {
 	appCfg := azurefunctions.AppConfig{
 		Kind: cfg.Kind, LinuxFx: cfg.LinuxFx, AppCommandLine: cfg.AppCommandLine, HealthCheckPath: cfg.HealthCheckPath,
+		Flex: cfg.Flex,
 	}
 
 	if err := azurefunctions.ValidateConfig(appCfg); err != nil && (!isSlotName(name) || cfg.LinuxFx != "") {
@@ -89,6 +118,10 @@ func (a *azureFunctionAppsAdapter) Settings(name string) (map[string]string, err
 
 func (a *azureFunctionAppsAdapter) SetSettings(name string, settings map[string]string) error {
 	return mapFunctionsError(a.backend.SetSettings(name, settings))
+}
+
+func (a *azureFunctionAppsAdapter) SetConnectionStrings(name string, env map[string]string) error {
+	return mapFunctionsError(a.backend.SetConnectionStrings(name, env))
 }
 
 func (a *azureFunctionAppsAdapter) SetStopped(name string, stopped bool) error {
@@ -170,4 +203,18 @@ func (a *azureFunctionAppsAdapter) SwapContent(first, second string) error {
 
 func (a *azureFunctionAppsAdapter) WarmUp(ctx context.Context, name string) error {
 	return mapFunctionsError(a.backend.WarmUp(ctx, name))
+}
+
+func (a *azureFunctionAppsAdapter) DeleteFunction(ctx context.Context, name, fn string) error {
+	return mapFunctionsError(a.backend.DeleteFunction(ctx, name, fn))
+}
+
+func (a *azureFunctionAppsAdapter) AdminToken(name string) (string, error) {
+	t, err := a.backend.AdminToken(name)
+
+	return t, mapFunctionsError(err)
+}
+
+func (a *azureFunctionAppsAdapter) SyncTriggers(ctx context.Context, name string) error {
+	return mapFunctionsError(a.backend.SyncTriggers(ctx, name))
 }

@@ -281,3 +281,113 @@ func TestPointInTimeBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestSoftDeleteKeepsKeyValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		purge    bool
+		wantKeep bool
+	}{
+		{name: "recover keeps data", wantKeep: true},
+		{name: "purge drops data", purge: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ac.NewInMemoryBackend()
+			val := "v1"
+
+			_, err := b.PutStore("softstore")
+			require.NoError(t, err)
+
+			_, err = b.SetKeyValue("softstore", "k", "", ac.KVInput{Value: &val}, ac.Precondition{})
+			require.NoError(t, err)
+
+			require.NoError(t, b.DeleteStore("softstore"))
+			assert.False(t, b.HasStore("softstore"))
+
+			if tt.purge {
+				b.PurgeStore("softstore")
+			}
+
+			_, err = b.PutStore("softstore")
+			require.NoError(t, err)
+
+			kv, err := b.GetKeyValue("softstore", "k", "", time.Time{})
+			if !tt.wantKeep {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, val, *kv.Value)
+		})
+	}
+}
+
+func TestSoftDeletePersists(t *testing.T) {
+	t.Parallel()
+
+	b := ac.NewInMemoryBackend()
+	val := "v1"
+
+	_, err := b.PutStore("softstore")
+	require.NoError(t, err)
+
+	_, err = b.SetKeyValue("softstore", "k", "", ac.KVInput{Value: &val}, ac.Precondition{})
+	require.NoError(t, err)
+	require.NoError(t, b.DeleteStore("softstore"))
+
+	restored := ac.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(t.Context(), b.Snapshot(t.Context())))
+
+	_, err = restored.PutStore("softstore")
+	require.NoError(t, err)
+
+	kv, err := restored.GetKeyValue("softstore", "k", "", time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, val, *kv.Value)
+}
+
+func TestRevisionRetention(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		days int
+		want int
+	}{
+		{name: "default thirty days", days: 0, want: 2},
+		{name: "seven days", days: 7, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ac.NewInMemoryBackend()
+			now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+			ac.SetNow(b, func() time.Time { return now })
+
+			_, err := b.PutStore("retstore")
+			require.NoError(t, err)
+			require.NoError(t, b.SetRevisionRetention("retstore", tt.days))
+
+			for _, v := range []string{"a", "b"} {
+				_, err = b.SetKeyValue("retstore", "k", "", ac.KVInput{Value: &v}, ac.Precondition{})
+				require.NoError(t, err)
+
+				now = now.AddDate(0, 0, 10)
+			}
+
+			revs, err := b.ListRevisions("retstore", ac.Selector{}, time.Time{})
+			require.NoError(t, err)
+			assert.Len(t, revs, tt.want)
+		})
+	}
+}

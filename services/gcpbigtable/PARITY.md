@@ -40,7 +40,7 @@ ops:
   GetBackup: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
   UpdateBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "expire_time only."}
   DeleteBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
-  ListBackups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged; clusters/- spans the instance. filter and order_by are UNIMPLEMENTED."}
+  ListBackups: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged; clusters/- spans the instance. filter (name, source_table, state, start_time, end_time, expire_time, size_bytes; AND/OR/NOT, implicit AND, OR binds tighter) and order_by (default start_time desc) follow the field docs in adminpb ListBackupsRequest. HOT backups carry hot_to_standard_time (24h minimum, rejected on STANDARD) and convert when it passes."}
   RestoreTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "New table with the backup's schema and data and restore_info; may restore into another instance."}
   ReadRows: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Row keys and ranges (open/closed ends, validated), rows_limit, reversed scans, the complete RowFilter set, cell chunks that name row, family and qualifier only when they change, last_scanned_row_key for clients that ask, request stats iteration counts. GC rules hide expired cells."}
   SampleRowKeys: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Samples are the table's split points with the cumulative bytes before them, plus the end-of-table marker; no size-based sampling."}
@@ -64,7 +64,6 @@ items_still_open:
   - "Operations are recorded already finished: there is no CREATING state or progress, and CancelOperation has no effect."
   - "Clusters share one copy of the data: replication, per-cluster storage and routing are not simulated, app profile routing is validated but does not place requests, and autoscaling never resizes a cluster."
   - "App profile warnings (ignore_warnings) are never raised, and storage-type specific autoscaling storage targets, KMS key rules and node scaling factor constraints are not validated."
-  - "ListBackups filter and order_by, and backup hot_to_standard_time, are not supported."
   - "ReadRows never splits large cell values across chunks and reports only the iteration counts in request stats; SampleRowKeys does no size-based sampling."
   - "Several error codes were chosen without a production reference: unknown column family on mutate (NOT_FOUND), duplicate/missing family on ModifyColumnFamilies, unknown consistency token (INVALID_ARGUMENT), row_sample_filter outside (0, 1) and a chain or interleave of fewer than two filters are rejected as INVALID_ARGUMENT."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine; Shutdown stops the server and joins it."}

@@ -49,18 +49,33 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	DeleteAt   time.Time `json:"deleteAt"`
-	Name       string    `json:"name"`
-	Zone       string    `json:"zone"`
-	Template   string    `json:"template"`
-	Deleting   bool      `json:"deleting"`
-	Recreating bool      `json:"recreating"`
+	LastProbe    time.Time         `json:"lastProbe,omitzero"`
+	RunUntil     time.Time         `json:"runUntil,omitzero"`
+	DeleteAt     time.Time         `json:"deleteAt"`
+	KeptExt      map[string]string `json:"keptExternal,omitempty"`
+	KeptInt      map[string]string `json:"keptInternal,omitempty"`
+	LastError    string            `json:"lastError,omitempty"`
+	Template     string            `json:"template"`
+	Health       string            `json:"health,omitempty"`
+	Name         string            `json:"name"`
+	Zone         string            `json:"zone"`
+	Request      string            `json:"request,omitempty"`
+	Parked       string            `json:"parked,omitempty"`
+	Startup      string            `json:"startup,omitempty"`
+	HealthyRun   int               `json:"healthyRun,omitempty"`
+	UnhealthyRun int               `json:"unhealthyRun,omitempty"`
+	InstanceID   uint64            `json:"instanceId,omitempty"`
+	Recreating   bool              `json:"recreating"`
+	Deleting     bool              `json:"deleting"`
+	Verified     bool              `json:"verified,omitempty"`
 }
 
 type migRec struct {
 	Project string                           `json:"project"`
 	Mgr     *computeapi.InstanceGroupManager `json:"mgr"`
 	Members []*memberRec                     `json:"members"`
+	Configs []*picRec                        `json:"configs,omitempty"`
+	Resizes []*resizeRec                     `json:"resizes,omitempty"`
 }
 
 type groupRec struct {
@@ -78,47 +93,65 @@ type opRec struct {
 
 // InMemoryBackend holds all Compute Engine state under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
-	sleep          func(context.Context, time.Duration)
-	mu             *lockmetrics.RWMutex
-	networks       map[string]*computeapi.Network
-	subnets        map[string]*computeapi.Subnetwork
-	firewalls      map[string]*computeapi.Firewall
-	routes         map[string]*computeapi.Route
-	addresses      map[string]*computeapi.Address
-	routers        map[string]*routerRec
-	disks          map[string]*computeapi.Disk
-	images         map[string]*computeapi.Image
-	snapshots      map[string]*computeapi.Snapshot
-	instances      map[string]*instRec
-	templates      map[string]*computeapi.InstanceTemplate
-	healths        map[string]*computeapi.HealthCheck
-	migs           map[string]*migRec
-	groups         map[string]*groupRec
-	scalers        map[string]*computeapi.Autoscaler
-	backendSvcs    map[string]*computeapi.BackendService
-	backendBuckets map[string]*computeapi.BackendBucket
-	urlMaps        map[string]*computeapi.UrlMap
-	httpProxies    map[string]*computeapi.TargetHttpProxy
-	httpsProxies   map[string]*computeapi.TargetHttpsProxy
-	tcpProxies     map[string]*computeapi.TargetTcpProxy
-	sslProxies     map[string]*computeapi.TargetSslProxy
-	sslCerts       map[string]*computeapi.SslCertificate
-	sslPolicies    map[string]*computeapi.SslPolicy
-	fwdRules       map[string]*computeapi.ForwardingRule
-	negs           map[string]*computeapi.NetworkEndpointGroup
-	negEndpoints   map[string][]*computeapi.NetworkEndpoint
-	secPolicies    map[string]*computeapi.SecurityPolicy
-	resPolicies    map[string]*computeapi.ResourcePolicy
-	ops            map[string]*opRec
-	projects       map[string]*computeapi.Metadata
-	timing         Timing
+	now             func() time.Time
+	sleep           func(context.Context, time.Duration)
+	prober          HealthProber
+	mu              *lockmetrics.RWMutex
+	networks        map[string]*computeapi.Network
+	subnets         map[string]*computeapi.Subnetwork
+	firewalls       map[string]*computeapi.Firewall
+	routes          map[string]*computeapi.Route
+	addresses       map[string]*computeapi.Address
+	routers         map[string]*routerRec
+	disks           map[string]*computeapi.Disk
+	images          map[string]*computeapi.Image
+	snapshots       map[string]*computeapi.Snapshot
+	instantSnaps    map[string]*computeapi.InstantSnapshot
+	machineImages   map[string]*computeapi.MachineImage
+	reservations    map[string]*computeapi.Reservation
+	instances       map[string]*instRec
+	templates       map[string]*computeapi.InstanceTemplate
+	healths         map[string]*computeapi.HealthCheck
+	migs            map[string]*migRec
+	groups          map[string]*groupRec
+	scalers         map[string]*computeapi.Autoscaler
+	backendSvcs     map[string]*computeapi.BackendService
+	backendBuckets  map[string]*computeapi.BackendBucket
+	urlMaps         map[string]*computeapi.UrlMap
+	httpProxies     map[string]*computeapi.TargetHttpProxy
+	httpsProxies    map[string]*computeapi.TargetHttpsProxy
+	tcpProxies      map[string]*computeapi.TargetTcpProxy
+	sslProxies      map[string]*computeapi.TargetSslProxy
+	sslCerts        map[string]*computeapi.SslCertificate
+	sslPolicies     map[string]*computeapi.SslPolicy
+	targetPools     map[string]*computeapi.TargetPool
+	targetInstances map[string]*computeapi.TargetInstance
+	httpHealths     map[string]*computeapi.HttpHealthCheck
+	httpsHealths    map[string]*computeapi.HttpsHealthCheck
+	vpnGateways     map[string]*computeapi.VpnGateway
+	targetVPNs      map[string]*computeapi.TargetVpnGateway
+	vpnTunnels      map[string]*computeapi.VpnTunnel
+	externalVPNs    map[string]*computeapi.ExternalVpnGateway
+	fwdRules        map[string]*computeapi.ForwardingRule
+	negs            map[string]*computeapi.NetworkEndpointGroup
+	negEndpoints    map[string][]*computeapi.NetworkEndpoint
+	secPolicies     map[string]*computeapi.SecurityPolicy
+	resPolicies     map[string]*computeapi.ResourcePolicy
+	ops             map[string]*opRec
+	projects        map[string]*computeapi.Metadata
+	timing          Timing
 }
 
 // NewInMemoryBackend creates an empty backend on the wall clock.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu: lockmetrics.New("gcpcompute"), now: time.Now, timing: DefaultTiming(), sleep: realSleep,
+		mu: lockmetrics.New(
+			"gcpcompute",
+		),
+		now:    time.Now,
+		timing: DefaultTiming(),
+		sleep:  realSleep,
+		prober: newNetProber(),
 	}
 	b.resetMaps()
 
@@ -161,6 +194,9 @@ func (b *InMemoryBackend) resetMaps() {
 	b.disks = map[string]*computeapi.Disk{}
 	b.images = map[string]*computeapi.Image{}
 	b.snapshots = map[string]*computeapi.Snapshot{}
+	b.instantSnaps = map[string]*computeapi.InstantSnapshot{}
+	b.machineImages = map[string]*computeapi.MachineImage{}
+	b.reservations = map[string]*computeapi.Reservation{}
 	b.instances = map[string]*instRec{}
 	b.templates = map[string]*computeapi.InstanceTemplate{}
 	b.healths = map[string]*computeapi.HealthCheck{}
@@ -176,6 +212,14 @@ func (b *InMemoryBackend) resetMaps() {
 	b.sslProxies = map[string]*computeapi.TargetSslProxy{}
 	b.sslCerts = map[string]*computeapi.SslCertificate{}
 	b.sslPolicies = map[string]*computeapi.SslPolicy{}
+	b.targetPools = map[string]*computeapi.TargetPool{}
+	b.targetInstances = map[string]*computeapi.TargetInstance{}
+	b.httpHealths = map[string]*computeapi.HttpHealthCheck{}
+	b.httpsHealths = map[string]*computeapi.HttpsHealthCheck{}
+	b.vpnGateways = map[string]*computeapi.VpnGateway{}
+	b.targetVPNs = map[string]*computeapi.TargetVpnGateway{}
+	b.vpnTunnels = map[string]*computeapi.VpnTunnel{}
+	b.externalVPNs = map[string]*computeapi.ExternalVpnGateway{}
 	b.fwdRules = map[string]*computeapi.ForwardingRule{}
 	b.negs = map[string]*computeapi.NetworkEndpointGroup{}
 	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}

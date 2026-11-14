@@ -147,6 +147,8 @@ func (q *req) param(k string) string { return q.rt.params[k] }
 
 func (q *req) ifMatch() string { return q.r.Header.Get("If-Match") }
 
+func (q *req) retry() string { return q.r.Header.Get(headerRetry) }
+
 func (q *req) listOpts() ListOpts {
 	n, _ := strconv.Atoi(q.query("limit"))
 
@@ -228,6 +230,10 @@ func (h *Handler) serve(q *req) error {
 	fn, ok := h.ops[q.rt.op]
 	if !ok {
 		return errNoRoute()
+	}
+
+	if _, _, isReplica := replicaHint(q.rt.hint); isReplica && replicaWrites(q.rt.op) {
+		return errReplicaReadOnly
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(q.w, q.r.Body, maxBodyBytes))

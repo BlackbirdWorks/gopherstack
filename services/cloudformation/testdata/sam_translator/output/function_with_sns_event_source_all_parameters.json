@@ -1,0 +1,111 @@
+{
+  "Resources": {
+    "MyAwesomeFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MyAwesomeFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyAwesomeFunctionNotificationTopic": {
+      "Properties": {
+        "Endpoint": {
+          "Fn::GetAtt": [
+            "MyAwesomeFunction",
+            "Arn"
+          ]
+        },
+        "FilterPolicy": {
+          "before": {
+            "owner": [
+              "0x0"
+            ]
+          },
+          "customer_interests": [
+            "rugby",
+            "football",
+            "baseball"
+          ],
+          "event": [
+            {
+              "anything-but": "order_cancelled"
+            }
+          ],
+          "price_usd": [
+            {
+              "numeric": [
+                ">=",
+                100
+              ]
+            }
+          ],
+          "store": [
+            "example_corp"
+          ]
+        },
+        "FilterPolicyScope": "MessageAttributes",
+        "Protocol": "lambda",
+        "Region": "region",
+        "TopicArn": "arn:aws:sns:us-west-2:987654321098:key/dec86919-7219-4e8d-8871-7f1609df2c7f"
+      },
+      "Type": "AWS::SNS::Subscription"
+    },
+    "MyAwesomeFunctionNotificationTopicPermission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "MyAwesomeFunction"
+        },
+        "Principal": "sns.amazonaws.com",
+        "SourceArn": "arn:aws:sns:us-west-2:987654321098:key/dec86919-7219-4e8d-8871-7f1609df2c7f"
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "MyAwesomeFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

@@ -45,6 +45,7 @@ type Handler struct {
 	// Issuer verifies bearer tokens when Settings.ValidateTokens is set; cli wiring shares ARM's issuer.
 	Issuer *aadauth.Issuer
 	srvMu  *lockmetrics.RWMutex
+	sub    *echo.Echo
 	srv    *http.Server
 	colls  map[string]*collection
 	subs   map[string]subRoute
@@ -69,7 +70,7 @@ func NewHandler(backend *Backend, settings Settings) *Handler {
 
 	h := &Handler{
 		Backend: backend, Issuer: issuer, Settings: settings, Port: settings.Port,
-		srvMu: lockmetrics.New("azuregraph.server"), colls: buildCollections(),
+		srvMu: lockmetrics.New("azuregraph.server"), sub: echo.New(), colls: buildCollections(),
 	}
 	h.subs = h.subRoutes()
 
@@ -98,10 +99,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	collections := []string{collApplications, collServicePrincipals, collUsers, collGroups, "oauth2PermissionGrants"}
 
 	for _, name := range collections {
-		for _, verb := range []string{"List", "Create", "Get", "Update", "Delete", "Count"} {
+		for _, verb := range []string{"List", "Create", verbGet, "Update", verbDelete, "Count"} {
 			ops = append(ops, verb+upperFirst(name))
 		}
 	}
+
+	ops = append(ops, "Batch", "ListDeletedItems", "GetDeletedItem", "RestoreDeletedItem", "PermanentDeleteDeletedItem",
+		"ListRoleDefinitions", "GetRoleDefinition", "ListRoleAssignments", "CreateRoleAssignment", "GetRoleAssignment",
+		"DeleteRoleAssignment", "ListFederatedIdentityCredentials", "CreateFederatedIdentityCredential",
+		"GetFederatedIdentityCredential", "UpdateFederatedIdentityCredential", "DeleteFederatedIdentityCredential")
 
 	return append(ops, "AddPassword", "RemovePassword", "AddKey", "RemoveKey", "ListRelation", "AddReference",
 		"RemoveReference", "CreateAppRoleAssignment", "DeleteAppRoleAssignment")
@@ -124,7 +130,11 @@ func upperFirst(s string) string { return strings.ToUpper(s[:1]) + s[1:] }
 func operationFor(method string, segs []string) string {
 	name, key := splitKey(segs[0])
 	name = upperFirst(name)
-	verbs := map[string]string{http.MethodGet: "Get", http.MethodPatch: "Update", http.MethodDelete: "Delete"}
+	verbs := crudVerbs()
+
+	if op, ok := extendedOperation(method, name, segs); ok {
+		return op
+	}
 
 	switch {
 	case name == "Me":

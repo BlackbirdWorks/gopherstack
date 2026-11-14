@@ -17,6 +17,7 @@ type FunctionAppConfig struct {
 	LinuxFx         string
 	AppCommandLine  string
 	HealthCheckPath string
+	Flex            bool
 }
 
 // FunctionAppInfo is the data plane's view of a function app.
@@ -58,6 +59,8 @@ type FunctionApps interface {
 	AppInfo(name string) (FunctionAppInfo, bool)
 	Settings(name string) (map[string]string, error)
 	SetSettings(name string, settings map[string]string) error
+	// SetConnectionStrings sets the connection strings as the prefixed environment variables the host receives.
+	SetConnectionStrings(name string, env map[string]string) error
 	SetStopped(name string, stopped bool) error
 	Restart(name string) error
 	Functions(ctx context.Context, name string) ([]FunctionAppFunction, error)
@@ -70,6 +73,9 @@ type FunctionApps interface {
 	PublishingCredentials(name string) (user, password, scmURI string, err error)
 	SwapContent(first, second string) error
 	WarmUp(ctx context.Context, name string) error
+	DeleteFunction(ctx context.Context, name, fn string) error
+	AdminToken(name string) (string, error)
+	SyncTriggers(ctx context.Context, name string) error
 }
 
 type noopFunctionApps struct{}
@@ -86,6 +92,10 @@ func (noopFunctionApps) Settings(string) (map[string]string, error) {
 }
 
 func (noopFunctionApps) SetSettings(string, map[string]string) error {
+	return ErrWebFunctionsUnavailable
+}
+
+func (noopFunctionApps) SetConnectionStrings(string, map[string]string) error {
 	return ErrWebFunctionsUnavailable
 }
 
@@ -128,5 +138,15 @@ func (noopFunctionApps) PublishingCredentials(string) (string, string, string, e
 func (noopFunctionApps) SwapContent(string, string) error { return ErrWebFunctionsUnavailable }
 
 func (noopFunctionApps) WarmUp(context.Context, string) error { return ErrWebFunctionsUnavailable }
+
+func (noopFunctionApps) DeleteFunction(context.Context, string, string) error {
+	return ErrWebFunctionsUnavailable
+}
+
+func (noopFunctionApps) AdminToken(string) (string, error) { return "", ErrWebFunctionsUnavailable }
+
+func (noopFunctionApps) SyncTriggers(context.Context, string) error {
+	return ErrWebFunctionsUnavailable
+}
 
 var _ FunctionApps = noopFunctionApps{}

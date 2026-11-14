@@ -13,11 +13,12 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Buckets      map[string]*Bucket      `json:"buckets"`
-	WorkRequests map[string]*WorkRequest `json:"workRequests"`
-	NSMeta       nsMetaWire              `json:"nsMeta"`
-	Keys         []ociauth.KeyRecord     `json:"keys"`
-	Version      int                     `json:"version"`
+	Buckets      map[string]*Bucket          `json:"buckets"`
+	WorkRequests map[string]*WorkRequest     `json:"workRequests"`
+	NSMeta       nsMetaWire                  `json:"nsMeta"`
+	PrivateEnds  map[string]*PrivateEndpoint `json:"privateEndpoints"`
+	Keys         []ociauth.KeyRecord         `json:"keys"`
+	Version      int                         `json:"version"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -29,6 +30,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ociobjectstorage", backendSnapshot{
 		Version: snapshotVersion, Buckets: b.buckets, WorkRequests: b.workRequests, NSMeta: b.nsMeta, Keys: keys,
+		PrivateEnds: b.privateEnds,
 	})
 }
 
@@ -48,6 +50,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.buckets, b.workRequests = map[string]*Bucket{}, map[string]*WorkRequest{}
+		b.privateEnds = map[string]*PrivateEndpoint{}
 
 		return nil
 	}
@@ -68,6 +71,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.WorkRequests = map[string]*WorkRequest{}
 	}
 
+	if snap.PrivateEnds == nil {
+		snap.PrivateEnds = map[string]*PrivateEndpoint{}
+	}
+
+	b.privateEnds = snap.PrivateEnds
 	b.buckets, b.workRequests, b.nsMeta = snap.Buckets, snap.WorkRequests, snap.NSMeta
 	b.Auth.Load(snap.Keys)
 

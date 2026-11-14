@@ -49,6 +49,7 @@ const (
 	aksKindPool
 	aksKindMaint
 	aksKindBinding
+	aksKindSnapshot
 )
 
 type aksTarget struct {
@@ -74,6 +75,8 @@ func aksTargetOf(id ResourceID) aksTarget {
 		t.kind = aksKindMaint
 	case acaTypesAre(types, aksClusterType, aksBindingType):
 		t.kind = aksKindBinding
+	case acaTypesAre(types, aksSnapshotType):
+		t.kind = aksKindSnapshot
 	}
 
 	return t
@@ -148,17 +151,18 @@ func aksFqdn(prefix, sub, rg, name, location, infix string) string {
 // ContainerServiceProvider implements ResourceProvider for Microsoft.ContainerService (AKS). ARM keeps the
 // configuration; with the opt-in engine each running cluster is a single-node k3s container.
 type ContainerServiceProvider struct {
-	now      func() time.Time
-	backend  *InMemoryBackend
-	net      *NetworkProvider
-	ids      *identityService
-	mu       *lockmetrics.RWMutex
-	opMu     *lockmetrics.RWMutex
-	clusters map[string]*storedAKSCluster
-	ops      map[string]*aksOp
-	cascade  func(ctx context.Context, resourceGroup string)
-	eng      *aksEngine
-	wg       sync.WaitGroup
+	now       func() time.Time
+	backend   *InMemoryBackend
+	net       *NetworkProvider
+	ids       *identityService
+	mu        *lockmetrics.RWMutex
+	opMu      *lockmetrics.RWMutex
+	clusters  map[string]*storedAKSCluster
+	snapshots map[string]*storedAKSSnapshot
+	ops       map[string]*aksOp
+	cascade   func(ctx context.Context, resourceGroup string)
+	eng       *aksEngine
+	wg        sync.WaitGroup
 }
 
 // NewContainerServiceProvider creates the provider; network and ids may be nil.
@@ -166,9 +170,16 @@ func NewContainerServiceProvider(
 	backend *InMemoryBackend, network *NetworkProvider, ids *identityService,
 ) *ContainerServiceProvider {
 	return &ContainerServiceProvider{
-		now: time.Now, backend: backend, net: network, ids: ids,
-		mu: lockmetrics.New("azurearm.containerservice"), opMu: lockmetrics.New("azurearm.containerservice.ops"),
-		clusters: map[string]*storedAKSCluster{}, ops: map[string]*aksOp{}, eng: newAKSEngine(),
+		now:       time.Now,
+		backend:   backend,
+		net:       network,
+		ids:       ids,
+		mu:        lockmetrics.New("azurearm.containerservice"),
+		opMu:      lockmetrics.New("azurearm.containerservice.ops"),
+		clusters:  map[string]*storedAKSCluster{},
+		snapshots: map[string]*storedAKSSnapshot{},
+		ops:       map[string]*aksOp{},
+		eng:       newAKSEngine(),
 	}
 }
 
@@ -179,7 +190,10 @@ func (p *ContainerServiceProvider) Namespace() string { return namespaceMicrosof
 
 // ResourceTypes implements ResourceProvider.
 func (p *ContainerServiceProvider) ResourceTypes() []ResourceTypeDef {
-	return []ResourceTypeDef{{Type: aksClusterType, APIVersions: aksAPIVersions(), HasChildren: true}}
+	return []ResourceTypeDef{
+		{Type: aksClusterType, APIVersions: aksAPIVersions(), HasChildren: true},
+		{Type: aksSnapshotType, APIVersions: aksAPIVersions()},
+	}
 }
 
 // SetResourceGroupCascade sets the callback that deletes the resources of a resource group in every provider; it
@@ -215,6 +229,8 @@ func (p *ContainerServiceProvider) Put(
 		return p.putMaint(id, body)
 	case t.kind == aksKindBinding:
 		return p.putBinding(id, body)
+	case t.kind == aksKindSnapshot:
+		return p.putSnapshot(id, body)
 	}
 
 	out, _, err := p.backend.putGenericResource(id, body)
@@ -239,6 +255,8 @@ func (p *ContainerServiceProvider) Get(_ context.Context, id ResourceID) (map[st
 		return p.getMaint(id)
 	case aksKindBinding:
 		return p.getBinding(id)
+	case aksKindSnapshot:
+		return p.getSnapshot(id)
 	case aksKindOther, aksKindCluster, aksKindPool:
 	}
 
@@ -277,6 +295,8 @@ func (p *ContainerServiceProvider) Delete(ctx context.Context, id ResourceID) er
 		return p.deleteMaint(id)
 	case t.kind == aksKindBinding:
 		return p.deleteBinding(id)
+	case t.kind == aksKindSnapshot:
+		return p.deleteSnapshot(id)
 	}
 
 	return p.backend.deleteGenericResource(id)
@@ -295,6 +315,8 @@ func (p *ContainerServiceProvider) List(_ context.Context, id ResourceID) ([]map
 		return p.listMaint(id)
 	case aksKindBinding:
 		return p.listBindings(id)
+	case aksKindSnapshot:
+		return p.listSnapshots(id), nil
 	case aksKindOther, aksKindCluster, aksKindPool:
 	}
 
@@ -333,6 +355,7 @@ func (p *ContainerServiceProvider) Reset() {
 
 	p.mu.Lock("Reset")
 	p.clusters = map[string]*storedAKSCluster{}
+	p.snapshots = map[string]*storedAKSSnapshot{}
 	p.mu.Unlock()
 
 	p.eng.removeAll()
@@ -347,6 +370,12 @@ func (p *ContainerServiceProvider) DeleteResourcesInGroup(ctx context.Context, r
 	p.mu.Lock("DeleteResourcesInGroup")
 
 	var nodeGroups, keys []string
+
+	for k, s := range p.snapshots {
+		if resourceGroupsEqual(s.ResourceGroup, resourceGroup) {
+			delete(p.snapshots, k)
+		}
+	}
 
 	for k, c := range p.clusters {
 		if resourceGroupsEqual(c.ResourceGroup, resourceGroup) || resourceGroupsEqual(c.NodeRG, resourceGroup) {
@@ -411,7 +440,7 @@ func (p *ContainerServiceProvider) etagOf(id ResourceID) (string, bool) {
 		if pool, found := c.Pools[strings.ToLower(t.names[1])]; found {
 			return aksEtag(pool.Modified), true
 		}
-	case aksKindOther, aksKindMaint, aksKindBinding:
+	case aksKindOther, aksKindMaint, aksKindBinding, aksKindSnapshot:
 	}
 
 	return "", false

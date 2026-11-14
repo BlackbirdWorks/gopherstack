@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 
 	b.mu.Lock("CreateNamespace")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	if _, ok := b.slNamespaces.Get(p.NamespaceName); ok {
 		return nil, fmt.Errorf(
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error) {
 	b.mu.Lock("GetNamespace")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error)
 func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*Namespace, string) {
 	b.mu.Lock("ListNamespaces")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	// Iterate the pre-sorted index so results are ordered without re-sorting.
 	keys := b.slNamespaceIdx.ordered()
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) applyNamespacePassword(namespaceName, password string)
 func (b *InMemoryBackend) updateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
@@ -276,7 +276,7 @@ func (b *InMemoryBackend) DeleteNamespace(
 ) (*Namespace, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {

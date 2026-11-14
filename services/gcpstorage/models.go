@@ -24,10 +24,15 @@ type IAMPolicy struct {
 // Object is one stored object version. A version whose Deleted time is set is
 // noncurrent; the live version, if any, is always last in its slice.
 type Object struct {
-	Created            time.Time         `json:"created"`
-	Updated            time.Time         `json:"updated"`
-	Deleted            time.Time         `json:"deleted"`
-	CustomTime         time.Time         `json:"customTime"`
+	Created            time.Time `json:"created"`
+	Updated            time.Time `json:"updated"`
+	Deleted            time.Time `json:"deleted"`
+	CustomTime         time.Time `json:"customTime"`
+	HoldReleased       time.Time `json:"holdReleased"`
+	SoftDeleteTime     time.Time `json:"softDeleteTime"`
+	HardDeleteTime     time.Time `json:"hardDeleteTime"`
+	ClassUpdated       time.Time `json:"classUpdated"`
+	retention          time.Time
 	Metadata           map[string]string `json:"metadata,omitempty"`
 	ContentLanguage    string            `json:"contentLanguage,omitempty"`
 	CRC32C             string            `json:"crc32c"`
@@ -39,6 +44,8 @@ type Object struct {
 	StorageClass       string            `json:"storageClass"`
 	MD5                string            `json:"md5,omitempty"`
 	Name               string            `json:"name"`
+	CustomerKeySHA256  string            `json:"customerKeySha256,omitempty"`
+	KMSKeyName         string            `json:"kmsKeyName,omitempty"`
 	Data               []byte            `json:"data"`
 	ACL                []ACLEntry        `json:"acl,omitempty"`
 	Generation         int64             `json:"generation"`
@@ -56,6 +63,7 @@ func (o *Object) Size() int64 { return int64(len(o.Data)) }
 func (b *Bucket) out(o *Object) *Object {
 	c := o.clone()
 	c.hideACL = b.ubla()
+	c.retention = b.retentionExpiry(o)
 
 	return c
 }
@@ -72,7 +80,11 @@ func (o *Object) clone() *Object {
 type Bucket struct {
 	Created               time.Time                 `json:"created"`
 	Updated               time.Time                 `json:"updated"`
+	SoftDeleteTime        time.Time                 `json:"softDeleteTime,omitzero"`
+	HardDeleteTime        time.Time                 `json:"hardDeleteTime,omitzero"`
 	Objects               map[string][]*Object      `json:"objects"`
+	SoftDeleted           []*Object                 `json:"softDeleted,omitempty"`
+	Notifications         []Notification            `json:"notifications,omitempty"`
 	Labels                map[string]string         `json:"labels,omitempty"`
 	Config                map[string]jsontext.Value `json:"config,omitempty"`
 	Project               string                    `json:"project"`
@@ -83,6 +95,8 @@ type Bucket struct {
 	DefaultObjectACL      []ACLEntry                `json:"defaultObjectAcl,omitempty"`
 	IAM                   IAMPolicy                 `json:"iam"`
 	Metageneration        int64                     `json:"metageneration"`
+	Generation            int64                     `json:"generation,omitempty"`
+	NotifSeq              int64                     `json:"notifSeq,omitempty"`
 	Versioning            bool                      `json:"versioning,omitempty"`
 	DefaultEventBasedHold bool                      `json:"defaultEventBasedHold,omitempty"`
 }
@@ -96,6 +110,8 @@ func (b *Bucket) clone() *Bucket {
 	c.IAM.Bindings = slices.Clone(b.IAM.Bindings)
 	c.ACL = slices.Clone(b.ACL)
 	c.DefaultObjectACL = slices.Clone(b.DefaultObjectACL)
+	c.Notifications = slices.Clone(b.Notifications)
+	c.SoftDeleted = nil
 
 	return &c
 }

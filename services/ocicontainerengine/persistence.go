@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,12 +14,15 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Clusters map[string]*Cluster     `json:"clusters"`
-	Pools    map[string]*NodePool    `json:"nodePools"`
-	WorkReqs map[string]*WorkRequest `json:"workRequests"`
-	Auth     []ociauth.KeyRecord     `json:"authKeys"`
-	Version  int                     `json:"version"`
-	Seq      int64                   `json:"seq"`
+	Clusters map[string]*Cluster         `json:"clusters"`
+	Pools    map[string]*NodePool        `json:"nodePools"`
+	WorkReqs map[string]*WorkRequest     `json:"workRequests"`
+	VPools   map[string]*VirtualNodePool `json:"virtualNodePools"`
+	Mappings map[string]*WorkloadMapping `json:"workloadMappings"`
+	Retry    map[string]ociretry.Entry   `json:"retryTokens"`
+	Auth     []ociauth.KeyRecord         `json:"authKeys"`
+	Version  int                         `json:"version"`
+	Seq      int64                       `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -29,7 +33,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocicontainerengine", backendSnapshot{
-		Version: snapshotVersion, Clusters: b.clusters, Pools: b.pools, WorkReqs: b.workReqs, Auth: keys, Seq: b.seq,
+		Version:  snapshotVersion,
+		Clusters: b.clusters,
+		Pools:    b.pools,
+		WorkReqs: b.workReqs,
+		VPools:   b.vpools,
+		Mappings: b.mappings,
+		Auth:     keys,
+		Seq:      b.seq,
+		Retry:    b.retry.Entries(),
 	})
 }
 
@@ -60,6 +72,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	lcs := b.detachAllLocked()
 	b.clusters, b.pools, b.workReqs, b.seq = snap.Clusters, snap.Pools, snap.WorkReqs, snap.Seq
+	b.vpools, b.mappings = snap.VPools, snap.Mappings
+	b.retry.Load(snap.Retry)
 	b.runCtx, b.stop = context.WithCancel(context.Background())
 	b.relaunchLocked()
 	e := b.engine
@@ -91,7 +105,8 @@ func nullCheck[T any](kind string, m *map[string]*T) error {
 func checkSnapshot(snap *backendSnapshot) error {
 	for _, err := range []error{
 		nullCheck("cluster", &snap.Clusters), nullCheck("node pool", &snap.Pools),
-		nullCheck("work request", &snap.WorkReqs),
+		nullCheck("work request", &snap.WorkReqs), nullCheck("virtual node pool", &snap.VPools),
+		nullCheck("workload mapping", &snap.Mappings),
 	} {
 		if err != nil {
 			return err

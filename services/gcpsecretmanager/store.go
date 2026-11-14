@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
+
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -63,9 +66,11 @@ type secretRec struct {
 // InMemoryBackend holds all secrets, versions and IAM policies under one lock.
 type InMemoryBackend struct {
 	now       func() time.Time
+	Audit     gcpaudit.Emitter
 	mu        *lockmetrics.RWMutex
 	secrets   map[string]*secretRec
 	publisher TopicPublisher
+	keys      cmek.Checker
 	etagSeq   uint64
 }
 
@@ -363,6 +368,16 @@ func (b *InMemoryBackend) CreateSecret(req *secretmanagerpb.CreateSecretRequest)
 		return nil, err
 	}
 
+	if err = validateTags(pb.GetTags()); err != nil {
+		return nil, err
+	}
+
+	if err = validateSecretType(pb.GetSecretType()); err != nil {
+		return nil, err
+	}
+
+	pb.Tags = nil
+
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
@@ -386,6 +401,10 @@ func (b *InMemoryBackend) CreateSecret(req *secretmanagerpb.CreateSecretRequest)
 	}
 
 	pb.Name = name
+	if err = b.checkKeysForWrite(pb); err != nil {
+		return nil, err
+	}
+
 	pb.CreateTime = timestamppb.New(b.now())
 	pb.Etag = b.nextEtag()
 	pb.PolicyMember = nil

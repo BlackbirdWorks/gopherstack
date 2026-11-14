@@ -41,7 +41,7 @@ func probePorts(cs []*runpb.Container) []int {
 }
 
 func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) ([]prepared, error) {
-	n, err := parseName(rev.GetName(), "services", "revisions")
+	n, kind, err := parseWorkloadName(rev.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,6 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 	}
 
 	ing, ingPort := ingressContainer(rev.GetContainers())
-	svc, revName := lastSegment(rev.GetService()), lastSegment(rev.GetName())
 	ro := secretVolumes(rev.GetVolumes())
 	out := make([]prepared, 0, len(order))
 
@@ -62,8 +61,8 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 			return nil, eerr
 		}
 
-		env = append(env, "K_SERVICE="+svc, "K_REVISION="+revName, "K_CONFIGURATION="+svc)
-		if c == ing {
+		env = append(env, workloadEnv(n, kind)...)
+		if kind == kindService && c == ing {
 			env = append(env, "PORT="+strconv.Itoa(ingPort))
 		}
 
@@ -72,7 +71,7 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 			return nil, merr
 		}
 
-		p := prepared{c: c, env: env, mounts: mounts, isIngres: c == ing}
+		p := prepared{c: c, env: env, mounts: mounts, isIngres: kind == kindService && c == ing}
 		p.startup, p.hasStart = resolveProbe(c, c.GetStartupProbe())
 		p.liveness, p.hasLive = resolveProbe(c, c.GetLivenessProbe())
 		out = append(out, p)
@@ -81,15 +80,30 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 	return out, nil
 }
 
+func workloadEnv(n resName, kind workloadKind) []string {
+	switch kind {
+	case kindService:
+		return []string{"K_SERVICE=" + n.ids[0], "K_REVISION=" + n.ids[1], "K_CONFIGURATION=" + n.ids[0]}
+	case kindWorkerPool:
+		return []string{"CLOUD_RUN_WORKER_POOL=" + n.ids[0], "CLOUD_RUN_REVISION=" + n.ids[1]}
+	default:
+		return nil
+	}
+}
+
 func containerSpec(rev *runpb.Revision, p prepared, seq uint64, idx int) container.Spec {
+	mem, cpu := resourceLimits(p.c)
+
 	return container.Spec{
-		Image:      p.c.GetImage(),
-		Name:       fmt.Sprintf("gopherstack-run-%s-%d-%d", lastSegment(rev.GetName()), seq, idx),
-		Env:        p.env,
-		Mounts:     p.mounts,
-		WorkingDir: p.c.GetWorkingDir(),
-		Entrypoint: p.c.GetCommand(),
-		Cmd:        p.c.GetArgs(),
+		Image:       p.c.GetImage(),
+		Name:        fmt.Sprintf("gopherstack-run-%s-%d-%d", lastSegment(rev.GetName()), seq, idx),
+		Env:         p.env,
+		Mounts:      p.mounts,
+		WorkingDir:  p.c.GetWorkingDir(),
+		Entrypoint:  p.c.GetCommand(),
+		Cmd:         p.c.GetArgs(),
+		MemoryBytes: mem,
+		NanoCPUs:    cpu,
 	}
 }
 
@@ -174,8 +188,10 @@ func (b *InMemoryBackend) startInstance(in *inst, rev *runpb.Revision) error {
 	ctx, cancel := context.WithTimeout(in.mctx, timeout)
 	defer cancel()
 
+	n, kind, perr := parseWorkloadName(rev.GetName())
 	project := ""
-	if n, perr := parseName(rev.GetName(), "services", "revisions"); perr == nil {
+
+	if perr == nil {
 		project = n.project
 	}
 
@@ -199,6 +215,10 @@ func (b *InMemoryBackend) startInstance(in *inst, rev *runpb.Revision) error {
 
 	_, ingPort := ingressContainer(rev.GetContainers())
 	in.hostPort = in.ports[ingPort]
+
+	if kind != kindService {
+		return nil
+	}
 
 	ing := slices.IndexFunc(prep, func(p prepared) bool { return p.isIngres })
 	if !prep[ing].hasStart {
@@ -246,7 +266,12 @@ func (b *InMemoryBackend) startOwner(
 	ctx context.Context, runner Runner, in *inst, rev *runpb.Revision, spec container.Spec,
 ) (string, error) {
 	_, ingPort := ingressContainer(rev.GetContainers())
-	ports := []int{ingPort}
+
+	var ports []int
+
+	if publishesIngress(rev) {
+		ports = append(ports, ingPort)
+	}
 
 	for _, p := range probePorts(rev.GetContainers()) {
 		if !slices.Contains(ports, p) {
@@ -283,6 +308,27 @@ func (b *InMemoryBackend) startOwner(
 
 			return spec, nil
 		}, release)
+}
+
+// publishesIngress reports whether the revision's first listening port is published for HTTP routing: always for
+// services, for instances only when a container declares a port, never for worker pools (no endpoint).
+func publishesIngress(rev *runpb.Revision) bool {
+	_, kind, err := parseWorkloadName(rev.GetName())
+
+	switch {
+	case err != nil || kind == kindService:
+		return true
+	case kind == kindWorkerPool:
+		return false
+	}
+
+	for _, c := range rev.GetContainers() {
+		if len(c.GetPorts()) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // teardownInst retires an instance: its monitors, containers, host ports and volume directories.

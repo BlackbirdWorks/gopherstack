@@ -193,6 +193,10 @@ func (p *NetworkProvider) bindLBSubnet(
 		return refMissing(sid)
 	}
 
+	if users := p.subnetGatewayUsers(sid); len(users) > 0 {
+		return netBad("Subnet %s is reserved by %s and cannot contain load balancer frontends.", sid, users[0])
+	}
+
 	method, version, err := parseIPConfigMode(self, props)
 	if err != nil {
 		return err
@@ -215,7 +219,7 @@ func (p *NetworkProvider) bindLBSubnet(
 
 	c.taken[key][addr] = self
 	out[netFieldSubnet] = idRef(sid)
-	out[propPrivateIP], out["privateIPAllocationMethod"], out["privateIPAddressVersion"] = addr, method, version
+	out[propPrivateIP], out[netPropIPMethod], out[netPropIPVersion] = addr, method, version
 
 	return nil
 }

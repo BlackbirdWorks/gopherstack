@@ -1,6 +1,7 @@
 package gcpmonitoring
 
 import (
+	"maps"
 	"sort"
 	"time"
 
@@ -17,28 +18,31 @@ const (
 
 // Incident is one alert firing: it opens when a condition is met and closes when it recovers.
 type Incident struct {
-	StartedAt            time.Time         `json:"startedAt"`
-	EndedAt              time.Time         `json:"endedAt"`
-	MetricLabels         map[string]string `json:"metricLabels,omitempty"`
-	ResourceLabels       map[string]string `json:"resourceLabels,omitempty"`
-	ID                   string            `json:"id"`
-	Key                  string            `json:"key"`
-	Project              string            `json:"project"`
-	Policy               string            `json:"policy"`
-	PolicyDisplayName    string            `json:"policyDisplayName"`
-	Condition            string            `json:"condition"`
-	ConditionDisplayName string            `json:"conditionDisplayName"`
-	State                string            `json:"state"`
-	MetricType           string            `json:"metricType"`
-	ResourceType         string            `json:"resourceType"`
-	Observed             float64           `json:"observed"`
-	Threshold            float64           `json:"threshold"`
+	StartedAt            time.Time            `json:"startedAt"`
+	EndedAt              time.Time            `json:"endedAt"`
+	LastSeen             time.Time            `json:"lastSeen"`
+	Notified             map[string]time.Time `json:"notified,omitempty"`
+	MetricLabels         map[string]string    `json:"metricLabels,omitempty"`
+	ResourceLabels       map[string]string    `json:"resourceLabels,omitempty"`
+	ID                   string               `json:"id"`
+	Key                  string               `json:"key"`
+	Project              string               `json:"project"`
+	Policy               string               `json:"policy"`
+	PolicyDisplayName    string               `json:"policyDisplayName"`
+	Condition            string               `json:"condition"`
+	ConditionDisplayName string               `json:"conditionDisplayName"`
+	State                string               `json:"state"`
+	MetricType           string               `json:"metricType"`
+	ResourceType         string               `json:"resourceType"`
+	Observed             float64              `json:"observed"`
+	Threshold            float64              `json:"threshold"`
 }
 
 func newIncidentID() string { return "0." + awsid.NewN("", incidentSuffixLen) }
 
 func cloneIncident(i *Incident) Incident {
 	out := *i
+	out.Notified = maps.Clone(i.Notified)
 
 	return out
 }

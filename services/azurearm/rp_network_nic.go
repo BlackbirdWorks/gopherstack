@@ -276,6 +276,14 @@ func (p *NetworkProvider) pipUser(pipID string) string {
 		return f[0]
 	}
 
+	if f := p.agwFrontendUsers("publicIPAddress", pipID); len(f) > 0 {
+		return f[0]
+	}
+
+	if f := p.fwConfigUsers("publicIPAddress", pipID); len(f) > 0 {
+		return f[0]
+	}
+
 	return ""
 }
 
@@ -326,6 +334,8 @@ func (p *NetworkProvider) usedAddrsSkip(skipNIC, skipLB string) map[string]map[s
 		}
 	}
 
+	p.gatewayAddrs(used, skipLB)
+
 	for _, n := range p.ofType(netNICs) {
 		if strings.EqualFold(n.armID(), skipNIC) {
 			continue
@@ -348,6 +358,23 @@ func (p *NetworkProvider) usedAddrsSkip(skipNIC, skipLB string) map[string]map[s
 }
 
 func (p *NetworkProvider) subnetUsers(subnetID string) []string {
+	out := p.subnetResourceUsers(subnetID)
+	out = append(out, p.agwSubnetUsers(subnetID)...)
+
+	return append(out, p.fwSubnetUsers(subnetID)...)
+}
+
+// subnetForeignUsers lists NIC, load balancer and private endpoint users, which gateway and firewall subnets forbid.
+func (p *NetworkProvider) subnetForeignUsers(subnetID string) []string {
+	return append(p.subnetResourceUsers(subnetID), p.peOnSubnet(subnetID)...)
+}
+
+// subnetGatewayUsers lists the application gateways and firewalls that reserve the subnet for themselves.
+func (p *NetworkProvider) subnetGatewayUsers(subnetID string) []string {
+	return append(p.agwSubnetUsers(subnetID), p.fwSubnetUsers(subnetID)...)
+}
+
+func (p *NetworkProvider) subnetResourceUsers(subnetID string) []string {
 	var out []string
 
 	for _, n := range p.ofType(netNICs) {
@@ -568,13 +595,13 @@ func (p *NetworkProvider) normalizeIPConfigs(
 }
 
 func parseIPConfigMode(cfgID string, cp map[string]any) (string, string, error) {
-	version, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAddressVersion"), versionV4),
+	version, ok := canonEnum(firstNonEmpty(strOf(cp, netPropIPVersion), versionV4),
 		[]string{versionV4, versionV6})
 	if !ok || version == versionV6 {
 		return "", "", netBad("IP configuration %s: only IPv4 private addresses are supported.", cfgID)
 	}
 
-	method, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAllocationMethod"), methodDynamic),
+	method, ok := canonEnum(firstNonEmpty(strOf(cp, netPropIPMethod), methodDynamic),
 		[]string{methodStatic, methodDynamic})
 	if !ok {
 		return "", "", netBad("privateIPAllocationMethod must be Static or Dynamic.")
@@ -627,13 +654,13 @@ func (p *NetworkProvider) normalizeIPConfig(
 	delete(out, fieldProvisioningState)
 
 	out[netFieldSubnet] = map[string]any{netFieldID: sid}
-	out["privateIPAddress"], out["privateIPAllocationMethod"], out["privateIPAddressVersion"] = addr, method, version
+	out["privateIPAddress"], out[netPropIPMethod], out[netPropIPVersion] = addr, method, version
 
 	if err = p.bindPublicIP(cfgID, cp, out); err != nil {
 		return nil, err
 	}
 
-	for _, key := range []string{propNICPools, propNICNATs, propNICASGs} {
+	for _, key := range []string{propNICPools, propNICAGWPools, propNICNATs, propNICASGs} {
 		if list := anyList(cp[key]); len(list) > 0 {
 			ids := make([]string, 0, len(list))
 			for _, e := range list {
@@ -688,7 +715,7 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 	props["macAddress"] = it.Obj.Aux["mac"]
 	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
-	props["tapConfigurations"] = []any{}
+	props[nicTapCfgs] = p.nicTapList(it)
 	props["hostedWorkloads"] = []any{}
 	props["nicType"] = skuTierStandard
 	props["vnetEncryptionSupported"] = false
@@ -879,8 +906,11 @@ func (p *NetworkProvider) afterKidRemoved(parent *netParent, kt string, removed 
 }
 
 func (p *NetworkProvider) afterTopRemoved(it *netParent, _ ResourceID) {
-	if it.Type == netPEs {
+	switch it.Type {
+	case netPEs:
 		p.afterPERemoved(it)
+	case netPLS:
+		p.afterPLSRemoved(it)
 	}
 }
 
@@ -952,4 +982,46 @@ func sameNIC(a, b string) bool {
 	}
 
 	return cut(a) == cut(b)
+}
+
+// gatewayAddrs records the private addresses of application gateway frontends and firewall IP configurations.
+func (p *NetworkProvider) gatewayAddrs(used map[string]map[string]string, skipID string) {
+	put := func(sid, addr, owner string) {
+		key := strings.ToLower(sid)
+		if key == "" || addr == "" {
+			return
+		}
+
+		if used[key] == nil {
+			used[key] = map[string]string{}
+		}
+
+		used[key][addr] = owner
+	}
+
+	for _, gw := range p.ofType(netAGWs) {
+		if strings.EqualFold(gw.armID(), skipID) {
+			continue
+		}
+
+		for _, f := range gw.Kids[agwFrontends] {
+			put(subID(f.Props, netFieldSubnet), strOf(f.Props, propPrivateIP), gw.armID()+"/"+agwFrontends+"/"+f.Name)
+		}
+	}
+
+	for _, fw := range p.ofType(netFWs) {
+		if strings.EqualFold(fw.armID(), skipID) {
+			continue
+		}
+
+		for _, kt := range []string{fwIPConfigs, fwMgmtConfig} {
+			for _, k := range fw.Kids[kt] {
+				put(
+					subID(k.Props, netFieldSubnet),
+					strOf(k.Props, propPrivateIP),
+					fw.armID()+"/"+fwSegment(kt)+"/"+k.Name,
+				)
+			}
+		}
+	}
 }

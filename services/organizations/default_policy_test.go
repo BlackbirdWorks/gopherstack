@@ -50,7 +50,7 @@ func TestDefaultFullAWSAccessPolicy_ARN_ViaHandler(t *testing.T) {
 	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	assert.Equal(t,
-		"arn:aws:organizations::aws:policy/SERVICE_CONTROL_POLICY/p-FullAWSAccess",
+		"arn:aws:organizations::aws:policy/service_control_policy/p-FullAWSAccess",
 		resp.Policy.PolicySummary.ARN)
 }
 

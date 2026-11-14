@@ -9,22 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 10 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- Access-token scopes are enforced on /v2 only; the /acr/v1 metadata API accepts any valid token.
 - The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry.
-- Anonymous pull, repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled.
+- Repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled.
 - ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect.
-- Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events, and ARM webhook PATCH is not implemented (PUT replaces).
+- Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events.
 - Replications are metadata only: there is one copy of the data.
 - Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered.
 - Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false.
 - Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
-- No dashboard page.
 
 ## More
 

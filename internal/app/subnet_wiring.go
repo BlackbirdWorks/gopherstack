@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
@@ -120,10 +121,57 @@ func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
 	return subnets[0].CIDRBlock, true
 }
 
+// TransitGatewayOwner implements networkfirewall.TransitGatewayResolver across every region.
+func (a ec2SubnetAdapter) TransitGatewayOwner(id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+
+	for _, b := range a.regions.handler.RegionBackends() {
+		if tgws := b.DescribeTransitGateways([]string{id}); len(tgws) > 0 {
+			return tgws[0].OwnerID, true
+		}
+	}
+
+	return "", false
+}
+
+// NatGatewayNetwork implements networkfirewall.NetworkResolver.
+func (a ec2SubnetAdapter) NatGatewayNetwork(id string) (string, string, bool) {
+	for _, b := range a.regions.handler.RegionBackends() {
+		if nats := b.DescribeNatGateways([]string{id}); len(nats) > 0 {
+			zone := nats[0].AvailabilityZone
+			if zone == "" {
+				zone, _ = a.SubnetAZ(nats[0].SubnetID)
+			}
+
+			return nats[0].VPCID, zone, true
+		}
+	}
+
+	return "", "", false
+}
+
+// PrefixListCIDRCount implements networkfirewall.NetworkResolver for a managed prefix list ARN.
+func (a ec2SubnetAdapter) PrefixListCIDRCount(arn string) (int, bool) {
+	_, id, ok := strings.Cut(arn, ":prefix-list/")
+	if !ok {
+		return 0, false
+	}
+
+	entries, err := a.regions.handler.BackendFor(arnRegion(arn)).GetManagedPrefixListEntries(id)
+	if err != nil {
+		return 0, false
+	}
+
+	return len(entries), true
+}
+
 // wireSubnetLookups gives DocumentDB, Neptune and MediaLive their EC2 subnet accessors.
 func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireAMPScraperSources(byName)
 	wireCloudHSMNetwork(byName)
+	wireCloudHSMSharing(byName)
 	wireDLMCompute(byName)
 	wireRUMCloudWatch(byName)
 	wireConnectIntegrations(byName)
@@ -152,6 +200,8 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 
 	if h, hok := byName["NetworkFirewall"].(*networkfirewallbackend.Handler); hok {
 		h.SetSubnetResolver(adapter)
+		h.SetTransitGatewayResolver(adapter)
+		h.SetNetworkResolver(adapter)
 	}
 
 	if h, hok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler); hok {
@@ -181,6 +231,7 @@ func (a macSecSecretAdapter) CreateMacSecSecret(region, name, secretString strin
 // wireDirectConnectMacSecSecrets gives Direct Connect a Secrets Manager store for MACsec keys.
 func wireDirectConnectMacSecSecrets(byName map[string]service.Registerable) {
 	wireTimestreamInfluxDBIntegrations(byName)
+	wireTimestreamQueryIntegrations(byName)
 
 	dcH, ok := byName["DirectConnect"].(*directconnectbackend.Handler)
 	if !ok {

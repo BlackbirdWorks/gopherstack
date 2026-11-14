@@ -99,9 +99,21 @@ func (b *InMemoryBackend) resolveRuleTargetLocked(c lbCtx, in *computeapi.Forwar
 		return lbResolve(b, tcpProxySpec(), c, "resource.target", in.Target)
 	case collSSLProxy:
 		return lbResolve(b, sslProxySpec(), c, "resource.target", in.Target)
+	case collTargetPools:
+		return b.resolveClassicTargetLocked(c, in, func() (string, *APIError) {
+			return lbResolve(b, targetPoolSpec(), c, "resource.target", in.Target)
+		})
+	case collTargetInstances:
+		return b.resolveClassicTargetLocked(c, in, func() (string, *APIError) {
+			return b.resolveTargetInstanceLocked(c, in.Target)
+		})
+	case collTargetVPNGateways:
+		return b.resolveClassicTargetLocked(c, in, func() (string, *APIError) {
+			return lbResolve(b, targetVPNSpec(), c, "resource.target", in.Target)
+		})
 	default:
-		return "", errField("resource.target", in.Target, "Must be a target HTTP, HTTPS, TCP or SSL proxy; "+
-			"target pools, target instances and service attachments are not supported by this emulator.")
+		return "", errField("resource.target", in.Target, "Must be a target HTTP, HTTPS, TCP or SSL proxy, "+
+			"target pool, target instance or target VPN gateway; service attachments are not supported by this emulator.")
 	}
 }
 
@@ -222,6 +234,10 @@ func (b *InMemoryBackend) resolveRuleBackendLocked(c lbCtx, in *computeapi.Forwa
 
 	in.Target = l
 
+	if isClassicTarget(l) {
+		return nil
+	}
+
 	if c.scope == scopeRegion && scheme == schemeExternal || scheme == schemeInternal {
 		return errField(
 			"resource.loadBalancingScheme",
@@ -307,8 +323,12 @@ func prepRulePorts(in *computeapi.ForwardingRule) *APIError {
 		return errField("resource.IPProtocol", in.IPProtocol, "")
 	}
 
-	if in.Target != "" {
+	if in.Target != "" && !isClassicTarget(in.Target) {
 		return prepProxyRulePorts(in)
+	}
+
+	if in.Target != "" {
+		return prepClassicRulePorts(in)
 	}
 
 	set := 0
@@ -575,4 +595,79 @@ func (b *InMemoryBackend) setRuleLabels(c lbCtx, name string, req labelsRequest)
 			return cur, nil
 		},
 	)
+}
+
+func isClassicTarget(target string) bool {
+	k := ruleTargetKind(target)
+
+	return k == collTargetPools || k == collTargetInstances || k == collTargetVPNGateways
+}
+
+func (b *InMemoryBackend) resolveClassicTargetLocked(
+	c lbCtx, in *computeapi.ForwardingRule, resolve func() (string, *APIError),
+) (string, *APIError) {
+	if c.scope != scopeRegion || in.LoadBalancingScheme != schemeExternal {
+		return "", errField("resource.target", in.Target,
+			"Target pools and target instances take regional EXTERNAL forwarding rules.")
+	}
+
+	return resolve()
+}
+
+func (b *InMemoryBackend) resolveTargetInstanceLocked(c lbCtx, raw string) (string, *APIError) {
+	r, err := refLocated(raw, collTargetInstances, scopeZone, c.project, "")
+	if err != nil {
+		return "", err
+	}
+
+	if regionOfZone(r.loc) != c.loc {
+		return "", errField("resource.target", raw, "The target instance must be in a zone of "+c.loc+".")
+	}
+
+	ti, ok := b.targetInstances[key(r.project, r.loc, r.name)]
+	if !ok {
+		return "", errNotFound(relPath(r.project, scopeZone, r.loc, collTargetInstances, r.name))
+	}
+
+	return ti.SelfLink, nil
+}
+
+func prepClassicRulePorts(in *computeapi.ForwardingRule) *APIError {
+	set := 0
+
+	for _, ok := range []bool{in.PortRange != "", len(in.Ports) > 0, in.AllPorts} {
+		if ok {
+			set++
+		}
+	}
+
+	if set > 1 {
+		return errInvalid(
+			"Invalid value for field 'resource': at most one of portRange, ports or allPorts may be specified.",
+		)
+	}
+
+	return normalizeRulePorts(in)
+}
+
+// patchForwardingRule applies forwardingRules.patch, which updates only networkTier.
+func (b *InMemoryBackend) patchForwardingRule(c lbCtx, name string, raw map[string]any) (*computeapi.Operation, error) {
+	return lbMutate(b, fwdRuleSpec(), c, name, "patch", nil,
+		func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
+			tier, _ := raw["networkTier"].(string)
+
+			for k := range raw {
+				if k != "networkTier" {
+					return nil, errField("resource."+k, "", "Field is not updatable.")
+				}
+			}
+
+			if tier != tierPremium && (c.scope == scopeGlobal || tier != tierStandard) {
+				return nil, errField("resource.networkTier", tier, "")
+			}
+
+			cur.NetworkTier = tier
+
+			return cur, nil
+		})
 }

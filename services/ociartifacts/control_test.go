@@ -93,6 +93,7 @@ func TestContainerRepositoryLifecycle(t *testing.T) {
 	_, err := e.client.CreateContainerRepository(t.Context(), artifacts.CreateContainerRepositoryRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("svc/api")})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
 
 	got, err := e.client.GetContainerRepository(
 		t.Context(),

@@ -1,6 +1,7 @@
 package s3vectors_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"sort"
@@ -109,16 +110,23 @@ func TestQueryMatchesBruteForce(t *testing.T) {
 				assert.InDelta(t, want[i].dist, float64(aws.ToFloat32(v.Distance)), 1e-4)
 			}
 
-			first, err := query(t, f, "knn-bucket", "knn", 5, nil, q...)
+			small, err := query(t, f, "knn-bucket", "knn", 5, nil, q...)
 			require.NoError(t, err)
-			require.NotNil(t, first.NextToken, "more matches than topK leave a continuation token")
+			assert.Equal(t, keysOf(out)[:5], keysOf(small))
+			assert.Nil(t, small.NextToken, "topK bounds the whole result, not a page")
+
+			first, err := query(t, f, "knn-bucket", "knn", 150, nil, q...)
+			require.NoError(t, err)
+			assert.Len(t, first.Vectors, 100, "a page holds at most 100 results")
+			require.NotNil(t, first.NextToken)
 
 			second, err := f.client.QueryVectors(t.Context(), &sdk.QueryVectorsInput{
-				VectorBucketName: aws.String("knn-bucket"), IndexName: aws.String("knn"), TopK: aws.Int32(5),
+				VectorBucketName: aws.String("knn-bucket"), IndexName: aws.String("knn"), TopK: aws.Int32(150),
 				QueryVector: &types.VectorDataMemberFloat32{Value: q}, NextToken: first.NextToken,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, keysOf(out)[5:], keysOf(second))
+			assert.Len(t, second.Vectors, 50, "topK 150 ends after 50 more")
+			assert.Nil(t, second.NextToken)
 			assert.Nil(t, second.Vectors[0].Distance, "distance is only returned on request")
 		})
 	}
@@ -287,7 +295,7 @@ func TestQueryValidation(t *testing.T) {
 	}{
 		{name: "ok", k: 1, q: []float32{1, 1}, wantCode: ""},
 		{name: "topK zero", k: 0, q: []float32{1, 1}, wantCode: "ValidationException"},
-		{name: "topK too large", k: 101, q: []float32{1, 1}, wantCode: "ValidationException"},
+		{name: "topK too large", k: 10001, q: []float32{1, 1}, wantCode: "ValidationException"},
 		{name: "wrong dimension", k: 1, q: []float32{1}, wantCode: "ValidationException"},
 		{name: "zero query with cosine", k: 1, q: []float32{0, 0}, wantCode: "ValidationException"},
 	}
@@ -353,4 +361,88 @@ func TestVectorPersistence(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Vectors, 1)
 	assert.Equal(t, []float32{0.5, -1.25, 3}, got.Vectors[0].Data.(*types.VectorDataMemberFloat32).Value)
+}
+
+func TestQueryStartsWithAndConstraintLimit(t *testing.T) {
+	t.Parallel()
+
+	many := make([]any, 101)
+	for i := range many {
+		many[i] = fmt.Sprintf("v%d", i)
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		queryMode types.IndexMode
+		wantCode  string
+		wantKeys  []string
+		enhanced  bool
+	}{
+		{
+			name: "enhanced starts with", enhanced: true,
+			filter:   map[string]any{"path": map[string]any{"$startsWith": "/mk/"}},
+			wantKeys: []string{"a"},
+		},
+		{
+			name:     "classic starts with",
+			filter:   map[string]any{"path": map[string]any{"$startsWith": "/mk/"}},
+			wantCode: "ValidationException",
+		},
+		{
+			name: "classic index enhanced query", queryMode: types.IndexModeEnhanced,
+			filter:   map[string]any{"path": map[string]any{"$startsWith": "/mk/"}},
+			wantKeys: []string{"a"},
+		},
+		{
+			name: "starts with number", enhanced: true,
+			filter:   map[string]any{"path": map[string]any{"$startsWith": 5}},
+			wantCode: "ValidationException",
+		},
+		{
+			name: "101 constraints enhanced", enhanced: true,
+			filter:   map[string]any{"path": map[string]any{"$in": many}},
+			wantCode: "ValidationException",
+		},
+		{
+			name: "101 constraints classic", filter: map[string]any{"path": map[string]any{"$in": many}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			f.bucket(t, "sw-bucket")
+			f.index(t, "sw-bucket", "swx", "euclidean", 1)
+			f.put(t, "sw-bucket", "swx",
+				vec("a", map[string]any{"path": "/mk/x"}, 1), vec("b", map[string]any{"path": "/other"}, 2))
+
+			if tt.enhanced {
+				_, err := f.client.UpdateIndexMode(t.Context(), &sdk.UpdateIndexModeInput{
+					VectorBucketName: aws.String("sw-bucket"), IndexName: aws.String("swx"),
+					IndexMode: types.IndexModeEnhanced,
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := f.client.QueryVectors(t.Context(), &sdk.QueryVectorsInput{
+				VectorBucketName: aws.String("sw-bucket"), IndexName: aws.String("swx"), TopK: aws.Int32(5),
+				QueryVector: &types.VectorDataMemberFloat32{Value: []float32{1}}, QueryMode: tt.queryMode,
+				Filter: document.NewLazyDocument(tt.filter),
+			})
+			if tt.wantCode != "" {
+				assert.Equal(t, tt.wantCode, apiCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.wantKeys != nil {
+				assert.Equal(t, tt.wantKeys, keysOf(out))
+			}
+		})
+	}
 }

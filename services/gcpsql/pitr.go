@@ -3,6 +3,7 @@ package gcpsql
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -114,7 +115,8 @@ func recoveryTarget(in CloneInput) (time.Time, bool, error) {
 	if in.PointInTime != "" {
 		t, err := time.Parse(time.RFC3339Nano, in.PointInTime)
 		if err != nil {
-			return time.Time{}, false, errInvalid("Failed to parse date/time %q; use RFC 3339 in UTC.", in.PointInTime)
+			return time.Time{}, false, newErr(http.StatusBadRequest, "invalid",
+				"Invalid time format: Failed to parse input, %q is not an RFC 3339 timestamp in UTC.", in.PointInTime)
 		}
 
 		return t.UTC(), true, nil
@@ -144,8 +146,8 @@ func (b *InMemoryBackend) checkRecoveryLocked(src *instRec, at time.Time) error 
 	}
 
 	if latest := b.now(); at.After(latest) {
-		return errInvalid("The timestamp for point-in-time recovery is after the latest recovery time of %s.",
-			stamp(latest))
+		return errInvalid("The timestamp for point-in-time recovery is after the latest recovery time of %s. "+
+			"Clone the instance with a time that's earlier than this recovery time.", stamp(latest))
 	}
 
 	if at.Before(earliest) {

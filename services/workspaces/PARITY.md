@@ -741,3 +741,7 @@ FIXED: DescribeWorkspacesPools applies Filters (Name PoolName; EQUALS/NOTEQUALS/
 - Bad NextToken on DescribeWorkspaces/Directories/Bundles is InvalidParameterValuesException; CreateTags on an unknown resource and DeregisterWorkspaceDirectory on an unregistered directory are ResourceNotFoundException; IP group rules must be IP addresses or CIDRs.
 - Errors carry readable messages instead of the bare code.
 - Lenient on purpose: an unknown BundleId is still accepted by CreateWorkspaces (in-repo callers use made-up `wsb-*` ids).
+
+## 2026-11-13 open-item re-check
+
+API_RegisterWorkspaceDirectory re-read: EnableSelfService is "whether self-service capabilities are enabled" and Tenancy/WorkspaceType/UserIdentityType list valid values only, with no defaults; the items stay open.

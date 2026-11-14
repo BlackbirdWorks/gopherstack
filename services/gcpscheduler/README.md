@@ -18,7 +18,7 @@
 - Job state DISABLED and UPDATE_FAILED are never produced (updates are applied atomically); ResumeJob and PauseJob refuse them if they appear.
 - CreateJob does not validate the location against the supported-region catalog or the project against any registry.
 - Persisted in-flight attempts are not resumed mid-flight; after a restore the next cron slot or the persisted retry time applies.
-- Cloud Scheduler job-level max_doublings default (5) follows the documentation; the value the live service echoes was not verified.
+- Cloud Scheduler job-level max_doublings default is 5 (schedulerpb RetryConfig); whether the live service echoes that default on unset retry configs is not published (checked schedulerpb job.pb.go RetryConfig)
 
 ## More
 

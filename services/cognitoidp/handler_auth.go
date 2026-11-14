@@ -160,7 +160,7 @@ func (h *Handler) handleAdminResetUserPassword(
 
 	if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
 		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
-		CustomMessage: message, CustomSubject: subject,
+		CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 	}, nil); err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (h *Handler) respondToChallengeRound(
 	case challengeSelectChallenge:
 		return h.Backend.RespondToSelectChallenge(clientID, session, challengeResponses["ANSWER"])
 
-	case authFactorPassword, challengeEmailOTP, authFactorSMSOTP:
+	case authFactorPassword, challengeEmailOTP, authFactorSMSOTP, authFactorWebAuthn:
 		return h.Backend.RespondToFirstFactorChallenge(clientID, session, challengeResponses, cm)
 
 	default:
@@ -349,6 +349,7 @@ func (h *Handler) handleSignUpAccurate(
 	out := &signUpAccurateOutput{
 		UserSub:       user.Sub,
 		UserConfirmed: user.Status == UserStatusConfirmed,
+		Session:       h.Backend.NewSignUpSession(in.ClientID, user.Username),
 	}
 
 	if user.ConfirmCode != "" {
@@ -376,7 +377,7 @@ func (h *Handler) handleSignUpAccurate(
 
 		if err = h.deliverCode(ctx, user.UserPoolID, &MessageRequest{
 			Username: user.Username, Code: user.ConfirmCode, Kind: MessageVerification, Flow: FlowSignUp,
-			CustomMessage: message, CustomSubject: subject,
+			CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 		}, out.CodeDeliveryDetails); err != nil {
 			return nil, err
 		}
@@ -426,8 +427,8 @@ func (h *Handler) handleInitiateAuthAccurate(
 	}
 
 	if in.AuthFlow == authFlowUserAuth {
-		result, err := h.Backend.InitiateUserAuth(
-			in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"], in.ClientMetadata,
+		result, err := h.Backend.InitiateUserAuthSession(
+			in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"], in.Session, in.ClientMetadata,
 		)
 		if err != nil {
 			return nil, err
@@ -529,7 +530,9 @@ func (h *Handler) handleConfirmSignUpAccurate(
 		return nil, err
 	}
 
-	return &confirmSignUpAccurateOutput{}, nil
+	return &confirmSignUpAccurateOutput{
+		Session: h.Backend.ConfirmSignUpSession(in.ClientID, in.Username, in.Session),
+	}, nil
 }
 
 func (h *Handler) handleForgotPasswordAccurate(
@@ -569,7 +572,7 @@ func (h *Handler) handleForgotPasswordAccurate(
 
 	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
 		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
-		CustomMessage: message, CustomSubject: subject,
+		CustomMessage: message, CustomSubject: subject, ClientMetadata: in.ClientMetadata,
 	}, details); err != nil {
 		return nil, err
 	}

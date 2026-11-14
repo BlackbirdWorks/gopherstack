@@ -17,6 +17,11 @@ const (
 
 	onFailureContinue = "CONTINUE"
 
+	shellBash       = "bash"
+	shellSh         = "/bin/sh"
+	shellPowershell = "powershell.exe"
+	shellCmd        = "cmd.exe"
+
 	cbEnvFile = "/tmp/.cb_env"
 	cbCwdFile = "/tmp/.cb_cwd"
 )
@@ -33,6 +38,7 @@ func execPhaseNames() []string {
 }
 
 type specFile struct {
+	RunAs     string                `yaml:"run-as"`
 	Env       *specEnv              `yaml:"env"`
 	Phases    map[string]specPhase  `yaml:"phases"`
 	Artifacts *specArtifacts        `yaml:"artifacts"`
@@ -45,12 +51,16 @@ type specEnv struct {
 	Variables      map[string]any    `yaml:"variables"`
 	ParameterStore map[string]string `yaml:"parameter-store"`
 	SecretsManager map[string]string `yaml:"secrets-manager"`
+	Shell          string            `yaml:"shell"`
+	ExportedVars   []string          `yaml:"exported-variables"`
 }
 
 type specPhase struct {
-	OnFailure string   `yaml:"on-failure"`
-	Commands  []string `yaml:"commands"`
-	Finally   []string `yaml:"finally"`
+	RunAs           string         `yaml:"run-as"`
+	RuntimeVersions map[string]any `yaml:"runtime-versions"`
+	OnFailure       string         `yaml:"on-failure"`
+	Commands        []string       `yaml:"commands"`
+	Finally         []string       `yaml:"finally"`
 }
 
 type specArtifact struct {
@@ -87,7 +97,39 @@ func parseBuildspecFile(src string) (*specFile, error) {
 		}
 	}
 
+	if f.Env != nil && !validShell(f.Env.Shell) {
+		return nil, fmt.Errorf("%w: unsupported env.shell %q", errBuildspec, f.Env.Shell)
+	}
+
 	return &f, nil
+}
+
+func validShell(s string) bool {
+	return slices.Contains([]string{"", shellBash, shellSh, shellPowershell, shellCmd}, s)
+}
+
+// runAsFor returns the Linux user a phase runs as: the phase's run-as, else the global one.
+func (f *specFile) runAsFor(ph specPhase) string {
+	if ph.RunAs != "" {
+		return ph.RunAs
+	}
+
+	return f.RunAs
+}
+
+// linuxShell returns the shell binary env.shell selects; "" means bash when present, else sh.
+// Windows shells do not apply to the Linux build containers.
+func (f *specFile) linuxShell() string {
+	if f.Env == nil {
+		return ""
+	}
+
+	switch f.Env.Shell {
+	case shellBash, shellSh:
+		return f.Env.Shell
+	default:
+		return ""
+	}
 }
 
 func isExecPhase(name string) bool {
@@ -161,6 +203,7 @@ func envFileScript(vars []EnvironmentVariable) string {
 	}
 
 	sb.WriteString("CB_ENV_EOF\n")
+	sb.WriteString("chmod 666 " + cbEnvFile + "\n")
 
 	return sb.String()
 }
@@ -199,7 +242,8 @@ func commandScript(cmds []string, srcDir string, succeeding, shareShell bool) st
 
 	if shareShell {
 		fmt.Fprintf(&sb, "cd \"$(cat %s 2>/dev/null || echo %s)\" || exit 1\n", cbCwdFile, shQuote(srcDir))
-		fmt.Fprintf(&sb, "trap 'pwd > %s; export -p > %s' EXIT\n", cbCwdFile, cbEnvFile)
+		fmt.Fprintf(&sb, "trap 'pwd > %s; chmod 666 %s 2>/dev/null; export -p > %s' EXIT\n",
+			cbCwdFile, cbCwdFile, cbEnvFile)
 	} else {
 		sb.WriteString("cd " + shQuote(srcDir) + " || exit 1\n")
 	}
@@ -214,13 +258,16 @@ func commandScript(cmds []string, srcDir string, succeeding, shareShell bool) st
 	return sb.String()
 }
 
-// shellInvocation runs script with bash when the image has it, else sh.
-func shellInvocation(script string) []string {
-	return []string{
-		"sh", "-c",
-		`if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; else exec sh -c "$1"; fi`,
-		"_", script,
+// shellInvocation runs script with shell (bash when present, else sh, if empty), as user when set.
+func shellInvocation(script, shell, user string) []string {
+	pick := `if command -v bash >/dev/null 2>&1; then sh_bin=bash; else sh_bin=sh; fi; `
+	if shell != "" {
+		pick = "sh_bin=" + shQuote(shell) + "; "
 	}
+
+	run := `if [ -n "$1" ]; then exec su -s "$(command -v "$sh_bin")" "$1" -c "$2"; fi; exec "$sh_bin" -c "$2"`
+
+	return []string{"sh", "-c", pick + run, "_", user, script}
 }
 
 var failedCommandRe = regexp.MustCompile(`(?s)Command did not exit successfully (.*) exit status (\d+)\s*$`)

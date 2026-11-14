@@ -351,9 +351,7 @@ type tickJob struct {
 }
 
 // collectTicksLocked gathers AT_DEPLOYMENT_TICK invocations for deployments whose timer is due.
-func (b *InMemoryBackend) collectTicksLocked() []tickJob {
-	now := time.Now()
-
+func (b *InMemoryBackend) collectTicksLocked(now time.Time) []tickJob {
 	var jobs []tickJob
 
 	for key, timer := range b.deploymentTimers {
@@ -386,10 +384,11 @@ func (b *InMemoryBackend) collectTicksLocked() []tickJob {
 }
 
 // runDeploymentTicks invokes AT_DEPLOYMENT_TICK actions synchronously and rolls a deployment back when an
-// action errors or answers Directive ROLL_BACK.
-func (b *InMemoryBackend) runDeploymentTicks() {
+// action errors or answers Directive ROLL_BACK. now is shared with the reconcile pass so no deployment
+// advances before its tick.
+func (b *InMemoryBackend) runDeploymentTicks(now time.Time) {
 	b.mu.RLock("collectTicks")
-	jobs := b.collectTicksLocked()
+	jobs := b.collectTicksLocked(now)
 	b.mu.RUnlock()
 
 	for _, job := range jobs {

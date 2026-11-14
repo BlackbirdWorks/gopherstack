@@ -30,6 +30,12 @@ const (
 	opListWorkRequests  = "ListWorkRequests"
 	opListWorkReqErrors = "ListWorkRequestErrors"
 	opListWorkReqLogs   = "ListWorkRequestLogs"
+	opCreateReplica     = "CreateReplica"
+	opDeleteReplica     = "DeleteReplica"
+	opGetConfiguration  = "GetConfiguration"
+	opUpdateConfig      = "UpdateConfiguration"
+	opUnassignKmsKey    = "UnassignKmsKey"
+	opDeleteWorkRequest = "DeleteWorkRequest"
 	opAdminKeys         = "ManageAPIKeys"
 	opUnknown           = "Unknown"
 	adminPrefix         = "_gopherstack"
@@ -58,6 +64,12 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPost, Path: base + "/query", Op: opQuery},
 	{Method: http.MethodGet, Path: base + "/query/prepare", Op: opPrepareStatement},
 	{Method: http.MethodGet, Path: base + "/query/summarize", Op: opSummarizeStmt},
+	{Method: http.MethodPost, Path: tablePath + "/replicas", Op: opCreateReplica},
+	{Method: http.MethodDelete, Path: tablePath + "/replicas/{region}", Op: opDeleteReplica},
+	{Method: http.MethodGet, Path: base + "/configuration", Op: opGetConfiguration},
+	{Method: http.MethodPut, Path: base + "/configuration", Op: opUpdateConfig},
+	{Method: http.MethodPost, Path: base + "/configuration/actions/unassignkmskey", Op: opUnassignKmsKey},
+	{Method: http.MethodDelete, Path: workRequestPath, Op: opDeleteWorkRequest},
 	{Method: http.MethodGet, Path: base + "/workRequests", Op: opListWorkRequests},
 	{Method: http.MethodGet, Path: workRequestPath, Op: opGetWorkRequest},
 	{Method: http.MethodGet, Path: workRequestPath + "/errors", Op: opListWorkReqErrors},

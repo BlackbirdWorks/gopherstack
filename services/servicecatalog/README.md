@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 90 (90 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,10 +19,9 @@
 - UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
 - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
 - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
-- AcceptPortfolioShare: AWS_SERVICECATALOG shares do not exist, so only IMPORTED and AWS_ORGANIZATIONS are acceptable
 - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
 - CreateProduct MARKETPLACE: rejected with InvalidParametersException
-- TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
+- TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; API_TerminateProvisionedProduct.html models only ResourceNotFoundException (400) and the SDK doc comment says only that an unknown product returns ResourceNotFound, so the class is an emulator choice (InvalidParametersException is a modeled shape of the service)
 
 ### Structural gaps
 

@@ -15,6 +15,15 @@ const (
 	pathWithID            = 2
 	collServicePrincipals = "servicePrincipals"
 	collGroups            = "groups"
+	propOwners            = "owners"
+	propDescription       = "description"
+	keyODataContext       = "@odata.context"
+	propManager           = "manager"
+	propMembers           = "members"
+	propDisplayName       = "displayName"
+	headerContentType     = "Content-Type"
+	verbDelete            = "Delete"
+	verbGet               = "Get"
 )
 
 func signInAudiences() []string {

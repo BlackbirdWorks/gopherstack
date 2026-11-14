@@ -45,6 +45,8 @@ type armSnapshot struct {
 	ContainerService    *containerServiceSnapshot  `json:"containerService,omitempty"`
 	APIManagement       *apimSnapshot              `json:"apiManagement,omitempty"`
 	Authorization       *authorizationSnapshot     `json:"authorization,omitempty"`
+	Logic               *logicSnapshot             `json:"logic,omitempty"`
+	Search              *searchSnapshot            `json:"search,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -223,6 +225,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.ContainerInstance = p.snapshot()
 	}
 
+	if p, ok := h.searchProvider(); ok {
+		st.Search = p.snapshot()
+	}
+
 	h.snapshotInfra(&st)
 
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
@@ -283,7 +289,12 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		p.restore(snap.ContainerInstance)
 	}
 
+	if p, ok := h.searchProvider(); ok {
+		p.restore(snap.Search)
+	}
+
 	h.restoreInfra(snap)
+	h.migrateGenericStore()
 
 	return nil
 }
@@ -317,6 +328,10 @@ func (h *Handler) restoreInfra(snap armSnapshot) {
 	if p, ok := h.authorizationProvider(); ok {
 		p.restore(snap.Authorization)
 	}
+
+	if p, ok := h.logicProvider(); ok {
+		p.restore(snap.Logic)
+	}
 }
 
 // snapshotInfra adds the network, identity, compute, container apps and container service providers.
@@ -347,5 +362,9 @@ func (h *Handler) snapshotInfra(st *armSnapshot) {
 
 	if p, ok := h.authorizationProvider(); ok {
 		st.Authorization = p.snapshot()
+	}
+
+	if p, ok := h.logicProvider(); ok {
+		st.Logic = p.snapshot()
 	}
 }

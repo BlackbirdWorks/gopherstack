@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,7 +68,18 @@ func TestDockerComputeLiveDefaultIMDSAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	e := echo.New()
-	e.Any("/_gopherstack/ec2/imds/:instance/*", h.ServeIMDS)
+	var (
+		peersMu sync.Mutex
+		peers   []string
+	)
+
+	e.Any("/_gopherstack/ec2/imds/:instance/*", func(c *echo.Context) error {
+		peersMu.Lock()
+		peers = append(peers, c.Request().RemoteAddr)
+		peersMu.Unlock()
+
+		return h.ServeIMDS(c)
+	})
 
 	srv := &http.Server{Handler: e, ReadHeaderTimeout: time.Second}
 
@@ -123,6 +135,16 @@ func TestDockerComputeLiveDefaultIMDSAddress(t *testing.T) {
 		"wget -qO- --header 'X-aws-ec2-metadata-token: "+token+"' http://169.254.169.254/latest/meta-data/instance-id")
 	require.NoError(t, err)
 	assert.Equal(t, instanceID, got)
+
+	peersMu.Lock()
+	defer peersMu.Unlock()
+
+	require.NotEmpty(t, peers)
+
+	for _, p := range peers {
+		assert.False(t, strings.HasPrefix(p, "169.254."),
+			"relay must reach the emulator from a host-routable address, not the proxy IP: %s", p)
+	}
 
 	env, err := dockerExec(t.Context(), res.ProviderID, "env")
 	require.NoError(t, err)

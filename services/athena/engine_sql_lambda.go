@@ -7,10 +7,13 @@ import (
 
 // lambda is one parsed `params -> body` argument.
 const (
-	fnTransform = "transform"
-	fnAnyMatch  = "any_match"
-	fnAllMatch  = "all_match"
-	fnNoneMatch = "none_match"
+	fnTransform  = "transform"
+	fnAnyMatch   = "any_match"
+	fnAllMatch   = "all_match"
+	fnNoneMatch  = "none_match"
+	fnArraySort  = "array_sort"
+	fnMapZipWith = "map_zip_with"
+	fnReduceAgg  = "reduce_agg"
 )
 
 type lambda struct {
@@ -22,8 +25,10 @@ func lambdaArity(lw string) int {
 	switch lw {
 	case fnTransform, fnFilter, fnAnyMatch, fnAllMatch, fnNoneMatch:
 		return 1
-	case "map_filter", "transform_values", "transform_keys", "zip_with", "reduce":
+	case "map_filter", "transform_values", "transform_keys", "zip_with", "reduce", fnArraySort, fnReduceAgg:
 		return argsTwo
+	case fnMapZipWith:
+		return argsThree
 	default:
 		return 0
 	}
@@ -209,8 +214,14 @@ func (x *translator) lambdaSQL(lw string, args [][]token) (string, bool) {
 		return x.arraySQL(lw, args)
 	case "reduce":
 		return x.reduceSQL(args)
+	case fnReduceAgg:
+		return x.reduceAggSQL(args)
 	case "zip_with":
 		return x.zipSQL(args)
+	case fnArraySort:
+		return x.arraySortSQL(args)
+	case fnMapZipWith:
+		return x.mapZipSQL(args)
 	default:
 		return x.mapSQL(lw, args)
 	}
@@ -233,9 +244,9 @@ func (x *translator) arraySQL(lw string, args [][]token) (string, bool) {
 
 	switch lw {
 	case fnTransform:
-		inner = `(SELECT array_agg(` + body + `) FROM ` + elems + `)`
+		inner = `(SELECT athena_array_agg(` + body + `) FROM ` + elems + `)`
 	case fnFilter:
-		inner = `(SELECT array_agg(` + quoteIdent(l.params[0]) + `) FROM ` + elems + ` WHERE ` + body + `)`
+		inner = `(SELECT athena_array_agg(` + quoteIdent(l.params[0]) + `) FROM ` + elems + ` WHERE ` + body + `)`
 	default:
 		inner = `(SELECT ` + matchAgg(lw) + ` FROM (SELECT ` + body + ` AS "_r" FROM ` + elems + `))`
 	}
@@ -261,11 +272,11 @@ func (x *translator) mapSQL(lw string, args [][]token) (string, bool) {
 
 	switch lw {
 	case "map_filter":
-		inner = `(SELECT map_agg(` + k + `, ` + v + `) FROM ` + elems + ` WHERE ` + body + `)`
+		inner = `(SELECT athena_map_agg(` + k + `, ` + v + `) FROM ` + elems + ` WHERE ` + body + `)`
 	case "transform_values":
-		inner = `(SELECT map_agg(` + k + `, ` + body + `) FROM ` + elems + `)`
+		inner = `(SELECT athena_map_agg(` + k + `, ` + body + `) FROM ` + elems + `)`
 	default:
-		inner = `(SELECT map_agg(` + body + `, ` + v + `) FROM ` + elems + `)`
+		inner = `(SELECT athena_map_agg(` + body + `, ` + v + `) FROM ` + elems + `)`
 	}
 
 	return guardNull([]string{m}, inner), true
@@ -282,7 +293,7 @@ func (x *translator) zipSQL(args [][]token) (string, bool) {
 	}
 
 	a, b, body := x.sqlOf(args[0]), x.sqlOf(args[1]), x.sqlOf(l.body)
-	inner := `(SELECT array_agg(` + body + `) FROM ` + zipElems(a, b, l) + `)`
+	inner := `(SELECT athena_array_agg(` + body + `) FROM ` + zipElems(a, b, l) + `)`
 
 	return guardNull([]string{a, b}, inner), true
 }
@@ -301,14 +312,88 @@ func (x *translator) reduceSQL(args [][]token) (string, bool) {
 		return "", false
 	}
 
-	arr, init := x.sqlOf(args[0]), x.sqlOf(args[1])
+	return x.reduceParts(x.sqlOf(args[0]), x.sqlOf(args[1]), step, fin), true
+}
+
+// reduceAggSQL folds the group's values with the input function; the combine function only matters
+// for engines that merge partial states, so the sequential fold ignores it.
+func (x *translator) reduceAggSQL(args [][]token) (string, bool) {
+	const reduceAggArgs = 4
+
+	if len(args) != reduceAggArgs {
+		return "", false
+	}
+
+	step, sok := x.lambdaArg(args[2], argsTwo)
+	_, cok := x.lambdaArg(args[3], argsTwo)
+
+	if !sok || !cok {
+		return "", false
+	}
+
+	ident := lambda{params: []string{"_s"}, body: []token{{kind: tkQuoted, text: quoteIdent("_s")}}}
+
+	core := strings.ReplaceAll(x.reduceCore("?1", "?2", step, ident), "'", "''")
+
+	return "athena_fold(athena_array_agg(" + x.sqlOf(args[0]) + "), " + x.sqlOf(args[1]) + ", '" + core + "')", true
+}
+
+func (x *translator) reduceParts(arr, init string, step, fin lambda) string {
+	return guardNull([]string{arr}, "("+x.reduceCore(arr, init, step, fin)+")")
+}
+
+func (x *translator) reduceCore(arr, init string, step, fin lambda) string {
 	s, e := quoteIdent(step.params[0]), quoteIdent(step.params[1])
 
-	inner := `(WITH RECURSIVE "_e"("_i", ` + e + `) AS (SELECT key, athena_elem(value, type) ` +
+	return `WITH RECURSIVE "_e"("_i", ` + e + `) AS (SELECT key, athena_elem(value, type) ` +
 		`FROM json_each(athena_unmark(` + arr + `))), "_r"("_i", ` + s + `) AS (SELECT -1, ` + init +
 		` UNION ALL SELECT "_e"."_i", ` + x.sqlOf(step.body) + ` FROM "_r" JOIN "_e" ON "_e"."_i" = "_r"."_i" + 1) ` +
 		`SELECT ` + x.sqlOf(fin.body) + ` FROM (SELECT ` + s + ` AS ` + quoteIdent(fin.params[0]) +
-		` FROM "_r" ORDER BY "_i" DESC LIMIT 1))`
+		` FROM "_r" ORDER BY "_i" DESC LIMIT 1)`
+}
+
+// arraySortSQL ranks each element by how many others the comparator orders before it (ties keep input order).
+func (x *translator) arraySortSQL(args [][]token) (string, bool) {
+	if len(args) != argsTwo {
+		return "", false
+	}
+
+	l, ok := x.lambdaArg(args[1], argsTwo)
+	if !ok {
+		return "", false
+	}
+
+	arr, body := x.sqlOf(args[0]), x.sqlOf(l.body)
+	a, b := quoteIdent(l.params[0]), quoteIdent(l.params[1])
+	cmp := `(SELECT ` + body + ` FROM (SELECT athena_elem(y.value, y.type) AS ` + a +
+		`, athena_elem(x.value, x.type) AS ` + b + `))`
+	rank := `(SELECT count(*) FROM json_each(athena_unmark(` + arr + `)) y WHERE ` + cmp + ` < 0 OR (` +
+		cmp + ` = 0 AND y.key < x.key))`
+	inner := `(SELECT athena_array_agg("_v") FROM ` +
+		`(SELECT athena_elem(x.value, x.type) AS "_v" FROM json_each(athena_unmark(` +
+		arr + `)) x ORDER BY ` + rank + `, x.key))`
 
 	return guardNull([]string{arr}, inner), true
+}
+
+func (x *translator) mapZipSQL(args [][]token) (string, bool) {
+	if len(args) != argsThree {
+		return "", false
+	}
+
+	l, ok := x.lambdaArg(args[2], argsThree)
+	if !ok {
+		return "", false
+	}
+
+	m1, m2, body := x.sqlOf(args[0]), x.sqlOf(args[1]), x.sqlOf(l.body)
+	k, v1, v2 := quoteIdent(l.params[0]), quoteIdent(l.params[1]), quoteIdent(l.params[2])
+
+	elems := `(SELECT n.key AS ` + k + `, athena_elem(l.value, l.type) AS ` + v1 +
+		`, athena_elem(r.value, r.type) AS ` + v2 +
+		` FROM (SELECT key FROM json_each(athena_unmark(` + m1 + `)) UNION SELECT key FROM json_each(athena_unmark(` +
+		m2 + `))) n LEFT JOIN json_each(athena_unmark(` + m1 + `)) l ON l.key = n.key` +
+		` LEFT JOIN json_each(athena_unmark(` + m2 + `)) r ON r.key = n.key ORDER BY n.key)`
+
+	return guardNull([]string{m1, m2}, `(SELECT athena_map_agg(`+k+`, `+body+`) FROM `+elems+`)`), true
 }

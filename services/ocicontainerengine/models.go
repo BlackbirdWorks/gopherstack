@@ -136,6 +136,9 @@ type Cluster struct {
 	CAPEM            string          `json:"caPem"`
 	Token            string          `json:"token"`
 	MigrateState     string          `json:"migrateState,omitempty"`
+	Addons           []*Addon        `json:"addons,omitempty"`
+	Rotation         *Rotation       `json:"credentialRotation,omitempty"`
+	Decommission     *Decommission   `json:"endpointDecommission,omitempty"`
 	Options          ClusterOptions  `json:"options"`
 	ImagePolicy      ImagePolicy     `json:"imagePolicy"`
 	PodNetworks      []PodNet        `json:"podNetworks"`
@@ -235,5 +238,6 @@ type WorkRequest struct {
 	EntityURI     string     `json:"entityUri"`
 	Action        string     `json:"action"`
 	Failure       string     `json:"failure,omitempty"`
+	Canceled      bool       `json:"canceled,omitempty"`
 	Seq           int64      `json:"seq"`
 }

@@ -69,3 +69,11 @@ func BlockedWebhookAddr(a netip.Addr) bool { return blockedWebhookAddr(a) }
 
 // NewWebhookClient exposes newWebhookClient.
 func NewWebhookClient(d time.Duration) *http.Client { return newWebhookClient(d) }
+
+// DeadRetryCount reports dead-letter blob writes waiting for a retry.
+func DeadRetryCount(b *InMemoryBackend) int {
+	b.mu.RLock("DeadRetryCount")
+	defer b.mu.RUnlock()
+
+	return len(b.deadRetries)
+}

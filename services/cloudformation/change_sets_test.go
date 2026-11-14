@@ -281,8 +281,9 @@ func TestBackend_ExecuteChangeSet_DeletesOtherChangeSets(t *testing.T) {
 
 	require.NoError(t, b.ExecuteChangeSet(t.Context(), "multi-cs-stack", "cs-a", false, false))
 
-	_, err = b.DescribeChangeSet("multi-cs-stack", "cs-a")
-	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound, "executed change set must be gone")
+	executed, err := b.DescribeChangeSet("multi-cs-stack", "cs-a")
+	require.NoError(t, err, "the executed change set stays describable")
+	assert.Equal(t, "EXECUTE_COMPLETE", executed.ExecutionStatus)
 
 	_, err = b.DescribeChangeSet("multi-cs-stack", "cs-b")
 	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound,
@@ -290,7 +291,8 @@ func TestBackend_ExecuteChangeSet_DeletesOtherChangeSets(t *testing.T) {
 
 	list, err = b.ListChangeSets("multi-cs-stack", "")
 	require.NoError(t, err)
-	assert.Empty(t, list.Data)
+	require.Len(t, list.Data, 1)
+	assert.Equal(t, "cs-a", list.Data[0].ChangeSetName)
 }
 
 func TestBackend_ListChangeSets(t *testing.T) {

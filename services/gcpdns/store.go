@@ -10,6 +10,7 @@ import (
 	"github.com/miekg/dns"
 	dnsapi "google.golang.org/api/dns/v1"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -67,6 +68,7 @@ type InMemoryBackend struct {
 	zones    map[string]*zoneRec
 	policies map[string]*dnsapi.Policy
 	respPols map[string]*responseRec
+	iam      *gcpiampolicy.Store
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -81,6 +83,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.zones = map[string]*zoneRec{}
 	b.policies = map[string]*dnsapi.Policy{}
 	b.respPols = map[string]*responseRec{}
+	b.iam = gcpiampolicy.NewStore()
 }
 
 // Reset removes all state.

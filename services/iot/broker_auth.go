@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -117,18 +119,45 @@ func (b *Broker) activeCertARN(der []byte) string {
 	return ""
 }
 
-func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMemoryBackend) {
+// peerCertificateOf returns the client certificate presented on a TLS connection.
+func peerCertificateOf(cl *mqtt.Client) *x509.Certificate {
+	if cl == nil || cl.Net.Conn == nil {
+		return nil
+	}
+
 	conn, ok := cl.Net.Conn.(*tls.Conn)
 	if !ok {
-		return "", nil, nil
+		return nil
 	}
 
 	peers := conn.ConnectionState().PeerCertificates
 	if len(peers) == 0 {
+		return nil
+	}
+
+	return peers[0]
+}
+
+// certThumbprintOf is the SHA-256 hex digest of the client certificate, which principal() returns
+// for MQTT clients authenticated with an X.509 certificate; "" without one.
+func certThumbprintOf(cl *mqtt.Client) string {
+	cert := peerCertificateOf(cl)
+	if cert == nil {
+		return ""
+	}
+
+	sum := sha256.Sum256(cert.Raw)
+
+	return hex.EncodeToString(sum[:])
+}
+
+func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMemoryBackend) {
+	peer := peerCertificateOf(cl)
+	if peer == nil {
 		return "", nil, nil
 	}
 
-	sum := sha256.Sum256(peers[0].Raw)
+	sum := sha256.Sum256(peer.Raw)
 	id := hex.EncodeToString(sum[:])
 
 	for _, cand := range b.backends() {
@@ -143,7 +172,7 @@ func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMem
 		cand.mu.RUnlock()
 
 		if arnStr != "" {
-			return arnStr, peers[0], cand
+			return arnStr, peer, cand
 		}
 	}
 
@@ -202,6 +231,18 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 }
 
 func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	ok := false
+
+	func() {
+		defer logger.Recover(context.Background(), "iot.authenticate", nil)
+
+		ok = h.authenticate(cl, pk)
+	}()
+
+	return ok
+}
+
+func (h *authHook) authenticate(cl *mqtt.Client, pk packets.Packet) bool {
 	var ok bool
 
 	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
@@ -218,6 +259,18 @@ func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) boo
 }
 
 func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {
+	ok := false
+
+	func() {
+		defer logger.Recover(context.Background(), "iot.acl", nil)
+
+		ok = h.aclAllowed(cl, topic, write)
+	}()
+
+	return ok
+}
+
+func (h *authHook) aclAllowed(cl *mqtt.Client, topic string, write bool) bool {
 	switch {
 	case write:
 		return h.allowed(cl, "iot:Publish", "topic/"+topic)

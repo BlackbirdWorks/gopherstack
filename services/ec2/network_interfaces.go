@@ -19,9 +19,10 @@ var (
 
 // Attribute name and boolean-string constants used when reading/writing ENI attributes.
 const (
-	attrSourceDest  = "sourceDestCheck"
-	ec2BooleanTrue  = "true"
-	ipv6GroupHexLen = 4
+	attrSourceDest       = "sourceDestCheck"
+	ec2BooleanTrue       = "true"
+	ipv6GroupHexLen      = 4
+	ipv6SubnetPrefixBits = 64
 )
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
@@ -631,13 +632,16 @@ func (b *InMemoryBackend) AssignIpv6Addresses(niID string, count int) ([]string,
 	b.mu.Lock("AssignIpv6Addresses")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInterfaces.Get(niID); !ok {
+	eni, ok := b.networkInterfaces.Get(niID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, niID)
 	}
 
+	prefix := b.subnetIPv6PrefixLocked(eni.SubnetID)
+
 	assigned := make([]string, 0, count)
 	for range count {
-		addr := fmt.Sprintf("2001:db8::%s", awsid.NewN("", ipv6GroupHexLen))
+		addr := prefix + awsid.NewN("", ipv6GroupHexLen)
 		b.niIPv6Addresses[niID] = append(b.niIPv6Addresses[niID], addr)
 		assigned = append(assigned, addr)
 	}
@@ -745,4 +749,32 @@ func (b *InMemoryBackend) SubnetAddressesInUse(subnetID string) int {
 	delete(used, "")
 
 	return len(used)
+}
+
+// subnetIPv6PrefixLocked returns the first associated IPv6 CIDR's network as a "xxxx:xxxx:xxxx:xxxx::" prefix,
+// or the documentation prefix when the subnet has none (or a CIDR longer than /64).
+func (b *InMemoryBackend) subnetIPv6PrefixLocked(subnetID string) string {
+	const fallback = "2001:db8::"
+
+	for _, a := range b.subnetCIDRAssociations[subnetID] {
+		if a.State != stateAssociated {
+			continue
+		}
+
+		_, n, err := net.ParseCIDR(a.IPv6CIDRBlock)
+		if err != nil || n.IP.To4() != nil {
+			continue
+		}
+
+		if ones, _ := n.Mask.Size(); ones > ipv6SubnetPrefixBits {
+			continue
+		}
+
+		ip := n.IP.To16()
+
+		return fmt.Sprintf("%x:%x:%x:%x::", uint16(ip[0])<<8|uint16(ip[1]), uint16(ip[2])<<8|uint16(ip[3]),
+			uint16(ip[4])<<8|uint16(ip[5]), uint16(ip[6])<<8|uint16(ip[7]))
+	}
+
+	return fallback
 }

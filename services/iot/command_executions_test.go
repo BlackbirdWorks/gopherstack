@@ -375,6 +375,13 @@ func TestCommandExecutionDeviceLifecycle(t *testing.T) {
 		return got
 	}
 
+	withTTL := get(false)
+	require.NotNil(t, withTTL.TimeToLive)
+	assert.WithinDuration(
+		t, time.Now().UTC().AddDate(0, 6, 0), aws.ToTime(withTTL.TimeToLive), time.Minute,
+		"default retention is six months",
+	)
+
 	e.respond(t, id, `{"status":"IN_PROGRESS","clientToken":"a"}`)
 	assert.JSONEq(t, fmt.Sprintf(`{"executionId":%q,"clientToken":"a"}`, id), string(e.expect(t, base+"accepted/json")))
 	assert.Equal(t, types.CommandExecutionStatusInProgress, get(false).Status)

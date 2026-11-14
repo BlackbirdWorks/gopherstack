@@ -157,3 +157,55 @@ func TestRoutingPolicyRRSet(t *testing.T) {
 	_, err = e.svc.ResourceRecordSets.Create(project, "c", badItem).Context(t.Context()).Do()
 	assertAPIError(t, err, 400, "invalid")
 }
+
+func TestListRRSetsFilter(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.zone(t, "c", "c.com.")
+	e.addRRSet(t, "c", rrset("b.c.com.", "A", 60, "1.1.1.1"))
+	e.addRRSet(t, "c", rrset("b.c.com.", "TXT", 60, `"x"`))
+	e.addRRSet(t, "c", rrset("x.b.c.com.", "A", 60, "1.1.1.3"))
+	e.addRRSet(t, "c", rrset("ab.c.com.", "A", 60, "1.1.1.4"))
+
+	tests := []struct {
+		name   string
+		filter string
+		want   []string
+		bad    bool
+	}{
+		{"exact", "name=\"b.c.com.\"", []string{"b.c.com.:A", "b.c.com.:TXT"}, false},
+		{"exact type", "name=\"b.c.com.\" AND type=\"TXT\"", []string{"b.c.com.:TXT"}, false},
+		{"quoted fields", "`name`=\"b.c.com.\" AND `type`=\"A\"", []string{"b.c.com.:A"}, false},
+		{"suffix", "name=`has_suffix`(\"b.c.com.\")", []string{"b.c.com.:A", "b.c.com.:TXT", "x.b.c.com.:A"}, false},
+		{"suffix type", "name=has_suffix(\"b.c.com.\") AND type=\"A\"", []string{"b.c.com.:A", "x.b.c.com.:A"}, false},
+		{"no name", "type=\"A\"", nil, true},
+		{"garbage", "x", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := e.svc.ResourceRecordSets.List(project, "c").Filter(tt.filter).Context(t.Context()).Do()
+			if tt.bad {
+				assertAPIError(t, err, 400, "invalid")
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			got := make([]string, 0, len(res.Rrsets))
+			for _, rr := range res.Rrsets {
+				got = append(got, rr.Name+":"+rr.Type)
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	_, err := e.svc.ResourceRecordSets.List(project, "c").Name("b.c.com.").Filter("name=\"b.c.com.\"").
+		Context(t.Context()).Do()
+	assertAPIError(t, err, 400, "invalid")
+}

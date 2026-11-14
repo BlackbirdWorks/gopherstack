@@ -14,66 +14,133 @@ const (
 // CreateVolumeBackupIn is the CreateVolumeBackup request body.
 type CreateVolumeBackupIn struct {
 	TagsIn
+	RetentionIn
 	DisplayName string `json:"displayName"`
 	Type        string `json:"type"`
 	VolumeID    string `json:"volumeId"`
 	KmsKeyID    string `json:"kmsKeyId"`
 }
 
-// CreateVolumeBackup snapshots a volume; the first backup of a volume is always FULL.
-func (b *InMemoryBackend) CreateVolumeBackup(in CreateVolumeBackupIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackup")
-	defer b.mu.Unlock()
+// backupRequest validates the parts of a backup request shared by volumes and boot volumes.
+func backupRequest(name, srcField, srcID, typ string) *APIError {
+	if aerr := validName(name); aerr != nil {
+		return aerr
+	}
 
-	if aerr := validName(in.DisplayName); aerr != nil {
+	if srcID == "" {
+		return errMissing(srcField + " is required")
+	}
+
+	if typ != "" && typ != backupFull && typ != backupIncremental {
+		return errParam("type must be FULL or INCREMENTAL")
+	}
+
+	return nil
+}
+
+// availableSource returns a live, AVAILABLE volume or boot volume to back up.
+func availableSource[T Resource](b *InMemoryBackend, id, what string) (T, *APIError) {
+	src, aerr := getLive[T](b, id)
+	if aerr != nil {
+		return src, aerr
+	}
+
+	if state := src.base().LifecycleState; state != statAvailable {
+		return src, errState("The " + what + " " + id + " is " + state)
+	}
+
+	return src, nil
+}
+
+// CreateVolumeBackup snapshots a volume; the first backup of a volume is always FULL.
+func (b *InMemoryBackend) CreateVolumeBackup(in CreateVolumeBackupIn) (Resource, string, *APIError) {
+	if aerr := backupRequest(in.DisplayName, "volumeId", in.VolumeID, in.Type); aerr != nil {
 		return nil, "", aerr
 	}
 
-	if in.VolumeID == "" {
-		return nil, "", errMissing("volumeId is required")
+	vol, aerr := availableSource[*Volume](b, in.VolumeID, "volume")
+	if aerr == nil {
+		aerr = b.checkKmsKey(in.KmsKeyID)
 	}
 
-	if in.Type != "" && in.Type != backupFull && in.Type != backupIncremental {
-		return nil, "", errParam("type must be FULL or INCREMENTAL")
-	}
-
-	vol, aerr := getLive[*Volume](b, in.VolumeID)
 	if aerr != nil {
 		return nil, "", aerr
 	}
 
-	if vol.LifecycleState != statAvailable {
-		return nil, "", errState("The volume " + vol.ID + " is " + vol.LifecycleState)
+	bk, aerr := b.snapshotVolume(vol, in, vol.CompartmentID)
+	if aerr != nil {
+		return nil, "", aerr
 	}
 
-	typ := cmpOrStr(in.Type, backupIncremental)
-	if len(liveOf(b, func(x *VolumeBackup) bool { return x.VolumeID == vol.ID })) == 0 {
-		typ = backupFull
+	return bk.view(), bk.Internal.Etag, nil
+}
+
+// backupTypeFor picks the backup type: the first backup of a source is always FULL.
+func backupTypeFor(requested string, prior int) string {
+	if prior == 0 {
+		return backupFull
 	}
 
+	return cmpOrStr(requested, backupIncremental)
+}
+
+// stamped names a resource after the request, or prefix plus the creation time.
+func (b *InMemoryBackend) stamped(name, prefix string) string {
+	return cmpOrStr(name, prefix+b.nowUTC().Format("20060102-150405"))
+}
+
+// commitBackup applies retention to a new backup and stores it as CREATING.
+func (b *InMemoryBackend) commitBackup(r Resource, ret *Retention, in RetentionIn) *APIError {
+	if aerr := ret.apply(in, r.base().TimeCreated); aerr != nil {
+		return aerr
+	}
+
+	b.moveTo(r, statCreating, statAvailable)
+	b.add(r)
+
+	return nil
+}
+
+// snapshotVolume records a manual backup of a volume.
+func (b *InMemoryBackend) snapshotVolume(vol *Volume, in CreateVolumeBackupIn, comp string) (*VolumeBackup, *APIError) {
+	prior := len(liveOf(b, func(x *VolumeBackup) bool { return x.VolumeID == vol.ID }))
 	bk := &VolumeBackup{
-		Base:                b.newBase(kindBackup, vol.CompartmentID, in.DisplayName, in.TagsIn),
-		Type:                typ,
+		Base: b.newBase(
+			kindBackup,
+			comp,
+			b.stamped(in.DisplayName, "backup"),
+			in.TagsIn,
+		),
+		Type:                backupTypeFor(in.Type, prior),
 		VolumeID:            vol.ID,
-		SourceType:          "MANUAL",
+		SourceType:          sourceManual,
 		KmsKeyID:            in.KmsKeyID,
 		SizeInGBs:           vol.SizeInGBs,
 		SizeInMBs:           vol.SizeInMBs,
 		TimeRequestReceived: b.nowUTC(),
 	}
-	if in.DisplayName == "" {
-		bk.DisplayName = "backup" + b.nowUTC().Format("20060102-150405")
+
+	if aerr := b.commitBackup(bk, &bk.Retention, in.RetentionIn); aerr != nil {
+		return nil, aerr
 	}
 
-	b.moveTo(bk, statCreating, statAvailable)
-	b.add(bk)
-
-	return bk.view(), bk.Internal.Etag, nil
+	return bk, nil
 }
 
-// UpdateVolumeBackup changes a backup's name and tags.
-func (b *InMemoryBackend) UpdateVolumeBackup(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
-	return updateWith(b, id, ifMatch, in, func(*VolumeBackup) *APIError { return nil })
+// UpdateVolumeBackupIn is the UpdateVolumeBackup request body.
+type UpdateVolumeBackupIn struct {
+	RetentionIn
+	UpdateIn
+}
+
+// UpdateVolumeBackup changes a backup's name, tags and retention settings.
+func (b *InMemoryBackend) UpdateVolumeBackup(
+	id, ifMatch string,
+	in UpdateVolumeBackupIn,
+) (Resource, string, *APIError) {
+	return updateWith(b, id, ifMatch, in.UpdateIn, func(bk *VolumeBackup) *APIError {
+		return bk.apply(in.RetentionIn, bk.TimeCreated)
+	})
 }
 
 func (b *InMemoryBackend) findPolicy(id string) (*VolumeBackupPolicy, *APIError) {
@@ -112,10 +179,7 @@ type CreateVolumeBackupPolicyIn struct {
 }
 
 // CreateVolumeBackupPolicy stores a user defined policy; its schedules are never executed.
-func (b *InMemoryBackend) CreateVolumeBackupPolicy(in CreateVolumeBackupPolicyIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackupPolicy")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateVolumeBackupPolicy(in CreateVolumeBackupPolicyIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -156,7 +220,7 @@ type UpdateVolumeBackupPolicyIn struct {
 func (b *InMemoryBackend) UpdateVolumeBackupPolicy(
 	id, ifMatch string,
 	in UpdateVolumeBackupPolicyIn,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(p *VolumeBackupPolicy) *APIError {
 		if in.Schedules == nil {
 			return nil
@@ -173,7 +237,7 @@ func (b *InMemoryBackend) UpdateVolumeBackupPolicy(
 }
 
 // GetVolumeBackupPolicy returns a predefined or user defined policy.
-func (b *InMemoryBackend) GetVolumeBackupPolicy(id string) (resource, string, *APIError) {
+func (b *InMemoryBackend) GetVolumeBackupPolicy(id string) (Resource, string, *APIError) {
 	b.mu.RLock("GetVolumeBackupPolicy")
 	defer b.mu.RUnlock()
 
@@ -189,7 +253,7 @@ func (b *InMemoryBackend) GetVolumeBackupPolicy(id string) (resource, string, *A
 func (b *InMemoryBackend) ListVolumeBackupPolicies(
 	compartment, pageToken string,
 	limit int,
-) (page.Page[resource], *APIError) {
+) (page.Page[Resource], *APIError) {
 	b.mu.RLock("ListVolumeBackupPolicies")
 	defer b.mu.RUnlock()
 
@@ -197,22 +261,22 @@ func (b *InMemoryBackend) ListVolumeBackupPolicies(
 
 	if compartment != "" {
 		if aerr := b.checkCompartment(compartment); aerr != nil {
-			return page.Page[resource]{}, aerr
+			return page.Page[Resource]{}, aerr
 		}
 
 		custom := liveOf(b, func(p *VolumeBackupPolicy) bool { return p.CompartmentID == compartment })
-		sortRes(custom, ListOpts{Order: "ASC"})
+		sortRes(custom, ListOpts{Order: orderAsc})
 		all = append(all, custom...)
 	}
 
 	pg := page.New(all, pageToken, limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, p := range pg.Data {
 		out = append(out, p.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 // DeleteVolumeBackupPolicy deletes a user defined policy that has no assignments.
@@ -262,10 +326,7 @@ func (b *InMemoryBackend) dropAssignments(assetID string) {
 }
 
 // CreateVolumeBackupPolicyAssignment assigns a policy to a volume or boot volume (one policy per asset).
-func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignmentIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVolumeBackupPolicyAssignment")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignmentIn) (Resource, string, *APIError) {
 	if in.AssetID == "" || in.PolicyID == "" {
 		return nil, "", errMissing("assetId and policyId are required")
 	}
@@ -291,8 +352,15 @@ func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignment
 		}
 
 		comp = v.CompartmentID
+	case kindVolumeGroup:
+		v, aerr := getLive[*VolumeGroup](b, in.AssetID)
+		if aerr != nil {
+			return nil, "", aerr
+		}
+
+		comp = v.CompartmentID
 	default:
-		return nil, "", errParam("assetId must be a volume or boot volume OCID")
+		return nil, "", errParam("assetId must be a volume, boot volume or volume group OCID")
 	}
 
 	if len(liveOf(b, func(x *BackupPolicyAssignment) bool { return x.AssetID == in.AssetID })) > 0 {
@@ -305,27 +373,27 @@ func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignment
 }
 
 // ListPolicyAssignments lists the policy assignments of an asset.
-func (b *InMemoryBackend) ListPolicyAssignments(assetID, pageToken string, limit int) (page.Page[resource], *APIError) {
+func (b *InMemoryBackend) ListPolicyAssignments(assetID, pageToken string, limit int) (page.Page[Resource], *APIError) {
 	if assetID == "" {
-		return page.Page[resource]{}, errMissing("assetId is required")
+		return page.Page[Resource]{}, errMissing("assetId is required")
 	}
 
 	b.mu.RLock("ListPolicyAssignments")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.res[assetID]; !ok {
-		return page.Page[resource]{}, errNotFound(assetID)
+		return page.Page[Resource]{}, errNotFound(assetID)
 	}
 
 	all := liveOf(b, func(x *BackupPolicyAssignment) bool { return x.AssetID == assetID })
 	pg := page.New(all, pageToken, limit, defaultListLimit)
-	out := make([]resource, 0, len(pg.Data))
+	out := make([]Resource, 0, len(pg.Data))
 
 	for _, a := range pg.Data {
 		out = append(out, a.view())
 	}
 
-	return page.Page[resource]{Data: out, Next: pg.Next}, nil
+	return page.Page[Resource]{Data: out, Next: pg.Next}, nil
 }
 
 // DeleteVolumeBackupPolicyAssignment removes an assignment.

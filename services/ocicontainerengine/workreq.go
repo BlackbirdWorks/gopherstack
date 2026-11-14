@@ -10,6 +10,7 @@ import (
 const (
 	entityCluster   = "cluster"
 	entityNodePool  = "nodepool"
+	entityVNP       = "virtualnodepool"
 	wrStatusPending = "IN_PROGRESS"
 	actionCreated   = "CREATED"
 	actionUpdated   = "UPDATED"
@@ -24,6 +25,17 @@ const (
 	wrNodePoolCreate = "NODEPOOL_CREATE"
 	wrNodePoolUpdate = "NODEPOOL_UPDATE"
 	wrNodePoolDelete = "NODEPOOL_DELETE"
+	wrVNPCreate      = "VIRTUALNODEPOOL_CREATE"
+	wrVNPUpdate      = "VIRTUALNODEPOOL_UPDATE"
+	wrVNPDelete      = "VIRTUALNODEPOOL_DELETE"
+	wrAddonEnable    = "ENABLE_ADDON"
+	wrAddonUpdate    = "UPDATE_ADDON"
+	wrAddonDisable   = "DISABLE_ADDON"
+	wrNodeReboot     = "CLUSTER_NODE_REBOOT"
+	wrNodeReplace    = "CLUSTER_NODE_REPLACE_BOOT_VOLUME"
+	wrDecommission   = "START_PUBLIC_API_ENDPOINT_DECOMMISSION"
+	wrRollback       = "ROLLBACK_PUBLIC_API_ENDPOINT_DECOMMISSION"
+	wrNamespace      = "CREATE_NAMESPACE"
 )
 
 type wrResourceWire struct {
@@ -69,8 +81,11 @@ func (b *InMemoryBackend) newWR(op, compartment, entityType, id, action string, 
 }
 
 func entityPath(entityType string) string {
-	if entityType == entityNodePool {
+	switch entityType {
+	case entityNodePool:
 		return "nodePools"
+	case entityVNP:
+		return "virtualNodePools"
 	}
 
 	return "clusters"
@@ -88,6 +103,12 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 		Resources: []wrResourceWire{{
 			EntityType: wr.EntityType, ActionType: wrStatusPending, Identifier: wr.EntityID, EntityURI: wr.EntityURI,
 		}},
+	}
+
+	if wr.Canceled {
+		out.Status, out.TimeFinished, out.Resources[0].ActionType = "CANCELED", wr.FinishAt, "CANCELED"
+
+		return out
 	}
 
 	if !wr.finished(b.nowUTC()) {
@@ -118,6 +139,40 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (WorkRequestWire, error) {
 	}
 
 	return b.wrView(wr), nil
+}
+
+// DeleteWorkRequest cancels an unfinished work request; the transition it describes still completes.
+func (b *InMemoryBackend) DeleteWorkRequest(id, ifMatch string) error {
+	b.mu.Lock("DeleteWorkRequest")
+	defer b.mu.Unlock()
+
+	wr, ok := b.workReqs[id]
+	if !ok {
+		return errNotFound(id)
+	}
+
+	if ifMatch != "" {
+		return errEtag()
+	}
+
+	now := b.nowUTC()
+	if wr.Canceled || wr.finished(now) {
+		return errState("Work request " + id + " has already finished and cannot be canceled")
+	}
+
+	wr.Canceled, wr.FinishAt = true, &now
+
+	return nil
+}
+
+func (h *Handler) deleteWorkRequest(q *req) error {
+	if err := h.Backend.DeleteWorkRequest(q.param("workRequestId"), q.ifMatch()); err != nil {
+		return err
+	}
+
+	q.w.WriteHeader(http.StatusNoContent)
+
+	return nil
 }
 
 // WRListIn are the ListWorkRequests filters.
@@ -172,6 +227,10 @@ func (b *InMemoryBackend) ListWorkRequests(in WRListIn) (page.Page[WorkRequestWi
 
 func (b *InMemoryBackend) wrInCluster(wr *WorkRequest, clusterID string) bool {
 	if wr.EntityID == clusterID {
+		return true
+	}
+
+	if vp, ok := b.vpools[wr.EntityID]; ok && vp.ClusterID == clusterID {
 		return true
 	}
 

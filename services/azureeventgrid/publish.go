@@ -22,6 +22,8 @@ type Event struct {
 	Fields map[string]any
 	ID     string
 	Raw    jsontext.Value
+	// Original is the published payload of a custom-schema event (Raw is its Event Grid form).
+	Original jsontext.Value
 }
 
 func invalidEvent(format string, args ...any) error {
@@ -31,6 +33,26 @@ func invalidEvent(format string, args ...any) error {
 // ParseEvents decodes a publish body (a JSON array or a single object) and
 // validates every event against the schema.
 func ParseEvents(body []byte, schema string) ([]Event, error) {
+	raws, err := splitEvents(body)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Event, 0, len(raws))
+
+	for i, raw := range raws {
+		ev, evErr := parseEvent(raw, schema)
+		if evErr != nil {
+			return nil, fmt.Errorf("event %d: %w", i, evErr)
+		}
+
+		out = append(out, ev)
+	}
+
+	return out, nil
+}
+
+func splitEvents(body []byte) ([]jsontext.Value, error) {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
 		return nil, invalidEvent("the request body is empty")
@@ -54,18 +76,7 @@ func ParseEvents(body []byte, schema string) ([]Event, error) {
 		return nil, ErrTooManyEvents
 	}
 
-	out := make([]Event, 0, len(raws))
-
-	for i, raw := range raws {
-		ev, err := parseEvent(raw, schema)
-		if err != nil {
-			return nil, fmt.Errorf("event %d: %w", i, err)
-		}
-
-		out = append(out, ev)
-	}
-
-	return out, nil
+	return raws, nil
 }
 
 func parseEvent(raw jsontext.Value, schema string) (Event, error) {
@@ -125,7 +136,13 @@ func (b *InMemoryBackend) Publish(topicName string, events []Event) error {
 	now := b.now().UTC()
 
 	for i := range events {
-		if err = events[i].stamp(t.ResourceID, t.InputSchema); err != nil {
+		if t.InputSchema == SchemaCustom {
+			events[i], err = t.InputMapping.mapEvent(events[i], t.ResourceID, now)
+		} else {
+			err = events[i].stamp(t.ResourceID, t.InputSchema)
+		}
+
+		if err != nil {
 			return err
 		}
 
@@ -158,5 +175,10 @@ func (s *subscription) enqueue(ev Event, now time.Time) {
 		return
 	}
 
-	s.Pending = append(s.Pending, &delivery{Due: now, Published: now, ID: ev.ID, Event: ev.Raw})
+	raw := ev.Raw
+	if s.Spec.EventDeliverySchema == SchemaCustomInput && ev.Original != nil {
+		raw = ev.Original
+	}
+
+	s.Pending = append(s.Pending, &delivery{Due: now, Published: now, ID: ev.ID, Event: raw})
 }

@@ -14,6 +14,7 @@ import (
 func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) (*ACL, error) {
 	b.mu.Lock("CreateACL")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -93,6 +94,7 @@ func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL
 func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, error) {
 	b.mu.Lock("DeleteACL")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 

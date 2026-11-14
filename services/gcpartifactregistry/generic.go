@@ -38,7 +38,9 @@ type genFile struct {
 func storesFormat(f artifactregistrypb.Repository_Format) bool {
 	switch f {
 	case artifactregistrypb.Repository_GENERIC, artifactregistrypb.Repository_NPM,
-		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN:
+		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN,
+		artifactregistrypb.Repository_APT, artifactregistrypb.Repository_YUM, artifactregistrypb.Repository_GO,
+		artifactregistrypb.Repository_KFP:
 		return true
 	default:
 		return false
@@ -182,11 +184,13 @@ func (b *InMemoryBackend) genGetVersion(l leafRef) (*artifactregistrypb.Version,
 func (b *InMemoryBackend) dropGenericVersionLocked(name string) {
 	delete(b.genVers, name)
 	b.untagLocked(name)
+	b.dropAttachmentsOfTargetLocked(name)
 
 	for fn, f := range b.genFiles {
 		if f.Owner == name {
 			delete(b.genFiles, fn)
 			delete(b.meta, fn)
+			b.dropAttachmentFileLocked(fn)
 		}
 	}
 }
@@ -206,6 +210,7 @@ func (b *InMemoryBackend) genDeletePackage(parent repoRef, p pkgRef) (*longrunni
 
 	delete(b.genPkgs, p.full())
 	delete(b.pkgTags, p.full())
+	b.dropAttachmentsOfTargetLocked(p.full())
 	b.mu.Unlock()
 
 	return b.done(parent.parent(), &emptypb.Empty{})
@@ -391,6 +396,14 @@ func (b *InMemoryBackend) dropRepoDataLocked(ref repoRef) {
 			delete(b.pkgTags, k)
 		}
 	}
+
+	for k := range b.attach {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.attach, k)
+		}
+	}
+
+	delete(b.signKeys, ref.full())
 }
 
 func (b *InMemoryBackend) genBatchDelete(

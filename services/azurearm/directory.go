@@ -20,6 +20,16 @@ type ClientAuthenticator interface {
 	AuthenticateClient(clientID, secret string) (objectID string, known bool, err error)
 }
 
+// AssertionAuthenticator is implemented by a ClientAuthenticator that also verifies JWT client assertions
+// (certificate and federated identity credential flows). audiences lists the aud values this endpoint accepts for
+// a certificate assertion.
+type AssertionAuthenticator interface {
+	AuthenticateAssertion(clientID, assertion string, audiences []string) (objectID string, known bool, err error)
+}
+
+// clientAssertionJWT is the client_assertion_type of a JWT client assertion (RFC 7523).
+const clientAssertionJWT = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+
 // ClientAuthError is a token endpoint rejection rendered in Entra's error shape.
 type ClientAuthError struct {
 	Name        string
@@ -99,11 +109,18 @@ func (h *Handler) writeClientAuthError(c *echo.Context, err *ClientAuthError) er
 // client is not in the directory.
 func (h *Handler) authenticateClient(
 	r *http.Request,
-	clientID string,
+	tenant, clientID string,
 	form map[string][]string,
 ) (string, *ClientAuthError) {
 	if h.clients == nil || clientID == "" {
 		return "", nil
+	}
+
+	if len(form["client_assertion"]) > 0 && len(form["client_assertion_type"]) > 0 &&
+		form["client_assertion_type"][0] == clientAssertionJWT {
+		if aa, ok := h.clients.(AssertionAuthenticator); ok {
+			return h.authenticateAssertion(aa, r, tenant, clientID, form["client_assertion"][0])
+		}
 	}
 
 	secret := ""
@@ -126,6 +143,43 @@ func (h *Handler) authenticateClient(
 		Status:      http.StatusUnauthorized,
 		Name:        "invalid_client",
 		Code:        codeInvalidClientSecret,
+		Description: strings.TrimSpace(err.Error()),
+	}
+}
+
+// audiencesPerRoot counts the URLs listed per authority root and tenant.
+const audiencesPerRoot = 3
+
+// assertionAudiences are the aud values accepted for a certificate client assertion: the token endpoint and issuer
+// of this emulator and of the public cloud.
+func (h *Handler) assertionAudiences(r *http.Request, tenant string) []string {
+	roots := []string{h.baseURLFor(r), "https://login.microsoftonline.com"}
+	tenants := []string{tenant, h.Settings.TenantID}
+	out := make([]string, 0, len(roots)*len(tenants)*audiencesPerRoot)
+
+	for _, root := range roots {
+		for _, t := range tenants {
+			out = append(out, root+"/"+t+"/oauth2/v2.0/token", root+"/"+t+"/oauth2/token", root+"/"+t+"/v2.0")
+		}
+	}
+
+	return out
+}
+
+func (h *Handler) authenticateAssertion(
+	aa AssertionAuthenticator, r *http.Request, tenant, clientID, assertion string,
+) (string, *ClientAuthError) {
+	oid, known, err := aa.AuthenticateAssertion(clientID, assertion, h.assertionAudiences(r, tenant))
+	if err == nil || !known {
+		return oid, nil
+	}
+
+	if ce, ok := err.(*ClientAuthError); ok { //nolint:errorlint // adapter returns the concrete type
+		return "", ce
+	}
+
+	return "", &ClientAuthError{
+		Status: http.StatusUnauthorized, Name: "invalid_client", Code: codeInvalidClientSecret,
 		Description: strings.TrimSpace(err.Error()),
 	}
 }

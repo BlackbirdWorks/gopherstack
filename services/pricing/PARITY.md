@@ -17,7 +17,7 @@ gaps: []
 items_still_open:
   - Catalog: ten services (EC2, S3, Lambda, DynamoDB, RDS, SQS, SNS, CloudFront, ElastiCache, ECS/Fargate) and 14 regions; DescribeServices does not list the other ~200 AWS service codes
   - Catalog: prices are illustrative, not the live AWS price feed; there is a single published version (20261001000000)
-  - Reserved: EC2/RDS carry the 12 standard/convertible x 1yr/3yr x No/Partial/All Upfront terms, but ratios are illustrative and the non-Standard-No-Upfront offer term codes are recalled from the public price list, unverified
+  - "Reserved: EC2/RDS carry the 12 standard/convertible x 1yr/3yr x No/Partial/All Upfront terms, but ratios are illustrative and the non-Standard-No-Upfront offer term codes are not published (checked reading-an-offer.html, which names the term attributes such as leaseContractLength but gives no codes)"
   - Savings Plans: only ComputeSavingsPlans price lists (JSON only, EC2 Linux rates) are served through ListPriceLists/GetPriceListFileUrl; the file layout is recalled from the published format and unverified; other SP types, GetProducts and DescribeServices do not expose them
   - AccessDeniedException, ThrottlingException, InternalErrorException, ExpiredNextTokenException: never raised
 structural_gaps: []
@@ -29,3 +29,6 @@ leaks: {status: clean, note: "stateless; the catalog is built once with sync.Onc
 Protocol awsjson1.1, X-Amz-Target prefix AWSPriceListService; homed in us-east-1 (AWS also serves ap-south-1 and eu-central-1 endpoints).
 The service holds no mutable state, so it has no persistence.go; Reset is a no-op.
 The file route is registered by internal/app/budgets_wiring.go (registerPricingEndpoints) outside the service router.
+
+## Primary-source checks (2026-11-13)
+- pricing: reading-an-offer.html documents the offer file term attributes (leaseContractLength).

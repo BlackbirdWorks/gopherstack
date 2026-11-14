@@ -197,8 +197,21 @@ func (b *InMemoryBackend) runAnalysis(ctx context.Context, region string, a *ass
 		return
 	}
 
-	if hasConfigFile(files) {
+	var suppressed int64
+
+	if content, found := configFileContent(files); found {
 		rec.ConfigFile = configPresent
+
+		if cfg, valid := parseConfigFile(content); valid {
+			var excluded []sourceFile
+
+			files, excluded = splitExcluded(files, cfg.ExcludeFiles)
+			for _, f := range excluded {
+				suppressed += codeLines(f)
+			}
+		} else {
+			rec.ConfigFile = configPresentWithErrors
+		}
 	}
 
 	findings, loc := analyze(files, rec.AnalysisTypes)
@@ -222,7 +235,9 @@ func (b *InMemoryBackend) runAnalysis(ctx context.Context, region string, a *ass
 		})
 	}
 
-	rec.Metrics = &Metrics{FindingsCount: int64(len(findings)), MeteredLinesOfCodeCount: loc}
+	rec.Metrics = &Metrics{
+		FindingsCount: int64(len(findings)), MeteredLinesOfCodeCount: loc, SuppressedLinesOfCodeCount: suppressed,
+	}
 }
 
 func (b *InMemoryBackend) storeReview(rec *reviewRecord) (*reviewRecord, error) {

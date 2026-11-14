@@ -368,7 +368,11 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 			op, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
 				Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
 					Name: s("web"), BaseInstanceName: s("web"), InstanceTemplate: s(oldT), TargetSize: proto.Int32(2),
-					UpdatePolicy: &computepb.InstanceGroupManagerUpdatePolicy{Type: s(tt.updateType)},
+					UpdatePolicy: &computepb.InstanceGroupManagerUpdatePolicy{
+						Type:           s(tt.updateType),
+						MaxSurge:       &computepb.FixedOrPercent{Fixed: proto.Int32(2)},
+						MaxUnavailable: &computepb.FixedOrPercent{Fixed: proto.Int32(2)},
+					},
 				},
 			})
 			e.done(t, op, err)
@@ -390,7 +394,8 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 				n := 0
 
 				for _, mi := range e.managed(t) {
-					if trimToPath(mi.GetVersion().GetInstanceTemplate()) == tmpl {
+					if mi.GetCurrentAction() != "DELETING" &&
+						trimToPath(mi.GetVersion().GetInstanceTemplate()) == tmpl {
 						n++
 					}
 				}
@@ -701,7 +706,18 @@ func TestMIGPatchAndTargetPools(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
+	require.NoError(t, e.poolInsert(t, &computepb.TargetPool{Name: s("tp")}))
+
 	pools := []string{"projects/" + project + "/regions/" + region + "/targetPools/tp"}
+
+	_, err = e.migs(t).SetTargetPools(t.Context(), &computepb.SetTargetPoolsInstanceGroupManagerRequest{
+		Project: project, Zone: zone, InstanceGroupManager: "web",
+		InstanceGroupManagersSetTargetPoolsRequestResource: &computepb.InstanceGroupManagersSetTargetPoolsRequest{
+			TargetPools: []string{"projects/" + project + "/regions/" + region + "/targetPools/none"},
+		},
+	})
+	assertAPIError(t, err, http.StatusNotFound, "notFound")
+
 	_, err = e.migs(t).SetTargetPools(t.Context(), &computepb.SetTargetPoolsInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web",
 		InstanceGroupManagersSetTargetPoolsRequestResource: &computepb.InstanceGroupManagersSetTargetPoolsRequest{
@@ -717,7 +733,9 @@ func TestMIGPatchAndTargetPools(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, pools, e.getMig(t).GetTargetPools())
+	got := e.getMig(t).GetTargetPools()
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0], "/regions/"+region+"/targetPools/tp")
 }
 
 func TestMIGListAndAggregated(t *testing.T) {

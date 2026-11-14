@@ -203,7 +203,7 @@ func (l *tableLoader) manifestsTable(
 
 func (l *tableLoader) filesTable(ctx context.Context, snap iceberg.Snapshot, hasSnap bool) ([]Column, [][]any, error) {
 	cols := []Column{
-		{Name: "content", Type: typeInteger}, {Name: "file_path", Type: typeVarchar},
+		{Name: "content", Type: typeInteger}, {Name: colFilePath, Type: typeVarchar},
 		{Name: "file_format", Type: typeVarchar}, {Name: "spec_id", Type: typeInteger},
 		{Name: "partition", Type: typeVarchar}, {Name: "record_count", Type: typeBigint},
 		{Name: "file_size_in_bytes", Type: typeBigint},

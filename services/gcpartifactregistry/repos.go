@@ -8,12 +8,10 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,16 +20,9 @@ var mutableFields = []string{ //nolint:gochecknoglobals // immutable catalog
 	"vulnerability_scanning_config",
 }
 
-// done records an already finished operation under parent and returns it.
+// done records an operation under parent that finishes with resp.
 func (b *InMemoryBackend) done(parent string, resp proto.Message) (*longrunningpb.Operation, error) {
-	name := parent + "/operations/operation-" + uuid.NewString()
-
-	op, err := gcplro.Done(name, &artifactregistrypb.OperationMetadata{}, resp)
-	if err != nil {
-		return nil, errInternal(err)
-	}
-
-	return b.ops.Put(op), nil
+	return b.startOp(parent, metaOp(), false, func() (proto.Message, error) { return resp, nil })
 }
 
 func validateFormat(f artifactregistrypb.Repository_Format) error {
@@ -53,6 +44,16 @@ func validateRepository(in *artifactregistrypb.Repository) error {
 
 	if in.GetDockerConfig() != nil && in.GetFormat() != artifactregistrypb.Repository_DOCKER {
 		return errInvalid("docker_config is only valid for DOCKER repositories.")
+	}
+
+	if err := validateCleanupPolicies(in); err != nil {
+		return err
+	}
+
+	if in.GetFormat() == artifactregistrypb.Repository_KFP &&
+		in.GetMode() != artifactregistrypb.Repository_STANDARD_REPOSITORY &&
+		in.GetMode() != artifactregistrypb.Repository_MODE_UNSPECIFIED {
+		return errInvalid("KFP repositories are standard repositories only.")
 	}
 
 	if in.GetMode() == artifactregistrypb.Repository_VIRTUAL_REPOSITORY && in.GetVirtualRepositoryConfig() == nil {
@@ -95,9 +96,17 @@ func (b *InMemoryBackend) CreateRepository(
 
 	pb := b.buildRepository(parent, in.GetRepository())
 
+	if err = b.validateUpstream(b.ctxOrBackground(), parent, pb); err != nil {
+		return nil, err
+	}
+
+	if cfg := pb.GetRemoteRepositoryConfig(); cfg != nil {
+		cfg.DisableUpstreamValidation = false
+	}
+
 	b.mu.Lock("CreateRepository")
 
-	if _, _, exists := b.repoByKey(parent.project, parent.id); exists {
+	if _, taken := b.repos[parent.full()]; taken {
 		b.mu.Unlock()
 
 		return nil, errExists("Repository %q already exists.", parent.full())
@@ -253,12 +262,18 @@ func (b *InMemoryBackend) UpdateRepository(
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	}
 
-	if err = applyMask(rec.pb, in.GetRepository(), paths); err != nil {
+	next := cloneRepo(rec.pb)
+	if err = applyMask(next, in.GetRepository(), paths); err == nil {
+		err = validateCleanupPolicies(next)
+	}
+
+	if err != nil {
 		b.mu.Unlock()
 
 		return nil, err
 	}
 
+	rec.pb = next
 	rec.pb.UpdateTime = b.ts()
 	out := cloneRepo(rec.pb)
 	b.mu.Unlock()
@@ -334,4 +349,15 @@ func (b *InMemoryBackend) DeleteRepository(
 	}
 
 	return b.done(ref.parent(), &emptypb.Empty{})
+}
+
+// doneAny finishes an operation whose response is one of the media-upload responses the Go client library does
+// not define (see uploadtypes.go); the artifacts fill its single repeated field.
+func (b *InMemoryBackend) doneAny(parent, typeName string, msgs ...proto.Message) (*longrunningpb.Operation, error) {
+	resp, err := newUploadResponse(typeName, msgs)
+	if err != nil {
+		return nil, errInternal(err)
+	}
+
+	return b.doneWith(parent, metaOp(), resp)
 }

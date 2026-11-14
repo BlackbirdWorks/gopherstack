@@ -29,6 +29,7 @@ func TestTopicLifecycle(t *testing.T) {
 	_, err = e.ctl.CreateTopic(ctx, ons.CreateTopicRequest{
 		Name: new("orders"), CompartmentId: new(testCompartment)})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
 
 	_, err = e.dp.PublishMessage(ctx, ons.PublishMessageRequest{
 		TopicId: created.TopicId, Body: new("x"),

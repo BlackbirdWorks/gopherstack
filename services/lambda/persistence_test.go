@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -467,8 +467,7 @@ func TestPersistence_S3CodeRefetchAfterRestore(t *testing.T) {
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	pa, paErr := portalloc.New(21000, 21050)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 50)
 
 	dc := newMockDockerClient()
 	fresh := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")

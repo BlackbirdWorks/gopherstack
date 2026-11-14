@@ -49,18 +49,20 @@ type taskRun struct {
 }
 
 type runParams struct {
-	taskARN      string
-	region       string
+	cdcStart     string
+	targetEngine string
 	slot         string
 	migration    string
 	mappings     string
 	settings     string
-	cdcStart     string
-	cdcStop      string
 	resume       string
+	cdcStop      string
+	region       string
 	sourceEngine string
+	taskARN      string
 	source       dmsengine.EndpointConfig
 	target       dmsengine.EndpointConfig
+	replication  bool
 }
 
 // EnableEngine switches the backend to real replication; call before serving requests.
@@ -132,12 +134,9 @@ func endpointConfig(ep *Endpoint) dmsengine.EndpointConfig {
 	cfg := dmsengine.EndpointConfig{
 		Engine: ep.EngineName, Server: ep.ServerName, Port: int(ep.Port), Database: ep.DatabaseName,
 		User: ep.Username, Password: ep.Password, SSLMode: ep.SslMode, S3Settings: ep.S3Settings,
-		KinesisSettings:  ep.EngineSettings["KinesisSettings"],
-		DynamoDBSettings: ep.EngineSettings["DynamoDbSettings"],
-	}
-
-	if cfg.Server != "" {
-		return cfg
+		ExternalTableDefinition: ep.ExternalTableDefinition,
+		KinesisSettings:         ep.EngineSettings["KinesisSettings"],
+		DynamoDBSettings:        ep.EngineSettings["DynamoDbSettings"],
 	}
 
 	for _, key := range []string{"MySQLSettings", "PostgreSQLSettings"} {
@@ -147,22 +146,77 @@ func endpointConfig(ep *Endpoint) dmsengine.EndpointConfig {
 		}
 
 		var s struct {
-			ServerName   string `json:"ServerName"`
-			DatabaseName string `json:"DatabaseName"`
-			Username     string `json:"Username"`
-			Password     string `json:"Password"`
-			Port         int    `json:"Port"`
+			ServerName                  string `json:"ServerName"`
+			DatabaseName                string `json:"DatabaseName"`
+			Username                    string `json:"Username"`
+			Password                    string `json:"Password"`
+			SecretsManagerSecretID      string `json:"SecretsManagerSecretId"`
+			SecretsManagerAccessRoleArn string `json:"SecretsManagerAccessRoleArn"`
+			Port                        int    `json:"Port"`
 		}
 
-		if json.Unmarshal([]byte(raw), &s, jsonx.V1()) == nil && s.ServerName != "" {
+		if json.Unmarshal([]byte(raw), &s, jsonx.V1()) != nil {
+			continue
+		}
+
+		cfg.SecretID, cfg.SecretRoleARN = s.SecretsManagerSecretID, s.SecretsManagerAccessRoleArn
+
+		if cfg.Server == "" && s.ServerName != "" {
 			cfg.Server, cfg.Port, cfg.Database = s.ServerName, s.Port, s.DatabaseName
 			cfg.User, cfg.Password = s.Username, s.Password
-
-			break
 		}
+
+		if cfg.Database == "" {
+			cfg.Database = s.DatabaseName
+		}
+
+		break
 	}
 
 	return cfg
+}
+
+// SecretResolver reads Secrets Manager secret strings for endpoint credentials.
+type SecretResolver interface {
+	SecretString(ctx context.Context, region, secretID string) (string, error)
+}
+
+// SetSecrets gives the engine the Secrets Manager that SecretsManagerSecretId endpoints resolve against.
+func (b *InMemoryBackend) SetSecrets(r SecretResolver) {
+	b.mu.Lock("SetSecrets")
+	defer b.mu.Unlock()
+
+	b.secrets = r
+}
+
+var (
+	errSecretRole  = errors.New("endpoint settings with SecretsManagerSecretId also need SecretsManagerAccessRoleArn")
+	errNoSecrets   = errors.New("no Secrets Manager is available to resolve SecretsManagerSecretId")
+	errSecretsRead = errors.New("cannot read the endpoint secret")
+)
+
+// resolveSecret replaces the endpoint's credentials with the contents of its Secrets Manager secret.
+func resolveSecret(
+	ctx context.Context, r SecretResolver, region string, cfg *dmsengine.EndpointConfig,
+) error {
+	if cfg.SecretID == "" {
+		return nil
+	}
+
+	if cfg.SecretRoleARN == "" {
+		return errSecretRole
+	}
+
+	if r == nil {
+		return errNoSecrets
+	}
+
+	secret, err := r.SecretString(ctx, region, cfg.SecretID)
+	if err != nil {
+		return fmt.Errorf("%w %q: %w", errSecretsRead, cfg.SecretID, err)
+	}
+
+	return dmsengine.ApplySecret(cfg, secret)
 }
 
 func slotName(taskARN string) string {
@@ -201,12 +255,19 @@ func (b *InMemoryBackend) launchLocked(region string, rt *ReplicationTask, src, 
 		),
 		target:       b.endpointConfigLocked(region, tgt),
 		sourceEngine: src.EngineName,
+		targetEngine: tgt.EngineName,
 	}
-	p.source.SlotName = p.slot
 
 	if startType == startTypeResume {
 		p.resume = rt.RecoveryCheckpoint
 	}
+
+	b.launchRunLocked(p)
+}
+
+// launchRunLocked starts the goroutine behind p; the caller holds b.mu.
+func (b *InMemoryBackend) launchRunLocked(p runParams) {
+	p.source.SlotName = p.slot
 
 	ctx, cancel := context.WithCancel(b.eng.ctx)
 	run := &taskRun{cancel: cancel, done: make(chan struct{})}
@@ -239,6 +300,18 @@ func (b *InMemoryBackend) runTask(ctx context.Context, run *taskRun, p runParams
 		return fail(err)
 	}
 
+	b.mu.RLock("secrets")
+	secrets := b.secrets
+	b.mu.RUnlock()
+
+	if err = resolveSecret(ctx, secrets, p.region, &p.source); err != nil {
+		return fail(fmt.Errorf("source endpoint: %w", err))
+	}
+
+	if err = resolveSecret(ctx, secrets, p.region, &p.target); err != nil {
+		return fail(fmt.Errorf("target endpoint: %w", err))
+	}
+
 	src, err := b.eng.opener.OpenSource(ctx, p.source)
 	if err != nil {
 		return fail(fmt.Errorf("source endpoint: %w", err))
@@ -254,8 +327,8 @@ func (b *InMemoryBackend) runTask(ctx context.Context, run *taskRun, p runParams
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, Now: b.clock, MigrationType: p.migration,
 		CDCStart: p.cdcStart, CDCStop: p.cdcStop, Resume: p.resume, Mappings: mappings, Settings: settings,
-		SourceFamily: dmsengine.FamilyOf(p.sourceEngine),
-		OnProgress:   func(pr dmsengine.Progress) { b.recordProgress(run, p, pr) },
+		SourceFamily: dmsengine.FamilyOf(p.sourceEngine), TargetFamily: dmsengine.FamilyOf(p.targetEngine),
+		OnProgress: func(pr dmsengine.Progress) { b.recordProgress(run, p, pr) },
 	})
 
 	b.mu.Lock("taskReady")
@@ -287,6 +360,12 @@ func (b *InMemoryBackend) recordProgress(run *taskRun, p runParams, pr dmsengine
 		return
 	}
 
+	if p.replication {
+		b.recordReplicationProgress(p, pr)
+
+		return
+	}
+
 	rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(p.region, p.taskARN))
 	if !ok {
 		return
@@ -313,6 +392,12 @@ func (b *InMemoryBackend) finishRun(ctx context.Context, run *taskRun, p runPara
 	}
 
 	delete(b.eng.runs, p.taskARN)
+
+	if p.replication {
+		b.finishReplication(ctx, p, res)
+
+		return
+	}
 
 	rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(p.region, p.taskARN))
 	if !ok {

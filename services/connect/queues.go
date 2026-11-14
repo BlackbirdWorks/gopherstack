@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -140,6 +141,30 @@ func (b *Backend) CreateQueue(ctx context.Context, in *CreateQueueInput) (*queue
 	return &queueOut{QueueArn: rec.Queue.QueueArn, QueueID: id}, nil
 }
 
+// agentQueueID is the identifier of the agent queue Connect creates for a user.
+func agentQueueID(userID string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("agent-queue/"+userID)).String()
+}
+
+func agentQueueARN(userARN, queueID string) string {
+	base, _, _ := strings.Cut(userARN, "/agent/")
+
+	return base + "/queue/" + queueID
+}
+
+// agentQueueLocked finds the agent queue id belongs to; agent queues exist for every user and carry no name.
+func (b *Backend) agentQueueLocked(inst, id string) (*Queue, bool) {
+	for _, u := range b.users.in(inst) {
+		if agentQueueID(u.User.ID) == id {
+			return &Queue{
+				Stamp: u.User.Stamp, QueueArn: agentQueueARN(u.User.Arn, id), QueueID: id, Status: queueEnabled,
+			}, true
+		}
+	}
+
+	return nil, false
+}
+
 // DescribeQueue returns a queue.
 func (b *Backend) DescribeQueue(inst, id string) (*Queue, error) {
 	b.mu.RLock("DescribeQueue")
@@ -148,6 +173,10 @@ func (b *Backend) DescribeQueue(inst, id string) (*Queue, error) {
 	r, err := b.instanceLocked(inst)
 	if err != nil {
 		return nil, err
+	}
+
+	if agent, ok := b.agentQueueLocked(r.Instance.ID, id); ok {
+		return agent, nil
 	}
 
 	q, err := b.queues.get(r.Instance.ID, id)
@@ -200,6 +229,15 @@ func (b *Backend) ListQueues(
 		}
 	}
 
+	if len(types) == 0 || slices.Contains(types, queueAgent) {
+		for _, u := range b.users.in(r.Instance.ID) {
+			id := agentQueueID(u.User.ID)
+			all = append(all, QueueSummary{
+				Stamp: u.User.Stamp, Arn: agentQueueARN(u.User.Arn, id), ID: id, QueueType: queueAgent,
+			})
+		}
+	}
+
 	b.mu.RUnlock()
 
 	return paged(all, token, maxResults)
@@ -209,7 +247,7 @@ func (b *Backend) updateQueue(
 	ctx context.Context,
 	in *UpdateQueueInput,
 	apply func(r *queueRec) error,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateQueue")
 	defer b.mu.Unlock()
 
@@ -229,11 +267,11 @@ func (b *Backend) updateQueue(
 
 	q.Queue.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateQueueName renames a queue.
-func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
@@ -251,7 +289,7 @@ func (b *Backend) UpdateQueueName(ctx context.Context, in *UpdateQueueInput) (*e
 }
 
 // UpdateQueueStatus enables or disables a queue.
-func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.Status == nil {
 		return nil, invalidParamErr("Status is required")
 	}
@@ -268,7 +306,7 @@ func (b *Backend) UpdateQueueStatus(ctx context.Context, in *UpdateQueueInput) (
 }
 
 // UpdateQueueMaxContacts sets the queue capacity; nil removes the cap.
-func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.MaxContacts != nil && *in.MaxContacts < minMaxContact {
 		return nil, invalidParamErr("MaxContacts must be at least %d", minMaxContact)
 	}
@@ -281,7 +319,7 @@ func (b *Backend) UpdateQueueMaxContacts(ctx context.Context, in *UpdateQueueInp
 }
 
 // UpdateQueueHoursOfOperation points a queue at another schedule.
-func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.HoursOfOperationID == nil {
 		return nil, invalidParamErr("HoursOfOperationId is required")
 	}
@@ -298,7 +336,7 @@ func (b *Backend) UpdateQueueHoursOfOperation(ctx context.Context, in *UpdateQue
 }
 
 // UpdateQueueOutboundCallerConfig sets the caller ID of outbound calls from a queue.
-func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.OutboundCallerConfig == nil {
 		return nil, invalidParamErr("OutboundCallerConfig is required")
 	}
@@ -315,7 +353,7 @@ func (b *Backend) UpdateQueueOutboundCallerConfig(ctx context.Context, in *Updat
 }
 
 // UpdateQueueOutboundEmailConfig sets the from address of outbound email from a queue.
-func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *UpdateQueueInput) (*empty, error) {
+func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *UpdateQueueInput) (*EmptyOutput, error) {
 	if in.OutboundEmailConfig == nil {
 		return nil, invalidParamErr("OutboundEmailConfig is required")
 	}
@@ -332,7 +370,7 @@ func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *Update
 }
 
 // DeleteQueue removes a queue that no routing profile or quick connect references.
-func (b *Backend) DeleteQueue(inst, id string) (*empty, error) {
+func (b *Backend) DeleteQueue(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
@@ -405,7 +443,7 @@ func (b *Backend) queueRefs(inst, queueID string, ids []string, add bool) error 
 }
 
 // AssociateQueueQuickConnects adds quick connects to a queue.
-func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty, error) {
+func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*EmptyOutput, error) {
 	b.mu.Lock("AssociateQueueQuickConnects")
 	defer b.mu.Unlock()
 
@@ -413,7 +451,7 @@ func (b *Backend) AssociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty,
 }
 
 // DisassociateQueueQuickConnects removes quick connects from a queue.
-func (b *Backend) DisassociateQueueQuickConnects(in *QuickConnectIDsInput) (*empty, error) {
+func (b *Backend) DisassociateQueueQuickConnects(in *QuickConnectIDsInput) (*EmptyOutput, error) {
 	b.mu.Lock("DisassociateQueueQuickConnects")
 	defer b.mu.Unlock()
 

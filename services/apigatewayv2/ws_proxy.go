@@ -42,6 +42,8 @@ const (
 	evKeyRequestContext    = "requestContext"
 	evKeyIsBase64          = "isBase64Encoded"
 	jsonKeyMessage         = "message"
+	jsonKeyConnectionID    = "connectionId"
+	jsonKeyRequestID       = "requestId"
 )
 
 // wsBodyVarRE matches $request.body.<path> and ${request.body.<path>} in a
@@ -72,13 +74,13 @@ func (s *wsSession) requestContext(routeKey, eventType string) map[string]any {
 		"eventType":         eventType,
 		"messageDirection":  "IN",
 		"extendedRequestId": reqID,
-		"requestId":         reqID,
+		jsonKeyRequestID:    reqID,
 		"requestTime":       now.Format(wsRequestTimeLayout),
 		"requestTimeEpoch":  now.UnixMilli(),
 		"connectedAt":       s.connectedAt.UnixMilli(),
 		"stage":             s.stage,
 		"domainName":        s.domain,
-		"connectionId":      s.connID,
+		jsonKeyConnectionID: s.connID,
 		"apiId":             s.apiID,
 		"identity":          map[string]any{"sourceIp": s.sourceIP, "userAgent": s.userAgent},
 	}
@@ -162,9 +164,9 @@ func (s *wsSession) send(data []byte) {
 
 func (s *wsSession) sendForbidden() {
 	b, _ := json.Marshal(map[string]string{
-		jsonKeyMessage: wsForbiddenMessage,
-		"connectionId": s.connID,
-		"requestId":    uuid.NewString(),
+		jsonKeyMessage:      wsForbiddenMessage,
+		jsonKeyConnectionID: s.connID,
+		jsonKeyRequestID:    uuid.NewString(),
 	}, jsonx.V1())
 	s.send(b)
 }
@@ -201,6 +203,17 @@ func (s *wsSession) invoke(
 	route *Route,
 	event map[string]any,
 ) ([]byte, error) {
+	return s.invokeMessage(ctx, deployment, route, event, nil)
+}
+
+// invokeMessage is invoke with the raw client message that non-proxy integrations map.
+func (s *wsSession) invokeMessage(
+	ctx context.Context,
+	deployment *Deployment,
+	route *Route,
+	event map[string]any,
+	body []byte,
+) ([]byte, error) {
 	if route == nil || route.Target == "" {
 		return nil, nil
 	}
@@ -212,16 +225,26 @@ func (s *wsSession) invoke(
 		return nil, fmt.Errorf("%w: %s", ErrIntegrationNotFound, integrationID)
 	}
 
-	if integration.IntegrationType == integrationTypeMock {
-		return nil, nil
-	}
+	switch integration.IntegrationType {
+	case integrationTypeMock:
+		if len(integration.RequestTemplates) == 0 {
+			return nil, nil
+		}
 
-	if integration.IntegrationType != IntegrationTypeAWSProxy {
+		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, body: body})
+	case integrationTypeHTTPProxy, integrationTypeHTTPType, IntegrationTypeAWS:
+		return s.invokeIntegration(ctx, wsCall{integration: integration, route: route, body: body})
+	case IntegrationTypeAWSProxy:
+	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, integration.IntegrationType)
 	}
 
 	if !strings.Contains(integration.IntegrationURI, "function:") {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidLambdaArn, integration.IntegrationURI)
+	}
+
+	if s.h.lambdaInvoker == nil {
+		return nil, fmt.Errorf("%w: Lambda invoker not configured", ErrIntegrationInvoke)
 	}
 
 	payload, marshalErr := json.Marshal(event, jsonx.V1())
@@ -241,10 +264,6 @@ func (s *wsSession) invoke(
 func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string) error {
 	wm := h.wsMetrics(apiID, stageName)
 	log := logger.Load(c.Request().Context())
-
-	if h.lambdaInvoker == nil {
-		return c.String(http.StatusInternalServerError, "Lambda invoker not configured")
-	}
 
 	if !websocket.IsWebSocketUpgrade(c.Request()) {
 		return c.String(http.StatusBadRequest, "request is not a WebSocket upgrade")
@@ -447,6 +466,10 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 		return errRouteAuthConfigInvalid
 	}
 
+	if h.lambdaInvoker == nil {
+		return errRouteAuthConfigInvalid
+	}
+
 	arn := extractHTTPAPILambdaARN(auth.AuthorizerURI)
 
 	out, _, invokeErr := h.lambdaInvoker.InvokeFunction(req.Context(), arn, "RequestResponse", payload)
@@ -609,8 +632,12 @@ func (h *Handler) wsDispatch(c *echo.Context, s *wsSession, wm wsMetrics, body [
 	rm.message()
 
 	start := time.Now()
-	out, invokeErr := s.invoke(ctx, deployment, route, s.messageEvent(route.RouteKey, body, binary))
+	out, invokeErr := s.invokeMessage(ctx, deployment, route, s.messageEvent(route.RouteKey, body, binary), body)
 	rm.routed(invokeErr, start)
+
+	if invokeErr != nil && h.hasDefaultRouteResponse(s.apiID, route) {
+		s.sendIntegrationError()
+	}
 
 	if invokeErr == nil && len(out) > 0 && h.hasDefaultRouteResponse(s.apiID, route) {
 		s.send(out)

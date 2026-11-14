@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,6 +24,7 @@ const (
 
 	defaultTransition = 2 * time.Second
 	maxName           = 255
+	maxResourceName   = 256
 	maxDescription    = 400
 	retentionStep     = 30
 	maxRetentionDays  = 180
@@ -30,16 +33,19 @@ const (
 
 // InMemoryBackend holds every log group, log, agent configuration, work request and ingested entry under one lock.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	now        func() time.Time
-	groups     map[string]*LogGroup
-	logs       map[string]*Log
-	agents     map[string]*AgentConfig
-	workReqs   map[string]*WorkRequest
-	entries    map[string][]*Entry
-	Auth       *ociauth.Registry
-	transition time.Duration
-	seq        int64
+	mu            *lockmetrics.RWMutex
+	now           func() time.Time
+	groups        map[string]*LogGroup
+	logs          map[string]*Log
+	agents        map[string]*AgentConfig
+	savedSearches map[string]*SavedSearch
+	workReqs      map[string]*WorkRequest
+	entries       map[string][]*Entry
+	Auth          *ociauth.Registry
+	retry         *ociretry.Store
+	tagLookup     ocitags.Lookup
+	transition    time.Duration
+	seq           int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -54,7 +60,26 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.groups, b.logs, b.agents = map[string]*LogGroup{}, map[string]*Log{}, map[string]*AgentConfig{}
 	b.workReqs, b.entries = map[string]*WorkRequest{}, map[string][]*Entry{}
+	b.savedSearches = map[string]*SavedSearch{}
+	b.retry = ociretry.New()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 // SetClock injects the time source used for lifecycle, timestamps and retention.
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
@@ -232,6 +257,30 @@ func validateName(name string) *APIError {
 
 	return nil
 }
+
+func validResourceName(name string, group bool) *APIError {
+	if strings.TrimSpace(name) == "" {
+		return errMissing("displayName is required")
+	}
+
+	if len(name) > maxResourceName {
+		return errParam("displayName must be at most 256 characters")
+	}
+
+	if group && !isASCIILetter(name[0]) {
+		return errParam("a log group displayName must start with a letter")
+	}
+
+	for i := range len(name) {
+		if c := name[i]; !isASCIILetter(c) && (c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
+			return errParam("displayName may contain only letters, digits, hyphens, underscores and periods")
+		}
+	}
+
+	return nil
+}
+
+func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 func firstErr(errs ...*APIError) *APIError {
 	for _, e := range errs {

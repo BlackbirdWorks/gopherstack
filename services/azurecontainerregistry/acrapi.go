@@ -21,6 +21,7 @@ const (
 	segManifests    = "/_manifests"
 	quarantinePass  = "Passed"
 	kindCatalog     = "catalog"
+	kindTags        = "tags"
 	keyCreated      = "createdTime"
 	keyUpdated      = "lastUpdateTime"
 	keyChangeable   = "changeableAttributes"
@@ -59,6 +60,27 @@ type acrRoute struct {
 	scope string
 }
 
+// needs is the access the metadata API requires: metadata_read to read, metadata_write to change attributes or
+// untag, delete to remove a repository or manifest (Learn: container-registry-token-based-repository-permissions).
+func (rt acrRoute) needs(method string) []need {
+	if rt.kind == kindCatalog {
+		return []need{{typ: scopeCatalog, name: "catalog", action: "*", hint: "*"}}
+	}
+
+	action := "metadata_read"
+
+	switch {
+	case method == http.MethodPatch:
+		action = "metadata_write"
+	case method == http.MethodDelete && rt.kind == kindTags:
+		action = "metadata_write"
+	case method == http.MethodDelete:
+		action = actionDelete
+	}
+
+	return []need{{typ: scopeRepo, name: rt.repo, action: action, hint: action}}
+}
+
 func parseACRPath(path string) acrRoute {
 	rest := strings.TrimPrefix(path, prefixACR)
 	if rest == "_catalog" {
@@ -93,13 +115,20 @@ func (h *Handler) serveACR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, authed := h.authenticate(r, reg); !authed {
+	who, authed := h.authenticate(r, reg)
+	if !authed {
 		scope := rt.scope
 		if scope == "" {
 			scope = "repository:" + rt.repo + ":metadata_read"
 		}
 
 		challenge(w, r, scope)
+
+		return
+	}
+
+	if needs := rt.needs(r.Method); !who.allowsAll(needs) {
+		denyScope(w, r, needs)
 
 		return
 	}
@@ -113,7 +142,7 @@ func (h *Handler) dispatchACR(w http.ResponseWriter, r *http.Request, reg string
 		h.acrCatalog(w, r, reg)
 	case "repo":
 		h.acrRepo(w, r, reg, rt)
-	case "tags":
+	case kindTags:
 		h.acrTags(w, r, reg, rt)
 	case "manifests":
 		h.acrManifests(w, r, reg, rt)

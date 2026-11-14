@@ -75,7 +75,13 @@ func (b *InMemoryBackend) opViewLocked(o *opRec) *containerpb.Operation {
 
 	if o.Failure != "" {
 		op.StatusMessage = o.Failure
-		op.Error = status.New(codes.Internal, o.Failure).Proto()
+
+		code := codes.Internal
+		if o.Failure == cancelledFailure {
+			code = codes.Canceled
+		}
+
+		op.Error = status.New(code, o.Failure).Proto()
 	}
 
 	return op

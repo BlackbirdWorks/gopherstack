@@ -7,25 +7,22 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 53 (43 ok, 9 partial, 1 gap) |
+| PARITY entries audited | 54 (46 ok, 7 partial, 1 gap) |
 | Feature families | 8 (2 ok, 6 partial) |
-| Known gaps | 11 |
+| Known gaps | 8 |
 | Deferred items | 0 |
-| Resource leaks | clean |
+| Resource leaks | unknown |
 
 ### Known gaps
 
-- QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no rules, alerts, targets, exemplars or buildinfo endpoints, and ignores the timeout parameter.
-- ServiceLevelObjective view=EXPLICIT does not expand a BasicSli into a RequestBasedSli, and SLO attainment is never evaluated (no error-budget burn, no SLO-based alerting).
-- Alert conditions condition_matched_log, condition_monitoring_query_language, condition_prometheus_query_language and condition_sql are stored but never evaluated; ratio conditions (denominator_filter) are rejected; forecast_options, evaluation_missing_data, notification_rate_limit, notification_channel_strategy and auto_close are stored but have no effect.
-- Incidents are not exposed through a Cloud Monitoring API; they are readable only from Go through InMemoryBackend.Incidents.
-- email, sms, slack and pagerduty notification channels are never delivered.
-- Uptime checks do not support resource_group, internal checkers or JSON path content matchers; all checker locations share one probe, and ListUptimeCheckIps reports 127.0.0.1.
-- ALIGN_INTERPOLATE, ALIGN_PERCENT_CHANGE, REDUCE_PERCENTILE_* and aligners on distributions other than PERCENTILE and MEAN are rejected; order_by is ignored; page_size counts series rather than points.
-- Log-based metric series are a single accumulated total per label set rather than per-minute deltas, and always use the global resource.
-- Built-in metric descriptors (12) and monitored resource descriptors (22) are a subset of the live catalogs, and no built-in metric receives data from the other emulators.
-- Custom metric descriptors gain labels automatically as new label keys are written; the live service rejects unknown labels for descriptors created explicitly.
-- Error messages and edge cases of the live service (timestamp bounds, quota errors, label limits) were not verified against it.
+- QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no targets or buildinfo endpoints and ignores the timeout parameter: the compatibility list at docs.cloud.google.com/stackdriver/docs/managed-prometheus/query names neither endpoint and documents no timeout.
+- SLO evaluation: BasicSli expansion supports Cloud Run, Cloud Endpoints and App Engine only; Istio metric names are published (req-resp-metrics: istio.io/service/server/request_count and response_latencies on gce_instance, istio_canonical_service or k8s_container, response_code and destination_service_name labels) but how a BasicSli on a ClusterIstio, MeshIstio, IstioCanonicalService or GKE service maps to resource filters is not published, so those are not evaluated; the non-5xx availability definition of BasicSli is not published (the pages show only user-written example SLIs with differing thresholds); select_slo_budget, select_slo_budget_fraction, select_slo_budget_total, select_slo_compliance and select_slo_counts (listed on api/timeseries-selectors) are not served, only select_slo_burn_rate and select_slo_health
+- Alert conditions condition_monitoring_query_language and condition_sql are stored but never evaluated; metric existence validation for PromQL conditions (disable_metric_validation) has no effect; PromQL label templating supports only {{ $labels.X }} and {{ $value }} and the percentile method of REDUCE_PERCENTILE on numeric series (linear interpolation) is unverified; the forecast model is unverified; the renotify_interval range, the exact auto_close and evaluation_missing_data NO_OP edge behaviour (a series that stops reporting keeps its incident until auto_close) are inferred from the monitoringpb field comments.
+- Incidents are not exposed through a Cloud Monitoring API (the v3 API has none); they are readable only from Go through InMemoryBackend.Incidents, Deliveries and Outbox.
+- email, sms, slack and pagerduty notifications are recorded in the outbox, never delivered (structural: no egress); their real message formats are undocumented.
+- Uptime checks do not support resource_group (no in-process mapping from monitoring group members to Compute Engine instance addresses) or internal checkers; every location probes from the emulator process and ListUptimeCheckIps reports 127.0.0.1.
+- ListTimeSeries order_by is ignored (the monitoringpb field is documented as unsupported and must be left blank); page_size counts series rather than points; DELTA of a cumulative distribution cannot recover the sum of squared deviation, so REDUCE_STDDEV after such an alignment sees zero deviation within each series; REDUCE_STDDEV on distributions is the sample deviation of the merged distribution (n-1), the divisor is not documented.
+- Log-based metric series always use the global resource, and minutes without entries produce no point.
 
 ## More
 

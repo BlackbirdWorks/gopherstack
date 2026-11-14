@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctions "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -24,26 +23,23 @@ func TestReserveFixedServicePorts_OCIEvents(t *testing.T) {
 	assert.Equal(t, 8164, ocievents.DefaultPort)
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 8100, 8200, true},
-		{"port outside pool range", 10000, 10100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, ocievents.DefaultPort)
 
-			cli := CLI{OCIEvents: ocievents.Settings{Port: ocievents.DefaultPort}}
+			cli := CLI{OCIEvents: ocievents.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ocievents.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }
@@ -100,6 +96,16 @@ func TestOCIEventsMapping(t *testing.T) {
 	assert.Equal(t, "o", obj.ResourceName)
 	assert.Equal(t, "b", obj.AdditionalDetails["bucketName"])
 	assert.Nil(t, obj.AdditionalDetails["archivalState"])
+
+	bk := bucketEvent(ociobjectstorage.BucketEvent{
+		Time: at, EventType: ociobjectstorage.EventCreateBucket, CompartmentID: "c", Namespace: "ns",
+		BucketName: "b", BucketID: "bid", ETag: "e", PublicAccessType: "NoPublicAccess",
+		FreeformTags: map[string]string{"Department": "Finance"},
+	})
+	assert.Equal(t, "b", bk.ResourceName)
+	assert.Equal(t, "bid", bk.ResourceID)
+	assert.Equal(t, "NoPublicAccess", bk.AdditionalDetails["publicAccessType"])
+	assert.Equal(t, "Finance", bk.FreeformTags["Department"])
 
 	fn := functionsEvent(ocifunctions.ResourceEvent{
 		Time: at, EventType: ocifunctions.EventCreateFunction, CompartmentID: "c", ResourceName: "f", ResourceID: "fid",

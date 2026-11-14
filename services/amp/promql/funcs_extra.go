@@ -42,7 +42,7 @@ func (e *Engine) callExtra(c *Call, t int64) (Value, bool, error) {
 		v, err = e.callHistogramQuantile(c, t)
 	case "histogram_fraction":
 		v, err = e.callHistogramFraction(c, t)
-	case "histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar":
+	case fnHistCount, fnHistSum, fnHistAvg, fnHistStddev, fnHistStdvar:
 		v, err = e.callNativeHistogram(c, t)
 	case "holt_winters", "double_exponential_smoothing":
 		v, err = e.callDoubleExponentialSmoothing(c, t)
@@ -199,14 +199,19 @@ func (e *Engine) callHistogramQuantile(c *Call, t int64) (Value, error) {
 		return nil, err
 	}
 
-	vec, err := e.instantArg(c.Args[1], t, c.Func)
+	vec, err := e.histArg(c.Args[1], t, c.Func)
 	if err != nil {
 		return nil, err
 	}
 
+	native, vec := splitNative(vec)
 	groups, order := groupBuckets(vec)
 
 	out := Vector{}
+
+	for _, s := range native {
+		out = append(out, VectorSample{Metric: s.Metric.without(NameLabel), T: t, V: s.H.Quantile(q)})
+	}
 
 	for _, k := range order {
 		g := groups[k]
@@ -467,10 +472,10 @@ func (e *Engine) evalSubquery(sq *Subquery, t int64) (Matrix, error) {
 func collectPoints(acc map[string]*Series, order *[]string, v Value) error {
 	switch x := v.(type) {
 	case Scalar:
-		addPoint(acc, order, Labels{}, Sample(x))
+		addPoint(acc, order, Labels{}, Sample{T: x.T, V: x.V})
 	case Vector:
 		for _, s := range x {
-			addPoint(acc, order, s.Metric, Sample{T: s.T, V: s.V})
+			addPoint(acc, order, s.Metric, Sample{T: s.T, V: s.V, H: s.H})
 		}
 	default:
 		return evalErr("subquery must return an instant vector or scalar, got %s", v.valueType())

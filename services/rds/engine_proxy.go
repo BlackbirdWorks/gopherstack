@@ -158,6 +158,7 @@ func (p *pgProxy) acceptLoop() {
 
 		p.wg.Go(func() {
 			defer p.conns.remove(conn)
+			defer logger.Recover(context.Background(), "rds.pgproxy", func(any) { _ = conn.Close() })
 
 			p.serve(conn)
 		})

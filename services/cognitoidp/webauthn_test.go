@@ -15,12 +15,18 @@ func TestWebAuthn_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, clientID := setupHandlerPoolAndClient(t, h, "webauthn-crud-pool")
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "webauthn-crud-pool")
 	signUpAndConfirmViaHandler(t, h, clientID, "webauthn-user")
 	accessToken := loginViaHandler(t, h, clientID, "webauthn-user")
 
+	rec := doCognitoRequest(t, h, "SetUserPoolMfaConfig", map[string]any{
+		"UserPoolId":            poolID,
+		"WebAuthnConfiguration": map[string]any{"RelyingPartyId": passkeyRPID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
 	// StartWebAuthnRegistration — real, non-empty CredentialCreationOptions.
-	rec := doCognitoRequest(t, h, "StartWebAuthnRegistration", map[string]any{"AccessToken": accessToken})
+	rec = doCognitoRequest(t, h, "StartWebAuthnRegistration", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp struct {
@@ -31,21 +37,16 @@ func TestWebAuthn_CRUD(t *testing.T) {
 	assert.NotEmpty(t, startResp.CredentialCreationOptions["challenge"])
 	rp, ok := startResp.CredentialCreationOptions["rp"].(map[string]any)
 	require.True(t, ok)
-	assert.NotEmpty(t, rp["id"])
+	assert.Equal(t, passkeyRPID, rp["id"])
 	user, ok := startResp.CredentialCreationOptions["user"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "webauthn-user", user["name"])
 
 	// CompleteWebAuthnRegistration
+	pk := newSoftPasskey(t)
 	rec = doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
 		"AccessToken": accessToken,
-		"Credential": map[string]any{
-			"id":                      "cred-id-1",
-			"authenticatorAttachment": "platform",
-			"response": map[string]any{
-				"transports": []any{"internal", "hybrid"},
-			},
-		},
+		"Credential":  pk.register(t, startResp.CredentialCreationOptions),
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
@@ -63,19 +64,19 @@ func TestWebAuthn_CRUD(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Credentials, 1)
-	assert.Equal(t, "cred-id-1", listResp.Credentials[0].CredentialID)
+	assert.Equal(t, b64u(pk.credID), listResp.Credentials[0].CredentialID)
 	assert.Equal(t, "platform", listResp.Credentials[0].AuthenticatorAttachment)
 	assert.NotEmpty(t, listResp.Credentials[0].FriendlyCredentialName,
 		"the wire key is FriendlyCredentialName, not FriendlyName -- a real SDK client reads this field",
 	)
-	assert.Equal(t, []string{"internal", "hybrid"}, listResp.Credentials[0].AuthenticatorTransports,
+	assert.Equal(t, []string{"internal"}, listResp.Credentials[0].AuthenticatorTransports,
 		"transports from the browser's credential.response.transports must be threaded through",
 	)
 
 	// DeleteWebAuthnCredential
 	rec = doCognitoRequest(t, h, "DeleteWebAuthnCredential", map[string]any{
 		"AccessToken":  accessToken,
-		"CredentialId": "cred-id-1",
+		"CredentialId": b64u(pk.credID),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -96,7 +97,7 @@ func TestWebAuthn_CRUD(t *testing.T) {
 	// Delete again — not found.
 	rec = doCognitoRequest(t, h, "DeleteWebAuthnCredential", map[string]any{
 		"AccessToken":  accessToken,
-		"CredentialId": "cred-id-1",
+		"CredentialId": b64u(pk.credID),
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -116,53 +117,74 @@ func TestWebAuthn_InvalidAccessToken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestHandler_CompleteWebAuthnRegistration_Validation covers the HTTP handler for
-// CompleteWebAuthnRegistration: an invalid access token is rejected, a valid token with
-// a credential payload succeeds (validation-only — no passkey is persisted).
+// TestHandler_CompleteWebAuthnRegistration_Validation covers the handler's rejections: an invalid
+// access token, a credential with no pending challenge, and a malformed credential.
 func TestHandler_CompleteWebAuthnRegistration_Validation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, clientID := setupHandlerPoolAndClient(t, h, "webauthn-pool")
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "webauthn-pool")
 	signUpAndConfirmViaHandler(t, h, clientID, "wa-user")
+	accessToken := loginViaHandler(t, h, clientID, "wa-user")
 
-	initRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
-		"AuthFlow": "USER_PASSWORD_AUTH",
-		"ClientId": clientID,
-		"AuthParameters": map[string]string{
-			"USERNAME": "wa-user",
-			"PASSWORD": "Pass1234!",
+	rec := doCognitoRequest(t, h, "SetUserPoolMfaConfig", map[string]any{
+		"UserPoolId":            poolID,
+		"WebAuthnConfiguration": map[string]any{"RelyingPartyId": passkeyRPID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	tests := []struct {
+		name       string
+		token      string
+		credential map[string]any
+		wantCode   string
+	}{
+		{
+			name:       "invalid_token",
+			token:      "not-a-real-token",
+			credential: map[string]any{"id": "abc"},
+			wantCode:   "NotAuthorizedException",
 		},
-	})
-	require.Equal(t, http.StatusOK, initRec.Code)
-
-	var initResp struct {
-		AuthenticationResult *struct {
-			AccessToken string `json:"AccessToken,omitempty"`
-		} `json:"AuthenticationResult"`
+		{
+			name:       "no_pending_challenge",
+			token:      accessToken,
+			credential: map[string]any{"id": "abc"},
+			wantCode:   "WebAuthnChallengeNotFoundException",
+		},
 	}
-	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp, jsonx.V1()))
-	require.NotNil(t, initResp.AuthenticationResult)
-	accessToken := initResp.AuthenticationResult.AccessToken
-	require.NotEmpty(t, accessToken)
 
-	t.Run("invalid_token", func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
+				"AccessToken": tt.token, "Credential": tt.credential,
+			})
+			assert.Equal(t, http.StatusBadRequest, resp.Code)
+			assert.Contains(t, resp.Body.String(), tt.wantCode)
+		})
+	}
+
+	t.Run("malformed_credential", func(t *testing.T) {
 		t.Parallel()
 
-		rec := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
-			"AccessToken": "not-a-real-token",
-			"Credential":  map[string]any{"id": "abc"},
-		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
+		h2 := newTestHandler(t)
+		poolID2, clientID2 := setupHandlerPoolAndClient(t, h2, "webauthn-pool-2")
+		signUpAndConfirmViaHandler(t, h2, clientID2, "wa-user")
+		token := loginViaHandler(t, h2, clientID2, "wa-user")
+		require.Equal(t, http.StatusOK, doCognitoRequest(t, h2, "SetUserPoolMfaConfig", map[string]any{
+			"UserPoolId": poolID2, "WebAuthnConfiguration": map[string]any{"RelyingPartyId": passkeyRPID},
+		}).Code)
+		require.Equal(
+			t,
+			http.StatusOK,
+			doCognitoRequest(t, h2, "StartWebAuthnRegistration", map[string]any{"AccessToken": token}).Code,
+		)
 
-	t.Run("success", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
-			"AccessToken": accessToken,
-			"Credential":  map[string]any{"id": "abc", "type": "public-key"},
+		resp := doCognitoRequest(t, h2, "CompleteWebAuthnRegistration", map[string]any{
+			"AccessToken": token, "Credential": map[string]any{"id": "abc", "type": "public-key"},
 		})
-		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, http.StatusBadRequest, resp.Code)
+		assert.Contains(t, resp.Body.String(), "InvalidParameterException")
 	})
 }

@@ -419,7 +419,8 @@ func (b *Backend) taggedSources() []func(string) []taggedResource {
 		tagsOfFamily(b.views),
 		tagsOfFamily(b.evalForms),
 		tagsOfFamily(b.dataTables),
-		tagsOfFamily(b.emails), tagsOfFamily(b.workspaces),
+		tagsOfFamily(b.emails), tagsOfFamily(b.workspaces), tagsOfFamily(b.metricDefs),
+		tagsOfFamily(b.extractions),
 	}
 }
 

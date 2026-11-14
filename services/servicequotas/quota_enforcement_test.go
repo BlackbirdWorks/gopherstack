@@ -95,8 +95,8 @@ func TestRequests_DeniedAboveMax(t *testing.T) {
 		desired float64
 		applied float64
 	}{
-		{name: "within max", desired: 4000, want: sqtypes.RequestStatusApproved, applied: 4000},
-		{name: "above max", desired: 5001, want: sqtypes.RequestStatusDenied, applied: 1000},
+		{name: "within max", desired: 9000, want: sqtypes.RequestStatusApproved, applied: 9000},
+		{name: "above max", desired: 10001, want: sqtypes.RequestStatusDenied, applied: 1000},
 	}
 
 	for _, tc := range tests {
@@ -235,4 +235,29 @@ func TestAutoManagementTick_Disabled(t *testing.T) {
 			assert.Zero(t, notifier.count())
 		})
 	}
+}
+
+func TestAutoManagementTick_NotifyAndAdjustSkipsWarn(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	usage := &mutableUsage{}
+	notifier := &fakeNotifier{}
+	f.backend.SetUsageSource(usage)
+	f.backend.SetNotifier(notifier)
+
+	_, err := f.client.StartAutoManagement(t.Context(), &sqsdk.StartAutoManagementInput{
+		OptInLevel: "ACCOUNT", OptInType: "NotifyAndAdjust",
+		NotificationArn: aws.String("arn:aws:sns:us-east-1:123456789012:quota-alerts"),
+	})
+	require.NoError(t, err)
+
+	usage.v = 85
+	f.backend.Tick(t.Context())
+	require.Zero(t, notifier.count())
+
+	usage.v = 96
+	f.backend.Tick(t.Context())
+	require.Equal(t, 1, notifier.count())
+	assert.Contains(t, notifier.got[0].subject, "95%")
 }

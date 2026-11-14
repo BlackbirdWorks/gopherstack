@@ -4,43 +4,105 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
+	"github.com/labstack/echo/v5"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
 
 const (
 	gcpArtifactRegistryProxyPrefix = "/dashboard/api/v1/gcp/artifactregistry"
 
-	arLocationSegs = 4
-	arReposSegs    = 5
-	arRepoSegs     = 6
-	arRepoSubSegs  = 7
-	arPkgSegs      = 8
-	arPkgSubSegs   = 9
-	arVersionSegs  = 10
-	arLocationsIdx = 2
-	arReposIdx     = 4
-	arSubIdx       = 6
-	arPkgSubIdx    = 8
-	arReposKind    = "repositories"
-	arPackagesKind = "packages"
-	arFilesKind    = "files"
-	arImagesKind   = "dockerImages"
-	arVersionsKind = "versions"
-	arTagsKind     = "tags"
+	arLocationSegs  = 4
+	arReposSegs     = 5
+	arRepoSegs      = 6
+	arRepoSubSegs   = 7
+	arPkgSegs       = 8
+	arPkgSubSegs    = 9
+	arVersionSegs   = 10
+	arLocationsIdx  = 2
+	arReposIdx      = 4
+	arSubIdx        = 6
+	arPkgSubIdx     = 8
+	arReposKind     = "repositories"
+	arPackagesKind  = "packages"
+	arFilesKind     = "files"
+	arImagesKind    = "dockerImages"
+	arVersionsKind  = "versions"
+	arTagsKind      = "tags"
+	arVerbCleanup   = "cleanupPreview"
+	arLocationsKind = "locations"
+
+	arDownloadMaxBytes = 32 << 20
+	arFileSegs         = 8
 )
 
 // registerGCPArtifactRegistryRoutes exposes repositories, packages, versions, tags and files to the SPA.
 func (h *DashboardHandler) registerGCPArtifactRegistryRoutes() {
 	var route gcpRESTRoute
 
+	api := (*gcpArtifactRegistryAPI)(nil)
+
 	if ops := h.config.GCPArtifactRegistryOps; ops != nil {
-		route = (&gcpArtifactRegistryAPI{ar: ops.API()}).route
+		api = &gcpArtifactRegistryAPI{ar: ops.API()}
+		route = api.route
 	}
 
 	h.registerGCPRESTProxy(gcpArtifactRegistryProxyPrefix, route)
+	h.SubRouter.Add(http.MethodGet, gcpArtifactRegistryProxyPrefix+"/download", func(c *echo.Context) error {
+		if api == nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errServiceUnavailable})
+		}
+
+		return api.download(c)
+	})
+}
+
+// arFileNameOK accepts only projects/P/locations/L/repositories/R/files/F names, with F still path-escaped.
+func arFileNameOK(name string) bool {
+	segs := strings.Split(name, "/")
+	if len(segs) != arFileSegs || segs[0] != gcpRESTProjectsSeg || segs[arLocationsIdx] != arLocationsKind ||
+		segs[arReposIdx] != arReposKind || segs[arSubIdx] != arFilesKind {
+		return false
+	}
+
+	for _, s := range segs {
+		if s == "" || s == "." || s == ".." {
+			return false
+		}
+	}
+
+	return true
+}
+
+// download streams one repository file as an attachment, size-capped and never rendered by the browser.
+func (a *gcpArtifactRegistryAPI) download(c *echo.Context) error {
+	name := c.QueryParam("name")
+	if !arFileNameOK(name) {
+		return writeGCPRESTError(c, status.Error(codes.InvalidArgument, "invalid file name"))
+	}
+
+	data, err := a.ar.FileContent(c.Request().Context(), name, arDownloadMaxBytes)
+	if err != nil {
+		return writeGCPRESTError(c, err)
+	}
+
+	leaf, _ := url.PathUnescape(name[strings.LastIndex(name, "/")+1:])
+	leaf = strings.NewReplacer("\"", "_", "\r", "_", "\n", "_", "/", "_").Replace(leaf)
+
+	h := c.Response().Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Disposition", "attachment; filename="+strconv.Quote(leaf))
+
+	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 
 // arName joins the first n segments, re-escaping package, version and file IDs
@@ -60,13 +122,14 @@ func arName(r gcpRESTCall, n int) string {
 }
 
 type gcpArtifactRegistryAPI struct {
-	ar artifactregistrypb.ArtifactRegistryServer
+	ar *gcpartifactregistry.API
 }
 
 func (a *gcpArtifactRegistryAPI) route(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
 	n := len(r.segs)
 	if n < arReposSegs || n > arVersionSegs || r.segs[0] != gcpRESTProjectsSeg ||
-		r.segs[arLocationsIdx] != "locations" || r.segs[arReposIdx] != arReposKind || r.verb != "" {
+		r.segs[arLocationsIdx] != arLocationsKind || r.segs[arReposIdx] != arReposKind ||
+		(r.verb != "" && (r.verb != arVerbCleanup || n != arRepoSegs)) {
 		return nil, errGCPUnsupported()
 	}
 
@@ -99,6 +162,10 @@ func (a *gcpArtifactRegistryAPI) repositories(ctx context.Context, r gcpRESTCall
 func (a *gcpArtifactRegistryAPI) repository(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
 	name := r.name(arRepoSegs)
 
+	if r.verb == arVerbCleanup {
+		return a.cleanupPreview(ctx, r, name)
+	}
+
 	switch r.method {
 	case http.MethodGet:
 		return a.ar.GetRepository(ctx, &artifactregistrypb.GetRepositoryRequest{Name: name})
@@ -107,6 +174,41 @@ func (a *gcpArtifactRegistryAPI) repository(ctx context.Context, r gcpRESTCall) 
 	}
 
 	return nil, errGCPUnsupported()
+}
+
+// cleanupPreview reports what the repository's cleanup policies would delete now; nothing is deleted.
+func (a *gcpArtifactRegistryAPI) cleanupPreview(
+	ctx context.Context, r gcpRESTCall, name string,
+) (proto.Message, error) {
+	if r.method != http.MethodGet {
+		return nil, errGCPUnsupported()
+	}
+
+	repo, err := a.ar.GetRepository(ctx, &artifactregistrypb.GetRepositoryRequest{Name: name})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // backend status passes through
+	}
+
+	names, err := a.ar.PreviewCleanup(ctx, name)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // backend status passes through
+	}
+
+	list := make([]any, 0, len(names))
+	for _, n := range names {
+		list = append(list, n)
+	}
+
+	out, sErr := structpb.NewStruct(map[string]any{
+		"dryRun":       repo.GetCleanupPolicyDryRun(),
+		"policies":     float64(len(repo.GetCleanupPolicies())),
+		arVersionsKind: list,
+	})
+	if sErr != nil {
+		return nil, status.Error(codes.Internal, sErr.Error())
+	}
+
+	return out, nil
 }
 
 func (a *gcpArtifactRegistryAPI) repoChildren(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
@@ -175,11 +277,26 @@ func (a *gcpArtifactRegistryAPI) pkgChildren(ctx context.Context, r gcpRESTCall)
 }
 
 func (a *gcpArtifactRegistryAPI) version(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
-	if r.segs[arSubIdx] != arPackagesKind || r.segs[arPkgSubIdx] != arVersionsKind {
+	if r.segs[arSubIdx] != arPackagesKind {
 		return nil, errGCPUnsupported()
 	}
 
 	name := arName(r, arVersionSegs)
+
+	if r.segs[arPkgSubIdx] == arTagsKind {
+		switch r.method {
+		case http.MethodGet:
+			return a.ar.GetTag(ctx, &artifactregistrypb.GetTagRequest{Name: name})
+		case http.MethodDelete:
+			return a.ar.DeleteTag(ctx, &artifactregistrypb.DeleteTagRequest{Name: name})
+		}
+
+		return nil, errGCPUnsupported()
+	}
+
+	if r.segs[arPkgSubIdx] != arVersionsKind {
+		return nil, errGCPUnsupported()
+	}
 
 	switch r.method {
 	case http.MethodGet:

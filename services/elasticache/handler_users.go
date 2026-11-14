@@ -91,6 +91,7 @@ func (h *Handler) createUser(ctx context.Context, c *echo.Context, form url.Valu
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.Backend.SetUserPasswords(ctx, userID, parseUserPasswords(form))
 	h.applyCreateTimeTags(ctx, form, u.ARN)
 
 	// The SDK deserializer reads the user fields directly from CreateUserResult (not under a User element).
@@ -280,6 +281,10 @@ func (h *Handler) modifyUser(ctx context.Context, c *echo.Context, form url.Valu
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	if authType != "" {
+		h.Backend.SetUserPasswords(ctx, userID, parseUserPasswords(form))
 	}
 
 	type result struct {

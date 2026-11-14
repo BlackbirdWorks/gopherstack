@@ -302,7 +302,7 @@ func (b *Backend) GetTrafficDistribution(ref string) (*TrafficDistributionOut, e
 }
 
 // UpdateTrafficDistribution replaces the supplied configurations of an active group.
-func (b *Backend) UpdateTrafficDistribution(in *TDGRequest) (*empty, error) {
+func (b *Backend) UpdateTrafficDistribution(in *TDGRequest) (*EmptyOutput, error) {
 	configs := map[string]*DistributionConfig{"TelephonyConfig": in.TelephonyConfig, "AgentConfig": in.AgentConfig}
 
 	for field, c := range configs {
@@ -348,11 +348,11 @@ func (b *Backend) UpdateTrafficDistribution(in *TDGRequest) (*empty, error) {
 		t.SignIn = *in.SignInConfig
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DeleteTrafficDistributionGroup removes a group that has no associated users.
-func (b *Backend) DeleteTrafficDistributionGroup(ref string) (*empty, error) {
+func (b *Backend) DeleteTrafficDistributionGroup(ref string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteTrafficDistributionGroup")
 	defer b.mu.Unlock()
 
@@ -369,7 +369,7 @@ func (b *Backend) DeleteTrafficDistributionGroup(ref string) (*empty, error) {
 }
 
 // AssociateTrafficDistributionGroupUser adds an agent to a group; repeating it is a no-op.
-func (b *Backend) AssociateTrafficDistributionGroupUser(in *TDGRequest) (*empty, error) {
+func (b *Backend) AssociateTrafficDistributionGroupUser(in *TDGRequest) (*EmptyOutput, error) {
 	b.mu.Lock("AssociateTrafficDistributionGroupUser")
 	defer b.mu.Unlock()
 
@@ -382,7 +382,7 @@ func (b *Backend) AssociateTrafficDistributionGroupUser(in *TDGRequest) (*empty,
 		t.Users = append(t.Users, in.UserID)
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // tdgUser resolves the group and checks the user exists in the group's instance.
@@ -409,7 +409,7 @@ func (b *Backend) tdgUser(groupRef, instRef, userID string) (*tdgRec, error) {
 }
 
 // DisassociateTrafficDistributionGroupUser removes an agent from a group.
-func (b *Backend) DisassociateTrafficDistributionGroupUser(in *TDGRequest) (*empty, error) {
+func (b *Backend) DisassociateTrafficDistributionGroupUser(in *TDGRequest) (*EmptyOutput, error) {
 	b.mu.Lock("DisassociateTrafficDistributionGroupUser")
 	defer b.mu.Unlock()
 
@@ -429,7 +429,7 @@ func (b *Backend) DisassociateTrafficDistributionGroupUser(in *TDGRequest) (*emp
 
 	t.Users = slices.DeleteFunc(slices.Clone(t.Users), func(u string) bool { return u == in.QueryUserID })
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // ListTrafficDistributionGroupUsers pages through the agents of a group.

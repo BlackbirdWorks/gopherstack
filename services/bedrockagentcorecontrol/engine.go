@@ -291,6 +291,10 @@ func (b *InMemoryBackend) createLocked(sc scope, k *kindSpec, in args) (*Resourc
 		}
 	}
 
+	if err = b.checkQuotaLocked(sc, k, pid); err != nil {
+		return nil, err
+	}
+
 	now := b.now()
 	r := &Resource{
 		Kind: k.Name, Account: sc.account, Region: sc.region, Parent: pid, ID: id,
@@ -582,13 +586,7 @@ func (b *InMemoryBackend) render(op string, k *kindSpec, r *Resource, shown stri
 		}
 	}
 
-	status := http.StatusOK
-	if !k.Terminal && slices.ContainsFunc([]string{"Create", "Start", "Delete", "Update"},
-		func(p string) bool { return strings.HasPrefix(op, p) }) {
-		status = http.StatusAccepted
-	}
-
-	return &reply{body: out, status: status}
+	return &reply{body: out, status: http.StatusOK}
 }
 
 func (b *InMemoryBackend) project(
@@ -733,7 +731,7 @@ func (b *InMemoryBackend) systemResource(sc scope, k *kindSpec, id string) (*Res
 		Created: systemTime(), Updated: systemTime(), SettleAt: systemTime(),
 		ARN: arn.Build(arnService, sc.region, "aws", typ+"/"+id),
 		Doc: map[string]any{
-			keyName: id, "type": "SYSTEM", keyDescription: "Service-provided " + typ,
+			keyName: id, keyType: "SYSTEM", keyDescription: "Service-provided " + typ,
 			"networkConfiguration": map[string]any{"networkMode": modePublic},
 		},
 	}, true

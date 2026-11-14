@@ -439,6 +439,8 @@ func tagMatchesPattern(tag, pattern string) bool {
 
 // ageThreshold returns the time before which images should be expired.
 func ageThreshold(now time.Time, count int, unit string) time.Time {
+	now = now.UTC()
+
 	switch strings.ToLower(unit) {
 	case "hours":
 		return now.Add(-time.Duration(count) * time.Hour)

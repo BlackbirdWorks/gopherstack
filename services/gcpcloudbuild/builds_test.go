@@ -271,7 +271,7 @@ func TestStepSpec(t *testing.T) {
 
 				assert.Equal(t, []string{"bash"}, s.Entrypoint)
 				assert.Equal(t, []string{"-c", "ls"}, s.Cmd)
-				assert.Equal(t, []string{"A=1"}, s.Env)
+				assert.Equal(t, []string{"A=1", "BUILDER_OUTPUT=/builder/outputs"}, s.Env)
 				assert.Equal(t, "/workspace/sub/dir", s.WorkingDir)
 			},
 		},

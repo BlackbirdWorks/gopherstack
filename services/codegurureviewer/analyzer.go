@@ -193,6 +193,31 @@ func analyze(files []sourceFile, analysisTypes []string) ([]finding, int64) {
 	return out, loc
 }
 
+func countCodeLines(lines []string, lang string) int64 {
+	if lang == "" {
+		return 0
+	}
+
+	var loc int64
+
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			loc++
+		}
+	}
+
+	return loc
+}
+
+// codeLines is the metered line count of a file, as analyzeFile counts it.
+func codeLines(f sourceFile) int64 {
+	if len(f.Content) > maxFileBytes || !isText(f.Content) {
+		return 0
+	}
+
+	return countCodeLines(strings.Split(strings.ReplaceAll(string(f.Content), "\r\n", "\n"), "\n"), language(f.Path))
+}
+
 func analyzeFile(f sourceFile, analysisTypes []string) ([]finding, int64) {
 	if len(f.Content) > maxFileBytes || !isText(f.Content) {
 		return nil, 0
@@ -200,16 +225,7 @@ func analyzeFile(f sourceFile, analysisTypes []string) ([]finding, int64) {
 
 	lines := strings.Split(strings.ReplaceAll(string(f.Content), "\r\n", "\n"), "\n")
 	lang := language(f.Path)
-
-	var loc int64
-
-	if lang != "" {
-		for _, l := range lines {
-			if strings.TrimSpace(l) != "" {
-				loc++
-			}
-		}
-	}
+	loc := countCodeLines(lines, lang)
 
 	var out []finding
 

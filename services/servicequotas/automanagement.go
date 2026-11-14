@@ -25,8 +25,13 @@ type AutoManagementInput struct {
 
 func autoKey(s scope) string { return s.account + "|" + s.region }
 
+const (
+	optInNotifyOnly      = "NotifyOnly"
+	optInNotifyAndAdjust = "NotifyAndAdjust"
+)
+
 func validateOptInType(t string) error {
-	if t != "NotifyOnly" && t != "NotifyAndAdjust" {
+	if t != optInNotifyOnly && t != optInNotifyAndAdjust {
 		return fail(ErrIllegalArgument, "OptInType %q must be NotifyOnly or NotifyAndAdjust", t)
 	}
 

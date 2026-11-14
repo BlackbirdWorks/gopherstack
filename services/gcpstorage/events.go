@@ -27,6 +27,9 @@ type ObjectEvent struct {
 	Time   time.Time
 	Object *Object
 	Type   ObjectEventType
+	// OverwroteGen is the replaced generation on a finalize; OverwrittenByGen the replacing one on delete/archive.
+	OverwroteGen     int64
+	OverwrittenByGen int64
 }
 
 // Data is the event payload: the object resource, as the Cloud Storage JSON API renders it.
@@ -52,11 +55,17 @@ func (b *InMemoryBackend) ObserveObjects(fn ObjectObserver) {
 
 // queueLocked records an event for flushEvents; it is a no-op without observers.
 func (b *InMemoryBackend) queueLocked(t ObjectEventType, o *Object) {
-	if len(b.observers) == 0 || o == nil {
+	b.queueLinkedLocked(t, o, 0, 0)
+}
+
+func (b *InMemoryBackend) queueLinkedLocked(t ObjectEventType, o *Object, overwrote, overwrittenBy int64) {
+	if (len(b.observers) == 0 && b.notifier == nil && !b.Audit.Enabled()) || o == nil {
 		return
 	}
 
-	b.pending = append(b.pending, ObjectEvent{Type: t, Object: o.clone(), Time: time.Now().UTC()})
+	b.pending = append(b.pending, ObjectEvent{
+		Type: t, Object: o.clone(), Time: b.now().UTC(), OverwroteGen: overwrote, OverwrittenByGen: overwrittenBy,
+	})
 }
 
 // flushEvents delivers queued events. Callers defer it before taking b.mu so it runs after the unlock.
@@ -70,18 +79,21 @@ func (b *InMemoryBackend) flushEvents() {
 		for _, fn := range observers {
 			fn(ev)
 		}
+
+		b.dispatchNotifications(ev)
+		b.auditObject(ev)
 	}
 }
 
 // replacedLocked queues the events for a live version that a new write displaced.
-func (b *InMemoryBackend) replacedLocked(bk *Bucket, prev *Object) {
+func (b *InMemoryBackend) replacedLocked(bk *Bucket, prev *Object, newGen int64) {
 	if prev == nil {
 		return
 	}
 
 	if bk.Versioning {
-		b.queueLocked(ObjectArchived, prev)
+		b.queueLinkedLocked(ObjectArchived, prev, 0, newGen)
 	} else {
-		b.queueLocked(ObjectDeleted, prev)
+		b.queueLinkedLocked(ObjectDeleted, prev, 0, newGen)
 	}
 }

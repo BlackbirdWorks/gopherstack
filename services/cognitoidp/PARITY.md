@@ -154,11 +154,11 @@ ops:
 gaps: []
 items_still_open:
   - "Federation (gopherstack-49qct.35 follow-up): SAML SHA-1 signatures and digests are rejected, encrypted NameID (EncryptedID) in LogoutRequest is rejected, SLO is single-session per IdP (no cross-IdP fan-out), RSA-1.5 key transport is refused by design. Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests."
-  - "Code delivery (gopherstack-49qct.19): CustomEmailSender/CustomSMSSender triggers receive the code as base64 of a plain KMS Encrypt ciphertext, not the AWS Encryption SDK message format, and carry no clientMetadata; COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up); SES SourceArn region/account are not matched against the caller; no Cognito-side delivery rate limit (LimitExceededException) is modelled."
-  - "WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled: the SDK docs for SignUp/ConfirmSignUp/InitiateAuth state the Session is usable with USER_AUTH but name no auth parameter or challenge for consuming it."
+  - "Code delivery (gopherstack-49qct.19): CustomEmailSender_Authentication/CustomSMSSender_Authentication triggers carry no clientMetadata (the custom-email-sender page says it comes from RespondToAuthChallenge ClientMetadata; the OTP code send path does not receive it) and the ESDK suite Cognito really uses is undocumented (this emulator emits suite 0x0478, no signature); COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up); SES SourceArn region/account are not matched against the caller; no Cognito-side delivery rate limit (LimitExceededException) is modelled."
+  - "Passkeys / ESDK: the userpool-id encryption context in custom-sender messages is not published (checked user-pool-lambda-custom-sender-triggers, custom-sms-sender and custom-email-sender pages); attestation verification covers formats go-webauthn supports with no FIDO MDS trust anchors"
   - "domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated."
   - "MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents."
-  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): resource binding (resource param/aud) and nonce on refresh-grant ID tokens are undocumented in the SDK so unsupported; hosted login cannot answer MFA_SETUP or EMAIL_OTP/SMS challenges."
+  - "OAuth2/OIDC endpoints (gopherstack-1ryp5): resource binding (resource param/aud) and nonce on refresh-grant ID tokens are undocumented in the SDK so unsupported; hosted login answers MFA_SETUP (TOTP only; SMS/email enrolment and a QR image are not offered), SOFTWARE_TOKEN_MFA, SMS_MFA and EMAIL_OTP, but has no passkey sign-in or SELECT_MFA_TYPE page."
 structural_gaps:
   - "AnalyticsMetadata, ContextData and UserContextData are accepted and ignored: no risk engine or Pinpoint analytics consumes them."
   - "UserPoolAddOns (advanced security) is stored and echoed only: no threat-protection engine exists. SmsConfiguration SnsCallerArn is role-assumed through the STS emulator (trust policy and role existence) before SMS publish, but ExternalId is not matched against the trust policy condition and no IAM permission policy is evaluated for sns:Publish."
@@ -1818,3 +1818,23 @@ PasswordPolicy.PasswordHistorySize is stored, echoed and enforced: ChangePasswor
   assumes `SnsCallerArn` via the STS emulator (`InvalidSmsRoleTrustRelationshipException` on failure).
 - Tests: `saml_idpinit_test.go`, `saml_encrypt_test.go`, `saml_sign_test.go`, `saml_slo_test.go`,
   `mfa_custom_message_test.go`, `internal/app/cognito_delivery_test.go`.
+
+
+## 2026-11-05 hosted MFA, passkeys, sign-up session, ESDK (gopherstack-49qct.95)
+
+Authority: aws-sdk-go-v2/service/cognitoidentityprovider v1.75.3 docs and types (ChallengeNameType, WebAuthnConfigurationType, StartWebAuthnRegistration/CompleteWebAuthnRegistration, the WebAuthn*Exception set, SignUp/ConfirmSignUp/InitiateAuth Session) plus the W3C WebAuthn L3 ceremonies via go-webauthn v0.18.2 and the AWS Encryption SDK data-format spec.
+
+- Hosted login pages (`oauth_hosted_challenge.go`): MFA_SETUP shows the TOTP key and otpauth URI and enrols on a valid code; SOFTWARE_TOKEN_MFA, SMS_MFA and EMAIL_OTP take a code; a wrong code can be retried; MFA follows NEW_PASSWORD_REQUIRED; the authorization-code grant completes afterwards.
+- RespondToAuthChallenge EMAIL_OTP raised by pool MFA now routes to the MFA check (it was sent to the first-factor path and always failed).
+- Passkeys (`webauthn.go`): registration and sign-in verify real attestation/assertion against stored public keys, sign counter and clone warning, origin and RP-ID hash; WebAuthnConfiguration is validated and drives the RP ID (default: pool domain), user verification and MULTI_FACTOR_WITH_USER_VERIFICATION (a UV passkey satisfies pool MFA). USER_AUTH offers and completes WEB_AUTHN. Errors: WebAuthnNotEnabled/ConfigurationMissing/ChallengeNotFound/ClientMismatch/OriginNotAllowed/RelyingPartyMismatch/CredentialNotSupported.
+- SignUp returns Session for ALLOW_USER_AUTH clients; ConfirmSignUp(Session) returns it confirmed; InitiateAuth(USER_AUTH, Session) signs in (pool MFA still applies), single use, AuthSessionValidity lifetime.
+- Custom senders (`internal/esdk`): ESDK message format v2, suite 0x0478 (AES-256-GCM, HKDF-SHA512, key commitment), data key from KMS GenerateDataKey with encryption context userpool-id. Decrypted once with aws-encryption-sdk-python (docker, REQUIRE_ENCRYPT_ALLOW_DECRYPT) for single- and multi-frame messages, and by an independent spec decryptor in `internal/esdk` tests.
+- Time-dependent state (MFA sessions, TOTP window, passkey challenges, sign-up sessions) reads the backend clock (`SetClock`).
+
+### 2026-11-13
+
+Verified: SignUp returns Session for a later ConfirmSignUp -> USER_AUTH auto sign-in (SDK SignUpOutput.Session, authentication-flow-methods.html "Automatic sign-in with OTPs"); SELECT_CHALLENGE ANSWER=WEB_AUTHN completes in one step with CREDENTIAL (RespondToAuthChallenge doc); the passkey RP ID defaults to the custom domain, else the prefix domain (authentication-flow-methods.html, passkey section).
+CustomEmailSender/CustomSMSSender events for SignUp and ForgotPassword now carry the call's ClientMetadata (user-pool-lambda-custom-email-sender.html: sent for ForgotPassword, SignUp and Authentication, never for AccountTakeOverNotification).
+
+## Primary-source checks (2026-11-13)
+- cognitoidp: WEB_AUTHN challenge parameter CREDENTIAL_REQUEST_OPTIONS and CREDENTIAL response confirmed by aws-amplify/amplify-js client/flows/userAuth/handleWebAuthnSignInResult.ts; the Authentication flows page shows the CREDENTIAL response.

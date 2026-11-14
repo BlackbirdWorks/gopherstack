@@ -213,6 +213,18 @@ func TestEngineRetriesAndLifecyclePolicies(t *testing.T) {
 			evs := task.GetStatus().GetStatusEvents()
 			last := evs[len(evs)-1]
 			assert.Equal(t, tt.want.String() != "SUCCEEDED", last.GetTaskExecution().GetExitCode() != 0)
+
+			attempts := make([]string, 0, tt.wantRuns)
+			for _, s := range rt.specsFor("flaky:1") {
+				attempts = append(attempts, envOf(s, "BATCH_TASK_RETRY_ATTEMPT"))
+			}
+
+			want := make([]string, 0, tt.wantRuns)
+			for n := range tt.wantRuns {
+				want = append(want, strconv.Itoa(int(n)))
+			}
+
+			assert.Equal(t, want, attempts)
 		})
 	}
 }
@@ -465,6 +477,71 @@ func TestEngineCloudLogging(t *testing.T) {
 
 			for _, en := range sink.entries {
 				assert.Equal(t, "projects/"+project+"/logs/batch_task_logs", en.GetLogName())
+			}
+		})
+	}
+}
+
+func barrierRunnable() *batchpb.Runnable {
+	return &batchpb.Runnable{Executable: &batchpb.Runnable_Barrier_{Barrier: &batchpb.Runnable_Barrier{Name: "sync"}}}
+}
+
+func TestEngineBarrier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStates []string
+		failTask   int
+	}{
+		{"all arrive", []string{"SUCCEEDED", "SUCCEEDED", "SUCCEEDED"}, -1},
+		{"failed task releases the barrier", []string{"SUCCEEDED", "FAILED", "SUCCEEDED"}, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var order atomic.Int32
+
+			before, after := make([]int32, 3), make([]int32, 3)
+
+			rt := newFakeRuntime(map[string]behavior{
+				"before:1": func(_ context.Context, s container.Spec, _ io.Writer) int {
+					n, _ := strconv.Atoi(envOf(s, "BATCH_TASK_INDEX"))
+					before[n] = order.Add(1)
+
+					if n == tt.failTask {
+						return 1
+					}
+
+					return 0
+				},
+				"after:1": func(_ context.Context, s container.Spec, _ io.Writer) int {
+					n, _ := strconv.Atoi(envOf(s, "BATCH_TASK_INDEX"))
+					after[n] = order.Add(1)
+
+					return 0
+				},
+			})
+			e := newEnv(t, withRuntime(rt))
+			e.create(
+				t,
+				"bar",
+				basicJob(3, containerRunnable("before:1"), barrierRunnable(), containerRunnable("after:1")),
+			)
+
+			e.finish(t, "bar")
+			assert.Equal(t, tt.wantStates, taskStates(e.tasks(t, "bar")))
+
+			for n, a := range after {
+				if a == 0 {
+					continue
+				}
+
+				for _, b := range before {
+					assert.Less(t, b, a, "task %d passed the barrier before every task reached it", n)
+				}
 			}
 		})
 	}

@@ -7,23 +7,22 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (8 ok, 3 partial) |
+| PARITY entries audited | 18 (14 ok, 4 partial) |
 | Feature families | 8 (6 ok, 2 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Alarm suppressions (CreateAlarmSuppression, GetAlarmSuppression, ListAlarmSuppressions, DeleteAlarmSuppression, RemoveAlarmSuppression, SummarizeAlarmSuppressionHistory) and RetrieveDimensionStates are not routed; only the suppression property on the alarm itself is honoured.
+- Alarm suppression limits are not enforced: the console documents start and end times within 90 days of now and dimension suppressions only for alarms with split messages (isNotificationsPerMetricDimensionEnabled); the API reference states neither (docs.oracle.com/en-us/iaas/Content/Monitoring/Tasks/create-alarm-suppression.htm). Dimensions on an ALARM-level suppression are stored and ignored, and the per-alarm suppression count limit is unknown.
+- Suppressions silence the notification of the covered metric streams (ALARM level or a dimension subset of the firing streams, and the clearing notice when every previously firing stream is covered); the alarm state, history and RetrieveDimensionStates still change. The recurrence start default (00:00:00 UTC) and a WEEKLY rule without BYDAY (weekday of timeSuppressFrom, per RFC 5545) follow the SDK comment and the RFC.
 - Alarm evaluation is per alarm, not per metric stream: isNotificationsPerMetricDimensionEnabled is stored but notifications are always grouped, and alarm overrides, ruleName rules and evaluationSlackDuration are stored but not evaluated.
-- Alarm notifications to Streaming destinations are accepted but not delivered; only Notifications topics receive them.
 - MQL lacks grouping(), joins, arithmetic and nested queries; see families.mql. Metrics emitted by other OCI services (oci_computeagent and so on) do not exist, only posted custom metrics.
-- compartmentIdInSubtree and metricCompartmentIdInSubtree are ignored (the emulator has no compartment tree); metrics and alarms match the exact compartment.
-- The datapoint timestamp window, the 50 stream limit, the dimension and name rules, the 90 day retention and the pendingDuration and repeat limits are recalled from the Oracle documentation and SDK comments, not verified against the live service; the notification JSON layout follows the documented alarm message format only approximately.
+- The notification JSON layout follows the documented alarm message format only approximately; the SDK does not document its fields.
 - Datapoints are held in memory and in snapshots, so heavy ingestion grows the snapshot; there is no per-stream cap.
-- opc-retry-token idempotency, content-encoding gzip request bodies, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set.
+- Content-encoding gzip request bodies, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- systemTags are never set.
 
 ## More
 

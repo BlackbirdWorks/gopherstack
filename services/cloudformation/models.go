@@ -317,6 +317,8 @@ type StackInstance struct {
 	StatusReason            string     `xml:"StatusReason,omitempty"            json:"statusReason,omitempty"`
 	DriftStatus             string     `xml:"DriftStatus,omitempty"             json:"driftStatus,omitempty"`
 	LastOperationID         string     `xml:"LastOperationId,omitempty"         json:"lastOperationID,omitempty"`
+	// DetailedStatus is StackInstanceStatus.DetailedStatus: where the last operation on the instance stands.
+	DetailedStatus string `xml:"-" json:"detailedStatus,omitempty"`
 	// OrganizationalUnitID is set only for SERVICE_MANAGED instances created
 	// via a DeploymentTargets OU expansion (types.go:1836+ OrganizationalUnitId).
 	OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty" json:"organizationalUnitID,omitempty"`
@@ -401,6 +403,8 @@ type RegisteredType struct {
 	LogGroupName     string
 	LogRoleArn       string
 	PublisherID      string
+	OriginalTypeName string
+	OriginalTypeArn  string
 	IsActivated      bool
 	IsPublished      bool
 }
@@ -409,10 +413,13 @@ type RegisteredType struct {
 // and LoggingConfig members.
 type ActivateTypeOptions struct {
 	AutoUpdate       *bool
+	MajorVersion     *int64
 	ExecutionRoleArn string
 	LogGroupName     string
 	LogRoleArn       string
 	PublisherID      string
+	TypeNameAlias    string
+	VersionBump      string
 }
 
 // TypeRegistrationRecord holds the state of a type registration request.
@@ -496,6 +503,8 @@ type TypeDetails struct {
 	LogGroupName       string `xml:"-"`
 	ExecutionRoleArn   string `xml:"-"`
 	TypeArn            string `xml:"Arn,omitempty"`
+	OriginalTypeName   string `xml:"OriginalTypeName,omitempty"`
+	OriginalTypeArn    string `xml:"OriginalTypeArn,omitempty"`
 	IsActivatableInOrg bool   `xml:"IsActivatableInOrg,omitempty"`
 	IsDefaultVersion   bool   `xml:"IsDefaultVersion,omitempty"`
 	IsActivated        bool   `xml:"IsActivated,omitempty"`

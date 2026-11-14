@@ -117,6 +117,7 @@ func TestImageSignatureLifecycle(t *testing.T) {
 	_, err = e.client.CreateContainerImageSignature(t.Context(), artifacts.CreateContainerImageSignatureRequest{
 		CreateContainerImageSignatureDetails: sigDetails(img.Id)})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+	assert.Equal(t, "NotAuthorizedOrResourceAlreadyExists", svcErr(t, err).GetCode())
 
 	other := sigDetails(img.Id)
 	other.KmsKeyVersionId = new("ocid1.keyversion.oc1.iad.second0000000")

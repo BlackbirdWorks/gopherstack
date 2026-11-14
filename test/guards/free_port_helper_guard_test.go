@@ -93,27 +93,18 @@ func serve(t *testing.T) {
 	}
 }
 
-// pickedPortAllowlist holds helpers that predate the guard in services not yet converted; each entry must
-// still exist, so converting a service forces its removal here.
+// pickedPortAllowlist holds false positives: helpers that Close() a listener but only at test cleanup, so the
+// port stays bound while the caller uses it. Each entry must still exist.
 func pickedPortAllowlist() map[string]string {
-	const debt = "not yet converted to Port 0 / portalloc.AcquireEphemeral"
+	const heldOpen = "holds the listener open until test cleanup (busy-port bind-failure test)"
 
 	return map[string]string{
-		"services/azurearm/handler_test.go: freeEphemeralPort":            debt,
-		"services/azurearm/handler_test.go: reserveEphemeralPort":         debt,
-		"services/azureblob/coverage_test.go: freeEphemeralPort":          debt,
-		"services/azureblob/coverage_test.go: reserveEphemeralPort":       debt,
-		"services/azurequeue/coverage_test.go: freeEphemeralPort":         debt,
-		"services/azurequeue/coverage_test.go: reserveEphemeralPort":      debt,
-		"services/azuretable/coverage_test.go: freeEphemeralPort":         debt,
-		"services/azuretable/coverage_test.go: reserveEphemeralPort":      debt,
-		"services/cosmosdb/coverage_test.go: reserveEphemeralPort":        debt,
-		"services/ec2/docker_front_internal_test.go: echoServer":          "keeps its listener open",
-		"services/ec2/docker_front_internal_test.go: freeTCPPort":         debt,
-		"services/iot/broker_test.go: freeTCPPort":                        debt,
-		"services/lambda/function_url_host_test.go: freeLoopbackPort":     debt,
-		"services/lambda/kafka_integration_internal_test.go: freeTCPPort": debt,
-		"services/neptune/gremlin_ws_proxy_test.go: wsFreePort":           debt,
+		"services/azurearm/handler_test.go: reserveEphemeralPort":    heldOpen,
+		"services/azureblob/coverage_test.go: reserveEphemeralPort":  heldOpen,
+		"services/azurequeue/coverage_test.go: reserveEphemeralPort": heldOpen,
+		"services/azuretable/coverage_test.go: reserveEphemeralPort": heldOpen,
+		"services/cosmosdb/coverage_test.go: reserveEphemeralPort":   heldOpen,
+		"services/ec2/docker_front_internal_test.go: echoServer":     "keeps its listener open",
 	}
 }
 

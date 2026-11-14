@@ -8,7 +8,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -33,18 +33,16 @@ type urlHostEnv struct {
 	host   string
 }
 
-func freeLoopbackPort(t *testing.T) int {
+// acquireRuntimePort reserves a process-unique port; the runtime server's port is embedded in container env in
+// production, so it must be known before Start.
+func acquireRuntimePort(t *testing.T) int {
 	t.Helper()
 
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	port, err := portalloc.AcquireEphemeral()
 	require.NoError(t, err)
+	t.Cleanup(func() { portalloc.ReleaseEphemeral(port) })
 
-	defer l.Close()
-
-	tcp, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-
-	return tcp.Port
+	return port
 }
 
 // runFakeRuntime answers every invocation on the runtime API at port with response.
@@ -103,7 +101,7 @@ func newURLHostEnv(
 		State:        lambda.FunctionStateActive,
 	}))
 
-	port := freeLoopbackPort(t)
+	port := acquireRuntimePort(t)
 	srv := lambda.NewExportedRuntimeServer(port)
 	require.NoError(t, srv.Start(t.Context()))
 	t.Cleanup(func() {

@@ -44,6 +44,10 @@ type instRec struct {
 	CACert        string                `json:"caCert"`
 	PitrBase      string                `json:"pitrBase,omitempty"`
 	CAKey         string                `json:"caKey"`
+	NextCA        *SslCert              `json:"nextCa,omitempty"`
+	PrevCA        *SslCert              `json:"prevCa,omitempty"`
+	NextCACert    string                `json:"nextCaCert,omitempty"`
+	NextCAKey     string                `json:"nextCaKey,omitempty"`
 	Inst          Instance              `json:"inst"`
 	queue         []task
 	ServerID      uint32 `json:"serverID,omitempty"`

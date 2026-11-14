@@ -333,3 +333,62 @@ func TestAzureRedisARMSDKPremiumFeatures(t *testing.T) {
 func pollOpts() *runtime.PollUntilDoneOptions {
 	return &runtime.PollUntilDoneOptions{Frequency: 100 * time.Millisecond}
 }
+
+func TestAzureRedisARMSDKDataAccess(t *testing.T) {
+	t.Parallel()
+
+	s := newRedisSDKStack(t)
+	ctx := t.Context()
+
+	s.create(t, "sdkaccess", armredis.SKUNameBasic, armredis.SKUFamilyC, 0, nil)
+
+	policies := s.factory.NewAccessPolicyClient()
+	assignments := s.factory.NewAccessPolicyAssignmentClient()
+
+	pol, err := policies.BeginCreateUpdate(ctx, redisSDKRG, "sdkaccess", "readonly", armredis.CacheAccessPolicy{
+		Properties: &armredis.CacheAccessPolicyProperties{Permissions: new("+@read ~app:*")},
+	}, nil)
+	require.NoError(t, err)
+
+	polRes, err := pol.PollUntilDone(ctx, pollOpts())
+	require.NoError(t, err)
+	assert.Equal(t, armredis.AccessPolicyTypeCustom, *polRes.Properties.Type)
+	assert.Equal(t, armredis.AccessPolicyProvisioningStateSucceeded, *polRes.Properties.ProvisioningState)
+
+	builtin, err := policies.Get(ctx, redisSDKRG, "sdkaccess", "Data Owner", nil)
+	require.NoError(t, err)
+	assert.Equal(t, armredis.AccessPolicyTypeBuiltIn, *builtin.Properties.Type)
+
+	assign, err := assignments.BeginCreateUpdate(ctx, redisSDKRG, "sdkaccess", "reader-app",
+		armredis.CacheAccessPolicyAssignment{Properties: &armredis.CacheAccessPolicyAssignmentProperties{
+			AccessPolicyName: new("readonly"), ObjectID: new("6497c918-11ad-41e7-1b0f-7c518a87d0b0"),
+			ObjectIDAlias: new("reader-app"),
+		}}, nil)
+	require.NoError(t, err)
+
+	assignRes, err := assign.PollUntilDone(ctx, pollOpts())
+	require.NoError(t, err)
+	assert.Equal(t, "readonly", *assignRes.Properties.AccessPolicyName)
+
+	var names []string
+
+	pager := policies.NewListPager(redisSDKRG, "sdkaccess", nil)
+	for pager.More() {
+		page, pageErr := pager.NextPage(ctx)
+		require.NoError(t, pageErr)
+
+		for _, p := range page.Value {
+			names = append(names, *p.Name)
+		}
+	}
+
+	assert.ElementsMatch(t, []string{"Data Contributor", "Data Owner", "Data Reader", "readonly"}, names)
+
+	del, err := assignments.BeginDelete(ctx, redisSDKRG, "sdkaccess", "reader-app", nil)
+	require.NoError(t, err)
+	_, err = del.PollUntilDone(ctx, pollOpts())
+	require.NoError(t, err)
+
+	_, err = assignments.Get(ctx, redisSDKRG, "sdkaccess", "reader-app", nil)
+	require.Error(t, err)
+}

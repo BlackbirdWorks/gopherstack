@@ -42,26 +42,31 @@ type Message struct {
 
 // Queue is a message queue with its dead letter queue.
 type Queue struct {
-	TimeCreated   time.Time     `json:"timeCreated"`
-	TimeUpdated   time.Time     `json:"timeUpdated"`
-	TransitionAt  *time.Time    `json:"transitionAt,omitempty"`
-	Tags          Tags          `json:"tags"`
-	wake          chan struct{} // closed and replaced whenever a poller should re-check
-	ID            string        `json:"id"`
-	CompartmentID string        `json:"compartmentId"`
-	Name          string        `json:"name"`
-	State         string        `json:"state"`
-	KMSKeyID      string        `json:"kmsKeyId,omitempty"`
-	Etag          string        `json:"etag"`
-	Messages      []*Message    `json:"messages,omitempty"`
-	DLQ           []*Message    `json:"dlq,omitempty"`
-	Retention     int           `json:"retentionInSeconds"`
-	Visibility    int           `json:"visibilityInSeconds"`
-	Timeout       int           `json:"timeoutInSeconds"`
-	DLQCount      int           `json:"deadLetterQueueDeliveryCount"`
-	ChannelLimit  int           `json:"channelConsumptionLimit"`
-	NextMsgID     int64         `json:"nextMsgId"`
-	Seq           int64         `json:"seq"`
+	TransitionAt  *time.Time                `json:"transitionAt,omitempty"`
+	PrimaryDLQ    *int                      `json:"primaryDlqCount,omitempty"`
+	Groups        map[string]*ConsumerGroup `json:"groups,omitempty"`
+	wake          chan struct{}             // closed and replaced whenever a poller should re-check
+	Tags          Tags                      `json:"tags"`
+	TimeCreated   time.Time                 `json:"timeCreated"`
+	TimeUpdated   time.Time                 `json:"timeUpdated"`
+	ID            string                    `json:"id"`
+	CompartmentID string                    `json:"compartmentId"`
+	Name          string                    `json:"name"`
+	State         string                    `json:"state"`
+	KMSKeyID      string                    `json:"kmsKeyId,omitempty"`
+	Etag          string                    `json:"etag"`
+	PrimaryName   string                    `json:"primaryName,omitempty"`
+	Messages      []*Message                `json:"messages,omitempty"`
+	DLQ           []*Message                `json:"dlq,omitempty"`
+	Retention     int                       `json:"retentionInSeconds"`
+	Visibility    int                       `json:"visibilityInSeconds"`
+	Timeout       int                       `json:"timeoutInSeconds"`
+	DLQCount      int                       `json:"deadLetterQueueDeliveryCount"`
+	ChannelLimit  int                       `json:"channelConsumptionLimit"`
+	NextMsgID     int64                     `json:"nextMsgId"`
+	Seq           int64                     `json:"seq"`
+	GroupsOn      bool                      `json:"consumerGroups,omitempty"`
+	PrimaryOff    bool                      `json:"primaryDisabled,omitempty"`
 }
 
 // WorkRequest records an asynchronous admin operation.

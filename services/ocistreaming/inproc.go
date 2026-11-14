@@ -80,7 +80,7 @@ func (b *InMemoryBackend) StreamActive(id string) bool {
 	b.mu.RLock("StreamActive")
 	defer b.mu.RUnlock()
 
-	_, aerr := b.activeStream(id)
+	_, aerr := b.dataStream(id)
 
 	return aerr == nil
 }

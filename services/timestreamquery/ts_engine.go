@@ -3,8 +3,10 @@ package timestreamquery
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +24,7 @@ const (
 var (
 	reNoColumn   = regexp.MustCompile(`no such column: (\S+)`)
 	reNoFunction = regexp.MustCompile(`no such function: (\S+)`)
+	reUnnestMod  = regexp.MustCompile(`\bts_unnest_[0-9a-f]+\b`)
 	reSQLiteTag  = regexp.MustCompile(`^SQL logic error: |\s\(\d+\)$`)
 )
 
@@ -35,7 +38,21 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 
 // execute runs a SELECT, DESCRIBE or SHOW statement against the written records.
 func (b *InMemoryBackend) execute(
-	ctx context.Context, query string, vars map[string]string,
+	parent context.Context, query string, vars map[string]string, queryID string,
+) (*resultSet, error) {
+	ctx, cancel := context.WithTimeout(parent, b.timeout())
+	defer cancel()
+
+	rs, err := b.executeStatement(ctx, query, vars, queryID)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		return nil, fmt.Errorf("%w: query execution exceeded the %s time limit", ErrQueryExecution, b.timeout())
+	}
+
+	return rs, err
+}
+
+func (b *InMemoryBackend) executeStatement(
+	ctx context.Context, query string, vars map[string]string, queryID string,
 ) (*resultSet, error) {
 	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(query), ";"))
 	region := getRegion(ctx, b.defaultRegion)
@@ -45,6 +62,8 @@ func (b *InMemoryBackend) execute(
 		return b.describe(region, query)
 	case "SHOW":
 		return b.show(region, query)
+	case stmtUnload:
+		return b.unload(ctx, query, queryID)
 	case "EXPLAIN":
 		return nil, validationf("line 1:1: EXPLAIN is not supported")
 	}
@@ -57,7 +76,7 @@ func (b *InMemoryBackend) execute(
 		return nil, err
 	}
 
-	translated, err := translate(rewriteTimestream(query, now, vars), tables)
+	translated, err := translateTimestream(rewriteTimestream(query, now, vars), tables)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +86,8 @@ func (b *InMemoryBackend) execute(
 		return nil, err
 	}
 
+	applyBooleanTypes(rs, query)
+	applyIntervalTypes(rs, query)
 	rs.scanned = scanned
 	rs.tables = len(tables)
 
@@ -114,6 +135,7 @@ func loadSourceTables(
 			}
 		}
 
+		recs = slices.Clone(recs)
 		sort.SliceStable(recs, func(i, j int) bool { return recs[i].Time.Before(recs[j].Time) })
 
 		for _, r := range recs {
@@ -121,15 +143,36 @@ func loadSourceTables(
 		}
 
 		set[key] = &tableData{
-			sqlName: engineTablePrefix + strconv.Itoa(len(set)), schema: deriveSchema(recs), records: recs,
+			sqlName: engineTablePrefix + strconv.Itoa(len(set)),
+			schema:  deriveSchema(withShapes(src, region, ref, recs)),
+			records: recs,
 		}
 	}
 
 	return set, scanned, nil
 }
 
+// withShapes prepends the table's remembered record shapes so the schema survives retention.
+func withShapes(src RecordSource, region string, ref tableRef, recs []SourceRecord) []SourceRecord {
+	ss, ok := src.(SchemaSource)
+	if !ok {
+		return recs
+	}
+
+	shapes := ss.TableShapes(region, ref.database, ref.table)
+	if len(shapes) == 0 {
+		return recs
+	}
+
+	return append(slices.Clip(shapes), recs...)
+}
+
 func translate(q string, set loadedSet) (string, error) {
 	resolve := func(parts []string) (string, string, bool) {
+		if len(parts) == 1 && strings.HasPrefix(parts[0], "__tsu") {
+			return "main", parts[0], true
+		}
+
 		if len(parts) != qualifiedParts {
 			return "", "", false
 		}
@@ -176,6 +219,19 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	for _, t := range set {
 		if err = loadTable(ctx, conn, t); err != nil {
 			return nil, fmt.Errorf("timestreamquery: load table: %w", err)
+		}
+	}
+
+	for _, mod := range reUnnestMod.FindAllString(q, -1) {
+		table, nameErr := canonicalUnnestTable(mod)
+		if nameErr != nil {
+			return nil, fmt.Errorf("timestreamquery: unnest module: %w", nameErr)
+		}
+
+		ddl := strings.Join(
+			[]string{"CREATE VIRTUAL TABLE IF NOT EXISTS temp.", table, " USING ", unnestModuleName}, "")
+		if _, err = conn.ExecContext(ctx, ddl); err != nil {
+			return nil, fmt.Errorf("timestreamquery: unnest module: %w", err)
 		}
 	}
 

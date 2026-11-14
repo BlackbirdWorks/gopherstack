@@ -22,6 +22,7 @@ type InMemoryBackend struct {
 	consoleConfigs *store.Table[ConsoleConfig]
 	statements     *store.Table[PermissionStatement]
 	now            func() time.Time
+	orgs           OrganizationResolver
 	accountID      string
 	region         string
 	signingKey     []byte

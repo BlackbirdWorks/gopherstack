@@ -2,6 +2,7 @@ package opencypher
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"math"
 	"slices"
@@ -76,6 +77,12 @@ func (x *exec) evalCompound(e expr, r row, grp []row) (any, error) {
 		return x.evalHasLabels(t, r, grp)
 	case caseExpr:
 		return x.evalCase(t, r, grp)
+	case patternExpr:
+		n, err := x.countPattern(t, r, true)
+
+		return n > 0, err
+	case listCompExpr:
+		return x.evalListComp(t, r, grp)
 	default:
 		return nil, unsupported("unsupported expression")
 	}
@@ -568,4 +575,70 @@ func intArith(op string, a, b int64) (any, error) {
 	}
 
 	return a % b, nil
+}
+
+var errPatternFound = errors.New("pattern found")
+
+// countPattern counts matches of the pattern under the bindings in r; firstOnly stops at the first one.
+func (x *exec) countPattern(t patternExpr, r row, firstOnly bool) (int, error) {
+	n := 0
+
+	err := x.walkPatterns([]pattern{t.pat}, 0, r, map[string]bool{}, func(row) error {
+		n++
+
+		if firstOnly {
+			return errPatternFound
+		}
+
+		return nil
+	})
+	if err != nil && !errors.Is(err, errPatternFound) {
+		return 0, err
+	}
+
+	return n, nil
+}
+
+func (x *exec) evalListComp(t listCompExpr, r row, grp []row) (any, error) {
+	src, err := x.eval(t.src, r, grp)
+	if err != nil || src == nil {
+		return nil, err
+	}
+
+	items, ok := src.([]any)
+	if !ok {
+		return nil, malformed("Type mismatch: expected List but was %T", src)
+	}
+
+	out := make([]any, 0, len(items))
+
+	for _, it := range items {
+		env := r.with(t.v, it)
+
+		if t.where != nil {
+			keep, _, werr := x.evalBool(t.where, env, grp)
+			if werr != nil {
+				return nil, werr
+			}
+
+			if !keep {
+				continue
+			}
+		}
+
+		if t.proj == nil {
+			out = append(out, it)
+
+			continue
+		}
+
+		v, perr := x.eval(t.proj, env, grp)
+		if perr != nil {
+			return nil, perr
+		}
+
+		out = append(out, v)
+	}
+
+	return out, nil
 }

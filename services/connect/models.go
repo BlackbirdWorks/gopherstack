@@ -320,8 +320,8 @@ type Queue struct {
 	MaxContacts          *int32                `json:"MaxContacts,omitempty"`
 	Tags                 map[string]string     `json:"Tags,omitempty"`
 	Description          string                `json:"Description,omitempty"`
-	HoursOfOperationID   string                `json:"HoursOfOperationId"`
-	Name                 string                `json:"Name"`
+	HoursOfOperationID   string                `json:"HoursOfOperationId,omitempty"`
+	Name                 string                `json:"Name,omitempty"`
 	QueueArn             string                `json:"QueueArn"`
 	QueueID              string                `json:"QueueId"`
 	Status               string                `json:"Status"`
@@ -332,7 +332,7 @@ type QueueSummary struct {
 	Stamp
 	Arn       string `json:"Arn"`
 	ID        string `json:"Id"`
-	Name      string `json:"Name"`
+	Name      string `json:"Name,omitempty"`
 	QueueType string `json:"QueueType"`
 }
 
@@ -555,31 +555,93 @@ type Campaign struct {
 	CampaignID string `json:"CampaignId,omitempty"`
 }
 
+// RecordingInfo describes one recording of a contact.
+type RecordingInfo struct {
+	StartTimestamp  *awstime.EpochTime `json:"StartTimestamp,omitempty"`
+	StopTimestamp   *awstime.EpochTime `json:"StopTimestamp,omitempty"`
+	Location        string             `json:"Location,omitempty"`
+	MediaStreamType string             `json:"MediaStreamType,omitempty"`
+	ParticipantType string             `json:"ParticipantType,omitempty"`
+	Status          string             `json:"Status,omitempty"`
+	StorageType     string             `json:"StorageType,omitempty"`
+}
+
+// ChatContactMetrics holds the contact-level chat metrics.
+type ChatContactMetrics struct {
+	ConversationCloseTimeInMillis *int64 `json:"ConversationCloseTimeInMillis,omitempty"`
+	MultiParty                    *bool  `json:"MultiParty,omitempty"`
+}
+
+// ChatMetrics holds the metrics of a chat contact.
+type ChatMetrics struct {
+	ChatContactMetrics *ChatContactMetrics `json:"ChatContactMetrics,omitempty"`
+}
+
+// EmailRecipient is one recipient of an email contact.
+type EmailRecipient struct {
+	Address     string `json:"Address,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+}
+
+// AdditionalEmailRecipients lists the To and Cc recipients of an email contact.
+type AdditionalEmailRecipients struct {
+	CcList []EmailRecipient `json:"CcList,omitempty"`
+	ToList []EmailRecipient `json:"ToList,omitempty"`
+}
+
 // Contact is a customer interaction.
 type Contact struct {
-	InitiationTimestamp *awstime.EpochTime `json:"InitiationTimestamp,omitempty"`
-	LastUpdateTimestamp *awstime.EpochTime `json:"LastUpdateTimestamp,omitempty"`
-	DisconnectTimestamp *awstime.EpochTime `json:"DisconnectTimestamp,omitempty"`
-	ScheduledTimestamp  *awstime.EpochTime `json:"ScheduledTimestamp,omitempty"`
-	RingStartTimestamp  *awstime.EpochTime `json:"RingStartTimestamp,omitempty"`
-	QueueInfo           *ContactQueueInfo  `json:"QueueInfo,omitempty"`
-	AgentInfo           *ContactAgentInfo  `json:"AgentInfo,omitempty"`
-	CustomerEndpoint    *EndpointInfo      `json:"CustomerEndpoint,omitempty"`
-	SystemEndpoint      *EndpointInfo      `json:"SystemEndpoint,omitempty"`
-	Campaign            *Campaign          `json:"Campaign,omitempty"`
-	Attributes          map[string]string  `json:"Attributes,omitempty"`
-	Tags                map[string]string  `json:"Tags,omitempty"`
-	DisconnectReason    string             `json:"DisconnectReason,omitempty"`
-	Arn                 string             `json:"Arn"`
-	Channel             string             `json:"Channel"`
-	CustomerID          string             `json:"CustomerId,omitempty"`
-	Description         string             `json:"Description,omitempty"`
-	ID                  string             `json:"Id"`
-	InitialContactID    string             `json:"InitialContactId"`
-	InitiationMethod    string             `json:"InitiationMethod"`
-	Name                string             `json:"Name,omitempty"`
-	PreviousContactID   string             `json:"PreviousContactId,omitempty"`
-	RelatedContactID    string             `json:"RelatedContactId,omitempty"`
-	OutboundStrategy    jsontext.Value     `json:"OutboundStrategy,omitempty"`
-	SegmentAttributes   jsontext.Value     `json:"SegmentAttributes,omitempty"`
+	AdditionalEmailRecipients   *AdditionalEmailRecipients `json:"AdditionalEmailRecipients,omitempty"`
+	ScheduledTimestamp          *awstime.EpochTime         `json:"ScheduledTimestamp,omitempty"`
+	LastResumedTimestamp        *awstime.EpochTime         `json:"LastResumedTimestamp,omitempty"`
+	ChatMetrics                 *ChatMetrics               `json:"ChatMetrics,omitempty"`
+	Tags                        map[string]string          `json:"Tags,omitempty"`
+	SystemEndpoint              *EndpointInfo              `json:"SystemEndpoint,omitempty"`
+	LastUpdateTimestamp         *awstime.EpochTime         `json:"LastUpdateTimestamp,omitempty"`
+	InitiationTimestamp         *awstime.EpochTime         `json:"InitiationTimestamp,omitempty"`
+	Attributes                  map[string]string          `json:"Attributes,omitempty"`
+	TaskTemplateInfo            *TaskTemplateInfo          `json:"TaskTemplateInfo,omitempty"`
+	DisconnectTimestamp         *awstime.EpochTime         `json:"DisconnectTimestamp,omitempty"`
+	RingStartTimestamp          *awstime.EpochTime         `json:"RingStartTimestamp,omitempty"`
+	QueueInfo                   *ContactQueueInfo          `json:"QueueInfo,omitempty"`
+	AgentInfo                   *ContactAgentInfo          `json:"AgentInfo,omitempty"`
+	LastPausedTimestamp         *awstime.EpochTime         `json:"LastPausedTimestamp,omitempty"`
+	CustomerEndpoint            *EndpointInfo              `json:"CustomerEndpoint,omitempty"`
+	QueuePriority               *int64                     `json:"QueuePriority,omitempty"`
+	QueueTimeAdjustmentSeconds  *int32                     `json:"QueueTimeAdjustmentSeconds,omitempty"`
+	RoutingCriteria             *RoutingCriteria           `json:"RoutingCriteria,omitempty"`
+	Campaign                    *Campaign                  `json:"Campaign,omitempty"`
+	ContactEvaluations          map[string]ContactEvalInfo `json:"ContactEvaluations,omitempty"`
+	ID                          string                     `json:"Id"`
+	RelatedContactID            string                     `json:"RelatedContactId,omitempty"`
+	Arn                         string                     `json:"Arn"`
+	Channel                     string                     `json:"Channel"`
+	PreviousContactID           string                     `json:"PreviousContactId,omitempty"`
+	CustomerID                  string                     `json:"CustomerId,omitempty"`
+	InitialContactID            string                     `json:"InitialContactId"`
+	Name                        string                     `json:"Name,omitempty"`
+	InitiationMethod            string                     `json:"InitiationMethod"`
+	Description                 string                     `json:"Description,omitempty"`
+	DisconnectReason            string                     `json:"DisconnectReason,omitempty"`
+	ContactAssociationID        string                     `json:"ContactAssociationId,omitempty"`
+	SegmentAttributes           jsontext.Value             `json:"SegmentAttributes,omitempty"`
+	OutboundStrategy            jsontext.Value             `json:"OutboundStrategy,omitempty"`
+	Recordings                  []RecordingInfo            `json:"Recordings,omitempty"`
+	TotalPauseDurationInSeconds int32                      `json:"TotalPauseDurationInSeconds,omitempty"`
+	TotalPauseCount             int32                      `json:"TotalPauseCount,omitempty"`
+}
+
+// TaskTemplateInfo names the task template a task contact was created from.
+type TaskTemplateInfo struct {
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
+}
+
+// ContactEvalInfo is the Contact.ContactEvaluations entry of one evaluation form.
+type ContactEvalInfo struct {
+	StartTimestamp *awstime.EpochTime `json:"StartTimestamp,omitempty"`
+	EndTimestamp   *awstime.EpochTime `json:"EndTimestamp,omitempty"`
+	EvaluationArn  string             `json:"EvaluationArn"`
+	FormID         string             `json:"FormId"`
+	Status         string             `json:"Status"`
 }

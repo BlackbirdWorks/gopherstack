@@ -7,9 +7,9 @@ import (
 
 // GetRevision returns the named revision.
 func (b *InMemoryBackend) GetRevision(name string) (*runpb.Revision, error) {
-	n, err := parseName(name, "services", "revisions")
-	if err != nil {
-		return nil, err
+	n, _, err := parseWorkloadName(name)
+	if err != nil || len(n.ids) != 2 {
+		return nil, errInvalid("Invalid resource name %q.", name)
 	}
 
 	b.mu.RLock("GetRevision")
@@ -26,13 +26,25 @@ func (b *InMemoryBackend) GetRevision(name string) (*runpb.Revision, error) {
 // ListRevisions lists a service's revisions ordered by name.
 func (b *InMemoryBackend) ListRevisions(in *runpb.ListRevisionsRequest) ([]*runpb.Revision, string, error) {
 	n, err := parseName(in.GetParent(), "services")
+	pool := false
+
 	if err != nil {
-		return nil, "", err
+		if n, err = parseName(in.GetParent(), "workerPools"); err != nil {
+			return nil, "", err
+		}
+
+		pool = true
 	}
 
 	b.mu.RLock("ListRevisions")
 
-	if _, ok := b.services[in.GetParent()]; !ok {
+	if pool {
+		if _, ok := b.workerPools[in.GetParent()]; !ok {
+			b.mu.RUnlock()
+
+			return nil, "", errNotFound("WORKER_POOL", n.ids[0], n.location, n.project)
+		}
+	} else if _, ok := b.services[in.GetParent()]; !ok {
 		b.mu.RUnlock()
 
 		return nil, "", errNotFound("SERVICE", n.ids[0], n.location, n.project)
@@ -46,9 +58,9 @@ func (b *InMemoryBackend) ListRevisions(in *runpb.ListRevisionsRequest) ([]*runp
 
 // DeleteRevision removes a revision that is not serving traffic and stops its container.
 func (b *InMemoryBackend) DeleteRevision(in *runpb.DeleteRevisionRequest) (*longrunningpb.Operation, error) {
-	n, err := parseName(in.GetName(), "services", "revisions")
-	if err != nil {
-		return nil, err
+	n, _, err := parseWorkloadName(in.GetName())
+	if err != nil || len(n.ids) != 2 {
+		return nil, errInvalid("Invalid resource name %q.", in.GetName())
 	}
 
 	b.mu.Lock("DeleteRevision")
@@ -90,6 +102,10 @@ func (b *InMemoryBackend) DeleteRevision(in *runpb.DeleteRevisionRequest) (*long
 }
 
 func (b *InMemoryBackend) servingLocked(r *revRec) bool {
+	if wp, ok := b.workerPools[ownerOf(r.pb.GetName())]; ok {
+		return b.poolServingLocked(wp, r.pb.GetName())
+	}
+
 	svc, ok := b.services[r.pb.GetService()]
 	if !ok {
 		return false

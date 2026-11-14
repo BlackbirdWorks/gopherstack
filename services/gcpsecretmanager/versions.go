@@ -100,6 +100,10 @@ func (b *InMemoryBackend) AddSecretVersion(
 		return nil, err
 	}
 
+	if err = b.checkKeysForWrite(rec.pb); err != nil {
+		return nil, err
+	}
+
 	return cloneVersion(b.addVersionLocked(rec, req.GetParent(), payload.GetData(), payload.DataCrc32C != nil)), nil
 }
 
@@ -199,13 +203,17 @@ func (b *InMemoryBackend) AccessSecretVersion(name string) (*secretmanagerpb.Acc
 
 	b.sweepLocked()
 
-	_, v, err := b.resolveLocked(name)
+	rec, v, err := b.resolveLocked(name)
 	if err != nil {
 		return nil, err
 	}
 
 	if st := v.pb.GetState(); st != secretmanagerpb.SecretVersion_ENABLED {
 		return nil, errPrecondition("Secret Version [%s] is in %s state.", v.pb.GetName(), st)
+	}
+
+	if err = b.checkKeysForRead(rec.pb); err != nil {
+		return nil, err
 	}
 
 	crc := crc32c(v.data)

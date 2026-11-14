@@ -35,12 +35,25 @@ func parseSpec(props map[string]any, inputSchema string) (Spec, error) {
 	return spec, nil
 }
 
+// deliverySchemaAllowed: a custom-schema topic delivers mapped Event Grid events or the original payload; every
+// other topic delivers in its input schema.
+func deliverySchemaAllowed(input, delivery string) bool {
+	if input == SchemaCustom {
+		return delivery == SchemaEventGrid || delivery == SchemaCustomInput
+	}
+
+	return delivery == input
+}
+
 func normalizeSpec(spec *Spec, inputSchema string) error {
 	if spec.EventDeliverySchema == "" {
 		spec.EventDeliverySchema = inputSchema
+		if inputSchema == SchemaCustom {
+			spec.EventDeliverySchema = SchemaEventGrid
+		}
 	}
 
-	if spec.EventDeliverySchema != inputSchema {
+	if !deliverySchemaAllowed(inputSchema, spec.EventDeliverySchema) {
 		return invalidSpec(
 			"delivery schema %q must match the topic input schema %q",
 			spec.EventDeliverySchema,

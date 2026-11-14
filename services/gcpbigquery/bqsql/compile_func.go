@@ -507,6 +507,8 @@ func addAggFuncs(t map[string]*fnDef) {
 	t["APPROX_COUNT_DISTINCT"] = custom(1, 1, aggGen("count", fixed(KindInt), true))
 	t["STRING_AGG"] = custom(1, arityTwo, genStringAgg)
 	t["ARRAY_AGG"] = custom(1, 1, genArrayAgg)
+	t["APPROX_QUANTILES"] = custom(arityTwo, arityTwo, genApproxQuantiles)
+	t["APPROX_TOP_COUNT"] = custom(arityTwo, arityTwo, genApproxTopCount)
 
 	for name, udf := range map[string]string{
 		"STDDEV": "stddev_samp", "STDDEV_SAMP": "stddev_samp", "STDDEV_POP": "stddev_pop", "VARIANCE": "var_samp",
@@ -707,10 +709,6 @@ func genArrayAgg(c *compiler, n *node, sc *scope) (*gx, error) {
 		return nil, err
 	}
 
-	if n.limit != nil {
-		return nil, unsupported("ARRAY_AGG ... LIMIT")
-	}
-
 	filter := ""
 	if n.nulls {
 		filter = a[0].sql + " IS NOT NULL"
@@ -721,5 +719,51 @@ func genArrayAgg(c *compiler, n *node, sc *scope) (*gx, error) {
 		return nil, err
 	}
 
+	if n.limit != nil {
+		lim, limErr := c.expr(n.limit, sc)
+		if limErr != nil {
+			return nil, limErr
+		}
+
+		sql = "bq_array_limit(" + sql + ", " + lim.sql + ")"
+	}
+
 	return &gx{sql: sql, typ: arrayOf(defaultType(a[0].typ))}, nil
+}
+
+func genApproxQuantiles(c *compiler, n *node, sc *scope) (*gx, error) {
+	a, err := c.args(n, sc)
+	if err != nil {
+		return nil, err
+	}
+
+	filter := ""
+	if !n.respect {
+		filter = a[0].sql + " IS NOT NULL"
+	}
+
+	sql, err := c.aggSQL(n, sc, "json_group_array", []string{jsonVal(a[0])}, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &gx{sql: "bq_quantiles(" + sql + ", " + a[1].sql + ")", typ: arrayOf(defaultType(a[0].typ))}, nil
+}
+
+func genApproxTopCount(c *compiler, n *node, sc *scope) (*gx, error) {
+	a, err := c.args(n, sc)
+	if err != nil {
+		return nil, err
+	}
+
+	sql, err := c.aggSQL(n, sc, "json_group_array", []string{jsonVal(a[0])}, "")
+	if err != nil {
+		return nil, err
+	}
+
+	row := Type{Kind: KindStruct, Fields: []Column{
+		{Name: "value", Type: defaultType(a[0].typ)}, {Name: "count", Type: scalar(KindInt)},
+	}}
+
+	return &gx{sql: "bq_top_count(" + sql + ", " + a[1].sql + ")", typ: arrayOf(row)}, nil
 }

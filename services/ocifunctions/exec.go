@@ -575,7 +575,7 @@ func (e *executor) call(
 	}
 
 	if len(body) > maxPayload {
-		return InvokeOut{}, false, errExecFailed("function response exceeds the 6 MiB limit")
+		return InvokeOut{}, false, errBodyTooLarge()
 	}
 
 	if resp.StatusCode >= http.StatusInternalServerError {

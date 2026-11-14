@@ -239,8 +239,8 @@ func TestDeploymentValidation(t *testing.T) {
 		{"duplicate routes", mk("/v1", `{"routes":[{"path":"/a/{x}","methods":["GET"],"backend":`+stock+
 			`},{"path":"/a/{y}","methods":["GET"],"backend":`+stock+`}]}`), 400},
 		{
-			"usage plans unsupported",
-			mk("/v1", `{"requestPolicies":{"usagePlans":{"tokenLocations":["request.headers[t]"]}},"routes":[]}`),
+			"usage plans bad token location",
+			mk("/v1", `{"requestPolicies":{"usagePlans":{"tokenLocations":["request.path[t]"]}},"routes":[]}`),
 			400,
 		},
 		{

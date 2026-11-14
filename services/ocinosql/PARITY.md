@@ -26,6 +26,12 @@ ops:
   ListWorkRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; items envelope, paged with opc-next-page."}
   ListWorkRequestErrors: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Always empty: no emulated operation fails asynchronously."}
   ListWorkRequestLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Accepted and succeeded entries."}
+  CreateReplica: {wire: ok, errors: partial, state: ok, persist: ok, note: "202 with work request UPDATE_TABLE. Needs a FROZEN schema, a remote region (format-checked only), no duplicate region (409 NotAuthorizedOrResourceAlreadyExists) and a non-auto-reclaimable table; replica CREATING then ACTIVE with maxWriteUnits defaulting to the table's, ON_DEMAND tables take no units; opc-retry-token is honoured. The replica is region metadata only: no data is copied. Docs: docs.oracle.com/en/cloud/paas/nosql-cloud/dtddt/global-active-tables-in-ndcs.html and troubleshoot-problems-with-global-active-tables.html."}
+  DeleteReplica: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replica DELETING then removed; 404 for an unknown region."}
+  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "HOSTED environment with kmsKey (Oracle-managed: null id and vault, ACTIVE); SetMultiTenancy switches to MULTI_TENANCY. etag header."}
+  UpdateConfiguration: {wire: ok, errors: partial, state: ok, persist: ok, note: "Assigns kmsKey (id ocid1.key., kmsVaultId ocid1.vault.); kmsKeyState UPDATING then ACTIVE, work request UPDATE_CONFIGURATION; environment discriminator must match; If-Match; is-opc-dry-run validates only and answers 202 without a work request."}
+  UnassignKmsKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "Clears the key (UPDATING then ACTIVE, Oracle-managed); with no key assigned it records a finished work request; 400 on MULTI_TENANCY."}
+  DeleteWorkRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "Marks an unfinished work request CANCELED (202, same id); a finished or already canceled one answers 409 IncorrectState. The resource transition still completes."}
 families:
   auth: {status: ok, note: "pkgs/ociauth verifies draft-cavage signatures for API keys registered through POST /_gopherstack/oci/keys or OCI Identity; accept-any otherwise, --oci-nosql-enforce-auth rejects unsigned and unknown keys."}
   error_envelope: {status: partial, note: "Errors are {code,message} with opc-request-id. InvalidParameter, MissingParameter, NotAuthenticated, NotAuthorizedOrNotFound, Conflict, NoEtagMatch and IncorrectState follow the OCI conventions; a missing table or index is NotAuthorizedOrNotFound (as OCI answers) rather than a NoSQL-specific code, and duplicate table or index is 409 Conflict and limit violations are 400 LimitExceeded (OCI API error reference, docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm). The native-driver codes TableExists/IndexExists/TableNotFound (nosql-go-sdk nosqlerr/errors.go) belong to the data-plane protocol, not this REST API."}
@@ -37,13 +43,16 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-nosql-port / OCI_NOSQL_PORT (default 8162); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "CreateReplica, DeleteReplica, GetConfiguration, UpdateConfiguration, UnassignKmsKey and DeleteWorkRequest are not routed (multi-region tables, tenancy KMS configuration and work request deletion)."
+  - "Region names for CreateReplica are format-checked, not matched against a catalogue of OCI regions, and replicas have no data, throttling or per-replica limits beyond maxWriteUnits."
+  - "DeleteWorkRequest only marks the work request CANCELED; the resource transition is not rolled back. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK."
   - "Throughput and storage limits are validated but not enforced: no read or write throttling, no storage quota, so the throttle counts of ListTableUsage stay 0."
   - "The 50/50/25 auto-reclaimable (Always Free) defaults and the minimum of 1 unit are not found in any primary source reached; the documented region-level limits (30 tables, 3 on-demand tables, 4 DDL operations per minute, 100 schema updates per table, 4 limit decreases per day, once-a-day capacity mode change, 10000/5000 on-demand ceiling) are not enforced."
-  - "The REST error code for oversize keys, rows and query strings is LimitExceeded (400) by inference from the OCI error reference; the NoSQL REST reference page itself could not be fetched. Key and row size are approximated from string and number bytes, not the server's serialized form."
+  - "Which REST error code applies to oversize keys, rows and query strings is not published: the OCI error reference (apierrors.htm) defines LimitExceeded as a tenancy-level resource limit and no NoSQL page states the code for size limits (emulator: LimitExceeded 400); key and row size are approximated from string and number bytes, not the server's serialized form."
   - "Queries scan all rows of a table; indexes only validate and order ORDER BY clauses, there is no index selection, and maxReadInKBs is accepted but not used to cut a batch."
-  - "Timestamps in WHERE comparisons are compared as normalized strings, so a literal must use the column's ISO 8601 form."
-  - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
   - "The dashboard has no OCI NoSQL page."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set."
+  - "systemTags are never set."
 ---
+
+## Primary-source checks (2026-11-13)
+- ocinosql: Global Active table pages (creating-global-active-table.htm, dtddt global-active-tables) and mkdfa document CREATE TABLE ... WITH SCHEMA FROZEN [FORCE] and ALTER TABLE ... FREEZE SCHEMA [FORCE] / UNFREEZE SCHEMA; the FORCE variants are now accepted.

@@ -26,9 +26,11 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 		Prefix: q.Get("prefix"), Delimiter: q.Get("delimiter"),
 		StartOffset: q.Get("startOffset"), EndOffset: q.Get("endOffset"),
 		PageToken: q.Get("pageToken"), MaxResults: limit,
-		Versions:                 q.Get("versions") == "true",
-		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == "true",
+		Versions:                 q.Get("versions") == valTrue,
+		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == valTrue,
 		MatchGlob:                q.Get("matchGlob"),
+		IncludeFolders:           q.Get("includeFoldersAsPrefixes") == valTrue,
+		SoftDeleted:              q.Get("softDeleted") == valTrue,
 	})
 	if err != nil {
 		return err
@@ -41,7 +43,7 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 	}
 
 	for _, o := range res.Items {
-		out.Items = append(out.Items, objectResource(base, o))
+		out.Items = append(out.Items, objectResource(base, o.maskHashes("")))
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -69,12 +71,25 @@ func (h *Handler) getObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	var o *Object
+	if q.Get("softDeleted") == valTrue {
+		o, err = h.Backend.GetSoftDeletedObject(rt.bucket, rt.object, gen)
+	} else {
+		o, err = h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	}
+
 	if err != nil {
 		return err
 	}
 
-	if q.Get("alt") == "media" {
+	media := q.Get("alt") == "media"
+
+	o, apiErr := readableObject(c.Request(), o, media)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	if media {
 		serveObject(c, o)
 
 		return nil
@@ -92,6 +107,11 @@ func (h *Handler) downloadObject(c *echo.Context, rt route) error {
 	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
 	if err != nil {
 		return err
+	}
+
+	o, apiErr := readableObject(c.Request(), o, true)
+	if apiErr != nil {
+		return apiErr
 	}
 
 	serveObject(c, o)
@@ -115,6 +135,11 @@ func (h *Handler) updateObject(c *echo.Context, rt route) error {
 	o, err := h.Backend.UpdateObject(rt.bucket, rt.object, gen, p, c.Request().Method == http.MethodPut, pre)
 	if err != nil {
 		return err
+	}
+
+	o, apiErr := readableObject(c.Request(), o, false)
+	if apiErr != nil {
+		return apiErr
 	}
 
 	return c.JSON(http.StatusOK, objectResource(baseURL(c.Request()), o))
@@ -178,7 +203,17 @@ func (h *Handler) copyObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	req := CopyRequest{
+	srcKey, apiErr := csekFromHeaders(c.Request().Header, hdrCopySourcePfx)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	dstKey, apiErr := csekFromHeaders(c.Request().Header, hdrEncryptionPfx)
+	if apiErr != nil {
+		return apiErr
+	}
+
+	req := CopyRequest{SrcKeySHA: srcKey, DstKeySHA: dstKey, DstKMSKey: q.Get("destinationKmsKeyName"),
 		SrcBucket: rt.bucket, SrcName: rt.object, SrcGeneration: srcGen,
 		DstBucket: rt.dstBucket, DstName: rt.dstObject, DstPre: dstPre, SrcPre: srcPre,
 	}
@@ -254,6 +289,11 @@ func (h *Handler) composeObject(c *echo.Context, rt route) error {
 		sources = append(sources, cs)
 	}
 
+	keySHA, apiErr := csekFromHeaders(c.Request().Header, hdrEncryptionPfx)
+	if apiErr != nil {
+		return apiErr
+	}
+
 	meta := req.Destination
 	if meta == nil {
 		meta = Patch{}
@@ -261,7 +301,13 @@ func (h *Handler) composeObject(c *echo.Context, rt route) error {
 
 	meta = withDestinationACL(c, meta)
 
-	o, err := h.Backend.ComposeObject(rt.bucket, rt.object, sources, meta, pre)
+	delete(meta, keyKMSKeyName)
+
+	if k := c.QueryParam("kmsKeyName"); k != "" {
+		meta[keyKMSKeyName] = marshalRaw(k)
+	}
+
+	o, err := h.Backend.ComposeObject(rt.bucket, rt.object, sources, meta, pre, keySHA)
 	if err != nil {
 		return err
 	}

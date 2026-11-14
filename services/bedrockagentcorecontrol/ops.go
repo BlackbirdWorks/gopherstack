@@ -30,12 +30,16 @@ func (h *Handler) run(op string, fn callFn) restroute.OpFunc {
 			return nil, 0, err
 		}
 
+		if err = h.Backend.checkKeys(ctx, in); err != nil {
+			return nil, 0, err
+		}
+
 		rep, err := fn(h.Backend.scopeOf(ctx), op, in)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		return rep.body, rep.status, nil
+		return rep.body, statusOf(op), nil
 	}
 }
 
@@ -99,7 +103,7 @@ func (h *Handler) untag() restroute.OpFunc {
 			return nil, 0, err
 		}
 
-		return rep.body, rep.status, nil
+		return rep.body, statusOf("UntagResource"), nil
 	}
 }
 

@@ -3,6 +3,7 @@ package azureeventgrid_test
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,12 @@ func newHook(t *testing.T, code func(n int) int) *hook {
 
 		h.mu.Lock()
 		defer h.mu.Unlock()
+
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Webhook-Allowed-Origin", "*")
+
+			return
+		}
 
 		if r.Header.Get("Aeg-Event-Type") == "SubscriptionValidation" {
 			h.shakes++
@@ -326,12 +333,15 @@ func TestRetryAndDeadLetter(t *testing.T) {
 			require.Len(t, blobs, 1)
 			assert.Equal(t, "acct", blobs[0].account)
 			assert.Equal(t, "dead", blobs[0].container)
-			assert.Contains(t, blobs[0].name, "t1/s1/2026/10/20/")
+			assert.Contains(t, blobs[0].name, "S1/2026/10/20/")
 			assert.Contains(t, blobs[0].name, "e1.json")
 
-			var out map[string]any
+			var arr []map[string]any
 
-			require.NoError(t, json.Unmarshal(blobs[0].body, &out, jsonx.V1()))
+			require.NoError(t, json.Unmarshal(blobs[0].body, &arr, jsonx.V1()))
+			require.Len(t, arr, 1)
+
+			out := arr[0]
 			assert.Equal(t, tt.wantReason, out["deadLetterReason"])
 			assert.EqualValues(t, tt.wantCalls, out["deliveryAttempts"])
 			assert.Equal(t, "e1", out["id"])
@@ -604,4 +614,150 @@ func TestSnapshotRestoreKeepsPendingDeliveries(t *testing.T) {
 
 	orig, _ := b.TopicKeys("t1")
 	assert.Equal(t, orig, keys)
+}
+
+var errStorageDown = errors.New("storage down")
+
+func TestDeadLetterSchemaFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		schema  string
+		event   string
+		want    string
+		notWant string
+	}{
+		{
+			name:   "event grid",
+			schema: azureeventgrid.SchemaEventGrid,
+			event: `{"id":"e1","subject":"a","eventType":"T","eventTime":"2026-10-20T12:00:00Z",` +
+				`"dataVersion":"1","data":{}}`,
+			want: "deadLetterReason", notWant: "deadletterreason",
+		},
+		{
+			name: "cloud events", schema: azureeventgrid.SchemaCloudEvent,
+			event: `{"specversion":"1.0","id":"e1","source":"s","type":"T","data":{}}`,
+			want:  "deadletterreason", notWant: "deadLetterReason",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _, rec := newBackend(t)
+			_, err := b.PutTopic("t2", topicRID, tt.schema)
+			require.NoError(t, err)
+
+			h := newHook(t, func(int) int { return http.StatusBadRequest })
+			props := webhookProps(h.srv.URL, map[string]any{
+				"eventDeliverySchema": tt.schema,
+				"deadLetterDestination": map[string]any{"endpointType": "StorageBlob", "properties": map[string]any{
+					"resourceId": storageID, "blobContainerName": "dead",
+				}},
+			})
+
+			_, err = b.PutSubscription(t.Context(), "t2", "s1", props)
+			require.NoError(t, err)
+
+			events, err := azureeventgrid.ParseEvents([]byte(tt.event), tt.schema)
+			require.NoError(t, err)
+			require.NoError(t, b.Publish("t2", events))
+			b.RunDue(t.Context())
+
+			blobs := rec.all()
+			require.Len(t, blobs, 1)
+
+			var arr []map[string]any
+
+			require.NoError(t, json.Unmarshal(blobs[0].body, &arr, jsonx.V1()))
+			require.Len(t, arr, 1)
+			assert.Contains(t, arr[0], tt.want)
+			assert.NotContains(t, arr[0], tt.notWant)
+		})
+	}
+}
+
+func TestDeadLetterWriteRetry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		advance   []time.Duration
+		recoverAt int
+		wantBlobs int
+		wantQueue int
+	}{
+		{name: "retried until the store recovers", advance: []time.Duration{5 * time.Minute, 5 * time.Minute},
+			recoverAt: 1, wantBlobs: 1, wantQueue: 0},
+		{name: "still queued before four hours", advance: []time.Duration{5 * time.Minute, 3 * time.Hour},
+			recoverAt: -1, wantBlobs: 0, wantQueue: 1},
+		{name: "dropped after four hours", advance: []time.Duration{5 * time.Minute, 3 * time.Hour, 2 * time.Hour},
+			recoverAt: -1, wantBlobs: 0, wantQueue: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, clk, rec := newBackend(t)
+			rec.setFail(errStorageDown)
+
+			h := newHook(t, func(int) int { return http.StatusBadRequest })
+
+			_, err := b.PutSubscription(t.Context(), "t1", "s1", webhookProps(h.srv.URL, map[string]any{
+				"deadLetterDestination": map[string]any{"endpointType": "StorageBlob", "properties": map[string]any{
+					"resourceId": storageID, "blobContainerName": "dead",
+				}},
+			}))
+			require.NoError(t, err)
+			require.NoError(t, b.Publish("t1", []azureeventgrid.Event{egEvent("e1", "a")}))
+
+			b.RunDue(t.Context())
+			assert.Equal(t, 1, azureeventgrid.DeadRetryCount(b))
+
+			for i, step := range tt.advance {
+				if i == tt.recoverAt {
+					rec.setFail(nil)
+				}
+
+				clk.Advance(step)
+				b.RunDue(t.Context())
+			}
+
+			assert.Len(t, rec.all(), tt.wantBlobs)
+			assert.Equal(t, tt.wantQueue, azureeventgrid.DeadRetryCount(b))
+		})
+	}
+}
+
+func TestDeadLetterRetrySurvivesSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b, clk, rec := newBackend(t)
+	rec.setFail(errStorageDown)
+
+	h := newHook(t, func(int) int { return http.StatusBadRequest })
+
+	_, err := b.PutSubscription(t.Context(), "t1", "s1", webhookProps(h.srv.URL, map[string]any{
+		"deadLetterDestination": map[string]any{"endpointType": "StorageBlob", "properties": map[string]any{
+			"resourceId": storageID, "blobContainerName": "dead",
+		}},
+	}))
+	require.NoError(t, err)
+	require.NoError(t, b.Publish("t1", []azureeventgrid.Event{egEvent("e1", "a")}))
+	b.RunDue(t.Context())
+
+	restored := azureeventgrid.NewInMemoryBackend()
+	azureeventgrid.SetNow(restored, clk.Now)
+	restored.SetTargets(rec)
+	require.NoError(t, restored.Restore(t.Context(), b.Snapshot(t.Context())))
+	assert.Equal(t, 1, azureeventgrid.DeadRetryCount(restored))
+
+	rec.setFail(nil)
+	clk.Advance(5 * time.Minute)
+	restored.RunDue(t.Context())
+	assert.Len(t, rec.all(), 1)
+	assert.Equal(t, 0, azureeventgrid.DeadRetryCount(restored))
 }

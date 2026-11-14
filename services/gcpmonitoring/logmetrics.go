@@ -17,11 +17,22 @@ const (
 	logHistory = 60
 )
 
-// LogMetricSeries is the accumulated value of one label combination of a log-based metric.
+// LogMetricWindow is what a series accumulated during the minute starting at Start.
+type LogMetricWindow struct {
+	Start        time.Time
+	BucketCounts []int64
+	Count        int64
+	Sum          float64
+	SumSqDev     float64
+}
+
+// LogMetricSeries is the accumulated value of one label combination of a log-based metric; Windows, when the
+// source keeps them, are its per-minute parts.
 type LogMetricSeries struct {
 	Labels        map[string]string
 	BucketOptions *distribution.Distribution_BucketOptions
 	BucketCounts  []int64
+	Windows       []LogMetricWindow
 	Count         int64
 	Sum           float64
 	SumSqDev      float64
@@ -106,6 +117,12 @@ func logSeriesRec(project string, lm LogMetric, s LogMetricSeries, now time.Time
 		unit:     lm.Descriptor.GetUnit(),
 	}
 
+	if len(s.Windows) > 0 {
+		rec.points = windowPoints(lm, s, now)
+
+		return rec
+	}
+
 	for i := history; i >= 0; i-- {
 		end := now.Add(-time.Duration(i) * time.Minute)
 		if end.After(start) {
@@ -128,4 +145,32 @@ func distributionOf(s LogMetricSeries) *monitoringpb.TypedValue {
 	}
 
 	return &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_DistributionValue{DistributionValue: d}}
+}
+
+// windowPoints turns the per-minute windows into DELTA points; the minute in progress ends at now.
+func windowPoints(lm LogMetric, s LogMetricSeries, now time.Time) []*monitoringpb.Point {
+	var out []*monitoringpb.Point
+
+	for _, w := range s.Windows {
+		end := w.Start.Add(time.Minute)
+		if end.After(now) {
+			end = now
+		}
+
+		if !end.After(w.Start) {
+			continue
+		}
+
+		val := intValue(w.Count)
+		if lm.Descriptor.GetValueType() == vtDist {
+			val = distributionOf(LogMetricSeries{
+				BucketOptions: s.BucketOptions, BucketCounts: w.BucketCounts, Count: w.Count, Sum: w.Sum,
+				SumSqDev: w.SumSqDev,
+			})
+		}
+
+		out = append(out, pointAt(w.Start, end, val))
+	}
+
+	return out
 }

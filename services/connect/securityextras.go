@@ -182,7 +182,7 @@ func (b *Backend) listSecurityExtra(
 		stamp Stamp
 	)
 
-	if _, err := readInstance(b, op, in.InstanceID, func(inst string) (*empty, error) {
+	if _, err := readInstance(b, op, in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		p, err := b.securityProfiles.get(inst, in.ProfileID)
 		if err != nil {
 			return nil, err
@@ -194,7 +194,7 @@ func (b *Backend) listSecurityExtra(
 			err = json.Unmarshal(raw, &items, jsonx.V1())
 		}
 
-		return &empty{}, err
+		return &EmptyOutput{}, err
 	}); err != nil {
 		return nil, err
 	}
@@ -299,13 +299,13 @@ func (b *Backend) entityProfiles(inst string, in *EntityProfilesInput) ([]string
 
 func (b *Backend) changeEntityProfiles(
 	ctx context.Context, op string, in *EntityProfilesInput, add bool,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	ids := in.ids()
 	if len(ids) == 0 {
 		return nil, invalidParamErr("SecurityProfiles is required")
 	}
 
-	return writeInstance(b, op, in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, op, in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		cur, set, err := b.entityProfiles(inst, in)
 		if err != nil {
 			return nil, err
@@ -322,7 +322,7 @@ func (b *Backend) changeEntityProfiles(
 			b.touchUser(ctx, inst, in.EntityArn)
 		}
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -358,12 +358,12 @@ func (b *Backend) mergeProfileIDs(inst string, cur, ids []string, add bool) ([]s
 }
 
 // AssociateSecurityProfiles adds security profiles to a user or AI agent.
-func (b *Backend) AssociateSecurityProfiles(ctx context.Context, in *EntityProfilesInput) (*empty, error) {
+func (b *Backend) AssociateSecurityProfiles(ctx context.Context, in *EntityProfilesInput) (*EmptyOutput, error) {
 	return b.changeEntityProfiles(ctx, "AssociateSecurityProfiles", in, true)
 }
 
 // DisassociateSecurityProfiles removes security profiles from a user or AI agent.
-func (b *Backend) DisassociateSecurityProfiles(ctx context.Context, in *EntityProfilesInput) (*empty, error) {
+func (b *Backend) DisassociateSecurityProfiles(ctx context.Context, in *EntityProfilesInput) (*EmptyOutput, error) {
 	return b.changeEntityProfiles(ctx, "DisassociateSecurityProfiles", in, false)
 }
 

@@ -36,6 +36,7 @@ func (ce *cryptoEnv) wrappingKey(t *testing.T) *rsa.PublicKey {
 
 	pub, ok := pubOf(t, *r.PublicKey).(*rsa.PublicKey)
 	require.True(t, ok)
+	assert.Equal(t, 4096, pub.N.BitLen(), "Oracle documents vault wrapping keys as 4096-bit RSA")
 
 	return pub
 }
@@ -50,7 +51,9 @@ func (ce *cryptoEnv) importKey(
 
 	r, err := ce.m.ImportKey(t.Context(), keymanagement.ImportKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("imported"), KeyShape: ks,
-		WrappedImportKey: &keymanagement.WrappedImportKey{KeyMaterial: new(b64(wrapped)), WrappingAlgorithm: alg}})
+		WrappedImportKey: &keymanagement.WrappedImportKey{KeyMaterial: new(b64(wrapped)), WrappingAlgorithm: alg},
+	})
+	ce.e.settle()
 
 	return r.Key, err
 }
@@ -280,7 +283,8 @@ func TestExportKey(t *testing.T) {
 
 	export := func(key keymanagement.Key, alg exportAlg, pub string) (keymanagement.ExportedKeyData, error) {
 		r, cerr := ce.c.ExportKey(t.Context(), keymanagement.ExportKeyRequest{
-			KeyId: key.Id, Algorithm: alg, PublicKey: new(pub)})
+			KeyId: key.Id, Algorithm: alg, PublicKey: new(pub),
+		})
 
 		return r.ExportedKeyData, cerr
 	}

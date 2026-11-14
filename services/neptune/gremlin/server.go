@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -36,13 +37,16 @@ type Options struct {
 	// Authorize, when set, vets each query before it runs; ctx is the request (or WebSocket handshake) context.
 	Authorize func(ctx context.Context, write, del bool) error
 	Timeout   time.Duration
+	// SessionLifetime caps how long a session may stay open (default DefaultSessionLifetime).
+	SessionLifetime time.Duration
 }
 
 // Server serves Gremlin over WebSocket and HTTP against one graph.
 type Server struct {
-	ctx   context.Context //nolint:containedctx // lifetime of the owning listener
+	ctx   context.Context
 	eng   *Engine
 	graph *opencypher.Graph
+	sess  *sessionTable
 	opt   Options
 }
 
@@ -52,7 +56,10 @@ func NewServer(ctx context.Context, g *opencypher.Graph, opt Options) *Server {
 		opt.Timeout = defaultTimeout
 	}
 
-	return &Server{ctx: ctx, eng: NewEngine(), graph: g, opt: opt}
+	s := &Server{ctx: ctx, eng: NewEngine(), graph: g, opt: opt, sess: newSessionTable(g, opt.SessionLifetime)}
+	context.AfterFunc(ctx, s.sess.abortAll)
+
+	return s
 }
 
 type codec int
@@ -90,11 +97,20 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	defer logger.Recover(r.Context(), "gremlin.ws", nil)
 
 	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
 	defer stop()
 
 	conn.SetReadLimit(maxFrameBytes)
+
+	owned := map[string]struct{}{}
+
+	defer func() {
+		for id := range owned {
+			s.sess.abort(id)
+		}
+	}()
 
 	for {
 		mt, data, rerr := conn.ReadMessage()
@@ -106,7 +122,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if s.handleFrame(r.Context(), conn, mt, data) != nil {
+		if s.handleFrame(r.Context(), conn, mt, data, owned) != nil {
 			return
 		}
 	}
@@ -177,10 +193,38 @@ func parseJSONRequest(body []byte, c codec) (*message, error) {
 	return msg, nil
 }
 
-func (s *Server) handleFrame(ctx context.Context, conn *websocket.Conn, mt int, data []byte) error {
-	msg, err := parseFrame(mt, data)
+func (s *Server) handleFrame(
+	ctx context.Context, conn *websocket.Conn, mt int, data []byte, owned map[string]struct{},
+) error {
+	msg := &message{id: uuid.Nil.String(), codec: codecV3}
+
+	var werr error
+
+	func() {
+		defer logger.Recover(ctx, "gremlin.frame", func(any) {
+			werr = writeResult(conn, msg, nil, &Error{
+				Code: CodeInternal, Status: StatusServerError, Detail: "An internal error occurred.",
+			})
+		})
+
+		werr = s.processFrame(ctx, conn, mt, data, owned, msg)
+	}()
+
+	return werr
+}
+
+func (s *Server) processFrame(
+	ctx context.Context, conn *websocket.Conn, mt int, data []byte, owned map[string]struct{}, msg *message,
+) error {
+	parsed, err := parseFrame(mt, data)
 	if err != nil {
-		return writeResult(conn, &message{id: uuid.Nil.String(), codec: codecV3}, nil, err)
+		return writeResult(conn, msg, nil, err)
+	}
+
+	*msg = *parsed
+
+	if sid, ok := msg.args["session"].(string); ok && sid != "" {
+		owned[sid] = struct{}{}
 	}
 
 	out, err := s.execute(ctx, msg)
@@ -189,12 +233,18 @@ func (s *Server) handleFrame(ctx context.Context, conn *websocket.Conn, mt int, 
 }
 
 func (s *Server) execute(ctx context.Context, msg *message) ([]any, error) {
+	sid, _ := msg.args["session"].(string)
+
 	switch msg.op {
 	case opEval:
 		return s.evalMessage(ctx, msg)
 	case opBytecode:
 		return s.bytecodeMessage(ctx, msg)
 	case "close":
+		if sid != "" {
+			return nil, s.sess.close(ctx, sid)
+		}
+
 		return nil, nil
 	}
 
@@ -239,6 +289,17 @@ func (s *Server) evalMessage(reqCtx context.Context, msg *message) ([]any, error
 	ctx, finish := s.queryContext(msg, script)
 	defer finish()
 
+	if sid, isSession := msg.args["session"].(string); isSession && sid != "" {
+		stmts, err := ParseScript(script, bindingsOf(msg.args["bindings"]))
+		if err != nil {
+			return nil, err
+		}
+
+		return s.inSession(ctx, sid, false, func(st *opencypher.Store) ([]any, error) {
+			return s.eng.runStmts(ctx, st, stmts)
+		})
+	}
+
 	return s.eng.Eval(ctx, s.graph, script, bindingsOf(msg.args["bindings"]))
 }
 
@@ -255,7 +316,54 @@ func (s *Server) bytecodeMessage(reqCtx context.Context, msg *message) ([]any, e
 	ctx, finish := s.queryContext(msg, "bytecode: "+describe(tr))
 	defer finish()
 
+	if sid, isSession := msg.args["session"].(string); isSession && sid != "" {
+		return s.bytecodeInSession(ctx, sid, tr)
+	}
+
 	return s.eng.Bytecode(ctx, s.graph, tr)
+}
+
+func (s *Server) inSession(
+	ctx context.Context, id string, bytecode bool, fn func(*opencypher.Store) ([]any, error),
+) ([]any, error) {
+	sess, err := s.sess.acquire(ctx, id, true, bytecode)
+	if err != nil {
+		return nil, err
+	}
+	defer s.sess.release(sess)
+
+	return s.sess.run(ctx, sess, fn)
+}
+
+func (s *Server) bytecodeInSession(ctx context.Context, id string, tr *Traversal) ([]any, error) {
+	for _, src := range tr.Sources {
+		if src.Name != "tx" || len(src.Args) == 0 {
+			continue
+		}
+
+		sess, err := s.sess.acquire(ctx, id, true, true)
+		if err != nil {
+			return nil, err
+		}
+		defer s.sess.release(sess)
+
+		switch src.Args[0] {
+		case "commit":
+			s.sess.finishTx(sess, true)
+		case "rollback":
+			s.sess.finishTx(sess, false)
+		default:
+			return nil, invalidArg("Unknown transaction operation %v", src.Args[0])
+		}
+
+		return nil, nil
+	}
+
+	stmts := []Stmt{{Tr: tr, Term: termToList}}
+
+	return s.inSession(ctx, id, true, func(st *opencypher.Store) ([]any, error) {
+		return s.eng.runStmts(ctx, st, stmts)
+	})
 }
 
 func (s *Server) authorize(ctx context.Context, a Access) error {
@@ -356,6 +464,11 @@ func writeFrame(conn *websocket.Conn, msg *message, code int, text string, data 
 func encodeFrame(msg *message, code int, text string, data []any, hasData bool) (int, []byte) {
 	if msg.codec == codecBinary {
 		w := &bbWriter{}
+
+		if containsGraph(data) {
+			return websocket.BinaryMessage, w.response(msg.id, StatusSerializationErr,
+				"GraphBinary cannot serialize a Graph; request a GraphSON serializer to receive a subgraph", nil, false)
+		}
 
 		return websocket.BinaryMessage, w.response(msg.id, code, text, data, hasData)
 	}

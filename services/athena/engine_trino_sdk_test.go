@@ -1,6 +1,7 @@
 package athena_test
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -211,10 +212,14 @@ func TestSDK_TrinoLambdas(t *testing.T) {
 			[][]string{{"60"}},
 		},
 		{"reduce empty", "SELECT reduce(tags, 7, (s, x) -> s + 1, s -> s) FROM docs WHERE id = 2", [][]string{{"7"}}},
-		{"any_match", "SELECT any_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"0"}, {"1"}}},
-		{"all_match", "SELECT all_match(nums, x -> x > 1) FROM docs ORDER BY id", [][]string{{"0"}, {"1"}}},
-		{"none_match", "SELECT none_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"1"}, {"0"}}},
-		{"any_match empty", "SELECT any_match(tags, x -> x = 'x') FROM docs ORDER BY id", [][]string{{"1"}, {"0"}}},
+		{"any_match", "SELECT any_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"false"}, {"true"}}},
+		{"all_match", "SELECT all_match(nums, x -> x > 1) FROM docs ORDER BY id", [][]string{{"false"}, {"true"}}},
+		{"none_match", "SELECT none_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"true"}, {"false"}}},
+		{
+			"any_match empty",
+			"SELECT any_match(tags, x -> x = 'x') FROM docs ORDER BY id",
+			[][]string{{"true"}, {"false"}},
+		},
 		{
 			"map_filter",
 			"SELECT map_filter(m, (k, v) -> v > 1) FROM docs ORDER BY id",
@@ -246,6 +251,42 @@ func TestSDK_TrinoLambdas(t *testing.T) {
 			[][]string{{"[2, 1]"}},
 		},
 		{"null array", "SELECT transform(element_at(ARRAY[ARRAY[1]], 5), x -> x)", [][]string{{""}}},
+		{
+			"array_sort comparator desc",
+			"SELECT array_sort(ARRAY[3, 1, 2], (a, b) -> CASE WHEN a < b THEN 1 WHEN a > b THEN -1 ELSE 0 END)",
+			[][]string{{"[3, 2, 1]"}},
+		},
+		{
+			"array_sort by length keeps ties stable",
+			"SELECT array_sort(ARRAY['bb', 'a', 'cc', 'ddd'], (x, y) -> length(x) - length(y))",
+			[][]string{{"[a, bb, cc, ddd]"}},
+		},
+		{
+			"array_sort column",
+			"SELECT array_sort(nums, (a, b) -> b - a) FROM docs ORDER BY id",
+			[][]string{{"[3, 2, 1]"}, {"[5, 4]"}},
+		},
+		{
+			"map_zip_with",
+			"SELECT map_zip_with(MAP(ARRAY['a', 'b'], ARRAY[1, 2]), MAP(ARRAY['b', 'c'], ARRAY[10, 20]), " +
+				"(k, v1, v2) -> coalesce(v1, 0) + coalesce(v2, 0))",
+			[][]string{{"{a=1, b=12, c=20}"}},
+		},
+		{
+			"map_zip_with column",
+			"SELECT map_zip_with(m, m, (k, v1, v2) -> v1 * v2) FROM docs WHERE id = 1",
+			[][]string{{"{a=1, b=4}"}},
+		},
+		{
+			"reduce_agg",
+			"SELECT reduce_agg(id, 0, (s, x) -> s + x, (s1, s2) -> s1 + s2) FROM docs",
+			[][]string{{"3"}},
+		},
+		{
+			"reduce_agg grouped",
+			"SELECT id % 2, reduce_agg(id, 1, (s, x) -> s * (x + 1), (s1, s2) -> s1 * s2) FROM docs GROUP BY id % 2 ORDER BY 1",
+			[][]string{{"0", "3"}, {"1", "2"}},
+		},
 	}
 
 	for _, tc := range cases {
@@ -544,6 +585,60 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			listed: []string{"lake/logs/year=2023", "lake/logs/year=2024"},
 		},
 		{
+			name: "or branches union their partitions",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.year.type": "integer", "projection.year.range": "2020,2025",
+			},
+			keys: []athena.Column{{Name: "year", Type: "int"}},
+			objects: map[string]string{
+				"lake/logs/year=2021/a.csv": "1,a\n", "lake/logs/year=2022/a.csv": "2,b\n",
+				"lake/logs/year=2024/a.csv": "3,c\n",
+			},
+			sql:    "SELECT id FROM logs WHERE year = 2021 OR year >= 2024 ORDER BY id",
+			want:   [][]string{{"1"}, {"3"}},
+			listed: []string{"lake/logs/year=2021", "lake/logs/year=2024", "lake/logs/year=2025"},
+		},
+		{
+			name:   "injected under or",
+			params: map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:   []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{
+				"lake/logs/tenant=a/x.csv": "1,a\n",
+				"lake/logs/tenant=b/x.csv": "2,b\n",
+				"lake/logs/tenant=c/x.csv": "3,c\n",
+			},
+			sql:    "SELECT id FROM logs WHERE tenant = 'a' OR tenant = 'c' ORDER BY id",
+			want:   [][]string{{"1"}, {"3"}},
+			listed: []string{"lake/logs/tenant=a", "lake/logs/tenant=c"},
+		},
+		{
+			name: "non literal integer predicate",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.year.type": "integer", "projection.year.range": "2020,2030",
+			},
+			keys: []athena.Column{{Name: "year", Type: "int"}},
+			objects: map[string]string{
+				"lake/logs/year=2025/a.csv": "1,a\n", "lake/logs/year=2026/a.csv": "2,b\n",
+			},
+			sql:    "SELECT id FROM logs WHERE year = 2020 + 5",
+			want:   [][]string{{"1"}},
+			listed: []string{"lake/logs/year=2025"},
+		},
+		{
+			name: "non literal date predicate",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.dt.type": "date", "projection.dt.format": "yyyy-MM-dd",
+				"projection.dt.range": "2026-10-01,2026-10-31",
+			},
+			keys: []athena.Column{{Name: "dt", Type: "string"}},
+			objects: map[string]string{
+				"lake/logs/dt=2026-10-21/a.csv": "1,a\n", "lake/logs/dt=2026-10-23/a.csv": "2,b\n",
+			},
+			sql:    "SELECT id FROM logs WHERE dt = cast(date_add('day', 1, date '2026-10-20') as varchar)",
+			want:   [][]string{{"1"}},
+			listed: []string{"lake/logs/dt=2026-10-21"},
+		},
+		{
 			name: "integer interval and digits",
 			params: map[string]string{
 				"projection.enabled": "true", "projection.m.type": "integer", "projection.m.range": "1,7",
@@ -618,6 +713,30 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			failure: "INVALID_TABLE_PROPERTY: Column 'tenant' uses injected partition projection",
 		},
 		{
+			name:    "injected non string column fails",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "int"}},
+			objects: map[string]string{"lake/logs/tenant=1/x.csv": "1,a\n"},
+			sql:     "SELECT id FROM logs WHERE tenant = 1",
+			failure: "supports only string columns",
+		},
+		{
+			name:    "injected in list over 1000 fails",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{"lake/logs/tenant=a/x.csv": "1,a\n"},
+			sql:     injectedInQuery(1001),
+			failure: "at most 1000 are allowed",
+		},
+		{
+			name:    "injected in list of 1000 passes",
+			params:  map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:    []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{"lake/logs/tenant=a/x.csv": "1,a\n"},
+			sql:     injectedInQuery(1000),
+			want:    [][]string{{"1"}},
+		},
+		{
 			name: "disabled projection reads nothing without partitions",
 			params: map[string]string{
 				"projection.enabled": "false", "projection.region.type": "enum", "projection.region.values": "us",
@@ -656,6 +775,17 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func injectedInQuery(n int) string {
+	vals := make([]string, n)
+	vals[0] = "'a'"
+
+	for i := 1; i < n; i++ {
+		vals[i] = fmt.Sprintf("'t%d'", i)
+	}
+
+	return "SELECT id FROM logs WHERE tenant IN (" + strings.Join(vals, ",") + ")"
 }
 
 func trimListed(in []string) []string {

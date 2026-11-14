@@ -65,6 +65,7 @@ type storedWebSite struct {
 	Tags          map[string]string         `json:"tags,omitempty"`
 	LastSwap      *swapStatus               `json:"lastSwap,omitempty"`
 	Name          string                    `json:"name"`
+	Sub           string                    `json:"sub,omitempty"`
 	Slot          string                    `json:"slot,omitempty"`
 	ResourceGroup string                    `json:"resourceGroup"`
 	Location      string                    `json:"location"`
@@ -315,7 +316,8 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, ErrWebPlanNotFound
 	}
 
-	if err := p.checkSitePlan(kind, farm); err != nil {
+	flex, err := p.checkSiteHosting(kind, farm, props)
+	if err != nil {
 		return nil, err
 	}
 
@@ -325,9 +327,10 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	rec := &storedWebSite{
-		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
-		Extra: webSiteExtra(props),
+		Name: name, Sub: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind,
+		Created: time.Now().UTC(),
+		Tags:    stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
+		Extra: siteExtraWithFlex(props, flex),
 	}
 
 	if exists {
@@ -340,18 +343,16 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	siteCfg := mapOf(props[webFieldSiteConfig])
-	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
-	rec.Configs[webConfigWeb] = cfgWeb
-
-	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb))
+	cfgWeb, err := p.mergedWebConfig(rec, rec, siteCfg)
 	if err != nil {
-		return nil, badWebRequest(err)
+		return nil, err
 	}
 
-	if raw, ok := siteCfg[webFieldAppSettings].([]any); ok {
-		if err = p.dataPlane.SetSettings(name, nameValueSettings(raw)); err != nil {
-			return nil, badWebRequest(err)
-		}
+	rec.Configs[webConfigWeb] = cfgWeb
+
+	info, err := p.startSite(name, kind, cfgWeb, flex, siteCfg)
+	if err != nil {
+		return nil, err
 	}
 
 	p.sites[webSiteKey(name)] = rec
@@ -359,12 +360,33 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
-func siteAppConfig(kind string, cfg map[string]any) FunctionAppConfig {
+// startSite creates or updates the site's app in the data plane with its configuration and app settings.
+func (p *WebProvider) startSite(name, kind string, cfgWeb, flex, siteCfg map[string]any) (FunctionAppInfo, error) {
+	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb, flex))
+	if err != nil {
+		return FunctionAppInfo{}, badWebRequest(err)
+	}
+
+	if raw, ok := siteCfg[webFieldAppSettings].([]any); ok {
+		if err = p.dataPlane.SetSettings(name, nameValueSettings(raw)); err != nil {
+			return FunctionAppInfo{}, badWebRequest(err)
+		}
+	}
+
+	return info, nil
+}
+
+func siteAppConfig(kind string, cfg, flex map[string]any) FunctionAppConfig {
 	fx, _ := cfg[webFieldLinuxFx].(string)
 	cmd, _ := cfg[webFieldAppCmd].(string)
 	health, _ := cfg[webFieldHealthCheck].(string)
 
-	return FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
+	out := FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
+	if len(flex) > 0 {
+		out.LinuxFx, out.Flex = flexLinuxFx(flex), true
+	}
+
+	return out
 }
 
 // mergeWebConfig overlays the request's siteConfig (minus appSettings, which the data plane owns) on cur.
@@ -673,6 +695,10 @@ func webErrorDetails(err error) (errorEntry, bool) {
 	}{
 		{ErrWebSiteNotFound, notFoundEntry("The web app was not found.")},
 		{ErrWebFunctionNotFound, notFoundEntry("The function was not found.")},
+		{ErrWebFunctionInCode, errorEntry{
+			webCodeBadRequest, "The function is defined in code and cannot be deleted through the management API.",
+			http.StatusBadRequest,
+		}},
 		{ErrWebKeyNotFound, notFoundEntry("The key was not found.")},
 		{ErrWebConfigNotFound, notFoundEntry("The site configuration was not found.")},
 		{ErrWebPlanNotFound, errorEntry{

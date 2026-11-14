@@ -17,10 +17,10 @@
 
 - Policy evaluation: permission statements are stored and rendered by GetResourcePolicy but never evaluated; the emulator has no console sign-in path they could gate.
 - Statement rendering: Effect, Principal, Action and the condition operators (StringNotEquals, NotIpAddress, ArnNotLike, StringEquals) of the rendered policy are inferred; the SDK documents only the shape.
-- ConsoleAuthorizationConfiguration scope values (ACCOUNT, ORGANIZATION, ROOT) are inferred from the targetId forms; organization and root targets are not validated against the Organizations emulator.
+- ConsoleAuthorizationConfiguration scope values (ACCOUNT, ORGANIZATION, ROOT) are inferred from the targetId forms; the SDK documents only 'automatic scope detection'. Organization and root targets are checked against the Organizations emulator when wired (unknown IDs are ResourceNotFoundException, an assumption).
 - ServiceQuotaExceededException, TooManyRequestsError and InternalServerException are never returned: no statement quota or rate limit is published.
 - DPoP key binding of refresh tokens (cnf.jkt) is not modelled; the CreateOAuth2Token SDK shape carries no proof header.
-- Lifetimes (code 10 min, credentials 15 min, refresh 12 h, JWT 1 h) and the error HTTP statuses (401 for expired tokens, 403 for other access denials) follow the SDK docs where stated and are otherwise inferred.
+- Not published (checked the signin SDK doc comments and the AWS CLI cli-configure-sign-in page): the authorization code lifetime (10 min here), the id_token JWT lifetime (1 h here) and the error HTTP statuses (401 for expired tokens, 403 for other access denials)
 - SDK endpoint rules ignore BaseEndpoint / AWS_ENDPOINT_URL for control-plane and OAuth operations; clients must set EndpointResolverV2 or resolve signin.<region>.api.aws to the emulator.
 
 ### Structural gaps

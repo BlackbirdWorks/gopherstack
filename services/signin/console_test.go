@@ -89,3 +89,44 @@ func TestConsoleAuthorizationConfiguration(t *testing.T) {
 		})
 	}
 }
+
+type fakeOrgs struct{ org, root string }
+
+func (f fakeOrgs) HasOrganization(id string) bool { return id == f.org }
+func (f fakeOrgs) HasRoot(id string) bool         { return id == f.root }
+
+func TestConsoleAuthorizationOrganizationTargets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		target   string
+		wantCode string
+	}{
+		{name: "known org", target: "o-abcde12345"},
+		{name: "known root", target: "r-ab12"},
+		{name: "unknown org", target: "o-zzzzz99999", wantCode: "ResourceNotFoundException"},
+		{name: "unknown root", target: "r-zz99", wantCode: "ResourceNotFoundException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			f.backend.SetOrganizationResolver(fakeOrgs{org: "o-abcde12345", root: "r-ab12"})
+
+			_, err := f.self(t).PutConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.PutConsoleAuthorizationConfigurationInput{TargetId: aws.String(tt.target)},
+			)
+			if tt.wantCode == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantCode, apiCode(err))
+		})
+	}
+}

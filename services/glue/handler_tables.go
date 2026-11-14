@@ -391,12 +391,13 @@ func (h *Handler) handleGetUnfilteredTableMetadata(
 
 // searchTablesInput holds input for SearchTables.
 type searchTablesInput struct {
-	SearchText   string              `json:"SearchText,omitempty"`
-	NextToken    string              `json:"NextToken,omitempty"`
-	CatalogID    string              `json:"CatalogId,omitempty"`
-	Filters      []propertyPredicate `json:"Filters,omitempty"`
-	SortCriteria []sortCriterion     `json:"SortCriteria,omitempty"`
-	MaxResults   int32               `json:"MaxResults,omitempty"`
+	SearchText        string              `json:"SearchText,omitempty"`
+	NextToken         string              `json:"NextToken,omitempty"`
+	CatalogID         string              `json:"CatalogId,omitempty"`
+	ResourceShareType string              `json:"ResourceShareType,omitempty"`
+	SortCriteria      []sortCriterion     `json:"SortCriteria,omitempty"`
+	Filters           []propertyPredicate `json:"Filters,omitempty"`
+	MaxResults        int32               `json:"MaxResults,omitempty"`
 }
 
 // searchTablesOutput holds the result for SearchTables.
@@ -474,7 +475,15 @@ func (h *Handler) handleSearchTables(
 	_ context.Context,
 	in *searchTablesInput,
 ) (*searchTablesOutput, error) {
-	tables := h.Backend.SearchTables(in.SearchText)
+	includeLocal, err := resourceShareIncludesLocal(in.ResourceShareType)
+	if err != nil {
+		return nil, err
+	}
+
+	var tables []*Table
+	if includeLocal {
+		tables = h.Backend.SearchTables(in.SearchText)
+	}
 
 	matched := make([]*Table, 0, len(tables))
 
@@ -488,7 +497,7 @@ func (h *Handler) handleSearchTables(
 		}
 	}
 
-	if err := sortTables(matched, in.SortCriteria); err != nil {
+	if err = sortTables(matched, in.SortCriteria); err != nil {
 		return nil, err
 	}
 

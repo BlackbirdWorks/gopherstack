@@ -1,0 +1,168 @@
+{
+  "Conditions": {
+    "FalseCondition": {
+      "Fn::Equals": [
+        true,
+        false
+      ]
+    },
+    "TrueCondition": {
+      "Fn::Equals": [
+        true,
+        true
+      ]
+    }
+  },
+  "Parameters": {
+    "FunctionResponseTypesValue": {
+      "Default": "ReportBatchItemFailures",
+      "Type": "String"
+    },
+    "IntValue": {
+      "Default": 50,
+      "Type": "Number"
+    },
+    "StartingPositionValue": {
+      "Default": "LATEST",
+      "Type": "String"
+    },
+    "StringValue": {
+      "Default": "us-east-1",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "MyLambdaFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "stream.zip"
+        },
+        "Handler": "index.handler",
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "MyLambdaFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyLambdaFunctionKinesisStream": {
+      "Properties": {
+        "BatchSize": {
+          "Ref": "IntValue"
+        },
+        "BisectBatchOnFunctionError": {
+          "Fn::If": [
+            "FalseCondition",
+            true,
+            false
+          ]
+        },
+        "Enabled": {
+          "Fn::If": [
+            "TrueCondition",
+            true,
+            false
+          ]
+        },
+        "EventSourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":kinesis:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":stream/",
+              {
+                "Ref": "MyStream"
+              }
+            ]
+          ]
+        },
+        "FunctionName": {
+          "Ref": "MyLambdaFunction"
+        },
+        "FunctionResponseTypes": [
+          {
+            "Ref": "FunctionResponseTypesValue"
+          }
+        ],
+        "MaximumBatchingWindowInSeconds": {
+          "Ref": "IntValue"
+        },
+        "MaximumRecordAgeInSeconds": {
+          "Ref": "IntValue"
+        },
+        "MaximumRetryAttempts": {
+          "Ref": "IntValue"
+        },
+        "ParallelizationFactor": {
+          "Ref": "IntValue"
+        },
+        "StartingPosition": {
+          "Ref": "StartingPositionValue"
+        },
+        "TumblingWindowInSeconds": {
+          "Ref": "IntValue"
+        }
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "MyLambdaFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyStream": {
+      "Properties": {
+        "ShardCount": 1
+      },
+      "Type": "AWS::Kinesis::Stream"
+    }
+  }
+}

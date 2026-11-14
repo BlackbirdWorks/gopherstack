@@ -75,6 +75,7 @@ type storedStorageAccount struct {
 type StorageProvider struct {
 	dataPlane    StorageAccounts
 	fileServices FileServices
+	fileShares   FileShares
 	mu           *lockmetrics.RWMutex
 	accounts     map[string]*storedStorageAccount
 	cfg          StorageEndpointConfig

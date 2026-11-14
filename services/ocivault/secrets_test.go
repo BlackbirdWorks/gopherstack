@@ -52,6 +52,7 @@ func (se *secretEnv) create(t *testing.T, name, body string, mut func(*vault.Cre
 
 	r, err := se.e.vsecret.CreateSecret(t.Context(), vault.CreateSecretRequest{CreateSecretDetails: d})
 	require.NoError(t, err)
+	se.e.settle()
 
 	return r.Secret
 }
@@ -144,6 +145,7 @@ func TestSecretContentEncryptedAtRest(t *testing.T) {
 
 	restored := newEnv(t, envOpts{})
 	require.NoError(t, restored.backend.Restore(t.Context(), []byte(snap)))
+	restored.clock.Advance(time.Minute)
 
 	r := &secretEnv{e: restored, v: se.v, key: se.key}
 	b, err := r.bundle(t, s.Id, nil)
@@ -394,6 +396,8 @@ func TestSecretDeletionLifecycle(t *testing.T) {
 		SecretId: s.Id, TimeOfDeletion: &at,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, vault.SecretLifecycleStateSchedulingDeletion, state())
+	se.e.settle()
 	assert.Equal(t, vault.SecretLifecycleStatePendingDeletion, state())
 
 	_, err = se.bundle(t, s.Id, nil)
@@ -404,6 +408,8 @@ func TestSecretDeletionLifecycle(t *testing.T) {
 
 	_, err = se.e.vsecret.CancelSecretDeletion(ctx, vault.CancelSecretDeletionRequest{SecretId: s.Id})
 	require.NoError(t, err)
+	assert.Equal(t, vault.SecretLifecycleStateCancellingDeletion, state())
+	se.e.settle()
 	assert.Equal(t, vault.SecretLifecycleStateActive, state())
 
 	b, err := se.bundle(t, s.Id, nil)
@@ -412,6 +418,7 @@ func TestSecretDeletionLifecycle(t *testing.T) {
 
 	_, err = se.e.vsecret.ScheduleSecretDeletion(ctx, vault.ScheduleSecretDeletionRequest{SecretId: s.Id})
 	require.NoError(t, err)
+	se.e.settle()
 
 	se.e.clock.Advance(31 * 24 * time.Hour)
 	assert.Equal(t, vault.SecretLifecycleStateDeleted, state())
@@ -555,6 +562,7 @@ func TestListSecrets(t *testing.T) {
 	gone := se.create(t, "gone", "g", nil)
 	_, err := se.e.vsecret.ScheduleSecretDeletion(ctx, vault.ScheduleSecretDeletionRequest{SecretId: gone.Id})
 	require.NoError(t, err)
+	se.e.settle()
 
 	tests := []struct {
 		req  vault.ListSecretsRequest
@@ -672,6 +680,17 @@ func TestSecretOnPendingDeletionVault(t *testing.T) {
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
 	_, err = se.m.CreateKey(t.Context(), keymanagement.CreateKeyRequest{
-		CompartmentId: new(testCompartment), DisplayName: new("late"), KeyShape: aes256()})
+		CompartmentId: new(testCompartment), DisplayName: new("late"), KeyShape: aes256(),
+	})
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
+}
+
+func TestSecretContentReadsLatestVersion(t *testing.T) {
+	t.Parallel()
+
+	se, s := stagedSecret(t)
+
+	got, err := se.e.backend.SecretContent(*s.Id)
+	require.NoError(t, err)
+	assert.Equal(t, "v4", got, "the pending version is the latest one")
 }

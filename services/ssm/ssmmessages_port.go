@@ -9,6 +9,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // PortDialer opens a TCP connection for a port-forwarding session. An empty host targets the
@@ -137,6 +139,8 @@ func (d *dataChannel) startPort(ctx context.Context) error {
 }
 
 func (d *dataChannel) pumpPort(conn net.Conn) {
+	defer logger.Recover(context.Background(), "ssm.pumpport", func(any) { _ = d.ws.Close() })
+
 	defer close(d.exited)
 
 	buf := make([]byte, portReadChunk)

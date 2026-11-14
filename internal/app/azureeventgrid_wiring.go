@@ -22,8 +22,10 @@ func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
 		byName["AzureEventHubs"],
 	)
+	wireAzureARMQueueMeters(byName)
 	wireAzureEventGrid(byName)
 	wireAzureAppConfig(byName)
+	wireAzureSearch(byName)
 	wireAzureContainerRegistry(byName)
 	wireAzureFunctions(byName)
 	wireAzureFile(byName)
@@ -56,6 +58,7 @@ func wireAzureEventGrid(byName map[string]service.Registerable) {
 
 	if h, hOk := byName["AzureBlob"].(*azureblob.Handler); hOk {
 		t.blobs = h.Backend
+		h.Events = azureBlobEvents{backend: egH.Backend, endpoint: h}
 	}
 
 	if h, hOk := byName["AzureEventHubs"].(*azureeventhubs.Handler); hOk {
@@ -63,6 +66,21 @@ func wireAzureEventGrid(byName map[string]service.Registerable) {
 	}
 
 	egH.Backend.SetTargets(t)
+}
+
+// azureBlobEvents turns blob create and delete events into Event Grid storage events.
+type azureBlobEvents struct {
+	backend  *azureeventgrid.InMemoryBackend
+	endpoint *azureblob.Handler
+}
+
+func (e azureBlobEvents) OnBlobEvent(ev azureblob.BlobEvent) {
+	e.backend.PublishStorageEvent(azureeventgrid.StorageEvent{
+		Time: ev.Time, Account: ev.Account, Container: ev.Container, Blob: ev.Blob, EventType: ev.EventType,
+		API: ev.API, ContentType: ev.ContentType, ETag: ev.ETag, AccessTier: ev.AccessTier,
+		RequestID: ev.RequestID, ClientRequestID: ev.ClientRequestID, ContentLength: ev.ContentLength,
+		BlobURL: e.endpoint.Endpoint + "/" + ev.Account + "/" + ev.Container + "/" + ev.Blob,
+	})
 }
 
 // azureEventGridTargets delivers Event Grid events into sibling Azure emulators.
@@ -130,8 +148,10 @@ type azureEventGridAdapter struct {
 	backend *azureeventgrid.InMemoryBackend
 }
 
-func (a *azureEventGridAdapter) PutTopic(name, resourceID, schema string) (azurearm.EventGridTopic, error) {
-	info, err := a.backend.PutTopic(name, resourceID, schema)
+func (a *azureEventGridAdapter) PutTopic(
+	name, resourceID, schema string, mapping map[string]any,
+) (azurearm.EventGridTopic, error) {
+	info, err := a.backend.PutTopicMapped(name, resourceID, schema, mapping)
 	if err != nil {
 		return azurearm.EventGridTopic{}, err
 	}

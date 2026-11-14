@@ -23,6 +23,8 @@ type updateContext struct {
 	oldTmpl   *Template
 	oldParams map[string]string
 	oldPhys   map[string]string
+
+	retainExceptOnCreate bool
 }
 
 // replacedResource is an old physical resource awaiting cleanup after a replacement.
@@ -224,7 +226,9 @@ func (b *InMemoryBackend) updateExistingResource(
 		return updateOutcome{replaced: repl}, err
 	}
 
-	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
+	b.addProgressEvent(
+		stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress,
+	)
 
 	_, err := b.creator.UpdateInPlace(ctx, res.Type, existing.PhysicalID, res.Properties, params, phys)
 	if err != nil {

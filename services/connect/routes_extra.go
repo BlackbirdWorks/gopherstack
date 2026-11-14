@@ -24,7 +24,13 @@ func extraRoutes() []restroute.Route {
 		securityExtraRoutes(),
 		dataTableRoutes(),
 		emailRoutes(),
+		metricDefinitionRoutes(),
+		attachedFileRoutes(),
+		notificationRoutes(),
+		testCaseRoutes(),
 		workspaceRoutes(),
+		extractionRoutes(),
+		analyticsRoutes(),
 	)
 }
 
@@ -183,6 +189,9 @@ func searchOps() map[string]string {
 		"SearchWorkspaces":                "/search-workspaces",
 		"SearchEvaluationForms":           "/search-evaluation-forms",
 		"SearchHoursOfOperationOverrides": "/search-hours-of-operation-overrides",
+		"SearchMetrics":                   "/search-metrics",
+		"SearchNotifications":             "/search-notifications",
+		"SearchTestCases":                 "/search-test-cases",
 		"SearchHoursOfOperations":         "/search-hours-of-operations",
 		"SearchPredefinedAttributes":      "/search-predefined-attributes",
 		"SearchPrompts":                   "/search-prompts",
@@ -315,5 +324,18 @@ func securityExtraRoutes() []restroute.Route {
 			Method: http.MethodGet, Path: "/security-profiles-flow-modules/{InstanceId}/{SecurityProfileId}",
 			Op: "ListSecurityProfileFlowModules",
 		},
+	}
+}
+
+func analyticsRoutes() []restroute.Route {
+	const base = "/analytics-data/instance/{InstanceId}"
+
+	return []restroute.Route{
+		{Method: http.MethodPut, Path: base + "/association", Op: "AssociateAnalyticsDataSet"},
+		{Method: http.MethodPost, Path: base + "/association", Op: "DisassociateAnalyticsDataSet"},
+		{Method: http.MethodGet, Path: base + "/association", Op: "ListAnalyticsDataAssociations"},
+		{Method: http.MethodPut, Path: base + "/associations", Op: "BatchAssociateAnalyticsDataSet"},
+		{Method: http.MethodPost, Path: base + "/associations", Op: "BatchDisassociateAnalyticsDataSet"},
+		{Method: http.MethodGet, Path: "/prompts/{InstanceId}/{PromptId}/file", Op: "GetPromptFile"},
 	}
 }

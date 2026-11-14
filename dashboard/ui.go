@@ -49,14 +49,19 @@ import (
 	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureacrbackend "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	azuregraphbackend "github.com/blackbirdworks/gopherstack/services/azuregraph"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
+	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -142,6 +147,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
@@ -155,7 +161,10 @@ import (
 	ocicontainerenginebackend "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicontainerinstancesbackend "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocidatabasebackend "github.com/blackbirdworks/gopherstack/services/ocidatabase"
+	ocidnsbackend "github.com/blackbirdworks/gopherstack/services/ocidns"
 	ocieventsbackend "github.com/blackbirdworks/gopherstack/services/ocievents"
+	ocifilestoragebackend "github.com/blackbirdworks/gopherstack/services/ocifilestorage"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociloadbalancerbackend "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
@@ -556,6 +565,8 @@ type Config struct {
 	AppSyncOps *appsyncbackend.Handler
 	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
 	AzureARMOps *azurearmbackend.Handler
+	// AzureGraphOps is dispatched in-process by the /dashboard/api/v1/azure/graph proxy.
+	AzureGraphOps *azuregraphbackend.Handler
 	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
 	GCPStorageOps *gcpstoragebackend.Handler
 	// GCPBigQueryOps is dispatched in-process by the /dashboard/api/v1/gcp/bigquery proxy.
@@ -632,6 +643,12 @@ type Config struct {
 	OCIArtifactsOps *ociartifactsbackend.Handler
 	// OCIContainerInstancesOps is dispatched in-process by its proxy.
 	OCIContainerInstancesOps *ocicontainerinstancesbackend.Handler
+	// OCIDNSOps is dispatched in-process by its proxy.
+	OCIDNSOps *ocidnsbackend.Handler
+	// OCIDatabaseOps is dispatched in-process by its proxy.
+	OCIDatabaseOps *ocidatabasebackend.Handler
+	// OCIFileStorageOps is dispatched in-process by its proxy.
+	OCIFileStorageOps *ocifilestoragebackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
@@ -652,6 +669,16 @@ type Config struct {
 	AzureEventGridOps *azureeventgridbackend.Handler
 	// AzureAppConfigOps is called in-process by the /dashboard/api/v1/azure/appconfig proxy.
 	AzureAppConfigOps *azureappconfigbackend.Handler
+	// AzureRedisOps is called in-process by the /dashboard/api/v1/azure/redis proxy.
+	AzureRedisOps *azureredisbackend.Handler
+	// AzureSQLOps is called in-process by the /dashboard/api/v1/azure/sqlquery proxy.
+	AzureSQLOps *azuresqlbackend.Handler
+	// AzureACROps is called in-process by the /dashboard/api/v1/azure/acr proxy.
+	AzureACROps *azureacrbackend.Handler
+	// AzureSearchOps is dispatched in-process by the /dashboard/api/v1/azure/search* proxies.
+	AzureSearchOps *azuresearchbackend.Handler
+	// LambdaWebOps is dispatched in-process by the /dashboard/api/v1/lambdaweb proxy.
+	LambdaWebOps *lambdawebbackend.Handler
 	// GCPSQLOps is dispatched in-process by the /dashboard/api/v1/gcp/sql proxy.
 	GCPSQLOps *gcpsqlbackend.Handler
 	// GCPLoggingOps is called in-process by the /dashboard/api/v1/gcp/logging proxy.
@@ -915,6 +942,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureEventHubsRoutes()
 	h.registerAzureEventGridRoutes()
 	h.registerAzureAppConfigRoutes()
+	h.registerAzureRedisRoutes()
+	h.registerAzureSQLRoutes()
+	h.registerAzureACRRoutes()
 	h.registerGCPSQLRoutes()
 	h.registerGCPLoggingRoutes()
 	h.registerSTSMetricsRoute()

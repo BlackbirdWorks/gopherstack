@@ -113,10 +113,7 @@ func defaultEgress(v6 bool) []EgressRule {
 }
 
 // CreateVcn creates a VCN with its default route table, security list and DHCP options.
-func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateVcn")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -180,7 +177,7 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError
 
 	v.DefaultRouteTableID, v.DefaultSecurityList, v.DefaultDhcpOptionsID = rt.ID, sl.ID, dh.ID
 
-	for _, r := range []resource{v, rt, sl, dh} {
+	for _, r := range []Resource{v, rt, sl, dh} {
 		b.add(r)
 	}
 
@@ -191,14 +188,14 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError
 type UpdateVcnIn = UpdateIn
 
 // UpdateVcn changes a VCN's name and tags.
-func (b *InMemoryBackend) UpdateVcn(id, ifMatch string, in UpdateVcnIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateVcn(id, ifMatch string, in UpdateVcnIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in, func(*Vcn) *APIError { return nil })
 }
 
 // updateWith is the shared update skeleton: state and etag checks, a type specific mutation, name and tags.
-func updateWith[T resource](
+func updateWith[T Resource](
 	b *InMemoryBackend, id, ifMatch string, in UpdateIn, apply func(T) *APIError,
-) (resource, string, *APIError) {
+) (Resource, string, *APIError) {
 	b.mu.Lock("update")
 	defer b.mu.Unlock()
 

@@ -63,6 +63,7 @@ type SuppressionWire struct {
 // CreateAlarmIn is the CreateAlarm request body.
 type CreateAlarmIn struct {
 	Tags
+	RetryToken    string           `json:"-"`
 	InSubtree     *bool            `json:"metricCompartmentIdInSubtree"`
 	PerDimension  *bool            `json:"isNotificationsPerMetricDimensionEnabled"`
 	Enabled       *bool            `json:"isEnabled"`
@@ -296,6 +297,10 @@ func (b *InMemoryBackend) validateDestinations(dests []string) *APIError {
 			}
 		case strings.HasPrefix(d, destStreamPrefix):
 			streams++
+
+			if b.streamCheck != nil && !b.streamCheck(d) {
+				return errParam("destination " + d + " does not reference an active Streaming stream")
+			}
 		default:
 			return errParam("destination " + d + " must be the OCID of a Notifications topic or a Streaming stream")
 		}
@@ -327,6 +332,8 @@ func setExtra(a *Alarm, k string, v *string) {
 
 	a.Extra[k] = *v
 }
+
+const subtreeField = "metricCompartmentIdInSubtree"
 
 // CreateAlarm validates and stores an alarm; it starts OK.
 func (b *InMemoryBackend) CreateAlarm(in CreateAlarmIn) (AlarmWire, string, error) {
@@ -363,7 +370,20 @@ func (b *InMemoryBackend) CreateAlarm(in CreateAlarmIn) (AlarmWire, string, erro
 	b.mu.Lock("CreateAlarm")
 	defer b.mu.Unlock()
 
-	if aerr = b.validateDestinations(in.Destinations); aerr != nil {
+	if v, ok := b.retry.Lookup("CreateAlarm", in.RetryToken, b.nowUTC()); ok {
+		a, live := b.alarms[v]
+		if !live {
+			return AlarmWire{}, "", errInvalidatedToken()
+		}
+
+		return alarmView(a), a.Etag, nil
+	}
+
+	if aerr = firstErr(b.checkTags(in.Tags), b.validateDestinations(in.Destinations)); aerr != nil {
+		return AlarmWire{}, "", aerr
+	}
+
+	if aerr = b.checkSubtree(in.MetricComp, in.InSubtree != nil && *in.InSubtree, subtreeField); aerr != nil {
 		return AlarmWire{}, "", aerr
 	}
 
@@ -389,6 +409,7 @@ func (b *InMemoryBackend) CreateAlarm(in CreateAlarmIn) (AlarmWire, string, erro
 		{Timestamp: now, TimestampTriggered: now, To: statusOK, Summary: "The alarm state is OK"},
 	}
 	b.alarms[a.ID] = a
+	b.retry.Remember("CreateAlarm", in.RetryToken, a.ID, now)
 
 	return alarmView(a), a.Etag, nil
 }
@@ -458,6 +479,7 @@ func (b *InMemoryBackend) GetAlarm(id string) (AlarmWire, string, error) {
 // AlarmFilter narrows ListAlarms and ListAlarmsStatus.
 type AlarmFilter struct {
 	Compartment, Name, State string
+	Subtree                  bool
 }
 
 func (b *InMemoryBackend) filtered(f AlarmFilter) ([]*Alarm, *APIError) {
@@ -465,10 +487,14 @@ func (b *InMemoryBackend) filtered(f AlarmFilter) ([]*Alarm, *APIError) {
 		return nil, errMissing("compartmentId is required")
 	}
 
+	if aerr := b.checkSubtree(f.Compartment, f.Subtree, "compartmentIdInSubtree"); aerr != nil {
+		return nil, aerr
+	}
+
 	var out []*Alarm
 
 	for _, a := range b.alarms {
-		if a.CompartmentID == f.Compartment && (f.Name == "" || a.Name == f.Name) &&
+		if b.inCompartment(a.CompartmentID, f.Compartment, f.Subtree) && (f.Name == "" || a.Name == f.Name) &&
 			(f.State == "" || strs.Equal(f.State, stateActive)) {
 			out = append(out, a)
 		}
@@ -574,6 +600,10 @@ func (b *InMemoryBackend) UpdateAlarm(id, ifMatch string, in UpdateAlarmIn) (Ala
 		return AlarmWire{}, "", aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return AlarmWire{}, "", aerr
+	}
+
 	if aerr = b.applyAlarmUpdate(a, in); aerr != nil {
 		return AlarmWire{}, "", aerr
 	}
@@ -619,6 +649,20 @@ func (b *InMemoryBackend) applyAlarmUpdate(a *Alarm, in UpdateAlarmIn) *APIError
 		if format, aerr = validFormat(f, dests); aerr != nil {
 			return aerr
 		}
+	}
+
+	metricComp, subtree := a.MetricCompartmentID, a.InSubtree != nil && *a.InSubtree
+
+	if in.MetricComp != nil {
+		metricComp = *in.MetricComp
+	}
+
+	if in.InSubtree != nil {
+		subtree = *in.InSubtree
+	}
+
+	if aerr := b.checkSubtree(metricComp, subtree, subtreeField); aerr != nil {
+		return aerr
 	}
 
 	if in.Severity != nil {
@@ -703,7 +747,7 @@ func (b *InMemoryBackend) DeleteAlarm(id, ifMatch string) error {
 }
 
 // ChangeAlarmCompartment moves an alarm to another compartment.
-func (b *InMemoryBackend) ChangeAlarmCompartment(id, ifMatch, compartment string) error {
+func (b *InMemoryBackend) ChangeAlarmCompartment(id, ifMatch, compartment, retryToken string) error {
 	if compartment == "" {
 		return errMissing("compartmentId is required")
 	}
@@ -716,11 +760,17 @@ func (b *InMemoryBackend) ChangeAlarmCompartment(id, ifMatch, compartment string
 		return aerr
 	}
 
+	scope := "ChangeAlarmCompartment"
+	if v, ok := b.retry.Lookup(scope, retryToken, b.nowUTC()); ok && v == id {
+		return nil
+	}
+
 	if aerr = checkEtag(a.Etag, ifMatch); aerr != nil {
 		return aerr
 	}
 
 	a.CompartmentID, a.Etag, a.TimeUpdated = compartment, newEtag(), b.nowUTC()
+	b.retry.Remember(scope, retryToken, id, a.TimeUpdated)
 
 	return nil
 }
@@ -812,6 +862,8 @@ func (h *Handler) createAlarm(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	v, etag, err := h.Backend.CreateAlarm(in)
 
 	return reply(q, v, etag, err)
@@ -828,6 +880,7 @@ func (h *Handler) alarmFilter(q *req) AlarmFilter {
 		Compartment: q.query("compartmentId"),
 		Name:        q.query("displayName"),
 		State:       q.query("lifecycleState"),
+		Subtree:     strings.EqualFold(q.query("compartmentIdInSubtree"), "true"),
 	}
 }
 
@@ -873,7 +926,9 @@ func (h *Handler) changeAlarmCompartment(q *req) error {
 		return err
 	}
 
-	if err := h.Backend.ChangeAlarmCompartment(q.alarmID(), q.ifMatch(), in.CompartmentID); err != nil {
+	if err := h.Backend.ChangeAlarmCompartment(
+		q.alarmID(), q.ifMatch(), in.CompartmentID, q.r.Header.Get(headerRetry),
+	); err != nil {
 		return err
 	}
 

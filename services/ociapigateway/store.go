@@ -13,6 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -35,14 +37,26 @@ type InMemoryBackend struct {
 	deployments   map[string]*Deployment
 	certificates  map[string]*Certificate
 	workReqs      map[string]*WorkRequest
+	apis          map[string]*API
+	sdks          map[string]*SDK
+	usagePlans    map[string]*UsagePlan
+	subscribers   map[string]*Subscriber
+	caPEMs        map[string]string
+	retry         *ociretry.Store
+	tagLookup     ocitags.Lookup
 	specs         map[string]*compiledSpec
 	Auth          *ociauth.Registry
 	compartment   func(string) bool
 	subnet        func(string) bool
+	network       *Network
 	functions     FunctionInvoker
 	limiter       *rateLimiter
+	usage         *usageTracker
+	cache         *respCache
+	secrets       SecretResolver
 	client        *http.Client
 	jwks          *jwksCache
+	disco         *discoveryCache
 	transition    time.Duration
 	seq           int64
 	allowExternal bool
@@ -54,7 +68,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()
 	b.limiter = newRateLimiter()
+	b.usage = newUsageTracker()
+	b.cache = newRespCache()
 	b.jwks = newJWKSCache()
+	b.disco = newDiscoveryCache()
 	b.client = b.newBackendClient()
 
 	return b
@@ -64,7 +81,28 @@ func (b *InMemoryBackend) resetMaps() {
 	b.gateways, b.deployments = map[string]*Gateway{}, map[string]*Deployment{}
 	b.certificates, b.workReqs = map[string]*Certificate{}, map[string]*WorkRequest{}
 	b.specs = map[string]*compiledSpec{}
+	b.apis, b.sdks = map[string]*API{}, map[string]*SDK{}
+	b.usagePlans, b.subscribers = map[string]*UsagePlan{}, map[string]*Subscriber{}
+	b.caPEMs = map[string]string{}
+	b.retry = ociretry.New()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 // newBackendClient builds the data-plane HTTP client. The dial guard rejects non-loopback peers
 // unless external backends are allowed, and redirects are returned to the caller rather than followed.
@@ -135,7 +173,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 	b.Auth.Reset()
 	b.limiter.reset()
+	b.usage.reset()
+	b.cache.reset()
 	b.jwks.reset()
+	b.disco.reset()
 }
 
 func (b *InMemoryBackend) nowUTC() time.Time { return b.now().UTC() }
@@ -178,6 +219,49 @@ func (b *InMemoryBackend) checkMove(current, ifMatch, target string) *APIError {
 	}
 
 	return b.checkCompartment(target)
+}
+
+// moveSpec points at the fields a ChangeCompartment call touches.
+type moveSpec struct {
+	updated     *time.Time
+	compartment *string
+	etag        *string
+	conflict    func(target string) *APIError
+	id          string
+	op          string
+	entity      string
+	locks       []Lock
+}
+
+// move applies a ChangeCompartment call: lock and etag checks, optional conflict check, then the move.
+func (b *InMemoryBackend) move(m moveSpec, ifMatch string, in changeCompartmentIn) (string, error) {
+	target := in.CompartmentID
+	scope := "Move/" + m.entity + "/" + m.id
+
+	if wr, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
+		return wr, nil
+	}
+
+	if lerr := checkLocked(m.locks, false); lerr != nil {
+		return "", lerr
+	}
+
+	if err := b.checkMove(*m.etag, ifMatch, target); err != nil {
+		return "", err
+	}
+
+	if m.conflict != nil {
+		if cerr := m.conflict(target); cerr != nil {
+			return "", cerr
+		}
+	}
+
+	now := b.nowUTC()
+	*m.compartment, *m.updated, *m.etag = target, now, newEtag()
+	wr := b.newWR(m.op, target, m.entity, m.id, actionUpdated, now.Add(b.transition))
+	b.retry.Remember(scope, in.RetryToken, wr, now)
+
+	return wr, nil
 }
 
 func (b *InMemoryBackend) transitionAt() *time.Time {
@@ -237,6 +321,28 @@ func paginate[T any](items []T, o ListOpts, name func(T) string, created func(T)
 	return page.New(items, o.Page, o.Limit, defaultListLimit)
 }
 
+// listOf filters, sorts, pages and renders the values of a resource map.
+func listOf[R, W any](
+	m map[string]*R, o ListOpts, keep func(*R) bool, name func(*R) string, created func(*R) time.Time, view func(*R) W,
+) page.Page[W] {
+	var all []*R
+
+	for _, r := range m {
+		if keep(r) {
+			all = append(all, r)
+		}
+	}
+
+	pg := paginate(all, o, name, func(r *R) (time.Time, int64) { return created(r), 0 })
+
+	out := make([]W, 0, len(pg.Data))
+	for _, r := range pg.Data {
+		out = append(out, view(r))
+	}
+
+	return page.Page[W]{Data: out, Next: pg.Next}
+}
+
 func due(at *time.Time, now time.Time) bool { return at != nil && !at.After(now) }
 
 // settleState applies a pending transition to a lifecycle state.
@@ -274,5 +380,21 @@ func (b *InMemoryBackend) Sweep() {
 
 	for _, c := range b.certificates {
 		settleState(&c.State, &c.TransitionAt, now)
+	}
+
+	for _, a := range b.apis {
+		settleState(&a.State, &a.TransitionAt, now)
+	}
+
+	for _, s := range b.sdks {
+		settleState(&s.State, &s.TransitionAt, now)
+	}
+
+	for _, p := range b.usagePlans {
+		settleState(&p.State, &p.TransitionAt, now)
+	}
+
+	for _, s := range b.subscribers {
+		settleState(&s.State, &s.TransitionAt, now)
 	}
 }

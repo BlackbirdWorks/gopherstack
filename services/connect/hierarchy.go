@@ -84,7 +84,10 @@ func updateSlots(u *HierarchyStructureUpdate) [maxHierarchyDepth]*HierarchyLevel
 }
 
 // UpdateUserHierarchyStructure defines or renames hierarchy levels; levels must be defined top-down.
-func (b *Backend) UpdateUserHierarchyStructure(ctx context.Context, in *UpdateHierarchyStructureInput) (*empty, error) {
+func (b *Backend) UpdateUserHierarchyStructure(
+	ctx context.Context,
+	in *UpdateHierarchyStructureInput,
+) (*EmptyOutput, error) {
 	updates := updateSlots(&in.HierarchyStructure)
 
 	for _, u := range updates {
@@ -131,7 +134,7 @@ func (b *Backend) UpdateUserHierarchyStructure(ctx context.Context, in *UpdateHi
 		(*slots[i]).Stamp = b.stamp(ctx)
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DescribeUserHierarchyStructure returns the defined hierarchy levels.
@@ -285,7 +288,10 @@ func (b *Backend) ListUserHierarchyGroups(inst, token string, maxResults int32) 
 }
 
 // UpdateUserHierarchyGroupName renames a group.
-func (b *Backend) UpdateUserHierarchyGroupName(ctx context.Context, in *UpdateHierarchyGroupNameInput) (*empty, error) {
+func (b *Backend) UpdateUserHierarchyGroupName(
+	ctx context.Context,
+	in *UpdateHierarchyGroupNameInput,
+) (*EmptyOutput, error) {
 	if err := checkName("Name", in.Name, maxNameLen); err != nil {
 		return nil, err
 	}
@@ -312,11 +318,11 @@ func (b *Backend) UpdateUserHierarchyGroupName(ctx context.Context, in *UpdateHi
 	g.Group.Name = in.Name
 	g.Group.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DeleteUserHierarchyGroup removes a leaf group no user belongs to.
-func (b *Backend) DeleteUserHierarchyGroup(inst, id string) (*empty, error) {
+func (b *Backend) DeleteUserHierarchyGroup(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteUserHierarchyGroup")
 	defer b.mu.Unlock()
 

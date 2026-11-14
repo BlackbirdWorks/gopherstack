@@ -46,10 +46,13 @@ func (r *runner) publish(ctx context.Context) *stepFailure {
 
 	var failure *stepFailure
 
-	if len(r.build.GetImages()) > 0 {
+	if images := r.imagesToPush(); len(images) > 0 {
 		r.log.system("PUSH")
 
-		failure = r.pushImages(ctx, res)
+		start := r.b.ts()
+		failure = r.pushImages(ctx, images, res)
+
+		r.setPhase(phasePush, start)
 	}
 
 	if failure == nil && r.build.GetArtifacts().GetObjects() != nil {
@@ -58,13 +61,24 @@ func (r *runner) publish(ctx context.Context) *stepFailure {
 		failure = r.uploadArtifacts(ctx, res)
 	}
 
+	if failure == nil {
+		if err := r.uploadPackages(res); err != nil {
+			r.log.system("ERROR: failed to upload artifacts: " + err.Error())
+
+			failure = &stepFailure{
+				status: cloudbuildpb.Build_FAILURE, detail: "failed to upload artifacts: " + err.Error(),
+			}
+		}
+	}
+
+	r.addStepResults(res)
 	r.b.update(r.ref, func(pb *cloudbuildpb.Build) { pb.Results = res })
 
 	return failure
 }
 
-func (r *runner) pushImages(ctx context.Context, res *cloudbuildpb.Results) *stepFailure {
-	for _, img := range r.build.GetImages() {
+func (r *runner) pushImages(ctx context.Context, images []string, res *cloudbuildpb.Results) *stepFailure {
+	for _, img := range images {
 		start := r.b.ts()
 
 		digest, err := r.pushImage(ctx, img)
@@ -166,6 +180,13 @@ func (r *runner) uploadArtifacts(_ context.Context, res *cloudbuildpb.Results) *
 
 	res.NumArtifacts, res.ArtifactManifest = int64(n), manifest
 	res.ArtifactTiming = &cloudbuildpb.TimeSpan{StartTime: start, EndTime: r.b.ts()}
+
+	r.b.update(r.ref, func(pb *cloudbuildpb.Build) {
+		pb.GetArtifacts().GetObjects().Timing = &cloudbuildpb.TimeSpan{
+			StartTime: start,
+			EndTime:   res.GetArtifactTiming().GetEndTime(),
+		}
+	})
 
 	return nil
 }

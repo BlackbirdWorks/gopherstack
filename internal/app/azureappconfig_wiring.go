@@ -42,6 +42,12 @@ func (a *azureAppConfigAdapter) DeleteStore(name string) error {
 	return ignoreMissing(a.backend.DeleteStore(name), azureappconfig.ErrStoreNotFound)
 }
 
+func (a *azureAppConfigAdapter) PurgeStore(name string) { a.backend.PurgeStore(name) }
+
+func (a *azureAppConfigAdapter) SetRevisionRetention(name string, days int) error {
+	return a.backend.SetRevisionRetention(name, days)
+}
+
 func accessKeyOf(k azureappconfig.AccessKey) azurearm.AppConfigKey {
 	return azurearm.AppConfigKey{
 		ID: k.ID, Name: k.Name, Value: k.Secret, ReadOnly: k.ReadOnly, LastModified: k.LastModified,

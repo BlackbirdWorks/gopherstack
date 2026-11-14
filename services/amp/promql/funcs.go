@@ -21,8 +21,8 @@ var functions = map[string]funcSpec{ //nolint:gochecknoglobals // immutable look
 	"stddev_over_time": {1, 1}, "stdvar_over_time": {1, 1}, "present_over_time": {1, 1},
 	"holt_winters": {3, 3}, "double_exponential_smoothing": {3, 3}, "absent_over_time": {1, 1},
 	"sort_by_label": {2, maxArgs}, fnSortByLabelDesc: {2, maxArgs}, "histogram_fraction": {3, 3},
-	"histogram_count": {1, 1}, "histogram_sum": {1, 1}, "histogram_avg": {1, 1},
-	"histogram_stddev": {1, 1}, "histogram_stdvar": {1, 1},
+	fnHistCount: {1, 1}, fnHistSum: {1, 1}, fnHistAvg: {1, 1},
+	fnHistStddev: {1, 1}, fnHistStdvar: {1, 1},
 	"minute": {0, 1}, "hour": {0, 1}, "month": {0, 1}, "year": {0, 1}, "day_of_month": {0, 1},
 	"day_of_week": {0, 1}, "day_of_year": {0, 1}, "days_in_month": {0, 1}, "timestamp": {1, 1},
 }

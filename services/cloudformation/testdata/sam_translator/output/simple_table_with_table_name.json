@@ -1,0 +1,71 @@
+{
+  "Parameters": {
+    "MySimpleTableParameter": {
+      "Default": "TableName",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "MinimalTableWithRefTableName": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "TableName": {
+          "Ref": "MySimpleTableParameter"
+        }
+      },
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "MinimalTableWithSubTableName": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "TableName": {
+          "Fn::Sub": "${AWS::StackName}MySimpleTable"
+        }
+      },
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "MinimalTableWithTableName": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "TableName": "MySimpleTable"
+      },
+      "Type": "AWS::DynamoDB::Table"
+    }
+  }
+}

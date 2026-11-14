@@ -145,16 +145,20 @@ func wireCognitoMessageDelivery(cognitoReg, sesReg, snsReg service.Registerable,
 	cognitoH.Backend.SetMessageSender(sender)
 }
 
-// cognitoKMSEncrypter encrypts custom-sender codes through the KMS emulator.
-type cognitoKMSEncrypter struct{ kms kmsbackend.StorageBackend }
+// cognitoKMSDataKeys generates the data keys custom-sender codes are encrypted under.
+type cognitoKMSDataKeys struct{ kms kmsbackend.StorageBackend }
 
-func (e cognitoKMSEncrypter) EncryptCode(ctx context.Context, keyID string, plaintext []byte) ([]byte, error) {
-	out, err := e.kms.Encrypt(ctx, &kmsbackend.EncryptInput{KeyID: keyID, Plaintext: plaintext})
+func (e cognitoKMSDataKeys) GenerateDataKey(
+	ctx context.Context, keyID string, encCtx map[string]string,
+) (*cognitoidpbackend.DataKey, error) {
+	out, err := e.kms.GenerateDataKey(ctx, &kmsbackend.GenerateDataKeyInput{
+		KeyID: keyID, KeySpec: "AES_256", EncryptionContext: encCtx,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("kms encrypt: %w", err)
+		return nil, fmt.Errorf("kms generate data key: %w", err)
 	}
 
-	return out.CiphertextBlob, nil
+	return &cognitoidpbackend.DataKey{KeyARN: out.KeyID, Plaintext: out.Plaintext, Ciphertext: out.CiphertextBlob}, nil
 }
 
 // wireCognitoCodeEncryption lets CustomEmailSender/CustomSMSSender triggers receive KMS-encrypted codes.
@@ -166,5 +170,5 @@ func wireCognitoCodeEncryption(cognitoReg, kmsReg service.Registerable) {
 		return
 	}
 
-	cognitoH.Backend.SetCodeEncrypter(cognitoKMSEncrypter{kms: kmsH.Backend})
+	cognitoH.Backend.SetDataKeyGenerator(cognitoKMSDataKeys{kms: kmsH.Backend})
 }

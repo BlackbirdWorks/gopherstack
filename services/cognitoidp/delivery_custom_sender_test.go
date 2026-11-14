@@ -1,6 +1,7 @@
 package cognitoidp_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -12,14 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp/internal/esdk"
 )
 
 const testSenderARN = "arn:aws:lambda:us-east-1:000000000000:function:sender"
 
-type prefixEncrypter struct{}
+// fixedKeys hands out one known data key whose wrapped copy is the key ID, so tests can decrypt.
+type fixedKeys struct{}
 
-func (prefixEncrypter) EncryptCode(_ context.Context, keyID string, plaintext []byte) ([]byte, error) {
-	return append([]byte(keyID+":"), plaintext...), nil
+func testDataKey() []byte { return bytes.Repeat([]byte{0x11}, 32) }
+
+func (fixedKeys) GenerateDataKey(_ context.Context, keyID string, _ map[string]string) (*cognitoidp.DataKey, error) {
+	return &cognitoidp.DataKey{
+		KeyARN:     "arn:aws:kms:us-east-1:000000000000:key/" + keyID,
+		Plaintext:  testDataKey(),
+		Ciphertext: []byte("wrapped:" + keyID),
+	}, nil
 }
 
 func TestCustomSenderDelivery(t *testing.T) {
@@ -79,7 +88,7 @@ func TestCustomSenderDelivery(t *testing.T) {
 			e.h.Backend.SetLambdaTriggerInvoker(inv)
 
 			if tt.encrypt {
-				e.h.Backend.SetCodeEncrypter(prefixEncrypter{})
+				e.h.Backend.SetDataKeyGenerator(fixedKeys{})
 			}
 
 			if tt.wantErr != "" {
@@ -106,7 +115,17 @@ func TestCustomSenderDelivery(t *testing.T) {
 
 			blob, err := base64.StdEncoding.DecodeString(req["code"].(string))
 			require.NoError(t, err)
-			assert.Equal(t, fmt.Sprintf("key-1:%s", code), string(blob))
+
+			msg, err := esdk.Decrypt(blob, func(edk []byte, encCtx map[string]string) ([]byte, error) {
+				assert.Equal(t, []byte("wrapped:key-1"), edk)
+				assert.Equal(t, map[string]string{"userpool-id": e.poolID}, encCtx)
+
+				return testDataKey(), nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, code, string(msg.Plaintext))
+			assert.Equal(t, "aws-kms", msg.ProviderID)
+			assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/key-1", msg.ProviderInfo)
 		})
 	}
 }
@@ -148,4 +167,54 @@ func TestEmailRoleAccessPolicyError(t *testing.T) {
 	rec := doCognitoRequest(t, e.h, "SignUp", signUpBody(e, map[string]string{"email": "bob@corp.example"}))
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "InvalidEmailRoleAccessPolicyException")
+}
+
+func TestCustomSenderClientMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantSource string
+		forgot     bool
+	}{
+		{name: "sign up", wantSource: "CustomEmailSender_SignUp"},
+		{name: "forgot password", wantSource: "CustomEmailSender_ForgotPassword", forgot: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newDeliveryEnv(t, map[string]any{
+				"LambdaConfig":           senderCfg("CustomEmailSender", true),
+				"AutoVerifiedAttributes": []string{"email"},
+			})
+			inv := &fakeInvoker{}
+			e.h.Backend.SetLambdaTriggerInvoker(inv)
+			e.h.Backend.SetDataKeyGenerator(fixedKeys{})
+
+			meta := map[string]string{"tenant": "acme"}
+			attrs := []map[string]string{{"Name": "email", "Value": "bob@corp.example"}}
+
+			e.call(t, "SignUp", map[string]any{
+				"ClientId": e.clientID, "Username": "bob", "Password": "Pass1234!",
+				"UserAttributes": attrs, "ClientMetadata": meta,
+			})
+
+			if tt.forgot {
+				e.call(t, "AdminConfirmSignUp", map[string]any{"UserPoolId": e.poolID, "Username": "bob"})
+				e.call(t, "ForgotPassword", map[string]any{
+					"ClientId": e.clientID, "Username": "bob", "ClientMetadata": meta,
+				})
+			}
+
+			require.NotEmpty(t, inv.calls)
+
+			ev := inv.calls[len(inv.calls)-1].event
+			assert.Equal(t, tt.wantSource, ev["triggerSource"])
+
+			req := ev["request"].(map[string]any)
+			assert.Equal(t, map[string]any{"tenant": "acme"}, req["clientMetadata"])
+		})
+	}
 }

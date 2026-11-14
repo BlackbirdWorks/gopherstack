@@ -169,6 +169,12 @@ func (b *InMemoryBackend) CreatePolicy(
 		return nil, err
 	}
 
+	if policyType == policyTypeRCP {
+		if err := validateRCPContent(content); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := validateNewTags(nil, tags); err != nil {
 		return nil, err
 	}
@@ -225,6 +231,12 @@ func (b *InMemoryBackend) UpdatePolicy(
 	if content != "" {
 		if err := validatePolicyContent(content, p.PolicySummary.Type); err != nil {
 			return nil, err
+		}
+
+		if p.PolicySummary.Type == policyTypeRCP {
+			if err := validateRCPContent(content); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -334,8 +346,11 @@ func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, er
 		Status: policyStatusEnabled,
 	})
 
-	if policyType == policyTypeSCP {
+	switch policyType {
+	case policyTypeSCP:
 		b.attachDefaultSCPEverywhereLocked()
+	case policyTypeRCP:
+		b.forEachTargetLocked(b.attachDefaultRCPLocked)
 	}
 
 	return copyRoot(b.root), nil
@@ -376,8 +391,11 @@ func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, e
 		return nil, ErrPolicyTypeNotEnabled
 	}
 
-	if policyType == policyTypeSCP {
+	switch policyType {
+	case policyTypeSCP:
 		b.detachAllSCPsLocked()
+	case policyTypeRCP:
+		b.detachAllRCPsLocked()
 	}
 
 	// AWS rejects disabling a policy type when policies of that type are still attached to any target.

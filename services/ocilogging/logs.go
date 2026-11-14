@@ -3,6 +3,7 @@ package ocilogging
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -34,6 +35,7 @@ type ConfigWire struct {
 // CreateLogIn is the CreateLog request body.
 type CreateLogIn struct {
 	Tags
+	RetryToken    string      `json:"-"`
 	Enabled       *bool       `json:"isEnabled"`
 	Retention     *int        `json:"retentionDuration"`
 	Configuration *ConfigWire `json:"configuration"`
@@ -215,6 +217,28 @@ func normalizeType(t string) (string, *APIError) {
 	return "", errParam("logType must be CUSTOM or SERVICE")
 }
 
+func (b *InMemoryBackend) replayLog(scope, token string) (string, bool, *APIError) {
+	v, ok := b.retry.Lookup(scope, token, b.nowUTC())
+	if !ok {
+		return "", false, nil
+	}
+
+	id, wr := ociretry.Split(v)
+	if l, live := b.logs[id]; !live || l.State == stateDeleting || l.State == stateDeleted {
+		return "", true, errInvalidatedToken()
+	}
+
+	return wr, true, nil
+}
+
+func errOrNil(aerr *APIError) error {
+	if aerr == nil {
+		return nil
+	}
+
+	return aerr
+}
+
 // CreateLog creates a log inside a log group.
 func (b *InMemoryBackend) CreateLog(groupID string, in CreateLogIn) (string, error) {
 	logType, aerr := normalizeType(in.LogType)
@@ -222,7 +246,7 @@ func (b *InMemoryBackend) CreateLog(groupID string, in CreateLogIn) (string, err
 		return "", aerr
 	}
 
-	if aerr = firstErr(validateName(in.Name), validRetention(in.Retention)); aerr != nil {
+	if aerr = firstErr(validResourceName(in.Name, false), validRetention(in.Retention)); aerr != nil {
 		return "", aerr
 	}
 
@@ -236,8 +260,17 @@ func (b *InMemoryBackend) CreateLog(groupID string, in CreateLogIn) (string, err
 
 	b.settleAll()
 
+	scope := "CreateLog/" + groupID
+	if wr, hit, rerr := b.replayLog(scope, in.RetryToken); hit {
+		return wr, errOrNil(rerr)
+	}
+
 	g, aerr := b.mutableGroup(groupID)
 	if aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 
@@ -261,7 +294,10 @@ func (b *InMemoryBackend) CreateLog(groupID string, in CreateLogIn) (string, err
 
 	b.logs[l.ID] = l
 
-	return b.newWR("CREATE_LOG", "log", g.CompartmentID, l.ID, "CREATED", *l.TransitionAt), nil
+	wr := b.newWR("CREATE_LOG", "log", g.CompartmentID, l.ID, "CREATED", *l.TransitionAt)
+	b.retry.Remember(scope, in.RetryToken, ociretry.Join(l.ID, wr), now)
+
+	return wr, nil
 }
 
 // GetLog returns one log and its etag.
@@ -336,7 +372,7 @@ func (b *InMemoryBackend) ListLogs(groupID string, f LogFilter, o ListOpts) (pag
 // UpdateLog changes the mutable fields of a log; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateLog(groupID, id, ifMatch string, in UpdateLogIn) (string, error) {
 	if in.Name != nil {
-		if aerr := validateName(*in.Name); aerr != nil {
+		if aerr := validResourceName(*in.Name, false); aerr != nil {
 			return "", aerr
 		}
 	}
@@ -356,6 +392,10 @@ func (b *InMemoryBackend) UpdateLog(groupID, id, ifMatch string, in UpdateLogIn)
 	}
 
 	if aerr = checkEtag(l.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 
@@ -474,6 +514,8 @@ func (h *Handler) createLog(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateLog(q.param("logGroupId"), in)
 

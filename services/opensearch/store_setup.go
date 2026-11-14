@@ -33,6 +33,8 @@ import "github.com/blackbirdworks/gopherstack/pkgs/store"
 func domainKeyFn(v *Domain) string    { return v.Name }
 func domainARNKeyFn(v *Domain) string { return v.ARN }
 
+func securityConfigKeyFn(v *SecurityConfig) string { return v.Domain }
+
 func inboundConnectionKeyFn(v *InboundConnection) string   { return v.ConnectionID }
 func outboundConnectionKeyFn(v *OutboundConnection) string { return v.ConnectionID }
 
@@ -184,6 +186,9 @@ func registerAllTables(b *InMemoryBackend) {
 //
 //nolint:gochecknoglobals // registration table, analogous to errCodeLookup-style lookup tables elsewhere
 var tableRegistrations = []func(*InMemoryBackend){
+	func(b *InMemoryBackend) {
+		b.securityConfigs = store.Register(b.registry, "securityConfigs", store.New(securityConfigKeyFn))
+	},
 	func(b *InMemoryBackend) {
 		b.domains = store.Register(b.registry, "domains", store.New(domainKeyFn))
 		b.domainsByARN = b.domains.AddIndex("byARN", domainARNKeyFn)

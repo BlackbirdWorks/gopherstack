@@ -113,6 +113,8 @@ func (h *Handler) registerLBOps() {
 	h.registerCertOps()
 	h.registerRuleOps()
 	h.registerNEGOps()
+	h.registerPoolOps()
+	h.registerVPNOps()
 }
 
 func (h *Handler) registerBackendOps() {
@@ -178,6 +180,15 @@ func (h *Handler) registerURLMapOps() {
 			return h.Backend.validateURLMap(ctxOf(rq), in)
 		})
 	}
+
+	h.reg(collURLMaps, scopeGlobal, "invalidateCache", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.CacheInvalidationRule](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.invalidateURLMapCache(ctxOf(rq), rq.rt.name, in))
+	})
 }
 
 func (h *Handler) registerProxyOps() {
@@ -304,7 +315,7 @@ func (h *Handler) registerCertOps() {
 		scopes: []string{scopeGlobal, scopeRegion}, agg: globalAndRegions(),
 	})
 	registerLB(h, sslPolicySpec(), lbOpts[computeapi.SslPolicy]{
-		scopes: []string{scopeGlobal}, patch: true,
+		scopes: []string{scopeGlobal, scopeRegion}, agg: globalAndRegions(), patch: true,
 		get: func(h *Handler, rq *request) (any, error) {
 			if rq.rt.name == "listAvailableFeatures" {
 				return &computeapi.SslPoliciesListAvailableFeaturesResponse{
@@ -330,6 +341,14 @@ func (h *Handler) registerRuleOps() {
 			}
 
 			return opResult(h.Backend.setRuleTarget(ctxOf(rq), rq.rt.name, in.Target))
+		})
+		h.reg(collFwdRules, scope, verbPatch, func(h *Handler, rq *request) (any, error) {
+			_, raw, err := decode[computeapi.ForwardingRule](rq)
+			if err != nil {
+				return nil, err
+			}
+
+			return opResult(h.Backend.patchForwardingRule(ctxOf(rq), rq.rt.name, raw))
 		})
 		h.reg(collFwdRules, scope, "setLabels", func(h *Handler, rq *request) (any, error) {
 			in, _, err := decode[labelsRequest](rq)

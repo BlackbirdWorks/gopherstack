@@ -108,7 +108,10 @@ func (h *Handler) handleBulkRoute(w http.ResponseWriter, r *http.Request, trimme
 	hasErrors := false
 
 	for _, act := range actions {
-		item, isErr := h.processBulkAction(domainName, defaultIndex, act)
+		item, isErr := h.authorizeBulkAction(r, defaultIndex, act)
+		if !isErr {
+			item, isErr = h.processBulkAction(domainName, defaultIndex, act)
+		}
 		items = append(items, item)
 
 		if isErr {
@@ -385,7 +388,7 @@ func bulkResultItem(action, index, id, result string, status int, meta DocumentM
 			jsonKeyDocShards:   writeOpShards(),
 			jsonKeyDocSeqNo:    meta.SeqNo,
 			jsonKeyDocPrimTerm: docPrimaryTerm,
-			"status":           status,
+			jsonKeyStatusLower: status,
 		},
 	}
 }
@@ -394,12 +397,12 @@ func bulkResultItem(action, index, id, result string, status int, meta DocumentM
 func bulkErrorItem(action, index, id string, status int, errType, reason string) map[string]any {
 	return map[string]any{
 		action: map[string]any{
-			jsonKeyDocIndex: index,
-			jsonKeyDocID:    id,
-			"status":        status,
-			"error": map[string]any{
+			jsonKeyDocIndex:    index,
+			jsonKeyDocID:       id,
+			jsonKeyStatusLower: status,
+			jsonKeyError: map[string]any{
 				jsonKeyPolicyTypeJR: errType,
-				"reason":            reason,
+				jsonKeyReason:       reason,
 			},
 		},
 	}

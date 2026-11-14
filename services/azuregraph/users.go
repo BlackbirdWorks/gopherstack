@@ -189,7 +189,7 @@ func (b *Backend) DeleteUser(r Ref) error {
 		return err
 	}
 
-	b.removeObject(u.ID)
+	b.deleteObject(u.ID)
 
 	return nil
 }

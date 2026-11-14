@@ -16,10 +16,10 @@
 ### Known gaps
 
 - accounts:signInWithIdp, federated createAuthUri, OIDC/SAML/OAuth provider configs (v2 defaultSupportedIdpConfigs, oauthIdpConfigs, inboundSamlConfigs) and linking federated providers through sign-in are not implemented.
-- Multi-factor authentication (phone/TOTP enrollment and sign-in, mfaInfo) and phone-number sign-in (sendVerificationCode, signInWithPhoneNumber) are not implemented; mfaInfo on create is ignored.
-- No email is sent and the /emulator/action page that applies a link in a browser is not served; codes are read from the emulator oobCodes endpoint.
-- Out-of-band code lifetimes, batchCreate failure message texts, the passwordHashOrder default for HMAC/plain hashes (password then salt), the REDACTED placeholder in client lookups and the config defaults were chosen from documentation and SDK behaviour without a production reference.
-- TOO_MANY_ATTEMPTS_TRY_LATER and quotas, API key restrictions, authorized-domain checks of continueUrl, blocking functions, reCAPTCHA, SMS region policy and v2 passwordPolicy/recaptchaConfig client endpoints are not implemented.
+- Multi-factor authentication (phone/TOTP enrollment and sign-in, mfaInfo) is not implemented; mfaInfo on create is ignored.
+- No email or SMS is sent (no mail or SMS transport); codes are read from the emulator oobCodes and verificationCodes endpoints or applied through /emulator/action.
+- Out-of-band code lifetimes (reset 1h, verify 3d, sign-in 6h) come from Firebase developer statements, not official documentation; the phone verification session and temporary proof lifetime (5 minutes), the error codes MISSING_CLIENT_IDENTIFIER, INVALID_TEMPORARY_PROOF, TEMPORARY_PROOF_EXPIRED and SESSION_EXPIRED for phone sign-in, batchCreate failure message texts, the passwordHashOrder default for HMAC/plain hashes (password then salt), whether authorizedDomains match subdomains, whether the non-alphanumeric password set includes a backtick (the docs page rendering is ambiguous), INVALID_CONTINUE_URI wording and the config defaults have no production reference.
+- TOO_MANY_ATTEMPTS_TRY_LATER and quotas, API key restrictions, blocking functions, reCAPTCHA assessments and SMS region policy are not implemented.
 - The Admin SDKs in production mode fetch signing keys from googleapis.com and cannot be redirected to this emulator; only FIREBASE_AUTH_EMULATOR_HOST mode verifies tokens.
 
 ## More

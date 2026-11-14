@@ -6,7 +6,18 @@ import "time"
 func SetNow(b *InMemoryBackend, fn func() time.Time) { b.now = fn }
 
 // ClaimRights exposes SAS token validation.
-func ClaimRights(b *InMemoryBackend, token string) ([]string, bool) { return b.claimRights(token) }
+func ClaimRights(b *InMemoryBackend, token string) ([]string, bool) {
+	claim, ok := b.claimRights(token)
+
+	return claim.Rights, ok
+}
+
+// ClaimAudience exposes the hub a SAS token's audience names.
+func ClaimAudience(b *InMemoryBackend, token string) (string, bool) {
+	claim, ok := b.claimRights(token)
+
+	return claim.Audience, ok
+}
 
 // ReceiverCount reports registered receivers across all partitions.
 func ReceiverCount(b *InMemoryBackend) int {

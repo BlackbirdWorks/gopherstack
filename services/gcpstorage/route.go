@@ -33,6 +33,19 @@ const (
 	opXMLHeadObject       = "XMLHeadObject"
 	opXMLPutObject        = "XMLPutObject"
 	opXMLDeleteObject     = "XMLDeleteObject"
+	opInsertNotification  = "InsertNotification"
+	opGetNotification     = "GetNotification"
+	opListNotifications   = "ListNotifications"
+	opDeleteNotification  = "DeleteNotification"
+	opLockRetention       = "LockBucketRetentionPolicy"
+	opRestoreObject       = "RestoreObject"
+	opCreateHMACKey       = "CreateHmacKey"
+	opGetHMACKey          = "GetHmacKey"
+	opListHMACKeys        = "ListHmacKeys"
+	opUpdateHMACKey       = "UpdateHmacKey"
+	opDeleteHMACKey       = "DeleteHmacKey"
+	opGetServiceAccount   = "GetServiceAccount"
+	opRestoreBucket       = "RestoreBucket"
 	unknownOperation      = "Unknown"
 	segB                  = "b"
 	segO                  = "o"
@@ -50,6 +63,7 @@ type route struct {
 	dstBucket string
 	dstObject string
 	entity    string
+	project   string
 	acl       aclKind
 }
 
@@ -153,17 +167,79 @@ func methodOp(method string, ops map[string]string) string {
 	return unknownOperation
 }
 
-func jsonRoute(method string, s []string) route {
-	if len(s) == 0 || s[0] != segB {
+func projectRoute(method string, s []string) route {
+	const hmacSegments = 3
+
+	if len(s) == hmacSegments && s[2] == "serviceAccount" {
+		return route{project: s[1], op: methodOp(method, map[string]string{http.MethodGet: opGetServiceAccount})}
+	}
+
+	if len(s) < hmacSegments || s[2] != "hmacKeys" || len(s) > hmacSegments+1 {
 		return route{op: unknownOperation}
 	}
 
-	if len(s) == 1 {
+	rt := route{project: s[1], op: unknownOperation}
+
+	if len(s) == hmacSegments {
+		rt.op = methodOp(method, map[string]string{http.MethodPost: opCreateHMACKey, http.MethodGet: opListHMACKeys})
+
+		return rt
+	}
+
+	rt.entity = s[3]
+	rt.op = methodOp(method, map[string]string{
+		http.MethodGet: opGetHMACKey, http.MethodPut: opUpdateHMACKey, http.MethodDelete: opDeleteHMACKey,
+	})
+
+	return rt
+}
+
+func notificationRoute(method string, s []string) route {
+	rt := route{bucket: s[1], op: unknownOperation}
+
+	if s[2] == "lockRetentionPolicy" {
+		if len(s) == bucketSubRouteSegment && method == http.MethodPost {
+			rt.op = opLockRetention
+		}
+
+		return rt
+	}
+
+	switch len(s) {
+	case bucketSubRouteSegment:
+		rt.op = methodOp(method, map[string]string{
+			http.MethodPost: opInsertNotification, http.MethodGet: opListNotifications,
+		})
+	case objectRouteSegments:
+		rt.entity = s[3]
+		rt.op = methodOp(method, map[string]string{
+			http.MethodGet: opGetNotification, http.MethodDelete: opDeleteNotification,
+		})
+	}
+
+	return rt
+}
+
+func jsonRoute(method string, s []string) route {
+	switch {
+	case len(s) == 0:
+		return route{op: unknownOperation}
+	case s[0] == "projects":
+		return projectRoute(method, s)
+	case s[0] != segB:
+		return route{op: unknownOperation}
+	case len(s) == 1:
 		return route{op: methodOp(method, map[string]string{
 			http.MethodGet: opListBuckets, http.MethodPost: opInsertBucket,
 		})}
+	case len(s) == bucketSubRouteSegment && s[2] == "restore":
+		return route{bucket: s[1], op: methodOp(method, map[string]string{http.MethodPost: opRestoreBucket})}
+	default:
+		return bucketRoute(method, s)
 	}
+}
 
+func bucketRoute(method string, s []string) route {
 	rt := route{bucket: s[1], op: unknownOperation}
 
 	switch {
@@ -174,6 +250,8 @@ func jsonRoute(method string, s []string) route {
 		})
 	case len(s) == bucketSubRouteSegment && s[2] == segO:
 		rt.op = methodOp(method, map[string]string{http.MethodGet: opListObjects})
+	case s[2] == "notificationConfigs" || s[2] == "lockRetentionPolicy":
+		rt = notificationRoute(method, s)
 	case s[2] == "acl" || s[2] == "defaultObjectAcl":
 		rt = aclRoute(method, s)
 	case len(s) == bucketSubRouteSegment && s[2] == segIam:
@@ -231,8 +309,8 @@ func objectRoute(method string, s []string) route {
 			http.MethodGet: opGetObject, http.MethodPatch: opPatchObject,
 			http.MethodPut: opUpdateObject, http.MethodDelete: opDeleteObject,
 		})
-	case len(s) == composeRouteSegments && s[4] == "compose" && method == http.MethodPost:
-		rt.op = opComposeObject
+	case len(s) == composeRouteSegments && method == http.MethodPost:
+		rt.op = methodOp(s[4], map[string]string{"compose": opComposeObject, "restore": opRestoreObject})
 	case len(s) == copyRouteSegments && s[5] == segB && s[7] == segO && method == http.MethodPost:
 		rt = copyRoute(rt, s)
 	}

@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"encoding/json/v2"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -141,10 +142,16 @@ func (b *InMemoryBackend) buildAutomationSteps(region, docName string) []Automat
 // completeAutomationLocked drives every step to Success and marks the execution
 // Success with an end time. Must be called with b.mu held.
 func completeAutomationLocked(exec *AutomationExecution, now time.Time) {
-	for i := range exec.Steps {
-		exec.Steps[i].StepStatus = automationStatusSuccess
-		exec.Steps[i].ExecutionStartTime = UnixTimeFloat(now)
-		exec.Steps[i].ExecutionEndTime = UnixTimeFloat(now)
+	// Replace, don't mutate: handed-out copies share the old backing array.
+	if len(exec.Steps) > 0 {
+		steps := slices.Clone(exec.Steps)
+		for i := range steps {
+			steps[i].StepStatus = automationStatusSuccess
+			steps[i].ExecutionStartTime = UnixTimeFloat(now)
+			steps[i].ExecutionEndTime = UnixTimeFloat(now)
+		}
+
+		exec.Steps = steps
 	}
 
 	exec.Status = automationStatusSuccess

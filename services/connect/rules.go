@@ -298,12 +298,12 @@ func ruleSummary(r *Rule) RuleSummary {
 }
 
 // UpdateRule replaces the definition of a rule.
-func (b *Backend) UpdateRule(ctx context.Context, in *UpdateRuleInput) (*empty, error) {
+func (b *Backend) UpdateRule(ctx context.Context, in *UpdateRuleInput) (*EmptyOutput, error) {
 	if err := b.checkRuleFields(in.Name, in.Function, in.PublishStatus); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateRule", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateRule", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.rules.get(inst, in.RuleID)
 		if err != nil {
 			return nil, err
@@ -322,13 +322,13 @@ func (b *Backend) UpdateRule(ctx context.Context, in *UpdateRuleInput) (*empty, 
 		r.Rule.LastUpdatedTime = awstime.NewEpochTime(b.now())
 		r.Rule.LastUpdatedBy = b.callerARN(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteRule removes a rule.
-func (b *Backend) DeleteRule(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteRule", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteRule(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteRule", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.rules.del(inst, id)
 	})
 }

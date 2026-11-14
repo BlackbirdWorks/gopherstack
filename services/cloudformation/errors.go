@@ -32,6 +32,8 @@ var (
 	ErrOperationNotFound         = errors.New("operation not found in stack set")
 	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
 	ErrTypeNotFound              = errors.New("type not found")
+	ErrActivateTypeInput         = errors.New("invalid ActivateType input")
+	ErrTypeAliasExists           = errors.New("type name alias already in use")
 	ErrTypeVersionNotFound       = errors.New("type version not found")
 	ErrRegistrationTokenNotFound = errors.New("registration token not found")
 	ErrPublisherNotFound         = errors.New("publisher not found")
@@ -68,6 +70,12 @@ var (
 	// resources-to-import machinery exists).
 	ErrChangeSetTypeUnsupported = errors.New("ChangeSetType IMPORT is not supported")
 )
+
+// ErrStackOptions is a CreateStack/UpdateStack option combination AWS rejects.
+var ErrStackOptions = errors.New("invalid stack options")
+
+// ErrNestedStackFailed is a nested stack that did not reach CREATE_COMPLETE.
+var ErrNestedStackFailed = errors.New("nested stack failed")
 
 // ErrPropertyValidation is a resource-schema property failure.
 var ErrPropertyValidation = errors.New("properties validation failed")

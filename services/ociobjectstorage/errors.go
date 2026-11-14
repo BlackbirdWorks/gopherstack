@@ -53,3 +53,12 @@ func errNotFound() *APIError {
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
 func errConflict(code, msg string) *APIError { return newErr(http.StatusConflict, code, msg) }
+
+func errInvalidTier(msg string) *APIError {
+	return newErr(http.StatusBadRequest, "InvalidStorageTier", msg)
+}
+
+func errRelatedNotFound(what string) *APIError {
+	return newErr(http.StatusBadRequest, "RelatedResourceNotAuthorizedOrNotFound",
+		"The related resource ("+what+") was not found, or you are not authorized to access it.")
+}

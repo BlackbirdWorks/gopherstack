@@ -729,3 +729,6 @@ an unfiltered `MonitorArn`-scoped list. No `items_still_open` changes; no
 FIXED: GetReservationCoverage and GetReservationUtilization honour MaxResults (the cap of 100 still applies) and reject a NextPageToken that names no page boundary with InvalidNextTokenException (both ops declare it); it silently restarted before. Proof: `TestReservationOps_MaxResultsAndBadToken`. RECORDED: GetCostComparisonDrivers MaxResults is unsupported because the op always returns zero drivers (no per-line-item attribution state).
 
 DataUnavailableException (types/errors.go:118) is declared on 22 ops but deliberately never returned: no documented trigger exists and the synthetic ledger answers every period (gopherstack-s2i4, closed not-a-defect).
+
+## Ledger dimensions
+CostEntry carries AvailabilityZone, InstanceType, Operation, PurchaseType, UsageTypeGroup, ProductFamily and ResourceID (additive, not persisted; the ledger regenerates). The seeded catalog fills them per service; ResourceID is filled only by RecordCharge. Dimension filters and GroupBy use them for AZ, INSTANCE_TYPE, INSTANCE_TYPE_FAMILY, OPERATION, USAGE_TYPE_GROUP, PURCHASE_TYPE, CHARGE_TYPE/RECORD_TYPE, BILLING_ENTITY, INVOICING_ENTITY and LEGAL_ENTITY_NAME. LedgerEntries feeds CUR and Data Exports.

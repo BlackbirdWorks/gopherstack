@@ -28,7 +28,7 @@ const (
 )
 
 // registerGCPContainerRoutes exposes the Kubernetes Engine API to the SPA as REST JSON, calling the backend
-// in-process. Only reads, node pool resize and cluster deletion are reachable; cluster credentials are removed.
+// in-process. Only reads, node pool resize, cluster deletion and an explicit kubeconfig reveal are reachable.
 func (h *DashboardHandler) registerGCPContainerRoutes() {
 	var route gcpRESTRoute
 
@@ -128,6 +128,8 @@ func (a *gcpContainerAPI) cluster(r gcpRESTCall) (proto.Message, error) {
 		}
 
 		return structpb.NewStruct(fields)
+	case r.method == http.MethodPost && r.verb == gkeVerbKubeconfig:
+		return a.kubeconfig(r)
 	case r.method == http.MethodDelete && r.verb == "":
 		return a.b.DeleteCluster(&containerpb.DeleteClusterRequest{Name: name})
 	}

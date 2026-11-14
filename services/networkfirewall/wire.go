@@ -48,8 +48,9 @@ type VpcEndpoint struct {
 
 // Firewall is the Firewall response shape.
 type Firewall struct {
-	ProxySettings                    *ProxySettings            `json:"ProxySettings,omitempty"`
+	VpcEndpoint                      *VpcEndpoint              `json:"VpcEndpoint,omitempty"`
 	EncryptionConfiguration          *EncryptionConfiguration  `json:"EncryptionConfiguration,omitempty"`
+	ProxySettings                    *ProxySettings            `json:"ProxySettings,omitempty"`
 	TransitGatewayID                 string                    `json:"TransitGatewayId,omitempty"`
 	FirewallArn                      string                    `json:"FirewallArn"`
 	FirewallPolicyArn                string                    `json:"FirewallPolicyArn"`
@@ -59,13 +60,15 @@ type Firewall struct {
 	FirewallName                     string                    `json:"FirewallName"`
 	FirewallID                       string                    `json:"FirewallId"`
 	AvailabilityZoneMappings         []AvailabilityZoneMapping `json:"AvailabilityZoneMappings,omitempty"`
-	Tags                             []Tag                     `json:"Tags,omitempty"`
 	EnabledAnalysisTypes             []string                  `json:"EnabledAnalysisTypes,omitempty"`
 	SubnetMappings                   []SubnetMapping           `json:"SubnetMappings"`
+	NatGatewayMappings               []NatGatewayMapping       `json:"NatGatewayMappings,omitempty"`
+	Tags                             []Tag                     `json:"Tags,omitempty"`
 	DeleteProtection                 bool                      `json:"DeleteProtection"`
 	SubnetChangeProtection           bool                      `json:"SubnetChangeProtection"`
 	FirewallPolicyChangeProtection   bool                      `json:"FirewallPolicyChangeProtection"`
 	AvailabilityZoneChangeProtection bool                      `json:"AvailabilityZoneChangeProtection"`
+	NoSourcePreservation             bool                      `json:"NoSourcePreservation,omitempty"`
 }
 
 // Attachment is a firewall endpoint attachment.
@@ -82,15 +85,41 @@ type PerObjectStatus struct {
 	UpdateToken string `json:"UpdateToken,omitempty"`
 }
 
+// NatGatewayAttachment is the attachment of a proxy mode firewall to a NAT gateway.
+type NatGatewayAttachment struct {
+	NatGatewayID  string `json:"NatGatewayId"`
+	Status        string `json:"Status"`
+	StatusMessage string `json:"StatusMessage,omitempty"`
+}
+
 // SyncState is the per-zone sync state.
 type SyncState struct {
-	Attachment *Attachment                `json:"Attachment,omitempty"`
-	Config     map[string]PerObjectStatus `json:"Config,omitempty"`
+	Attachment            *Attachment                `json:"Attachment,omitempty"`
+	Config                map[string]PerObjectStatus `json:"Config,omitempty"`
+	NatGatewayAttachments []NatGatewayAttachment     `json:"NatGatewayAttachments,omitempty"`
+}
+
+// IPSetMetadata is the resolved size of one IP set reference.
+type IPSetMetadata struct {
+	ResolvedCIDRCount int32 `json:"ResolvedCIDRCount"`
+}
+
+// CIDRSummary summarises the CIDRs behind the IP set references of a firewall.
+type CIDRSummary struct {
+	IPSetReferences    map[string]IPSetMetadata `json:"IPSetReferences,omitempty"`
+	AvailableCIDRCount int32                    `json:"AvailableCIDRCount"`
+	UtilizedCIDRCount  int32                    `json:"UtilizedCIDRCount"`
+}
+
+// CapacityUsageSummary is the capacity used by the reference sets of a firewall.
+type CapacityUsageSummary struct {
+	CIDRs *CIDRSummary `json:"CIDRs,omitempty"`
 }
 
 // FirewallStatus is the FirewallStatus response shape.
 type FirewallStatus struct {
 	TGWAttachmentSyncState *TransitGatewayAttachmentSyncState `json:"TransitGatewayAttachmentSyncState,omitempty"`
+	CapacityUsageSummary   *CapacityUsageSummary              `json:"CapacityUsageSummary,omitempty"`
 
 	SyncStates                    map[string]SyncState `json:"SyncStates,omitempty"`
 	ConfigurationSyncStateSummary string               `json:"ConfigurationSyncStateSummary"`

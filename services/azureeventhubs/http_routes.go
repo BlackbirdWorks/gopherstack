@@ -120,7 +120,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			right = RightSend
 		}
 
-		if !h.authorized(c.Request(), right) {
+		if !h.authorized(c.Request(), right, req.hub) {
 			return writeError(
 				c,
 				http.StatusUnauthorized,
@@ -136,7 +136,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) authorized(r *http.Request, right string) bool {
+func (h *Handler) authorized(r *http.Request, right, hub string) bool {
 	if !h.ValidateSAS {
 		return true
 	}
@@ -146,9 +146,9 @@ func (h *Handler) authorized(r *http.Request, right string) bool {
 		return false
 	}
 
-	rights, ok := h.Backend.claimRights(auth)
+	claim, ok := h.Backend.claimRights(auth)
 
-	return ok && hasRight(rights, right)
+	return ok && audienceCovers(claim.Audience, hub) && hasRight(claim.Rights, right)
 }
 
 func writeError(c *echo.Context, status int, msg string) error {

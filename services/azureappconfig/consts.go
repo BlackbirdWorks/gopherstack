@@ -19,17 +19,18 @@ const (
 )
 
 const (
-	pageSize        = 100
-	maxFilterItems  = 5
-	maxTagFilters   = 5
-	maxKeyLen       = 10 << 10
-	maxLabelLen     = 256
-	maxItemBytes    = 1 << 20
-	maxHistory      = 50_000
-	maxSnapshotFilt = 3
-	maxBodyBytes    = 2 << 20
-	maxNameLen      = 50
-	minNameLen      = 5
+	pageSize             = 100
+	maxFilterItems       = 5
+	maxTagFilters        = 5
+	maxKeyLen            = 10 << 10
+	maxLabelLen          = 256
+	maxItemBytes         = 1 << 20
+	maxHistory           = 50_000
+	defaultRetentionDays = 30
+	maxSnapshotFilt      = 3
+	maxBodyBytes         = 2 << 20
+	maxNameLen           = 50
+	minNameLen           = 5
 )
 
 const (

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -53,6 +54,8 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		AccountID:                   b.accountID,
 		Region:                      region,
 		Status:                      statusCreated,
+		CreateTime:                  b.clock(),
+		UpdateTime:                  b.clock(),
 		Tags:                        t,
 	}
 	b.replicationConfigs.Put(rc)
@@ -72,8 +75,8 @@ func (b *InMemoryBackend) DeleteReplicationConfig(ctx context.Context, identifie
 	region := getRegion(ctx, b.region)
 
 	if rc, ok := b.replicationConfigs.Get(regionKey(region, identifierOrArn)); ok {
-		if rc.Status == statusRunning {
-			return fmt.Errorf("%w: replication config %s is running", ErrInvalidState, identifierOrArn)
+		if replicationActive(rc.Status) {
+			return fmt.Errorf("%w: replication config %s is %s", ErrInvalidState, identifierOrArn, rc.Status)
 		}
 
 		rc.Tags.Close()
@@ -83,8 +86,8 @@ func (b *InMemoryBackend) DeleteReplicationConfig(ctx context.Context, identifie
 	}
 
 	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, identifierOrArn)); ok {
-		if rc.Status == statusRunning {
-			return fmt.Errorf("%w: replication config %s is running", ErrInvalidState, identifierOrArn)
+		if replicationActive(rc.Status) {
+			return fmt.Errorf("%w: replication config %s is %s", ErrInvalidState, identifierOrArn, rc.Status)
 		}
 
 		rc.Tags.Close()
@@ -205,19 +208,29 @@ func (b *InMemoryBackend) StartReplication(
 		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, replicationConfigArn)
 	}
 
-	if rc.Status == statusRunning {
+	if replicationActive(rc.Status) {
 		return nil, fmt.Errorf(
-			"%w: replication for %s is already running",
+			"%w: replication for %s is already %s",
 			ErrInvalidState,
 			replicationConfigArn,
+			rc.Status,
 		)
 	}
 
-	rc.Status = statusRunning
 	rc.StartReplicationType = startReplicationType
 	rc.CdcStartPosition = cdc.StartPosition
 	rc.CdcStartTime = cdc.StartTime
 	rc.CdcStopPosition = cdc.StopPosition
+
+	region := getRegion(ctx, b.region)
+	if src, tgt, ok := b.replicationEndpoints(region, rc); ok {
+		b.beginReplicationLocked(rc, startReplicationType)
+		b.launchReplicationLocked(region, rc, src, tgt, startReplicationType)
+
+		return b.viewReplication(rc), nil
+	}
+
+	rc.Status = statusRunning
 	cp := *rc
 
 	return &cp, nil
@@ -238,7 +251,7 @@ func (b *InMemoryBackend) StopReplication(
 		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, replicationConfigArn)
 	}
 
-	if rc.Status != statusRunning {
+	if rc.Status != statusRunning && rc.Status != statusStarting {
 		return nil, fmt.Errorf(
 			"%w: replication for %s is not running",
 			ErrInvalidState,
@@ -246,7 +259,14 @@ func (b *InMemoryBackend) StopReplication(
 		)
 	}
 
-	rc.Status = statusStopped
+	if run, ok := b.eng.runsFor(rc.ReplicationConfigArn); ok {
+		run.cancel()
+		rc.Status = statusStopping
+
+		return b.viewReplication(rc), nil
+	}
+
+	rc.Status, rc.StopDate, rc.StopReason = statusStopped, b.clock(), dmsengine.StopNormal
 	cp := *rc
 
 	return &cp, nil
@@ -255,7 +275,9 @@ func (b *InMemoryBackend) StopReplication(
 // ReloadReplicationTables reloads the target tables of a running DMS
 // Serverless replication with source data. Real AWS only permits this while
 // the replication is RUNNING, otherwise it throws InvalidResourceStateFault.
-func (b *InMemoryBackend) ReloadReplicationTables(ctx context.Context, arnOrID string) (*ReplicationConfig, error) {
+func (b *InMemoryBackend) ReloadReplicationTables(
+	ctx context.Context, arnOrID string, refs []dmsengine.TableRef,
+) (*ReplicationConfig, error) {
 	b.mu.Lock("ReloadReplicationTables")
 	defer b.mu.Unlock()
 
@@ -273,9 +295,12 @@ func (b *InMemoryBackend) ReloadReplicationTables(ctx context.Context, arnOrID s
 		)
 	}
 
-	cp := *rc
+	run, _ := b.eng.runsFor(rc.ReplicationConfigArn)
+	if err := b.reloadChecked(run, arnOrID, refs); err != nil {
+		return nil, err
+	}
 
-	return &cp, nil
+	return b.viewReplication(rc), nil
 }
 
 // DescribeReplications returns DMS Serverless replication runtime state,
@@ -305,8 +330,7 @@ func (b *InMemoryBackend) DescribeReplications(
 			continue
 		}
 
-		cp := *rc
-		list = append(list, &cp)
+		list = append(list, b.viewReplication(rc))
 	}
 
 	return list, nil

@@ -105,9 +105,11 @@ type ProjectEnvironment struct {
 
 // ProjectCache represents the cache configuration for a CodeBuild project.
 type ProjectCache struct {
-	Type     string   `json:"type"` // NO_CACHE|S3|LOCAL
-	Location string   `json:"location,omitempty"`
-	Modes    []string `json:"modes,omitempty"`
+	Type     string `json:"type"` // NO_CACHE|S3|LOCAL
+	Location string `json:"location,omitempty"`
+	// CacheNamespace scopes the cache so projects can share it.
+	CacheNamespace string   `json:"cacheNamespace,omitempty"`
+	Modes          []string `json:"modes,omitempty"`
 }
 
 // CloudWatchLogsConfig represents CloudWatch Logs configuration.
@@ -238,7 +240,6 @@ type AutoRetryConfig struct {
 	AutoRetryNumber   int32  `json:"autoRetryNumber,omitempty"`
 }
 
-// Build represents an in-memory AWS CodeBuild build execution.
 // Build represents an in-memory AWS CodeBuild build.
 //
 // Cache/VpcConfig/FileSystemLocations/SecondaryArtifacts/SecondarySources/
@@ -247,24 +248,25 @@ type AutoRetryConfig struct {
 // the same way Artifacts/EncryptionKey already do -- StartBuild copies them
 // from the project at build time.
 type Build struct {
-	Source                *ProjectSource      `json:"source,omitempty"`
-	Tags                  wireTags            `json:"tags,omitempty"`
-	Logs                  *BuildLogs          `json:"logs,omitempty"`
-	Artifacts             *ProjectArtifacts   `json:"artifacts,omitempty"`
-	Environment           *ProjectEnvironment `json:"environment,omitempty"`
-	Cache                 *ProjectCache       `json:"cache,omitempty"`
-	VpcConfig             *VpcConfig          `json:"vpcConfig,omitempty"`
-	AutoRetryConfig       *AutoRetryConfig    `json:"autoRetryConfig,omitempty"`
-	CurrentPhase          string              `json:"currentPhase,omitempty"`
-	Initiator             string              `json:"initiator,omitempty"`
-	Arn                   string              `json:"arn"`
-	ProjectName           string              `json:"projectName"`
-	BuildStatus           string              `json:"buildStatus"`
-	ServiceRole           string              `json:"serviceRole,omitempty"`
-	ResolvedSourceVersion string              `json:"resolvedSourceVersion,omitempty"`
-	SourceVersion         string              `json:"sourceVersion,omitempty"`
-	ID                    string              `json:"id"`
-	EncryptionKey         string              `json:"encryptionKey,omitempty"`
+	Source                       *ProjectSource                `json:"source,omitempty"`
+	Tags                         wireTags                      `json:"tags,omitempty"`
+	Logs                         *BuildLogs                    `json:"logs,omitempty"`
+	Artifacts                    *ProjectArtifacts             `json:"artifacts,omitempty"`
+	Environment                  *ProjectEnvironment           `json:"environment,omitempty"`
+	Cache                        *ProjectCache                 `json:"cache,omitempty"`
+	VpcConfig                    *VpcConfig                    `json:"vpcConfig,omitempty"`
+	ExportedEnvironmentVariables []ExportedEnvironmentVariable `json:"exportedEnvironmentVariables,omitempty"`
+	AutoRetryConfig              *AutoRetryConfig              `json:"autoRetryConfig,omitempty"`
+	CurrentPhase                 string                        `json:"currentPhase,omitempty"`
+	Initiator                    string                        `json:"initiator,omitempty"`
+	Arn                          string                        `json:"arn"`
+	ProjectName                  string                        `json:"projectName"`
+	BuildStatus                  string                        `json:"buildStatus"`
+	ServiceRole                  string                        `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion        string                        `json:"resolvedSourceVersion,omitempty"`
+	SourceVersion                string                        `json:"sourceVersion,omitempty"`
+	ID                           string                        `json:"id"`
+	EncryptionKey                string                        `json:"encryptionKey,omitempty"`
 	// BuildBatchArn is set on a build started as one BuildGroup's child of a
 	// BuildBatch (aws-sdk-go-v2/service/codebuild/types.Build.BuildBatchArn,
 	// types/types.go:67).
@@ -654,4 +656,10 @@ type TestCase struct {
 	TestSuiteName         string  `json:"testSuiteName,omitempty"`
 	DurationInNanoSeconds int64   `json:"durationInNanoSeconds,omitempty"`
 	Expired               float64 `json:"expired,omitempty"`
+}
+
+// ExportedEnvironmentVariable is a buildspec env.exported-variables entry resolved at the end of a build.
+type ExportedEnvironmentVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }

@@ -16,11 +16,11 @@
 
 ### Known gaps
 
-- PutLogEvents Entity: only InvalidKeyAttributes (keyAttributes outside Type/ResourceType/Identifier/Name/Environment) is derived into RejectedEntityInfo; the API reference gives Entity size constraints (attributes <=10, keyAttributes 2..4, key/value lengths) but not which EntityRejectionErrorType each violation maps to, or whether it is a request error instead.
+- PutLogEvents Entity: InvalidKeyAttributes (disallowed key names, 2..4 keyAttributes, key >32 or value >512 chars) and InvalidAttributes (>10 attributes, key >256 or value empty/>512) are derived from API_Entity.html; API_RejectedEntityInfo.html and API_PutLogEvents.html (checked 2026-11-13) name InvalidEntity, InvalidTypeValue, EntitySizeTooLarge, UnsupportedLogGroupType and MissingRequiredFields but give no trigger or size limit for them, so they are never returned.
 - SyslogConfiguration's VpcEndpointId is stored as an opaque string: the pinned SDK documents no validation or error for it, so cross-checking against EC2 endpoint state would invent behaviour (2026-10-07).
 - LookupTable's ARN format (arn:{partition}:logs:{region}:{account}:lookup-table:{name}) is unverifiable: no pinned-SDK doc comment or model gives the LookupTableArn pattern (re-checked 2026-10-07).
 - Data protection masking detects EmailAddress, IpAddress, CreditCardNumber (Luhn), CreditCardExpiration, CreditCardSecurityCode, AwsSecretKey, OpenSsh/Pgp/Pkcs/Putty private keys, Ssn-US, custom identifiers, and checksum/format identifiers CpfCode-BR, Cnpj-BR, CepCode-BR, NationalInsuranceNumber-GB, PostalCode-CA, DrugEnforcementAgencyNumber-US, IndividualTaxIdentificationNumber-US, NifNumber-ES, NieNumber-ES (public national formats; the managed-identifiers page lists names only). Not modeled: keyword-proximity identifiers whose keyword sets and formats the docs do not give (Name, Address, LatLong, VehicleIdentificationNumber, PhoneNumber-*, PassportNumber-*, DriversLicense-*, BankAccountNumber-*, ZipCode-US, TaxId-*, Ssn-ES, NationalIdentificationNumber-*, NhsNumber-GB, SocialInsuranceNumber-CA, NationalProviderId-US, health/insurance codes); Audit findings destinations and SELECTION_CRITERIA account policies are not modeled.
-- Subscription-filter denial messages are documented text, not SDK-verified (2026-10-03).
+- Subscription-filter denial messages for Firehose and Kinesis destinations are not published: checked SubscriptionFilters.html, API_PutSubscriptionFilter.html and Subscriptions troubleshooting search results (the Lambda text is confirmed)
 
 ### Structural gaps
 

@@ -149,3 +149,46 @@ func TestShareFlagsReachRecipient(t *testing.T) {
 		})
 	}
 }
+
+func TestShareTypeServiceCatalogNotSupported(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		accept bool
+	}{
+		{name: "accept", accept: true},
+		{name: "reject", accept: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			owner := f.client(t)
+			recipient := f.clientIn(t, "us-east-1", recipientKey)
+			ctx := t.Context()
+			cat := createCatalog(t, owner, templateURL)
+
+			_, err := owner.CreatePortfolioShare(ctx, &sdk.CreatePortfolioShareInput{
+				PortfolioId: aws.String(cat.portfolioID), AccountId: aws.String(recipientKey),
+			})
+			require.NoError(t, err)
+
+			shareType := sctypes.PortfolioShareTypeAwsServicecatalog
+
+			if tt.accept {
+				_, err = recipient.AcceptPortfolioShare(ctx, &sdk.AcceptPortfolioShareInput{
+					PortfolioId: aws.String(cat.portfolioID), PortfolioShareType: shareType,
+				})
+			} else {
+				_, err = recipient.RejectPortfolioShare(ctx, &sdk.RejectPortfolioShareInput{
+					PortfolioId: aws.String(cat.portfolioID), PortfolioShareType: shareType,
+				})
+			}
+
+			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
+		})
+	}
+}

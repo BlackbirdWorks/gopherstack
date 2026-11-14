@@ -42,9 +42,12 @@ var (
 
 // authResult is the outcome of authenticating a data-plane request.
 type authResult struct {
+	claims  map[string]any
 	wwwAuth string
 	scopes  []string
 	ok      bool
+	// upstream marks an authorizer failure; the gateway answers 502 (Oracle: authorizer 5xx gives 502).
+	upstream bool
 }
 
 func parseStaticKey(k *staticKeyDoc) (crypto.PublicKey, error) {
@@ -335,7 +338,7 @@ func (b *InMemoryBackend) verifyJWT(ctx context.Context, a *authDoc, token strin
 		return authResult{}
 	}
 
-	return authResult{ok: true, scopes: scopesOf(claims)}
+	return authResult{ok: true, scopes: scopesOf(claims), claims: claims}
 }
 
 // checkKeyAlg refuses a key whose type does not fit the token's signing algorithm family.
@@ -442,6 +445,10 @@ func (b *InMemoryBackend) authenticate(
 		return b.customAuth(ctx, a, token, rv), false
 	}
 
+	if a.Type == authToken && a.ValidationPolicy != nil && a.ValidationPolicy.Type == keysRemoteDiscovery {
+		return b.introspect(ctx, a, token), false
+	}
+
 	return b.verifyJWT(ctx, a, token), false
 }
 
@@ -455,7 +462,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 		return authResult{}
 	}
 
-	payload := map[string]any{"type": "TOKEN", "token": token}
+	payload := map[string]any{keyType: "TOKEN", "token": token}
 
 	if len(a.Parameters) > 0 {
 		data := make(map[string]string, len(a.Parameters))
@@ -463,7 +470,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 			data[name] = rv.lookup(expr)
 		}
 
-		payload = map[string]any{"type": "USER_DEFINED", "data": data}
+		payload = map[string]any{keyType: "USER_DEFINED", "data": data}
 	}
 
 	body, _ := json.Marshal(payload, jsonx.V1()) //nolint:errchkjson // static shape
@@ -471,19 +478,38 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 	out, err := inv.InvokeFunction(ctx, a.FunctionID, FunctionRequest{
 		Method: http.MethodPost, Header: http.Header{"Content-Type": {"application/json"}}, Body: body,
 	})
-	if err != nil || out.Status != http.StatusOK {
+	if err != nil || out.Status >= http.StatusInternalServerError {
+		return authResult{upstream: true}
+	}
+
+	if out.Status != http.StatusOK {
 		return authResult{}
 	}
 
 	var verdict struct {
-		WWWAuth string   `json:"wwwAuthenticate"`
-		Scope   []string `json:"scope"`
-		Active  bool     `json:"active"`
+		WWWAuth string         `json:"wwwAuthenticate"`
+		Scope   jsontext.Value `json:"scope"`
+		Active  bool           `json:"active"`
 	}
 
 	if json.Unmarshal(out.Body, &verdict, jsonx.V1()) != nil || !verdict.Active {
 		return authResult{wwwAuth: verdict.WWWAuth}
 	}
 
-	return authResult{ok: true, scopes: verdict.Scope}
+	return authResult{ok: true, scopes: authorizerScopes(verdict.Scope)}
+}
+
+// authorizerScopes reads the scope field, which Oracle allows as a JSON array or a space-separated string.
+func authorizerScopes(raw jsontext.Value) []string {
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return list
+	}
+
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.Fields(s)
+	}
+
+	return nil
 }

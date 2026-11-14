@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	defaultPageSize   = 1000
-	maxPageSize       = 1000
-	day               = 24 * time.Hour
-	defaultListWindow = day
-	maxResourceNames  = 100
+	defaultPageSize    = 1000
+	defaultEntriesPage = 50
+	maxPageSize        = 1000
+	day                = 24 * time.Hour
+	defaultListWindow  = day
+	maxResourceNames   = 100
 )
 
 // source is one bucket (optionally narrowed by a view filter) that a read covers.
@@ -118,6 +119,10 @@ func orderDesc(orderBy string) (bool, error) {
 
 // ListLogEntries returns matching entries ordered by timestamp, paged.
 func (b *InMemoryBackend) ListLogEntries(req *loggingpb.ListLogEntriesRequest) ([]*loggingpb.LogEntry, string, error) {
+	if n := req.GetPageSize(); n < 0 || n > maxPageSize {
+		return nil, "", errInvalid("page_size must be between 0 and %d.", maxPageSize)
+	}
+
 	srcs, err := b.resolveSources(req.GetResourceNames())
 	if err != nil {
 		return nil, "", err
@@ -140,7 +145,7 @@ func (b *InMemoryBackend) ListLogEntries(req *loggingpb.ListLogEntriesRequest) (
 	all := b.collect(srcs, f)
 	sortEntries(all, desc)
 
-	pg := page.New(all, req.GetPageToken(), clampPage(req.GetPageSize()), defaultPageSize)
+	pg := page.New(all, req.GetPageToken(), int(req.GetPageSize()), defaultEntriesPage)
 
 	return pg.Data, pg.Next, nil
 }

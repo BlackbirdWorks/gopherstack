@@ -162,7 +162,8 @@ func TestMappingsPlan(t *testing.T) {
 			m, err := dmsengine.ParseMappings(doc)
 			require.NoError(t, err)
 
-			got := m.Plan(sampleTables()[0], dmsengine.FamilyMySQL, tt.override)
+			got, perr := m.Plan(sampleTables()[0], dmsengine.FamilyMySQL, tt.override)
+			require.NoError(t, perr)
 			assert.Equal(t, tt.wantSchema, got.Schema)
 			assert.Equal(t, tt.wantTable, got.Name)
 

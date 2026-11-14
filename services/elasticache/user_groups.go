@@ -81,6 +81,7 @@ func (b *InMemoryBackend) CreateUserGroup(
 ) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroup")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	tbl := b.userGroupsStore(region)
@@ -111,6 +112,7 @@ func (b *InMemoryBackend) CreateUserGroup(
 func (b *InMemoryBackend) DeleteUserGroup(ctx context.Context, groupID string) (*UserGroup, error) {
 	b.mu.Lock("DeleteUserGroup")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	tbl := b.userGroupsStore(region)
@@ -159,6 +161,7 @@ func (b *InMemoryBackend) ModifyUserGroup(
 ) (*UserGroup, error) {
 	b.mu.Lock("ModifyUserGroup")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	ug, ok := b.userGroupsStore(region).Get(groupID)
@@ -199,6 +202,7 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 ) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroupValidated")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	ugStore := b.userGroupsStore(region)

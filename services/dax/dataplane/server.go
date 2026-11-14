@@ -245,6 +245,7 @@ func (s *Server) serveConn(conn net.Conn) {
 		s.mu.Unlock()
 		_ = conn.Close()
 	}()
+	defer logger.Recover(s.baseCtx, "dax.conn", nil)
 
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)

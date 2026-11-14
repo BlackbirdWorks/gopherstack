@@ -56,7 +56,7 @@ func (p *NetworkProvider) buildPELinks(sub, loc, key string, raw any, auto bool)
 		}
 
 		cp := propsOf(m)
-		tid := strOf(cp, "privateLinkServiceId")
+		tid := strOf(cp, peLinkIDKey)
 
 		rid, err := ParseGenericResourcePath(tid)
 		if err != nil || len(rid.Types) != 1 || len(rid.Names) != 1 {
@@ -69,6 +69,17 @@ func (p *NetworkProvider) buildPELinks(sub, loc, key string, raw any, auto bool)
 		if !ok {
 			return nil, netBad("Private endpoint connection %s: resource type %s/%s does not support private "+
 				"endpoints in this emulator.", name, rid.Namespace, rid.Types[0])
+		}
+
+		if t.plain {
+			link, perr := p.plainPELink(sub, name, tid, cp, rid, auto)
+			if perr != nil {
+				return nil, perr
+			}
+
+			out = append(out, link)
+
+			continue
 		}
 
 		groups := strList(cp[propGroupIDs])
@@ -93,7 +104,7 @@ func (p *NetworkProvider) buildPELinks(sub, loc, key string, raw any, auto bool)
 		norm := map[string]any{
 			fieldName: name,
 			fieldProperties: map[string]any{
-				"privateLinkServiceId": tid, propGroupIDs: []any{gkey}, "requestMessage": strOf(cp, "requestMessage"),
+				peLinkIDKey: tid, propGroupIDs: []any{gkey}, srchFieldRequestMsg: strOf(cp, srchFieldRequestMsg),
 			},
 		}
 
@@ -104,6 +115,25 @@ func (p *NetworkProvider) buildPELinks(sub, loc, key string, raw any, auto bool)
 	}
 
 	return out, nil
+}
+
+// plainPELink builds the connection to a target that has no group ids (a private link service).
+func (p *NetworkProvider) plainPELink(
+	sub, name, tid string, cp map[string]any, rid ResourceID, auto bool,
+) (peLink, error) {
+	if _, err := p.targetLocation(tid, ""); err != nil {
+		return peLink{}, err
+	}
+
+	norm := map[string]any{
+		fieldName:       name,
+		fieldProperties: map[string]any{peLinkIDKey: tid, srchFieldRequestMsg: strOf(cp, srchFieldRequestMsg)},
+	}
+
+	return peLink{
+		raw: norm, name: name, tid: tid, auto: auto, fqdns: []string{""},
+		sameSu: p.plsAutoApproves(rid, sub),
+	}, nil
 }
 
 func groupNames(t peTarget) []string {
@@ -119,11 +149,20 @@ func groupNames(t peTarget) []string {
 
 // targetLocation checks the target exists and returns its location (the endpoint's when unknown).
 func (p *NetworkProvider) targetLocation(tid, fallback string) (string, error) {
+	rid, _ := ParseGenericResourcePath(tid)
+
+	if strings.EqualFold(rid.Namespace, namespaceMicrosoftNetwork) {
+		s, ok := p.top(netPLS, rid.ResourceGroup, rid.Names[0])
+		if !ok {
+			return "", refMissing(tid)
+		}
+
+		return s.Obj.Location, nil
+	}
+
 	if p.lookup == nil {
 		return fallback, nil
 	}
-
-	rid, _ := ParseGenericResourcePath(tid)
 
 	body, err := p.lookup(context.Background(), rid)
 	if err != nil {
@@ -299,7 +338,7 @@ func settleLink(it *netParent, l peLink, prev map[string]string) {
 		}
 	} else {
 		it.Obj.Aux["guid:"+n] = uuid.NewString()
-		it.Obj.Aux["st:"+n], it.Obj.Aux["desc:"+n] = peStatusWait, strOf(propsOf(l.raw), "requestMessage")
+		it.Obj.Aux["st:"+n], it.Obj.Aux["desc:"+n] = peStatusWait, strOf(propsOf(l.raw), srchFieldRequestMsg)
 
 		if l.auto && l.sameSu {
 			it.Obj.Aux["st:"+n], it.Obj.Aux["desc:"+n] = peStatusOK, peAutoMessage
@@ -428,11 +467,21 @@ func (p *NetworkProvider) planPENIC(
 }
 
 func peIPConfig(name, sid, addr, group, member, fqdn string, primary bool) map[string]any {
+	if group == "" {
+		return map[string]any{
+			fieldName: name,
+			fieldProperties: map[string]any{
+				netFieldSubnet: idRef(sid), propPrivateIP: addr, netPropIPVersion: versionV4,
+				netPropIPMethod: methodDynamic, cmpFieldPrimary: primary,
+			},
+		}
+	}
+
 	return map[string]any{
 		fieldName: name,
 		fieldProperties: map[string]any{
-			netFieldSubnet: idRef(sid), propPrivateIP: addr, "privateIPAddressVersion": versionV4,
-			"privateIPAllocationMethod": methodDynamic, "primary": primary,
+			netFieldSubnet: idRef(sid), propPrivateIP: addr, netPropIPVersion: versionV4,
+			netPropIPMethod: methodDynamic, cmpFieldPrimary: primary,
 			"privateLinkConnectionProperties": map[string]any{
 				"groupId": group, "requiredMemberName": member, "fqdns": []any{fqdn},
 			},
@@ -572,8 +621,8 @@ func (p *NetworkProvider) peConnBody(pe *netParent, peID string, m map[string]an
 		netFieldID: peID + "/privateLinkServiceConnections/" + name, fieldName: name, fieldType: peConnTypePath,
 		netFieldEtag: pe.Obj.Etag,
 		fieldProperties: map[string]any{
-			"privateLinkServiceId": strOf(cp, "privateLinkServiceId"), propGroupIDs: cp[propGroupIDs],
-			"requestMessage": strOf(cp, "requestMessage"), fieldProvisioningState: netStatusSucceeded,
+			peLinkIDKey: strOf(cp, peLinkIDKey), propGroupIDs: cp[propGroupIDs],
+			srchFieldRequestMsg: strOf(cp, srchFieldRequestMsg), fieldProvisioningState: netStatusSucceeded,
 			"privateLinkServiceConnectionState": map[string]any{
 				netPropStatus: status, netPropDescription: desc, propActionsRequired: netNone,
 			},
@@ -593,7 +642,7 @@ func (p *NetworkProvider) peRecords(pe *netParent) []zoneRec {
 			continue
 		}
 
-		if name, ip, ok := strings.Cut(v, "|"); ok {
+		if name, ip, ok := strings.Cut(v, "|"); ok && name != "" {
 			out = append(out, zoneRec{name: strings.ToLower(name), ip: ip})
 		}
 	}

@@ -111,6 +111,14 @@ func (f *fakeFunctionApps) SwapContent(string, string) error { return nil }
 
 func (f *fakeFunctionApps) WarmUp(context.Context, string) error { return nil }
 
+func (f *fakeFunctionApps) DeleteFunction(context.Context, string, string) error { return nil }
+
+func (f *fakeFunctionApps) AdminToken(string) (string, error) { return "", nil }
+
+func (f *fakeFunctionApps) SyncTriggers(context.Context, string) error { return nil }
+
+func (f *fakeFunctionApps) SetConnectionStrings(string, map[string]string) error { return nil }
+
 func newAppServiceDashboard(t *testing.T) *dashboard.DashboardHandler {
 	t.Helper()
 

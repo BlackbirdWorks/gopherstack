@@ -89,7 +89,8 @@ func (h *Handler) computeSpecial(c *echo.Context, cp *ComputeProvider, segs []st
 	case len(segs) == cmpRGActionSegs && method == http.MethodPost:
 		return true, h.computeAction(c, cp, segs)
 	case len(segs) == cmpRGActionIdx && method == http.MethodGet &&
-		strings.EqualFold(c.QueryParam("$expand"), cmpFieldInstView):
+		(strings.EqualFold(c.QueryParam("$expand"), cmpFieldInstView) ||
+			strings.EqualFold(c.QueryParam("$expand"), rpExpandRPs)):
 		return true, h.computeGetExpanded(c, cp, segs)
 	case len(segs) == cmpRGNameIdx && method == http.MethodGet && c.QueryParam(cmpQueryStatusOnly) == cmpTrue:
 		return true, h.computeStatusOnly(c, cp, segs)
@@ -176,7 +177,10 @@ func (h *Handler) computeGetExpanded(c *echo.Context, cp *ComputeProvider, segs 
 		return h.writeAPIError(c, err)
 	}
 
-	if !strings.EqualFold(firstType(id), cmpVMs) || len(id.Types) != 1 {
+	rpc := strings.EqualFold(firstType(id), cmpRPCs) && strings.EqualFold(c.QueryParam("$expand"), rpExpandRPs)
+	vm := strings.EqualFold(firstType(id), cmpVMs) && strings.EqualFold(c.QueryParam("$expand"), cmpFieldInstView)
+
+	if (!rpc && !vm) || len(id.Types) != 1 {
 		return h.getGenericResource(c, id)
 	}
 
@@ -213,6 +217,14 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 	}
 
 	action := segs[cmpRGActionIdx]
+
+	if strings.EqualFold(firstType(id), cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate) {
+		return h.computeSSHAction(c, cp, id)
+	}
+
+	if strings.EqualFold(firstType(id), cmpGalleries) && strings.EqualFold(action, galleryActionShare) {
+		return h.computeGalleryShare(c, cp, id)
+	}
 
 	var actErr error
 

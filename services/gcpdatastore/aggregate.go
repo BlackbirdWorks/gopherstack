@@ -133,7 +133,7 @@ func (s aggSpec) compute(rows []*row) *datastorepb.Value {
 
 func numericProp(e *datastorepb.Entity, path string) (*datastorepb.Value, bool) {
 	if v, ok := e.GetProperties()[path]; ok {
-		return v, isNumber(v)
+		return v, isNumber(v) && !v.GetExcludeFromIndexes()
 	}
 
 	vals := propValues(e, path)
@@ -151,10 +151,6 @@ func (b *InMemoryBackend) RunAggregationQuery(
 	req, err := b.resolve(in.GetProjectId(), in.GetDatabaseId())
 	if err != nil {
 		return nil, err
-	}
-
-	if in.GetExplainOptions() != nil {
-		return nil, errUnimplemented("Query explain is not supported.")
 	}
 
 	part, err := queryPartition(req, in.GetPartitionId())
@@ -186,6 +182,18 @@ func (b *InMemoryBackend) RunAggregationQuery(
 
 	resp := &datastorepb.RunAggregationQueryResponse{Query: aq}
 
+	if opts := in.GetExplainOptions(); opts != nil && !opts.GetAnalyze() {
+		if err = b.checkIndex(plan); err != nil {
+			return nil, err
+		}
+
+		resp.ExplainMetrics = explainMetrics(plan, opts, 0, 0)
+
+		return resp, nil
+	}
+
+	started := b.now()
+
 	err = b.read(in.GetReadOptions(), req, func(rv *readView) error {
 		res, qerr := b.execQuery(plan, rv)
 		if qerr != nil {
@@ -208,6 +216,15 @@ func (b *InMemoryBackend) RunAggregationQuery(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if opts := in.GetExplainOptions(); opts != nil {
+		resp.ExplainMetrics = explainMetrics(
+			plan,
+			opts,
+			len(resp.GetBatch().GetAggregationResults()),
+			b.now().Sub(started),
+		)
 	}
 
 	return resp, nil

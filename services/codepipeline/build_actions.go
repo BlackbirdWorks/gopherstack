@@ -199,6 +199,12 @@ func (b *InMemoryBackend) settleBuild(ctx context.Context, runner CodeBuildRunne
 	default:
 		ae.Status = statusSucceeded
 
+		if vr, ok := runner.(CodeBuildVariableReader); ok {
+			if vars, verr := vr.BuildExportedVariables(ctx, ae.ExternalExecutionID); verr == nil && len(vars) > 0 {
+				ae.OutputVariables = vars
+			}
+		}
+
 		if perr := b.passThroughArtifacts(ctx, p, ae.PipelineExecutionID, (*pa.action)); perr != nil {
 			failActionf(ae, failureJobFailed, "%v", perr)
 		}

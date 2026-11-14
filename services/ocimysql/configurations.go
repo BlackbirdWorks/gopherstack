@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -18,6 +19,7 @@ const (
 
 // CreateConfigurationIn is the CreateConfiguration body.
 type CreateConfigurationIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Variables     map[string]any `json:"variables"`
 	InitVariables *struct {
@@ -79,7 +81,7 @@ func coerceVariable(kind string, v any) (any, bool) {
 
 func (b *InMemoryBackend) configDoc(c *Configuration, full bool) Doc {
 	d := Doc{
-		"id": c.ID, keyCompartment: c.CompartmentID, "shapeName": c.Shape, "type": c.Type,
+		"id": c.ID, keyCompartment: c.CompartmentID, keyShapeName: c.Shape, "type": c.Type,
 		keyLifecycle: c.State, keyDisplayName: c.Name, keyTimeCreated: c.TimeCreated, keyTimeUpdated: c.TimeUpdated,
 	}
 	if c.Description != "" {
@@ -108,6 +110,24 @@ func (b *InMemoryBackend) configDoc(c *Configuration, full bool) Doc {
 func (b *InMemoryBackend) CreateConfiguration(in CreateConfigurationIn) (Doc, string, error) {
 	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
+
+	id, _, hit, rerr := b.replayCreate("CreateConfiguration", in.RetryToken, func(id string) (string, bool) {
+		c, ok := b.configs[id]
+		if !ok {
+			return "", false
+		}
+
+		return c.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", rerr
+		}
+
+		c := b.configs[id]
+
+		return b.configDoc(c, true), c.Etag, nil
+	}
 
 	if aerr := firstErr(b.checkCompartment(in.CompartmentID)); aerr != nil {
 		return nil, "", aerr
@@ -162,6 +182,7 @@ func (b *InMemoryBackend) CreateConfiguration(in CreateConfigurationIn) (Doc, st
 		Seq:           b.nextSeq(),
 	}
 	b.configs[c.ID] = c
+	b.retry.Remember("CreateConfiguration", in.RetryToken, ociretry.Join(c.ID, ""), b.nowUTC())
 
 	return b.configDoc(c, true), c.Etag, nil
 }
@@ -386,6 +407,8 @@ func (h *Handler) createConfiguration(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, err := h.Backend.CreateConfiguration(in)
 

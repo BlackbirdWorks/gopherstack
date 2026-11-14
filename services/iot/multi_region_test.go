@@ -20,7 +20,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
-const mrHome = "us-east-1"
+const (
+	mrHome             = "us-east-1"
+	brokerReadyTimeout = 10 * time.Second
+)
 
 func newRegionHandler(broker *iot.Broker) *iot.Handler {
 	h := iot.NewHandler(iot.NewInMemoryBackend(), broker)
@@ -165,18 +168,27 @@ func TestHandler_MultiRegionRulesFireOnSharedBroker(t *testing.T) {
 			disp := &recordingDispatcher{queues: make(chan string, 4)}
 			home.SetRuleDispatcher(disp)
 
-			port := freeTCPPort(t)
-			h := iot.NewHandler(home, iot.NewBroker(home, port))
+			broker := iot.NewBroker(home, 0)
+			h := iot.NewHandler(home, broker)
 			h.EnableRegions()
 
 			regionCall(t, h, tc.ruleRegion, http.MethodPost, "/rules/r1",
 				`{"sql":"SELECT * FROM 'a/b'","actions":[{"sqs":{"queueUrl":"q-`+tc.ruleRegion+`","roleArn":"r"}}]}`)
 
 			require.NoError(t, h.StartWorker(t.Context()))
-			t.Cleanup(func() { h.Shutdown(context.Background()) })
+			t.Cleanup(func() { h.Shutdown(context.WithoutCancel(t.Context())) })
+
+			readyCtx, cancelReady := context.WithTimeout(t.Context(), brokerReadyTimeout)
+			defer cancelReady()
+
+			select {
+			case <-broker.Ready():
+			case <-readyCtx.Done():
+				require.FailNow(t, "broker never became ready")
+			}
 
 			opts := pahomqtt.NewClientOptions().
-				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
+				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", broker.Port())).
 				SetClientID("mr-pub").
 				SetAutoReconnect(false).
 				SetConnectTimeout(200 * time.Millisecond)

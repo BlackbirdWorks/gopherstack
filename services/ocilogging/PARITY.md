@@ -23,6 +23,12 @@ ops:
   UpdateUnifiedAgentConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "displayName, isEnabled and serviceConfiguration are required as in the SDK."}
   DeleteUnifiedAgentConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "202 with work request."}
   ChangeUnifiedAgentConfigurationCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Work request MOVE_CONFIGURATION."}
+  CreateLogSavedSearch: {wire: ok, errors: ok, state: ok, persist: ok, note: "200 with the LogSavedSearch body and etag, ACTIVE at once (no work request); compartmentId, name and query required, description up to 400 characters, opc-retry-token replay. Shape from oci-go-sdk logging/log_saved_search.go and create_log_saved_search_details.go; the query is stored as text and not parsed."}
+  GetLogSavedSearch: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header; 404 NotAuthorizedOrNotFound."}
+  ListLogSavedSearches: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; logSavedSearchId and name filters, sortBy timeCreated or displayName; {items:[...]} summary collection (log_saved_search_summary_collection.go)."}
+  UpdateLogSavedSearch: {wire: ok, errors: ok, state: ok, persist: ok, note: "200 with the updated body; name, description, query and tags; If-Match gives 412 NoEtagMatch."}
+  DeleteLogSavedSearch: {wire: ok, errors: ok, state: ok, persist: ok, note: "204; removed at once."}
+  ChangeLogSavedSearchCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "204; applies at once."}
   ListServices: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Fixed emulated catalog of six services at /v2/registry/services."}
   GetWorkRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "IN_PROGRESS until the resource transition time, then SUCCEEDED."}
   ListWorkRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; id and status filters; bare array."}
@@ -42,12 +48,18 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-logging-port / OCI_LOGGING_PORT (default 8160); never on the shared AWS router; cli.go reserves the port in the shared pool."}
 items_still_open:
-  - "Log saved searches (CreateLogSavedSearch, GetLogSavedSearch, ListLogSavedSearches, UpdateLogSavedSearch, DeleteLogSavedSearch, ChangeLogSavedSearchCompartment) are not routed."
   - "The query language lacks select, extend, dedup, summarize, timestats, joins and functions; see families.query_language."
   - "The service catalog is a fixed list of six services, and only OCI Functions feeds SERVICE logs; Object Storage, Load Balancer, API Gateway, Events and flow logs never emit entries."
   - "Unified agent configurations are stored and validated but no agent consumes them, so they never produce entries."
   - "Archiving (Object Storage export of logs) is stored on the configuration but nothing is exported."
-  - "Retention, the 1 MiB request limit, the 10000 character data truncation and the log naming rules are recalled from the Oracle documentation and SDK comments, not verified against the live service; the per-compartment uniqueness of log group names is an emulator choice."
-  - "isCompartmentIdInSubtree is ignored, and opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set."
+  - "The 1 MiB request-body limit is an emulator choice and not published (checked loggingingestion SDK LogEntry and Logging custom_logs.htm, which state only a per-entry limit of under 1 MB); the per-compartment uniqueness of log group names is an emulator choice."
+  - "isCompartmentIdInSubtree is ignored, and IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "systemTags are never set."
 ---
+
+## Verified against Oracle documentation
+
+- Log and log group names: 1 to 256 characters of letters, digits, hyphens, underscores and periods, log groups starting with a letter, case-sensitive: https://docs.oracle.com/en-us/iaas/Content/Logging/Task/managinglogs.htm.
+
+## Primary-source checks (2026-11-13)
+- ocilogging: logging SDK Log comment confirms retention in 30-day increments up to 180; loggingingestion LogEntry comment confirms entries under 1 MB and data fields truncated at 10,000 characters.

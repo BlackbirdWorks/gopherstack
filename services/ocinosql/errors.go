@@ -42,6 +42,16 @@ func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }
 
+func errInvalidatedToken() *APIError {
+	return newErr(http.StatusConflict, "InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted")
+}
+
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
 func errConflict(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
+
+func errExists(what string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists",
+		"Authorization failed or requested resource ("+what+") already exists.")
+}

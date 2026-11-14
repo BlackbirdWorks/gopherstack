@@ -278,3 +278,27 @@ func TestInvoke_ForwardsRequestToHost(t *testing.T) {
 	assert.Equal(t, "k1", reqs[0].Headers.Get("X-Functions-Key"))
 	assert.True(t, strings.HasPrefix(reqs[0].Host, "app."+testDomain))
 }
+
+func TestInvoke_ConnectionStringsAreEnv(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, true)
+	e.backend.PutApp("spec", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
+	require.NoError(t, e.backend.SetConnectionStrings("spec", map[string]string{"SQLAZURECONNSTR_db": "Server=x"}))
+	require.NoError(t, e.backend.SetSettings("spec", map[string]string{"MY_SETTING": "v1"}))
+
+	_, err := e.backend.Deploy("spec", helloZip(t), "test", "m")
+	require.NoError(t, err)
+
+	resp, body := e.do(t, http.MethodGet, "spec."+testDomain, "/api/greet", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+
+	specs := e.rt.specs()
+	require.Len(t, specs, 1)
+
+	env := envOf(specs[0])
+	assert.Equal(t, "Server=x", env["SQLAZURECONNSTR_db"])
+	assert.Equal(t, "v1", env["MY_SETTING"])
+
+	require.ErrorIs(t, e.backend.SetConnectionStrings("nope", nil), azurefunctions.ErrAppNotFound)
+}

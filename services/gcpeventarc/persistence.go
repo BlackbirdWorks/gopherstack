@@ -5,6 +5,9 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -29,13 +32,14 @@ type channelSnap struct {
 }
 
 type backendSnapshot struct {
-	Triggers    map[string]triggerSnap    `json:"triggers"`
-	Channels    map[string]channelSnap    `json:"channels"`
-	Connections map[string]jsontext.Value `json:"connections"`
-	Configs     map[string]jsontext.Value `json:"configs"`
-	Operations  map[string]jsontext.Value `json:"operations"`
-	Version     int                       `json:"version"`
-	Seq         uint64                    `json:"seq"`
+	Triggers    map[string]triggerSnap               `json:"triggers"`
+	Channels    map[string]channelSnap               `json:"channels"`
+	Connections map[string]jsontext.Value            `json:"connections"`
+	Configs     map[string]jsontext.Value            `json:"configs"`
+	Operations  map[string]jsontext.Value            `json:"operations"`
+	Advanced    map[string]map[string]jsontext.Value `json:"advanced,omitempty"`
+	Version     int                                  `json:"version"`
+	Seq         uint64                               `json:"seq"`
 }
 
 func marshalPB(m proto.Message) jsontext.Value {
@@ -98,6 +102,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Configs[n] = marshalPB(c)
 	}
 
+	snap.Advanced = make(map[string]map[string]jsontext.Value, len(b.adv))
+
+	for coll, table := range b.adv {
+		snap.Advanced[coll] = make(map[string]jsontext.Value, len(table))
+
+		for n, m := range table {
+			snap.Advanced[coll][n] = marshalPB(m)
+		}
+	}
+
 	return persistence.MarshalSnapshot(ctx, "gcpeventarc", snap)
 }
 
@@ -106,6 +120,7 @@ type restored struct {
 	channels map[string]*channelRec
 	conns    map[string]*eventarcpb.ChannelConnection
 	configs  map[string]*eventarcpb.GoogleChannelConfig
+	adv      map[string]map[string]proto.Message
 }
 
 func restoreAll(snap *backendSnapshot) (*restored, error) {
@@ -114,6 +129,11 @@ func restoreAll(snap *backendSnapshot) (*restored, error) {
 		channels: make(map[string]*channelRec, len(snap.Channels)),
 		conns:    make(map[string]*eventarcpb.ChannelConnection, len(snap.Connections)),
 		configs:  make(map[string]*eventarcpb.GoogleChannelConfig, len(snap.Configs)),
+		adv:      make(map[string]map[string]proto.Message, len(snap.Advanced)),
+	}
+
+	if err := restoreAdvanced(snap, out); err != nil {
+		return nil, err
 	}
 
 	for n, s := range snap.Triggers {
@@ -165,6 +185,25 @@ func restoreAll(snap *backendSnapshot) (*restored, error) {
 	return out, nil
 }
 
+func restoreAdvanced(snap *backendSnapshot, out *restored) error {
+	for _, k := range advKinds() {
+		table := make(map[string]proto.Message, len(snap.Advanced[k.collection]))
+
+		for n, raw := range snap.Advanced[k.collection] {
+			m := k.create()
+			if err := unmarshalPB(raw, m); err != nil {
+				return fmt.Errorf("%s %q: %w", k.noun, n, err)
+			}
+
+			table[n] = m
+		}
+
+		out.adv[k.collection] = table
+	}
+
+	return nil
+}
+
 // Restore loads a snapshot, replacing all state.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
@@ -186,12 +225,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("gcpeventarc: restore: %w", err)
 	}
 
+	b.stopOps()
+
 	if err = b.ops.Restore(snap.Operations); err != nil {
 		return err
 	}
 
+	b.ops.AbortPending(status.New(codes.Aborted, "Operation was interrupted by an emulator restart."))
+
 	b.mu.Lock("Restore")
 	b.triggers, b.channels, b.conns, b.configs, b.seq = r.triggers, r.channels, r.conns, r.configs, snap.Seq
+	b.adv = r.adv
 	b.mu.Unlock()
 
 	return nil

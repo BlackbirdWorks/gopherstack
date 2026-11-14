@@ -43,6 +43,8 @@ const (
 	keyNextToken   = "nextToken"
 	keyTags        = "tags"
 	keyName        = "name"
+	keyType        = "type"
+	keyTools       = "tools"
 
 	defaultPageLimit = 50
 	maxPageLimit     = 100

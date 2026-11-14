@@ -596,14 +596,17 @@ func TestAzureAppServiceARMSDK_SlotLimits(t *testing.T) {
 			s := newFnSDKStack(t)
 			plan := s.createPlanSKU(t, "limitplan", tt.kind, tt.sku, tt.tier)
 
+			props := &armappservice.SiteProperties{
+				ServerFarmID: new(*plan.ID),
+				SiteConfig:   &armappservice.SiteConfig{LinuxFxVersion: new(limitFx(tt.siteKind))},
+			}
+			if tt.tier == "FlexConsumption" {
+				props.SiteConfig = &armappservice.SiteConfig{}
+				props.FunctionAppConfig = flexSDKConfig()
+			}
+
 			poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), webSDKRG, "limited",
-				armappservice.Site{
-					Location: new("local"), Kind: new(tt.siteKind),
-					Properties: &armappservice.SiteProperties{
-						ServerFarmID: new(*plan.ID),
-						SiteConfig:   &armappservice.SiteConfig{LinuxFxVersion: new(limitFx(tt.siteKind))},
-					},
-				}, nil)
+				armappservice.Site{Location: new("local"), Kind: new(tt.siteKind), Properties: props}, nil)
 			require.NoError(t, err)
 			_, err = poller.PollUntilDone(t.Context(), pollOpts())
 			require.NoError(t, err)

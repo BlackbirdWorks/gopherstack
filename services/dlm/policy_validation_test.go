@@ -21,6 +21,20 @@ func hourly(n int32) *dlmtypes.CreateRule {
 	return &dlmtypes.CreateRule{Interval: aws.Int32(n), IntervalUnit: dlmtypes.IntervalUnitValuesHours}
 }
 
+func withFastRestore(r *dlmtypes.FastRestoreRule) dlmtypes.Schedule {
+	s := schedule(hourly(12), count(5))
+	s.FastRestoreRule = r
+
+	return s
+}
+
+func withArchive(t *dlmtypes.RetentionArchiveTier) dlmtypes.Schedule {
+	s := schedule(hourly(12), &dlmtypes.RetainRule{Count: aws.Int32(1)})
+	s.ArchiveRule = &dlmtypes.ArchiveRule{RetainRule: &dlmtypes.ArchiveRetainRule{RetentionArchiveTier: t}}
+
+	return s
+}
+
 func count(n int32) *dlmtypes.RetainRule { return &dlmtypes.RetainRule{Count: aws.Int32(n)} }
 
 func TestCreateLifecyclePolicy_Validation(t *testing.T) {
@@ -55,6 +69,32 @@ func TestCreateLifecyclePolicy_Validation(t *testing.T) {
 		{name: "bad time", state: "ENABLED", schedules: []dlmtypes.Schedule{schedule(&dlmtypes.CreateRule{
 			Interval: aws.Int32(12), IntervalUnit: "HOURS", Times: []string{"25:00"},
 		}, count(1))}, wantErr: true},
+		{name: "fast restore count zero", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withFastRestore(&dlmtypes.FastRestoreRule{Count: aws.Int32(0), AvailabilityZones: []string{"us-east-1a"}}),
+		}, wantErr: true},
+		{name: "fast restore bad zone id", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withFastRestore(&dlmtypes.FastRestoreRule{Count: aws.Int32(1), AvailabilityZoneIds: []string{"nope"}}),
+		}, wantErr: true},
+		{name: "fast restore too many zones", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withFastRestore(&dlmtypes.FastRestoreRule{Count: aws.Int32(1), AvailabilityZones: make([]string, 11)}),
+		}, wantErr: true},
+		{name: "fast restore valid zone ids", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withFastRestore(&dlmtypes.FastRestoreRule{Count: aws.Int32(1), AvailabilityZoneIds: []string{"use1-az1"}}),
+		}},
+		{name: "archive count under 90 days", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withArchive(&dlmtypes.RetentionArchiveTier{Count: aws.Int32(3)}),
+		}, wantErr: true},
+		{name: "archive interval under 90 days", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withArchive(&dlmtypes.RetentionArchiveTier{Interval: aws.Int32(89), IntervalUnit: "DAYS"}),
+		}, wantErr: true},
+		{name: "archive count and interval", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withArchive(&dlmtypes.RetentionArchiveTier{
+				Count: aws.Int32(180), Interval: aws.Int32(90), IntervalUnit: "DAYS",
+			}),
+		}, wantErr: true},
+		{name: "archive valid", state: "ENABLED", schedules: []dlmtypes.Schedule{
+			withArchive(&dlmtypes.RetentionArchiveTier{Interval: aws.Int32(3), IntervalUnit: "MONTHS"}),
+		}},
 		{name: "bad resource type", state: "ENABLED", resources: []dlmtypes.ResourceTypeValues{"BUCKET"},
 			wantErr: true},
 	}

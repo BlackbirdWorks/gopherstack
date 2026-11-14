@@ -13,6 +13,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/workrequests"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
@@ -72,6 +73,7 @@ type env struct {
 	client  core.VirtualNetworkClient
 	compute core.ComputeClient
 	block   core.BlockstorageClient
+	wr      workrequests.WorkRequestClient
 	kp      keyPair
 	base    string
 }
@@ -113,6 +115,12 @@ func newEnv(t *testing.T, enforce bool) *env {
 
 	bc.Host = e.base
 	e.block = bc
+
+	wc, err := workrequests.NewWorkRequestClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
+	wc.Host = e.base
+	e.wr = wc
 
 	return e
 }

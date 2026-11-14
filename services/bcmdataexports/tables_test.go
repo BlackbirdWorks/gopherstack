@@ -23,7 +23,8 @@ func TestListTables(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t, []string{
-		"COST_AND_USAGE_REPORT", "FOCUS_1_0_AWS", "CARBON_EMISSIONS", "COST_OPTIMIZATION_RECOMMENDATIONS",
+		"COST_AND_USAGE_REPORT", "FOCUS_1_0_AWS", "FOCUS_1_2_AWS", "COST_AND_USAGE_DASHBOARD", "CARBON_EMISSIONS",
+		"COST_OPTIMIZATION_RECOMMENDATIONS",
 	}, names)
 
 	p, err := f.client.ListTables(t.Context(), &bcmsdk.ListTablesInput{MaxResults: aws.Int32(1)})

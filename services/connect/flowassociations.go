@@ -42,14 +42,14 @@ type FlowAssocRequest struct {
 func assocKey(resourceType, resourceID string) string { return resourceType + "|" + resourceID }
 
 // AssociateFlow associates a flow with a resource; re-associating replaces the flow.
-func (b *Backend) AssociateFlow(in *FlowAssocRequest) (*empty, error) {
+func (b *Backend) AssociateFlow(in *FlowAssocRequest) (*EmptyOutput, error) {
 	if err := firstError(
 		oneOf("ResourceType", in.ResourceType, flowAssocTypes...), checkName("ResourceId", in.ResourceID, maxARNLen),
 	); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "AssociateFlow", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "AssociateFlow", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		if !b.flows.has(inst, in.FlowID) {
 			return nil, notFoundErr("ContactFlow", in.FlowID)
 		}
@@ -58,7 +58,7 @@ func (b *Backend) AssociateFlow(in *FlowAssocRequest) (*empty, error) {
 			InstanceID: inst, ResourceID: in.ResourceID, ResourceType: in.ResourceType, FlowID: in.FlowID,
 		})
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -79,12 +79,12 @@ func (b *Backend) GetFlowAssociation(in *FlowAssocRequest) (*FlowAssociationSumm
 }
 
 // DisassociateFlow removes the flow association of a resource.
-func (b *Backend) DisassociateFlow(in *FlowAssocRequest) (*empty, error) {
+func (b *Backend) DisassociateFlow(in *FlowAssocRequest) (*EmptyOutput, error) {
 	if err := oneOf("ResourceType", in.PathType, flowAssocTypes...); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "DisassociateFlow", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DisassociateFlow", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		return nil, b.flowAssocs.del(inst, assocKey(in.PathType, in.PathResourceID))
 	})
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -251,8 +252,7 @@ func TestDockerCluster_LaunchOptions(t *testing.T) {
 func mustPortAlloc(t *testing.T) *portalloc.Allocator {
 	t.Helper()
 
-	a, err := portalloc.New(41000, 41400)
-	require.NoError(t, err)
+	a := portalloctest.New(t, 400)
 
 	return a
 }

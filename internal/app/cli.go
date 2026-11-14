@@ -106,6 +106,7 @@ import (
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
+	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
@@ -224,6 +225,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
@@ -249,7 +251,10 @@ import (
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocidatabase "github.com/blackbirdworks/gopherstack/services/ocidatabase"
+	ocidns "github.com/blackbirdworks/gopherstack/services/ocidns"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
+	ocifilestorage "github.com/blackbirdworks/gopherstack/services/ocifilestorage"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociloadbalancer "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
@@ -453,6 +458,7 @@ type CLI struct {
 	cloudtrailHandler             service.Registerable
 	azureARMHandler               service.Registerable
 	azureBlobHandler              service.Registerable
+	azureGraphHandler             service.Registerable
 	gcpStorageHandler             service.Registerable
 	gcpPubSubHandler              service.Registerable
 	gcpFirestoreHandler           service.Registerable
@@ -475,6 +481,11 @@ type CLI struct {
 	azureEventHubsHandler         service.Registerable
 	azureEventGridHandler         service.Registerable
 	azureAppConfigHandler         service.Registerable
+	azureSearchHandler            service.Registerable
+	azureRedisHandler             service.Registerable
+	azureSQLHandler               service.Registerable
+	azureACRHandler               service.Registerable
+	lambdaWebHandler              service.Registerable
 	azureFunctionsHandler         service.Registerable
 	azureFileHandler              service.Registerable
 	gcpWorkflowsHandler           service.Registerable
@@ -501,6 +512,9 @@ type CLI struct {
 	ociLoadBalancerHandler        service.Registerable
 	ociArtifactsHandler           service.Registerable
 	ociContainerInstancesHandler  service.Registerable
+	ociDNSHandler                 service.Registerable
+	ociDatabaseHandler            service.Registerable
+	ociFileStorageHandler         service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -653,6 +667,9 @@ type CLI struct {
 	AzureGraph                    azuregraphbackend.Settings          `embed:"" prefix:"azure-graph-"`
 	CodeBuild                     codebuildbackend.Settings           `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings                `embed:"" prefix:"glue-"`
+	DSQL                          dsqlbackend.Settings                `embed:"" prefix:"dsql-"`
+	LambdaWeb                     lambdawebbackend.Settings           `embed:"" prefix:"lambdaweb-"`
+	Transcribe                    transcribebackend.Settings          `embed:"" prefix:"transcribe-"`
 	GCPIdentityToolkit            gcpidtkbackend.Settings             `embed:"" prefix:"gcp-identitytoolkit-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings       `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                  `embed:"" prefix:"s3-"`
@@ -667,6 +684,8 @@ type CLI struct {
 	OCIContainerEngine            ocioke.Settings                     `embed:"" prefix:"oci-oke-"`
 	OCIContainerInstances         ocicontainerinstances.Settings      `embed:""`
 	OCIMySQL                      ocimysqlbackend.Settings            `embed:"" prefix:"oci-mysql-"`
+	OCIDatabase                   ocidatabase.Settings                `embed:"" prefix:"oci-database-"`
+	OCIFileStorage                ocifilestorage.Settings             `embed:"" prefix:"oci-filestorage-"`
 	AgentCore                     agentcorebackend.Settings           `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings       `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings            `embed:"" prefix:"gcp-batch-"`
@@ -716,6 +735,7 @@ type CLI struct {
 	GCPCompute                    gcpcomputebackend.Settings          `embed:"" prefix:"gcp-compute-"`
 	GCPContainer                  gcpcontainerbackend.Settings        `embed:"" prefix:"gcp-container-"`
 	GCPAPIGateway                 gcpapigatewaybackend.Settings       `embed:"" prefix:"gcp-apigateway-"`
+	AzureSearch                   azuresearchbackend.Settings         `embed:"" prefix:"azure-search-"`
 	PortRangeStart                int                                 `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                                 `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                                 `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -756,6 +776,7 @@ type CLI struct {
 	OCIEvents                     ocievents.Settings                  `embed:"" prefix:"oci-events-"`
 	OCILoadBalancer               ociloadbalancer.Settings            `embed:"" prefix:"oci-loadbalancer-"`
 	OCIArtifacts                  ociartifacts.Settings               `embed:"" prefix:"oci-artifacts-"`
+	OCIDNS                        ocidns.Settings                     `embed:"" prefix:"oci-dns-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -1001,6 +1022,11 @@ func (c *CLI) GetOCIMySQLEngine() string {
 	return c.engineMode("oci-mysql-engine", c.OCIMySQL.Engine)
 }
 
+// GetOCIDatabaseEngine returns the OCI Database engine mode (ocidatabase.EngineConfigProvider).
+func (c *CLI) GetOCIDatabaseEngine() string {
+	return c.engineMode("oci-database-engine", c.OCIDatabase.Engine)
+}
+
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
 func (c *CLI) GetOCINotificationsSettings() ocinotificationsbackend.Settings {
 	return c.OCINotifications
@@ -1026,6 +1052,9 @@ func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
 	return c.AzureAppConfig
 }
+
+// GetAzureSearchSettings returns Azure AI Search settings (azuresearch.ConfigProvider).
+func (c *CLI) GetAzureSearchSettings() azuresearchbackend.Settings { return c.AzureSearch }
 
 // GetAzureRedisSettings returns Azure Cache for Redis settings (azureredis.ConfigProvider).
 func (c *CLI) GetAzureRedisSettings() azureredisbackend.Settings { return c.AzureRedis }
@@ -1503,6 +1532,30 @@ func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
 func (c *CLI) GetGlueSettings() gluebackend.Settings {
 	st := c.Glue
 	st.Engine = c.engineMode("glue-engine", st.Engine)
+
+	return st
+}
+
+// GetDSQLSettings returns DSQL settings (dsql.ConfigProvider).
+func (c *CLI) GetDSQLSettings() dsqlbackend.Settings {
+	st := c.DSQL
+	st.Engine = c.engineMode("dsql-engine", st.Engine)
+
+	return st
+}
+
+// GetLambdaWebSettings returns Lambda Web Functions settings (lambdaweb.ConfigProvider).
+func (c *CLI) GetLambdaWebSettings() lambdawebbackend.Settings {
+	st := c.LambdaWeb
+	st.Engine = c.engineMode("lambdaweb-engine", st.Engine)
+
+	return st
+}
+
+// GetTranscribeSettings returns Transcribe settings (transcribe.ConfigProvider).
+func (c *CLI) GetTranscribeSettings() transcribebackend.Settings {
+	st := c.Transcribe
+	st.Engine = c.engineMode("transcribe-engine", st.Engine)
 
 	return st
 }
@@ -2772,6 +2825,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
+		{"AzureSearch", "azuresearch", cli.AzureSearch.Port},
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
@@ -2795,6 +2849,10 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCILoadBalancer", "ociloadbalancer", cli.OCILoadBalancer.Port},
 		{"OCIArtifacts", "ociartifacts", cli.OCIArtifacts.Port},
 		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
+		{"OCIDNS", "ocidns", cli.OCIDNS.Port},
+		{"OCIDNSServer", "ocidns-server", cli.OCIDNS.DNSPort},
+		{"OCIDatabase", "ocidatabase", cli.OCIDatabase.Port},
+		{"OCIFileStorage", "ocifilestorage", cli.OCIFileStorage.Port},
 	}
 }
 
@@ -3168,6 +3226,7 @@ func buildEchoServer(
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
 	registerEKSEndpoints(e, services)
+	registerTranscribeEndpoints(e, services)
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
@@ -3530,6 +3589,9 @@ func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociLoadBalancerHandler = byName["OCILoadBalancer"]
 	cli.ociArtifactsHandler = byName["OCIArtifacts"]
 	cli.ociContainerInstancesHandler = byName["OCIContainerInstances"]
+	cli.ociDNSHandler = byName["OCIDNS"]
+	cli.ociDatabaseHandler = byName["OCIDatabase"]
+	cli.ociFileStorageHandler = byName["OCIFileStorage"]
 
 	storeAdditionalCLIHandlers(cli, byName)
 }
@@ -3798,6 +3860,7 @@ func wireCrossServiceDependencies(
 	wireRDSAutoPauseMetrics(appCtx.JanitorCtx, byName)
 	wireStorageAndSecretsIntegrations(byName)
 	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
+	wireAMPDataPlaneAuth(appCtx, byName)
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)
@@ -3812,6 +3875,12 @@ func wireCrossServiceDependencies(
 	wireOCILoadBalancer(byName)
 	wireOCIArtifacts(byName)
 	wireOCIContainerInstances(byName)
+	wireOCIDNS(byName)
+	wireOCIDatabase(byName)
+	wireOCIFileStorage(byName)
+	wireOCIObjectStoragePrivateEndpoints(byName)
+	wireOCICoreVault(byName)
+	wireOCIKeyLookups(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3821,6 +3890,26 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 
 	if sok && vok {
 		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
+
+	if osH, ook := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); ook && vok {
+		osH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+		vaultH.Backend.SetBlobStore(osH.Backend)
+	}
+
+	if fnH, fok := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); fok && vok {
+		vaultH.Backend.SetFunctionInvoker(func(ctx context.Context, fnID string, body []byte) error {
+			out, err := fnH.Backend.Invoke(ctx, fnID, ocifunctionsbackend.InvokeIn{Body: body})
+			if err != nil {
+				return err
+			}
+
+			if out.Status >= http.StatusMultipleChoices {
+				return fmt.Errorf("%w: status %d", ocivaultbackend.ErrFunctionFailed, out.Status)
+			}
+
+			return nil
+		})
 	}
 }
 
@@ -3854,36 +3943,44 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCICore"].(*ocicorebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIQueue"].(*ociqueuebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		h.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if h, found := byName["OCIMySQL"].(*ocimysqlbackend.Handler); found {
@@ -3939,6 +4036,10 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"], byName["STS"])
 	wireCognitoCodeEncryption(byName["CognitoIDP"], byName["KMS"])
 	wireBudgets(byName)
+	wireSignin(byName)
+	wireS3VectorsKMS(byName)
+	wireGCPCMEK(byName)
+	wireAWSKeyLookups(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.
@@ -4987,6 +5088,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 	wireLambdaSigV4(byName["Lambda"], sigV4Secret)
+	wireAgentCoreAuth(byName, sigV4Secret)
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
@@ -5271,6 +5373,7 @@ func getLatestServiceProviders() []service.Provider {
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getNewestServiceProviders() []service.Provider {
 	return append([]service.Provider{
+		&lambdawebbackend.Provider{},
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
 		&signinbackend.Provider{},
@@ -5316,6 +5419,9 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociloadbalancer.Provider{},
 		&ociartifacts.Provider{},
 		&ocicontainerinstances.Provider{},
+		&ocidns.Provider{},
+		&ocidatabase.Provider{},
+		&ocifilestorage.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
@@ -5419,6 +5525,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&lightsailbackend.Provider{},
 		&oambackend.Provider{},
 		&servicequotasbackend.Provider{},
+		&azuresearchbackend.Provider{},
 	}...)
 }
 
@@ -8029,6 +8136,22 @@ func (a *codepipelineCodeBuildAdapter) BuildStatus(ctx context.Context, buildID 
 	return builds[0].BuildStatus, nil
 }
 
+func (a *codepipelineCodeBuildAdapter) BuildExportedVariables(
+	ctx context.Context, buildID string,
+) (map[string]string, error) {
+	builds, _ := a.handler.BackendFor(awsmeta.Region(ctx)).BatchGetBuilds([]string{buildID})
+	if len(builds) == 0 {
+		return nil, fmt.Errorf("%w: build %s not found", codebuildbackend.ErrNotFound, buildID)
+	}
+
+	vars := make(map[string]string, len(builds[0].ExportedEnvironmentVariables))
+	for _, v := range builds[0].ExportedEnvironmentVariables {
+		vars[v.Name] = v.Value
+	}
+
+	return vars, nil
+}
+
 // wireCodePipelineS3 gives CodePipeline S3 for Source/S3 and Deploy/S3 actions and the
 // artifact store. s3.InMemoryBackend satisfies codepipeline.ArtifactS3 directly.
 func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {
@@ -8469,6 +8592,13 @@ func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) er
 	}
 
 	return nil
+}
+
+func (a *cwLogsAdapter) LogGroupExists(groupName string) bool {
+	groups, _, err := a.backend.DescribeLogGroupsFiltered(a.ctx(), groupName, "", "", 1,
+		func(g cwlogsbackend.LogGroup) bool { return g.LogGroupName == groupName })
+
+	return err == nil && len(groups) > 0
 }
 
 func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []string) error {
@@ -13170,6 +13300,8 @@ func setupChaosAndRegistry(
 	wireFISFaultStore(cli.fisHandler, faultStore)
 	wireDynamoDBFaultStore(services, faultStore)
 
+	wireSimulatorSCPs(cli.IAMEnforceSCPs, services)
+
 	registry, err := setupRegistry(
 		e,
 		log,
@@ -13195,6 +13327,7 @@ func setupChaosAndRegistry(
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 	wireRDSIAMAuth(e, services, cli.EnforceIAM)
+	wireDSQLAuth(e, services, cli.EnforceIAM)
 	wireNeptuneIAMAuth(services, cli.EnforceIAM)
 	wireDocDBCA(e, services)
 	wireKafkaAuth(e, services, cli.EnforceIAM)
@@ -13326,6 +13459,8 @@ func setupRegistry(
 				Recorder:          iamRecorder,
 				Audit:             iamAudit,
 				SCPs:              scps,
+				ResourceOwners:    resourceOwnersFor(scps != nil, services),
+				RCPExemptions:     rcpExemptionsFor(scps != nil, services),
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
@@ -13406,6 +13541,10 @@ func extractStorageResourcePolicyProvider(svc service.Registerable) iambackend.R
 	case *sqsbackend.Handler:
 		if b, ok := h.Backend.(sqsPolicyBackend); ok {
 			return &sqsPolicyAdapter{backend: b}
+		}
+	case *iambackend.Handler:
+		if b, ok := h.Backend.(iambackend.RoleGetter); ok {
+			return iambackend.RoleTrustPolicyProvider{Roles: b}
 		}
 	case *kmsbackend.Handler:
 		if b, ok := h.Backend.(kmsPolicyBackend); ok {
@@ -13635,6 +13774,7 @@ func (a *sqsPolicyAdapter) GetResourcePolicy(
 	out, err := a.backend.GetQueueAttributes(&sqsbackend.GetQueueAttributesInput{
 		QueueURL:       queueURL,
 		AttributeNames: []string{"Policy"},
+		Region:         accountID + "@" + parts[3],
 	})
 	if err != nil {
 		return "", err

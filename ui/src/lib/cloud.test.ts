@@ -243,6 +243,8 @@ describe("new GCP console pages", () => {
       "aks",
       "flexdb",
       "apim",
+      "network",
+      "logic",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -272,6 +274,10 @@ describe("new GCP console pages", () => {
     expect(ociServiceById("containerengine")?.portLabel).toBe("ocicontainerengine");
     expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
     expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("network")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("logic")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("search")?.portLabel).toBe("azuresearch");
+    expect(availableAzureServices(["AzureSearch"]).map((x) => x.id)).toEqual(["search"]);
     expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
     expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
     expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
@@ -337,6 +343,32 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers DNS and Autonomous Database", () => {
+    expect(availableOciServices(["OCIDNS", "OCIDatabase"]).map((s) => s.id)).toEqual([
+      "dns",
+      "database",
+    ]);
+    expect(ociServiceById("dns")).toMatchObject({
+      portLabel: "ocidns",
+      defaultPort: 8168,
+      healthName: "OCIDNS",
+    });
+    expect(ociServiceById("database")).toMatchObject({
+      portLabel: "ocidatabase",
+      defaultPort: 8170,
+      healthName: "OCIDatabase",
+    });
+  });
+
+  it("registers File Storage", () => {
+    expect(availableOciServices(["OCIFileStorage"]).map((s) => s.id)).toEqual(["filestorage"]);
+    expect(ociServiceById("filestorage")).toMatchObject({
+      portLabel: "ocifilestorage",
+      defaultPort: 8171,
+      healthName: "OCIFileStorage",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",
@@ -344,6 +376,15 @@ describe("new GCP console pages", () => {
       healthName: "GCPIdentityToolkit",
     });
     expect(azureServiceById("flexdb")?.portLabel).toBe("azurearm");
+  });
+
+  it("registers Entra ID & access on the Graph backend", () => {
+    expect(availableAzureServices(["AzureGraph"]).map((s) => s.id)).toEqual(["entra"]);
+    expect(azureServiceById("entra")).toMatchObject({
+      portLabel: "azuregraph",
+      defaultPort: 10014,
+      healthName: "AzureGraph",
+    });
   });
 
   it("registers API Gateway and API Management", () => {
@@ -369,5 +410,16 @@ describe("new GCP console pages", () => {
       defaultPort: 8148,
       healthName: "GCPResourceManager",
     });
+  });
+});
+
+describe("Azure data services", () => {
+  it.each([
+    ["sql", "AzureSQL", "azurearm"],
+    ["redis", "AzureRedis", "azurearm"],
+    ["acr", "AzureContainerRegistry", "azurecontainerregistry"],
+  ])("registers %s", (id, health, port) => {
+    expect(azureServiceById(id)).toMatchObject({ healthName: health, portLabel: port });
+    expect(availableAzureServices([health]).map((s) => s.id)).toContain(id);
   });
 });

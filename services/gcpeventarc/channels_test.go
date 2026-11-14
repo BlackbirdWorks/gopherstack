@@ -229,7 +229,10 @@ func TestProviders(t *testing.T) {
 		names = append(names, got.GetName())
 	}
 
-	assert.Equal(t, []string{parent + "/providers/storage.googleapis.com", providerName}, names)
+	assert.Equal(t, []string{
+		parent + "/providers/storage.googleapis.com", providerName,
+		parent + "/providers/firestore.googleapis.com", parent + "/providers/cloudaudit.googleapis.com",
+	}, names)
 
 	filtered, err := e.client.ListProviders(t.Context(), &eventarcpb.ListProvidersRequest{
 		Parent: parent, Filter: `displayName:"pub/sub"`,

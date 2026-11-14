@@ -8,14 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 34 (33 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - DeletePolicyStoreAlias never returns InvalidStateException: the SDK lists it for the op but the only documented trigger (InvalidStateException type doc) is DeletePolicyStore's deletion protection.
-- CreatePolicyStoreAlias never returns ServiceQuotaExceededException: AWS documents no numeric alias quota.
 
 ## More
 

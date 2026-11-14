@@ -17,7 +17,7 @@
 ### Known gaps
 
 - ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS.
-- SendEmail/SendBulkEmail tenant-association mismatch error code is unconfirmed (BadRequestException is used).
+- SendEmail/SendBulkEmail tenant-association mismatch error code is not published (checked API_SendEmail.html and the sesv2 SDK docs: TenantName says only that the send succeeds when all referenced resources are associated with the tenant; the modeled errors are BadRequestException, NotFoundException, AccountSuspendedException, MailFromDomainNotVerifiedException, MessageRejected, SendingPausedException, LimitExceededException and TooManyRequestsException); BadRequestException is used
 
 ### Structural gaps
 

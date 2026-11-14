@@ -55,9 +55,26 @@ func TestSearchQuerySyntax(t *testing.T) {
 		},
 		{name: "keyword", query: "orders", want: []string{fmt.Sprintf(queue, a)}},
 		{name: "keyword_case_insensitive", query: "ALPHA", want: []string{bucket}},
-		{name: "keywords_and", query: "alpha orders", want: nil},
+		{name: "keywords_or", query: "alpha orders", want: []string{bucket, fmt.Sprintf(queue, a)}},
 		{name: "service", query: "service:sqs", want: []string{fmt.Sprintf(queue, a)}},
-		{name: "service_or", query: "service:sqs service:s3", want: []string{bucket, fmt.Sprintf(queue, a)}},
+		{name: "repeated_filter_and", query: "service:sqs service:s3", want: nil},
+		{name: "comma_or", query: "service:sqs,s3", want: []string{bucket, fmt.Sprintf(queue, a)}},
+		{name: "quoted_comma_literal", query: `service:"sqs,s3"`, want: nil},
+		{name: "escaped_comma_literal", query: `tag.key:a\,b`, want: nil},
+		{name: "keyword_and_filter", query: "alpha orders service:sqs", want: []string{fmt.Sprintf(queue, a)}},
+		{name: "keyword_split_unquoted", query: "us-east-1 orders", want: []string{
+			fmt.Sprintf(table, a), fmt.Sprintf(fn, a), fmt.Sprintf(queue, a),
+		}},
+		{name: "keyword_phrase_quoted", query: `"us-west-2"`, want: nil},
+		{name: "keyword_prefix_wildcard", query: "ord*", want: []string{fmt.Sprintf(queue, a)}},
+		{name: "keyword_no_substring", query: "ord", want: nil},
+		{name: "application_name", query: "application:MyApp", want: []string{fmt.Sprintf(table, a)}},
+		{
+			name:  "application_arn",
+			query: "application:arn:aws:resource-groups:us-east-1:" + a + ":group/MyApp/abc123",
+			want:  []string{fmt.Sprintf(table, a)},
+		},
+		{name: "application_other", query: "application:Other", want: nil},
 		{name: "resourcetype", query: "resourcetype:dynamodb:table", want: []string{fmt.Sprintf(table, a)}},
 		{name: "resourcetype_s3", query: "resourcetype:s3:bucket", want: []string{bucket}},
 		{
@@ -91,7 +108,7 @@ func TestSearchQuerySyntax(t *testing.T) {
 
 	f := newFixture(t)
 	c := f.client(t)
-	setupViewed(t, c)
+	setupViewed(t, c, "tags")
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,6 +121,52 @@ func TestSearchQuerySyntax(t *testing.T) {
 			assert.True(t, aws.ToBool(out.Count.Complete))
 		})
 	}
+}
+
+func TestSearchTagFilterNeedsTagsView(t *testing.T) {
+	t.Parallel()
+
+	c := newFixture(t).client(t)
+	setupViewed(t, c)
+
+	for _, q := range []string{
+		"tag:env=prod", "tag.key:env", "tag.value:prod", "tag:none", "application:MyApp", "-tag:all",
+	} {
+		_, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(q)})
+		assert.Equal(t, "ValidationException", apiCode(err), q)
+	}
+
+	_, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String("cat:blue")})
+	require.NoError(t, err)
+}
+
+func TestSearchRelevanceOrder(t *testing.T) {
+	t.Parallel()
+
+	c := newFixture(t).client(t)
+	setupViewed(t, c, "tags")
+
+	out, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String("sqs orders dev")})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Resources)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:"+testAccount+":orders-queue", aws.ToString(out.Resources[0].Arn))
+}
+
+func TestFiltersRejectKeywords(t *testing.T) {
+	t.Parallel()
+
+	c := newFixture(t).client(t)
+	setupViewed(t, c)
+
+	_, err := c.ListResources(t.Context(), &sdk.ListResourcesInput{
+		Filters: &rtypes.SearchFilter{FilterString: aws.String("service:s3 freeform")},
+	})
+	assert.Equal(t, "ValidationException", apiCode(err))
+
+	_, err = c.CreateView(t.Context(), &sdk.CreateViewInput{
+		ViewName: aws.String("kw"), Filters: &rtypes.SearchFilter{FilterString: aws.String("freeform")},
+	})
+	assert.Equal(t, "ValidationException", apiCode(err))
 }
 
 func TestSearchQueryErrors(t *testing.T) {
@@ -237,7 +300,7 @@ func TestSearchPagination(t *testing.T) {
 		})
 	}
 
-	_, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(""), MaxResults: aws.Int32(101)})
+	_, err := c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(""), MaxResults: aws.Int32(1001)})
 	assert.Equal(t, "ValidationException", apiCode(err))
 
 	_, err = c.Search(t.Context(), &sdk.SearchInput{QueryString: aws.String(""), NextToken: aws.String("%%%")})

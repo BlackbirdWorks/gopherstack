@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -349,6 +350,51 @@ func TestHandler_PutLogEvents_EntityRejection(t *testing.T) {
 			name:     "unknown_key",
 			entity:   map[string]any{"keyAttributes": map[string]string{"Type": "Service", "Bogus": "x"}},
 			wantType: "InvalidKeyAttributes",
+		},
+		{
+			name:     "one_key",
+			entity:   map[string]any{"keyAttributes": map[string]string{"Type": "Service"}},
+			wantType: "InvalidKeyAttributes",
+		},
+		{
+			name: "five_keys",
+			entity: map[string]any{"keyAttributes": map[string]string{
+				"Type": "a", "ResourceType": "b", "Identifier": "c", "Name": "d", "Environment": "e",
+			}},
+			wantType: "InvalidKeyAttributes",
+		},
+		{
+			name: "long_key_value",
+			entity: map[string]any{"keyAttributes": map[string]string{
+				"Type": "Service", "Name": strings.Repeat("x", 513),
+			}},
+			wantType: "InvalidKeyAttributes",
+		},
+		{
+			name: "eleven_attributes",
+			entity: map[string]any{
+				"keyAttributes": map[string]string{"Type": "Service", "Name": "x"},
+				"attributes": map[string]string{
+					"a1": "v", "a2": "v", "a3": "v", "a4": "v", "a5": "v", "a6": "v",
+					"a7": "v", "a8": "v", "a9": "v", "a10": "v", "a11": "v",
+				},
+			},
+			wantType: "InvalidAttributes",
+		},
+		{
+			name: "empty_attribute_value",
+			entity: map[string]any{
+				"keyAttributes": map[string]string{"Type": "Service", "Name": "x"},
+				"attributes":    map[string]string{"a": ""},
+			},
+			wantType: "InvalidAttributes",
+		},
+		{
+			name: "valid_attributes",
+			entity: map[string]any{
+				"keyAttributes": map[string]string{"Type": "Service", "Name": "x"},
+				"attributes":    map[string]string{"a": "v"},
+			},
 		},
 	}
 

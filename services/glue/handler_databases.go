@@ -46,6 +46,18 @@ func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*g
 	return &getDatabaseOutput{Database: toDatabaseWire(db)}, nil
 }
 
+// resourceShareIncludesLocal reports whether a ResourceShareType selects the
+// local account's resources: ALL does, FOREIGN and FEDERATED name only shared
+// or federated ones, of which the emulator holds none.
+func resourceShareIncludesLocal(v string) (bool, error) {
+	t := gluetypes.ResourceShareType(v)
+	if err := checkEnum("ResourceShareType", t); err != nil {
+		return false, err
+	}
+
+	return t == "" || t == gluetypes.ResourceShareTypeAll, nil
+}
+
 // maxGetDatabasesResults is the AWS-enforced upper bound for GetDatabases MaxResults.
 const maxGetDatabasesResults = 100
 
@@ -54,7 +66,8 @@ type getDatabasesInput struct {
 	NextToken  string `json:"NextToken,omitempty"`
 	CatalogID  string `json:"CatalogId,omitempty"`
 
-	AttributesToGet []string `json:"AttributesToGet,omitempty"`
+	ResourceShareType string   `json:"ResourceShareType,omitempty"`
+	AttributesToGet   []string `json:"AttributesToGet,omitempty"`
 }
 
 type getDatabasesOutput struct {
@@ -75,7 +88,15 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 		return nil, err
 	}
 
-	dbs := h.Backend.GetDatabases()
+	includeLocal, err := resourceShareIncludesLocal(in.ResourceShareType)
+	if err != nil {
+		return nil, err
+	}
+
+	var dbs []*Database
+	if includeLocal {
+		dbs = h.Backend.GetDatabases()
+	}
 
 	if in.CatalogID != "" {
 		filtered := dbs[:0]

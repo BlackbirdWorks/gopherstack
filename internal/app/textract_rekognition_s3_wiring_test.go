@@ -15,7 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -53,12 +53,11 @@ func doJSONTargetRequest(
 // newTestAppContext builds a minimal service.AppContext for driving the real
 // initializeServices composition root, matching the pattern used by the
 // other *_wiring_test.go files (e.g. TestInitializeServices_LambdaS3CodeWiring).
-func newTestAppContext(t *testing.T, portFrom, portTo int) *service.AppContext {
+func newTestAppContext(t *testing.T) *service.AppContext {
 	t.Helper()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", faultStore: chaos.NewFaultStore()}
-	portAlloc, err := portalloc.New(portFrom, portTo)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	return &service.AppContext{
 		Logger:     slog.Default(),
@@ -76,7 +75,7 @@ func newTestAppContext(t *testing.T, portFrom, portTo int) *service.AppContext {
 func TestInitializeServices_TextractS3Wiring(t *testing.T) {
 	t.Parallel()
 
-	appCtx := newTestAppContext(t, 19400, 19500)
+	appCtx := newTestAppContext(t)
 
 	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
@@ -130,7 +129,7 @@ func TestInitializeServices_TextractS3Wiring(t *testing.T) {
 func TestInitializeServices_RekognitionS3Wiring(t *testing.T) {
 	t.Parallel()
 
-	appCtx := newTestAppContext(t, 19500, 19600)
+	appCtx := newTestAppContext(t)
 
 	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)

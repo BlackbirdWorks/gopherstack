@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	accountID    string
 	region       string
 	delay        time.Duration
+	apLimit      int
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -63,6 +64,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		now:       time.Now,
 		accountID: accountID,
 		region:    region,
+		apLimit:   maxAccessPointsPerFileSystem,
 	}
 
 	b.fileSystems = store.Register(b.registry, "fileSystems", store.New(func(v *FileSystem) string { return v.ID }))

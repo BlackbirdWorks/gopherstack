@@ -132,3 +132,47 @@ func TestObjectEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestBucketEvents(t *testing.T) {
+	t.Parallel()
+
+	ns := oci.DefaultNamespace
+	b := oci.NewInMemoryBackend()
+
+	var (
+		mu  sync.Mutex
+		got []oci.BucketEvent
+	)
+
+	b.SetBucketEventSink(func(e oci.BucketEvent) {
+		mu.Lock()
+		got = append(got, e)
+		mu.Unlock()
+	})
+
+	_, err := b.CreateBucket(ns, oci.CreateBucketInput{
+		Name: "bk", CompartmentID: "ocid1.compartment.oc1..c", FreeformTags: map[string]string{"Department": "Finance"},
+	}, "")
+	require.NoError(t, err)
+
+	_, err = b.UpdateBucket(ns, "bk", oci.UpdateBucketInput{PublicAccessType: "ObjectRead"}, oci.Preconds{})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteBucket(ns, "bk", oci.Preconds{}))
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	types := make([]string, 0, len(got))
+	for _, e := range got {
+		types = append(types, e.EventType)
+		assert.Equal(t, "bk", e.BucketName)
+		assert.NotEmpty(t, e.BucketID)
+		assert.NotEmpty(t, e.ETag)
+	}
+
+	assert.Equal(t, []string{oci.EventCreateBucket, oci.EventUpdateBucket, oci.EventDeleteBucket}, types)
+	assert.Equal(t, "NoPublicAccess", got[0].PublicAccessType)
+	assert.Equal(t, "ObjectRead", got[1].PublicAccessType)
+	assert.Equal(t, map[string]string{"Department": "Finance"}, got[0].FreeformTags)
+}

@@ -110,6 +110,9 @@ func TestLintPolicy(t *testing.T) {
 		{"unbalanced paren", `(a && b`, 1},
 		{"stray closer", `a)`, 1},
 		{"unterminated string", `resource.name == "x`, 1},
+		{"dangling operator", `request.time <`, 1},
+		{"missing operator", `a b`, 1},
+		{"bad token", `a @ b`, 1},
 		{"too many operators", `a || b || c || d || e || f || g || h || i || j || k || l || m || n`, 1},
 	}
 

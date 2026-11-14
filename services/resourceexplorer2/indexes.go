@@ -348,7 +348,7 @@ func (b *InMemoryBackend) ListIndexes(
 		all = append(all, IndexSummary{Arn: i.ARN, Region: i.Region, Type: i.Type})
 	}
 
-	return paginate(all, token, maxResults, maxPage)
+	return paginate(all, token, maxResults, maxPage, maxPage)
 }
 
 // MemberIndex is an index of a member account.
@@ -381,5 +381,5 @@ func (b *InMemoryBackend) ListIndexesForMembers(
 		}
 	}
 
-	return paginate(all, token, maxResults, maxPage)
+	return paginate(all, token, maxResults, maxMemberPage, maxMemberPage)
 }

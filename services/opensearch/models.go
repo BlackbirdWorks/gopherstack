@@ -542,19 +542,41 @@ type SAMLOptionsInput struct {
 	IDPMetadataContent    string `json:"idpMetadataContent,omitempty"`
 	RolesKey              string `json:"rolesKey,omitempty"`
 	SubjectKey            string `json:"subjectKey,omitempty"`
+	MasterUserName        string `json:"masterUserName,omitempty"`
+	MasterBackendRole     string `json:"masterBackendRole,omitempty"`
 	SessionTimeoutMinutes int    `json:"sessionTimeoutMinutes,omitempty"`
 	Enabled               bool   `json:"enabled,omitempty"`
 }
 
+// JWTOptions holds JWT authentication settings for AdvancedSecurityOptions.
+type JWTOptions struct {
+	JwksURL    string `json:"jwksUrl,omitempty"`
+	PublicKey  string `json:"publicKey,omitempty"`
+	RolesKey   string `json:"rolesKey,omitempty"`
+	SubjectKey string `json:"subjectKey,omitempty"`
+	Enabled    bool   `json:"enabled,omitempty"`
+}
+
+// IAMFederationOptions holds IAM identity federation settings for AdvancedSecurityOptions.
+type IAMFederationOptions struct {
+	RolesKey   string `json:"rolesKey,omitempty"`
+	SubjectKey string `json:"subjectKey,omitempty"`
+	Enabled    bool   `json:"enabled,omitempty"`
+}
+
 // AdvancedSecurityOptions holds fine-grained access control settings.
 type AdvancedSecurityOptions struct {
-	SAMLOptions                 *SAMLOptionsInput `json:"samlOptions,omitempty"`
-	MasterUserName              string            `json:"masterUserName,omitempty"`
-	MasterUserPasswordHash      string            `json:"masterUserPasswordHash,omitempty"`
-	MasterUserARN               string            `json:"masterUserArn,omitempty"`
-	AnonymousAuthEnabled        bool              `json:"anonymousAuthEnabled,omitempty"`
-	Enabled                     bool              `json:"enabled"`
-	InternalUserDatabaseEnabled bool              `json:"internalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthDisableDate    time.Time             `json:"anonymousAuthDisableDate,omitzero"`
+	SAMLOptions                 *SAMLOptionsInput     `json:"samlOptions,omitempty"`
+	JWTOptions                  *JWTOptions           `json:"jwtOptions,omitempty"`
+	IAMFederationOptions        *IAMFederationOptions `json:"iamFederationOptions,omitempty"`
+	MasterUserName              string                `json:"masterUserName,omitempty"`
+	MasterUserPasswordHash      string                `json:"masterUserPasswordHash,omitempty"`
+	MasterUserARN               string                `json:"masterUserArn,omitempty"`
+	AnonymousAuthEnabled        bool                  `json:"anonymousAuthEnabled,omitempty"`
+	fieldsSet                   advancedSecurityPresence
+	Enabled                     bool `json:"enabled"`
+	InternalUserDatabaseEnabled bool `json:"internalUserDatabaseEnabled,omitempty"`
 }
 
 // VPCOptions holds VPC configuration for an OpenSearch domain.

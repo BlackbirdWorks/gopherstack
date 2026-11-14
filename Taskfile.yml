@@ -165,6 +165,21 @@ tasks:
           -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
           -o bin/{{.BINARY_NAME}}-linux .
 
+  helm-test:
+    desc: Lint and golden-render charts/gopherstack with the pinned helm image (needs docker)
+    env:
+      GOPHERSTACK_TEST_DOCKER: "1"
+    cmds:
+      - go test -count=1 -run 'TestChart_(Lint|GoldenTemplate|SchemaRejects)' ./test/helm/
+
+  helm-install-test:
+    desc: Install charts/gopherstack into a k3s cluster and call it (needs docker)
+    deps: [build-linux]
+    env:
+      GOPHERSTACK_TEST_DOCKER: "1"
+    cmds:
+      - go test -count=1 -timeout 15m -run TestChart_InstallK3s -v ./test/helm/
+
   install-deps:
     desc: Install pinned golangci-lint, fieldalignment and dev MCP CLIs
     run: once

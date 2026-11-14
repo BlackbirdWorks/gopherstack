@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -334,6 +335,7 @@ const (
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	quotaGate                  quotalimit.Gate
+	orgPolicies                atomic.Pointer[SCPProvider]
 	policyVersionCounters      map[string]int
 	groups                     *store.Table[Group]
 	policies                   *store.Table[Policy]

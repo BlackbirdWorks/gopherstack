@@ -11,6 +11,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // Defaults for Config.
@@ -148,6 +150,7 @@ func (s *Server) handle(nc net.Conn) {
 
 	defer s.untrack(c)
 	defer c.shutdown()
+	defer logger.Recover(context.Background(), "amqp1.conn", c.internalError)
 
 	if err := c.handshake(); err != nil {
 		s.cfg.Logger.Debug("amqp1: handshake failed", "error", err)
@@ -164,7 +167,7 @@ func (c *conn) authenticateSASL(r *bufio.Reader) error {
 		return err
 	}
 
-	mechs := &SASLMechanisms{Mechanisms: []Symbol{"ANONYMOUS", "PLAIN"}}
+	mechs := &SASLMechanisms{Mechanisms: []Symbol{"ANONYMOUS", "PLAIN", "MSSBCBS"}}
 	if err := c.writePerformative(FrameSASL, 0, mechs); err != nil {
 		return err
 	}

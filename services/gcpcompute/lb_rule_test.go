@@ -302,3 +302,57 @@ func TestRegionalForwardingRule(t *testing.T) {
 		})
 	}
 }
+
+func TestGlobalForwardingRulePatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		body   *computepb.ForwardingRule
+		want   string
+		status int
+	}{
+		{name: "premium", body: &computepb.ForwardingRule{NetworkTier: s("PREMIUM")}, want: "PREMIUM"},
+		{
+			name:   "standard on global",
+			body:   &computepb.ForwardingRule{NetworkTier: s("STANDARD")},
+			status: http.StatusBadRequest,
+		},
+		{name: "unknown tier", body: &computepb.ForwardingRule{NetworkTier: s("FAST")}, status: http.StatusBadRequest},
+		{name: "other field", body: &computepb.ForwardingRule{Description: s("x")}, status: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.lbStack(t)
+			require.NoError(t, e.lbProxy(t, "px", umRef))
+			require.NoError(
+				t,
+				e.lbRule(t, &computepb.ForwardingRule{Name: s("a"), Target: s(proxyRef), PortRange: s("80")}),
+			)
+
+			rules := client(t, e, compute.NewGlobalForwardingRulesRESTClient)
+			op, err := rules.Patch(t.Context(), &computepb.PatchGlobalForwardingRuleRequest{
+				Project: project, ForwardingRule: "a", ForwardingRuleResource: tt.body,
+			})
+
+			if tt.status != 0 {
+				assertAPIError(t, err, tt.status, "")
+
+				return
+			}
+
+			e.done(t, op, err)
+
+			got, gerr := rules.Get(
+				t.Context(),
+				&computepb.GetGlobalForwardingRuleRequest{Project: project, ForwardingRule: "a"},
+			)
+			require.NoError(t, gerr)
+			assert.Equal(t, tt.want, got.GetNetworkTier())
+		})
+	}
+}

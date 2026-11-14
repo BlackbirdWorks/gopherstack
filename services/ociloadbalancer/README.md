@@ -9,21 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 61 (57 ok, 4 partial) |
 | Feature families | 16 (5 ok, 11 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Cipher suites ECDHE-RSA-AES128-SHA256 and ECDHE-ECDSA-AES128-SHA256 are accepted and stored by the control plane but not served by the data plane: Go classes them as insecure (tls.InsecureCipherSuites).
-- Not routed: CancelWorkRequest and tag/lock APIs; the shape catalogue is static. reservedIps, ipv6SubnetCidr and ipMode other than IPV4 are rejected.
-- Rejected with 400: IP_BASED_MAX_CONNECTIONS, SOURCE_VCN_ID and SOURCE_VCN_IP_ADDRESS conditions, areInvalidCharactersAllowed, backendTcpProxyProtocolVersion/Options, certificateIds and trustedCertificateAuthorityIds (OCI Certificates service), passphrase-protected private keys, TLS protocols below 1.2.
-- verifyPeerCertificate=false on a backend set does not turn verification off (repo rule: no InsecureSkipVerify); backends with self-signed certificates need their certificate uploaded as the bundle.
-- Unverified, from memory: flexible shape bounds (10-8000 Mbps), name character rules, retries/threshold semantics, health status aggregation, 409 code for in-flight work requests, listener port sharing by hostname, path route and rule precedence, ALLOW/REDIRECT multiple-condition semantics, header add semantics, HTTP 404 for non-matching virtual hosts, pathRouteSetName and routingPolicyName being mutually exclusive, the built-in cipher suite names, the routing-policy condition grammar subset.
+- Cipher suites ECDHE-RSA-AES128-SHA256 and ECDHE-ECDSA-AES128-SHA256 are accepted and stored by the control plane but deliberately not served by the data plane: suites Go classes as insecure (tls.InsecureCipherSuites) are never negotiated.
+- The shape catalogue is static. reservedIps, ipv6SubnetCidr and ipMode other than IPV4 are rejected. The SDK has no CancelWorkRequest, tag or lock operation for this service (oci-go-sdk loadbalancer/loadbalancer_client.go lists only GetWorkRequest and ListWorkRequests), so none is missing.
+- Rejected with 400: SOURCE_VCN_ID and SOURCE_VCN_IP_ADDRESS conditions (a loopback client has no VCN), areInvalidCharactersAllowed (net/http fixes the accepted header characters), certificateIds and trustedCertificateAuthorityIds (OCI Certificates service), passphrase-protected private keys, TLS protocols below 1.2.
+- Backend sets with verifyPeerCertificate=false skip verification only for loopback backend IPs (emulator-run targets; policy 2026-10-31); non-loopback backends are still verified, so they need their certificate uploaded as the bundle. verifyDepth is enforced on the verified chain (certificates above the leaf may not exceed it).
+- Not published (checked managingrulesets.htm, managingciphersuites.htm, balanceoverview.htm and the loadbalancer SDK comments): health status aggregation, the 409 code for in-flight work requests, listener port sharing by hostname, path route and rule precedence, REDIRECT multiple-condition semantics, HTTP 404 for non-matching virtual hosts, pathRouteSetName and routingPolicyName being mutually exclusive, the routing-policy condition grammar subset, and the cipher suite names oci-default-http2-*, oci-modern-ssl-cipher-suite-v1 and oci-tls-13-recommended-ssl-cipher-suite-v1 (managingciphersuites.htm names only default, wider-compatible, compatible and customized)
 - Addresses: public and private load balancers get an address from the emulator pool 198.18.0.0/15 (public) or the OCI Core subnet CIDR when wired; no real address is reachable, the data plane is on loopback ephemeral ports only. In containers those ports are not published; use the endpoints admin route from inside the container.
-- Health state is not persisted; backend maxConnections and balancing cursors are per process. No PROXY protocol, no SNI-based backend selection, no OCSP or session-ticket handling, no per-listener access logging.
-- opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. Private keys of certificates are not persisted, so TLS listeners need the certificate recreated after a restore.
-- ociapigateway still carries its own copy of the loopback dial guard instead of pkgs/httpclient.LoopbackDialer.
+- Health state is not persisted; backend maxConnections and balancing cursors are per process. No SNI-based backend selection, no OCSP or session-ticket handling, no per-listener access logging.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. Private keys of certificates are not persisted, so TLS listeners need the certificate recreated after a restore.
 
 ## More
 

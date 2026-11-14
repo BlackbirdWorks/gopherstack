@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // Command execution statuses.
@@ -486,21 +487,29 @@ const (
 	contentTypeCBOR = "application/cbor"
 )
 
+func renderTemplatePayload(cmd *IoTCommand, params map[string]map[string]any) ([]byte, string, error) {
+	tpl := cmd.PayloadTemplate
+	for name, v := range params {
+		tpl = strings.ReplaceAll(tpl, cmdTemplatePrefix+name+"}", renderParamValue(v))
+	}
+
+	out, _ := cmd.Preprocessor["awsJsonSubstitution"].(map[string]any)
+	if f, _ := out["outputFormat"].(string); f != "CBOR" {
+		return []byte(tpl), keyJSON, nil
+	}
+
+	encoded, err := service.JSONToCBOR([]byte(tpl), nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: the rendered payload template is not valid JSON: %w", ErrValidation, err)
+	}
+
+	return encoded, keyCBOR, nil
+}
+
 // renderCommandPayload returns the request payload and the topic format ("json", "cbor" or "").
 func renderCommandPayload(cmd *IoTCommand, params map[string]map[string]any) ([]byte, string, error) {
 	if cmd.PayloadTemplate != "" {
-		if out, _ := cmd.Preprocessor["awsJsonSubstitution"].(map[string]any); out != nil {
-			if f, _ := out["outputFormat"].(string); f == "CBOR" {
-				return nil, "", fmt.Errorf("%w: CBOR output of payload templates is not supported", ErrValidation)
-			}
-		}
-
-		tpl := cmd.PayloadTemplate
-		for name, v := range params {
-			tpl = strings.ReplaceAll(tpl, cmdTemplatePrefix+name+"}", renderParamValue(v))
-		}
-
-		return []byte(tpl), keyJSON, nil
+		return renderTemplatePayload(cmd, params)
 	}
 
 	content, _ := cmd.Payload["content"].(string)

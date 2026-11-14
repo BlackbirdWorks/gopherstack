@@ -39,10 +39,10 @@ families:
   Tags: {status: ok, note: "Budgets and budget actions are taggable; unknown ARNs return NotFoundException."}
 gaps: []
 items_still_open:
-  - CalculatedSpend: spend comes from the Cost Explorer ledger, which is synthetic seed data (90 days), not real usage
-  - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; no utilization source is wired
-  - CostFilters: AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, etc. do not narrow spend (the ledger does not model them); FilterExpression is flattened to And-of-Dimensions only, Or/Not/Tags/CostCategories are ignored for spend
-  - CostTypes: Include* flags exclude ledger entries by charge type (ce CostEntry.ChargeType, RECORD_TYPE-style values), but the synthetic seed ledger only holds Usage entries, so flags change spend only for entries added with RecordCharge; the flag-to-charge-type mapping (Subscription, Fee, Discount) is unverified
+  - CalculatedSpend: spend comes from the Cost Explorer ledger, whose rows are the seeded 90-day catalog plus RecordCharge entries; no emulated service meters usage into it
+  - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; the only utilization data in the emulator is Cost Explorer's constant-ratio synthetic values (ce/reservations.go, ce/savings_plans.go), which would be fabricated here
+  - CostFilters/FilterExpression: CostCategories and ProductAttributes clauses and the CostFilters CostCategory and SubscriptionId keys do not narrow spend (cost category rules carry no expression and ledger rows carry no product attributes or subscription)
+  - CostTypes: Include* flags exclude ledger entries by charge type, but only the seeded Usage rows and RecordCharge entries exist, so no emulated service ever produces Tax, Credit, Refund, Support or Subscription charges
   - Alerting: topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
   - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
   - BillingViewArn: format-checked only; HealthStatus is always HEALTHY
@@ -57,3 +57,7 @@ Protocol awsjson1.1, X-Amz-Target prefix AWSBudgetServiceGateway. Budgets is a g
 An action key is acct/name/action/id, which is why budget names may not contain "/action/".
 Percentage thresholds compare spend to the limit of the current period (planned limits resolved by period offset).
 Wiring lives in internal/app/budgets_wiring.go (Cost Explorer ledger, SNS/SES, IAM/Organizations/SSM).
+
+## Ledger dimensions
+CostFilters AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, BillingEntity, InvoicingEntity and LegalEntityName narrow spend through ce CostEntry fields; FilterExpression Dimensions use the same fields (AZ, INSTANCE_TYPE, OPERATION, PURCHASE_TYPE, USAGE_TYPE_GROUP, BILLING_ENTITY, INVOICING_ENTITY, LEGAL_ENTITY_NAME, CHARGE_TYPE).
+Include* flag to charge-type mapping follows the CostTypes field descriptions (API_budgets_CostTypes); the API reference gives no finer mapping.

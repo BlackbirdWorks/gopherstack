@@ -129,6 +129,7 @@ func (h *Handler) registerServers(srv *grpc.Server) {
 	resourcemanagerpb.RegisterTagKeysServer(srv, tagKeysServer{iamMethods: iam})
 	resourcemanagerpb.RegisterTagValuesServer(srv, tagValuesServer{iamMethods: iam})
 	resourcemanagerpb.RegisterTagBindingsServer(srv, tagBindingsServer{b: h.Backend})
+	resourcemanagerpb.RegisterTagHoldsServer(srv, tagHoldsServer{b: h.Backend})
 	serviceusagepb.RegisterServiceUsageServer(srv, serviceUsageServer{b: h.Backend})
 	longrunningpb.RegisterOperationsServer(srv, h.Backend.lro)
 }
@@ -145,7 +146,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpresourcemanager", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.UnaryInterceptor(logUnary(log)))
+	srv := grpc.NewServer(append(gcpenforce.RecoverOptions(), grpc.ChainUnaryInterceptor(
+		logUnary(log), h.Backend.Audit.UnaryInterceptor(auditPolicy(), h.Backend.now),
+	))...)
 	h.registerServers(srv)
 
 	h.srvMu.Lock("StartWorker")

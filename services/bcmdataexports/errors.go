@@ -60,8 +60,8 @@ type fieldError struct {
 
 // detail carries the modeled members beyond Message: ResourceNotFound ids, ValidationException reason and fields.
 type detail struct {
-	resourceID, resourceType, reason string
-	fields                           []fieldError
+	resourceID, resourceType, reason, serviceCode string
+	fields                                        []fieldError
 }
 
 type detailedError struct {
@@ -75,6 +75,16 @@ func notFound(resourceType, id, msg string, args ...any) error {
 	return &detailedError{
 		error: fail(ErrResourceNotFound, msg, args...),
 		d:     detail{resourceID: id, resourceType: resourceType},
+	}
+}
+
+// serviceCodeDataExports is the only ServiceCode the API documents for quota and throttling errors.
+const serviceCodeDataExports = "AWSBillingAndCostManagementDataExports"
+
+func quotaExceeded(resourceType, id, msg string, args ...any) error {
+	return &detailedError{
+		error: fail(ErrServiceQuotaExceeded, msg, args...),
+		d:     detail{resourceID: id, resourceType: resourceType, serviceCode: serviceCodeDataExports},
 	}
 }
 
@@ -112,6 +122,7 @@ type errorBody struct {
 	Message      string       `json:"Message"`
 	ResourceID   string       `json:"ResourceId,omitempty"`
 	ResourceType string       `json:"ResourceType,omitempty"`
+	ServiceCode  string       `json:"ServiceCode,omitempty"`
 	Reason       string       `json:"Reason,omitempty"`
 	Fields       []fieldError `json:"Fields,omitempty"`
 }
@@ -120,7 +131,7 @@ type errorBody struct {
 func writeErrorBody(c *echo.Context, e awserr.APIError, d detail) error {
 	body, _ := json.Marshal(errorBody{
 		Type: e.Code, Message: e.Message, ResourceID: d.resourceID,
-		ResourceType: d.resourceType, Reason: d.reason, Fields: d.fields,
+		ResourceType: d.resourceType, ServiceCode: d.serviceCode, Reason: d.reason, Fields: d.fields,
 	}, jsonx.V1())
 
 	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(crc32.ChecksumIEEE(body)), 10))

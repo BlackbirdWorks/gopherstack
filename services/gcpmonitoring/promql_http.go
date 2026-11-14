@@ -43,7 +43,8 @@ func IsPrometheusPath(path string) bool {
 }
 
 // PrometheusHandler serves the Managed Service for Prometheus query API over the stored metrics:
-// /v1/projects/P/location/global/prometheus/api/v1/{query,query_range,series,labels,label/NAME/values,metadata}.
+// /v1/projects/P/location/global/prometheus/api/v1/{query,query_range,query_exemplars,series,labels,
+// label/NAME/values,metadata}.
 func (b *InMemoryBackend) PrometheusHandler() http.Handler {
 	return http.HandlerFunc(b.servePrometheus)
 }
@@ -208,17 +209,27 @@ func (b *InMemoryBackend) servePrometheus(w http.ResponseWriter, r *http.Request
 
 	project, op := m[1], m[2]
 
+	b.servePromOp(w, r, project, op, vals)
+}
+
+func (b *InMemoryBackend) servePromOp(w http.ResponseWriter, r *http.Request, project, op string, vals url.Values) {
 	switch {
 	case op == "query":
 		b.promInstant(w, r, project, vals)
 	case op == "query_range":
 		b.promRange(w, r, project, vals)
+	case op == "query_exemplars":
+		b.promExemplarsHandler(w, project, vals)
 	case op == "series":
 		b.promSeries(w, project, vals)
 	case op == "labels":
 		b.promLabelNames(w, project, vals)
 	case op == "metadata":
 		b.promMetadata(w, project, vals)
+	case op == "rules":
+		b.promRules(w, project, vals)
+	case op == "alerts":
+		b.promAlerts(w, project)
 	case strings.HasPrefix(op, "label/") && strings.HasSuffix(op, "/values"):
 		b.promLabelValues(w, project, strings.TrimSuffix(strings.TrimPrefix(op, "label/"), "/values"), vals)
 	default:

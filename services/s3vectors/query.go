@@ -67,12 +67,18 @@ func (b *InMemoryBackend) queryVectors(sc scope, in *queryIn) (any, error) {
 		return nil, err
 	}
 
+	if err = b.checkKeyLocked(ix); err != nil {
+		return nil, err
+	}
+
 	match, err := validateQuery(ix, in)
 	if err != nil {
 		return nil, err
 	}
 
-	pg := page.New(b.rank(ix, in, match), in.NextToken, *in.TopK, *in.TopK)
+	ranked := b.rank(ix, in, match)
+	ranked = ranked[:min(len(ranked), *in.TopK)]
+	pg := page.New(ranked, in.NextToken, maxQueryPage, maxQueryPage)
 	out := make([]queryVector, 0, len(pg.Data))
 
 	for _, h := range pg.Data {
@@ -106,7 +112,24 @@ func validateQuery(ix *Index, in *queryIn) (matcher, error) {
 		return nil, err
 	}
 
-	return compileFilter(in.Filter, ix)
+	fc := &filterCtx{ix: ix, enhanced: cmp.Or(in.QueryMode, ix.Mode) == modeEnhanced}
+
+	m, err := compileFilter(in.Filter, fc)
+	if err != nil {
+		return nil, err
+	}
+
+	if ix.Mode == modeEnhanced && fc.constraints > maxFilterConstraints {
+		return nil, invalid("filter has %d constraints, the limit is %d", fc.constraints, maxFilterConstraints)
+	}
+
+	return m, nil
+}
+
+type filterCtx struct {
+	ix          *Index
+	constraints int
+	enhanced    bool
 }
 
 // rank returns the vectors passing the filter, nearest first; ties break on key.
@@ -147,7 +170,7 @@ type matcher func(meta map[string]any) bool
 
 func matchAll(map[string]any) bool { return true }
 
-func compileFilter(f any, ix *Index) (matcher, error) {
+func compileFilter(f any, fc *filterCtx) (matcher, error) {
 	if f == nil {
 		return matchAll, nil
 	}
@@ -161,10 +184,10 @@ func compileFilter(f any, ix *Index) (matcher, error) {
 		return matchAll, nil
 	}
 
-	return compileObject(obj, ix)
+	return compileObject(obj, fc)
 }
 
-func compileObject(obj map[string]any, ix *Index) (matcher, error) {
+func compileObject(obj map[string]any, fc *filterCtx) (matcher, error) {
 	keys := make([]string, 0, len(obj))
 	for k := range obj {
 		keys = append(keys, k)
@@ -181,9 +204,9 @@ func compileObject(obj map[string]any, ix *Index) (matcher, error) {
 		)
 
 		if strings.HasPrefix(k, "$") {
-			m, err = compileLogical(k, obj[k], ix)
+			m, err = compileLogical(k, obj[k], fc)
 		} else {
-			m, err = compileField(k, obj[k], ix)
+			m, err = compileField(k, obj[k], fc)
 		}
 
 		if err != nil {
@@ -204,7 +227,7 @@ func compileObject(obj map[string]any, ix *Index) (matcher, error) {
 	}, nil
 }
 
-func compileLogical(op string, v any, ix *Index) (matcher, error) {
+func compileLogical(op string, v any, fc *filterCtx) (matcher, error) {
 	if op != opAnd && op != opOr {
 		return nil, invalid("unsupported top-level filter operator %q", op)
 	}
@@ -222,7 +245,7 @@ func compileLogical(op string, v any, ix *Index) (matcher, error) {
 			return nil, invalid("%s requires a non-empty array of filter objects", op)
 		}
 
-		m, err := compileObject(obj, ix)
+		m, err := compileObject(obj, fc)
 		if err != nil {
 			return nil, err
 		}
@@ -250,13 +273,15 @@ func isPrimitive(v any) bool {
 	return false
 }
 
-func compileField(key string, v any, ix *Index) (matcher, error) {
-	if !ix.filterable(key) {
+func compileField(key string, v any, fc *filterCtx) (matcher, error) {
+	if !fc.ix.filterable(key) {
 		return nil, invalid("metadata key %q is non-filterable and cannot be used in a filter", key)
 	}
 
 	if isPrimitive(v) {
-		return fieldOp(key, "$eq", v)
+		fc.constraints++
+
+		return fieldOp(key, "$eq", v, fc)
 	}
 
 	ops, ok := v.(map[string]any)
@@ -274,7 +299,13 @@ func compileField(key string, v any, ix *Index) (matcher, error) {
 	parts := make([]matcher, 0, len(names))
 
 	for _, n := range names {
-		m, err := fieldOp(key, n, ops[n])
+		if list, isList := ops[n].([]any); isList {
+			fc.constraints += len(list)
+		} else {
+			fc.constraints++
+		}
+
+		m, err := fieldOp(key, n, ops[n], fc)
 		if err != nil {
 			return nil, err
 		}
@@ -293,8 +324,10 @@ func compileField(key string, v any, ix *Index) (matcher, error) {
 	}, nil
 }
 
-func fieldOp(key, op string, arg any) (matcher, error) {
+func fieldOp(key, op string, arg any, fc *filterCtx) (matcher, error) {
 	switch op {
+	case "$startsWith":
+		return compileStartsWith(key, arg, fc)
 	case "$eq", "$ne":
 		if !isPrimitive(arg) {
 			return nil, invalid("%s on %q requires a string, number or boolean", op, key)
@@ -335,6 +368,25 @@ func fieldOp(key, op string, arg any) (matcher, error) {
 	}
 
 	return nil, invalid("unsupported filter operator %q on %q", op, key)
+}
+
+func compileStartsWith(key string, arg any, fc *filterCtx) (matcher, error) {
+	prefix, ok := arg.(string)
+	if !ok {
+		return nil, invalid("$startsWith on %q requires a string", key)
+	}
+
+	if !fc.enhanced {
+		return nil, invalid("$startsWith requires an ENHANCED vector index or queryMode ENHANCED")
+	}
+
+	return func(meta map[string]any) bool {
+		return holds(meta[key], func(e any) bool {
+			str, isStr := e.(string)
+
+			return isStr && strings.HasPrefix(str, prefix)
+		})
+	}, nil
 }
 
 func compileIn(key, op string, arg any) (matcher, error) {

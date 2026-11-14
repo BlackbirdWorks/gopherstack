@@ -94,7 +94,12 @@ func (h *Handler) handleAPIM(c *echo.Context, segs []string) error {
 		return c.NoContent(resp.Status)
 	}
 
-	return h.writeJSON(c, resp.Status, resp.Body)
+	body, err := h.pageAPIMList(r, r.Method, resp.Body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, resp.Status, body)
 }
 
 func (h *Handler) handleAPIMCheckName(c *echo.Context, segs []string) error {

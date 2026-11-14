@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
@@ -284,22 +285,28 @@ type replicationTaskStatsJSON struct {
 }
 
 func taskStats(rt *ReplicationTask) *replicationTaskStatsJSON {
-	if rt.StartDate.IsZero() {
+	return runStats(rt.StartDate, rt.StopDate, rt.FullLoadStartDate, rt.FullLoadFinishDate, rt.ElapsedTimeMillis,
+		rt.TableStats)
+}
+
+// runStats derives the statistics members shared by ReplicationTaskStats and ReplicationStats.
+func runStats(
+	start, stop, flStart, flFinish time.Time, elapsed int64, tables []TableStatistic,
+) *replicationTaskStatsJSON {
+	if start.IsZero() {
 		return nil
 	}
 
 	st := &replicationTaskStatsJSON{
-		ElapsedTimeMillis: rt.ElapsedTimeMillis,
-		FreshStartDate:    awstime.Epoch(rt.StartDate),
-		FullLoadStartDate: awstime.Epoch(
-			rt.FullLoadStartDate,
-		),
-		FullLoadFinishDate: awstime.Epoch(rt.FullLoadFinishDate),
-		StartDate:          awstime.Epoch(rt.StartDate),
-		StopDate:           awstime.Epoch(rt.StopDate),
+		ElapsedTimeMillis:  elapsed,
+		FreshStartDate:     awstime.Epoch(start),
+		FullLoadStartDate:  awstime.Epoch(flStart),
+		FullLoadFinishDate: awstime.Epoch(flFinish),
+		StartDate:          awstime.Epoch(start),
+		StopDate:           awstime.Epoch(stop),
 	}
 
-	for _, ts := range rt.TableStats {
+	for _, ts := range tables {
 		switch ts.TableState {
 		case "Table completed":
 			st.TablesLoaded++
@@ -312,8 +319,8 @@ func taskStats(rt *ReplicationTask) *replicationTaskStatsJSON {
 		}
 	}
 
-	switch total := len(rt.TableStats); {
-	case !rt.FullLoadFinishDate.IsZero():
+	switch total := len(tables); {
+	case !flFinish.IsZero():
 		st.FullLoadProgressPercent = percentComplete
 	case total > 0:
 		st.FullLoadProgressPercent = int32(int(st.TablesLoaded) * percentComplete / total) //nolint:gosec // 0..100
@@ -423,14 +430,10 @@ func buildTableStatistics(tableMappings string) []tableStatisticJSON {
 }
 
 type describeReplicationTableStatisticsInput struct {
-	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
-	Marker               *string `json:"Marker"`
-	MaxRecords           *int32  `json:"MaxRecords"`
-	// Filters is accepted for wire-shape parity (real DescribeReplicationTableStatisticsInput
-	// carries []types.Filter) but is never applied: ReplicationTableStatistics is always
-	// empty in this emulation (see the handler doc below), so there is no per-table state
-	// for a filter to narrow.
-	Filters []filterEntry `json:"Filters"`
+	ReplicationConfigArn *string       `json:"ReplicationConfigArn"`
+	Marker               *string       `json:"Marker"`
+	MaxRecords           *int32        `json:"MaxRecords"`
+	Filters              []filterEntry `json:"Filters"`
 }
 
 type describeReplicationTableStatisticsOutput struct {
@@ -439,11 +442,8 @@ type describeReplicationTableStatisticsOutput struct {
 	ReplicationTableStatistics []tableStatisticJSON `json:"ReplicationTableStatistics"`
 }
 
-// handleDescribeReplicationTableStatistics reports per-table statistics for a
-// DMS Serverless replication config. ReplicationConfig carries no TableMappings
-// state in this emulation (see models.go), so a config that exists but has no
-// tracked mappings legitimately returns an empty list rather than borrowing
-// data from an unrelated classic replication task.
+// handleDescribeReplicationTableStatistics reports per-table statistics of the config's engine run; a config that
+// has not run reports none.
 func (h *Handler) handleDescribeReplicationTableStatistics(
 	ctx context.Context, in *describeReplicationTableStatisticsInput,
 ) (*describeReplicationTableStatisticsOutput, error) {
@@ -467,9 +467,23 @@ func (h *Handler) handleDescribeReplicationTableStatistics(
 		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, configArn)
 	}
 
+	df := newDescribeFilters(in.Filters)
+	stats := make([]tableStatisticJSON, 0, len(found.TableStats))
+
+	for _, ts := range found.TableStats {
+		s := statJSON(ts)
+		if df.Matches("schema-name", s.SchemaName) && df.Matches("table-name", s.TableName) &&
+			df.Matches("table-state", s.TableState) {
+			stats = append(stats, s)
+		}
+	}
+
+	data, nextMarker := dmsPaginate(stats, in.Marker, in.MaxRecords)
+
 	return &describeReplicationTableStatisticsOutput{
 		ReplicationConfigArn:       found.ReplicationConfigArn,
-		ReplicationTableStatistics: []tableStatisticJSON{},
+		ReplicationTableStatistics: data,
+		Marker:                     nextMarker,
 	}, nil
 }
 
@@ -648,7 +662,7 @@ func (h *Handler) handleReloadReplicationTables(
 		)
 	}
 
-	rc, err := h.Backend.ReloadReplicationTables(ctx, configArn)
+	rc, err := h.Backend.ReloadReplicationTables(ctx, configArn, tableRefs(in.TablesToReload))
 	if err != nil {
 		return nil, err
 	}

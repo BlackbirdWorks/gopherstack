@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	sqlitedriver "modernc.org/sqlite"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -76,7 +74,7 @@ func decodeComplex(s string) (any, bool) {
 func trinoString(v any) string {
 	switch t := v.(type) {
 	case nil:
-		return "null"
+		return kwNull
 	case string:
 		return t
 	case bool:
@@ -91,6 +89,10 @@ func trinoString(v any) string {
 
 		return "[" + strings.Join(parts, ", ") + "]"
 	case map[string]any:
+		if names, ok := rowNames(t); ok {
+			return renderRow(t, names)
+		}
+
 		keys := make([]string, 0, len(t))
 		for k := range t {
 			keys = append(keys, k)
@@ -125,7 +127,7 @@ func displayComplex(s, decl string) (string, string, bool) {
 
 	if _, isMap := v.(map[string]any); isMap {
 		kind = kindMap
-		if strings.EqualFold(decl, declRow) {
+		if isRowValue(v) || strings.EqualFold(decl, declRow) {
 			kind = kindRow
 		}
 	}
@@ -190,6 +192,10 @@ func udfSubscript(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	case []any:
 		return subscriptArray(c, args[1])
 	case map[string]any:
+		if names, isRow := rowNames(c); isRow {
+			return rowSubscript(c, names, args[1])
+		}
+
 		return subscriptMap(c, args[1])
 	default:
 		return sqlNull(), nil
@@ -206,7 +212,7 @@ func udfStructField(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	for k, v := range m {
-		if strings.EqualFold(k, name) {
+		if k != rowMarker && strings.EqualFold(k, name) {
 			return sqlValue(v), nil
 		}
 	}
@@ -262,11 +268,12 @@ func udfIndexList(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 }
 
 func registerComplexFuncs() {
-	reg := sqlitedriver.MustRegisterDeterministicScalarFunction
+	reg := registerScalar
 	reg("athena_array", -1, udfAthenaArray)
 	reg("athena_subscript", argsTwo, udfSubscript)
 	reg("athena_field", argsTwo, udfStructField)
 	reg("athena_unmark", 1, udfUnmark)
+	registerRowFuncs()
 	reg("athena_elem", argsTwo, udfElem)
 	reg("athena_index_list", argsTwo, udfIndexList)
 }

@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -422,4 +423,53 @@ func TestCustomAuthenticator(t *testing.T) {
 		401,
 		e.call(t, *gw.Id, http.MethodGet, "/b/x", map[string]string{"X-Auth": "t", "X-Key": "no"}, "").status,
 	)
+}
+
+func TestAuthenticationNeedsTokenLocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		auth string
+		ok   bool
+	}{
+		{
+			"none",
+			`{"type":"TOKEN_AUTHENTICATION","isAnonymousAccessAllowed":false,"validationPolicy":{"type":"REMOTE_DISCOVERY"}}`,
+			false,
+		},
+		{
+			"jwt none",
+			`{"type":"JWT_AUTHENTICATION","issuers":["i"],"audiences":["a"],` +
+				`"publicKeys":{"type":"REMOTE_JWKS","uri":"https://x.example/jwks"}}`,
+			false,
+		},
+		{
+			"query param",
+			`{"type":"JWT_AUTHENTICATION","tokenQueryParam":"t","issuers":["i"],"audiences":["a"],` +
+				`"publicKeys":{"type":"REMOTE_JWKS","uri":"https://x.example/jwks"}}`,
+			true,
+		},
+	}
+
+	e := newEnv(t, envOpts{})
+	gw := e.mkGateway(t, "auth-loc")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := `{"requestPolicies":{"authentication":` + tt.auth + `},"routes":[]}`
+			_, err := e.createDeployment(t, *gw.Id, "/"+strings.ReplaceAll(tt.name, " ", ""), specFromJSON(t, spec))
+
+			if tt.ok {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
 }

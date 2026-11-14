@@ -323,7 +323,7 @@ func (b *Backend) ListHoursOfOperationOverrides(
 		return nil, err
 	}
 
-	if _, err = readInstance(b, "ListHoursOfOperationOverrides", inst, func(i string) (*empty, error) {
+	if _, err = readInstance(b, "ListHoursOfOperationOverrides", inst, func(i string) (*EmptyOutput, error) {
 		h, herr := b.hours.get(i, hoursID)
 		if herr == nil {
 			stamp = h.Hours.Stamp
@@ -344,8 +344,8 @@ func (b *Backend) ListHoursOfOperationOverrides(
 func (b *Backend) UpdateHoursOfOperationOverride(
 	ctx context.Context,
 	in *UpdateHoursOfOperationOverrideInput,
-) (*empty, error) {
-	return writeInstance(b, "UpdateHoursOfOperationOverride", in.InstanceID, func(inst string) (*empty, error) {
+) (*EmptyOutput, error) {
+	return writeInstance(b, "UpdateHoursOfOperationOverride", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		rec, err := b.overrideOf(inst, in.HoursID, in.OverrideID)
 		if err != nil {
 			return nil, err
@@ -372,7 +372,7 @@ func (b *Backend) UpdateHoursOfOperationOverride(
 			return true
 		})
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -396,8 +396,8 @@ func applyOverridePatch(dst, patch *HoursOfOperationOverride, in *overrideBody) 
 }
 
 // DeleteHoursOfOperationOverride removes an override.
-func (b *Backend) DeleteHoursOfOperationOverride(inst, hoursID, id string) (*empty, error) {
-	return writeInstance(b, "DeleteHoursOfOperationOverride", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteHoursOfOperationOverride(inst, hoursID, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteHoursOfOperationOverride", inst, func(inst string) (*EmptyOutput, error) {
 		if _, err := b.overrideOf(inst, hoursID, id); err != nil {
 			return nil, err
 		}
@@ -460,8 +460,8 @@ func (b *Backend) checkParentHours(inst, self string, cfgs []ParentHoursConfig) 
 }
 
 // AssociateHoursOfOperations adds parent schedules.
-func (b *Backend) AssociateHoursOfOperations(ctx context.Context, in *ParentHoursInput) (*empty, error) {
-	return writeInstance(b, "AssociateHoursOfOperations", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) AssociateHoursOfOperations(ctx context.Context, in *ParentHoursInput) (*EmptyOutput, error) {
+	return writeInstance(b, "AssociateHoursOfOperations", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		h, err := b.hours.get(inst, in.HoursID)
 		if err != nil {
 			return nil, err
@@ -491,13 +491,13 @@ func (b *Backend) AssociateHoursOfOperations(ctx context.Context, in *ParentHour
 		h.Parents = merged
 		h.Hours.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DisassociateHoursOfOperations removes parent schedules.
-func (b *Backend) DisassociateHoursOfOperations(ctx context.Context, in *ParentHoursInput) (*empty, error) {
-	return writeInstance(b, "DisassociateHoursOfOperations", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DisassociateHoursOfOperations(ctx context.Context, in *ParentHoursInput) (*EmptyOutput, error) {
+	return writeInstance(b, "DisassociateHoursOfOperations", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		h, err := b.hours.get(inst, in.HoursID)
 		if err != nil {
 			return nil, err
@@ -518,7 +518,7 @@ func (b *Backend) DisassociateHoursOfOperations(ctx context.Context, in *ParentH
 		})
 		h.Hours.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -547,7 +547,7 @@ func (b *Backend) ListChildHoursOfOperations(inst, hoursID, token string, maxRes
 		return nil, err
 	}
 
-	if _, err = readInstance(b, "ListChildHoursOfOperations", inst, func(i string) (*empty, error) {
+	if _, err = readInstance(b, "ListChildHoursOfOperations", inst, func(i string) (*EmptyOutput, error) {
 		return nil, ignoreFound(b.hours.get(i, hoursID))
 	}); err != nil {
 		return nil, err

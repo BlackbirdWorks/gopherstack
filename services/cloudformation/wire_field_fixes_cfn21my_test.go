@@ -53,7 +53,7 @@ func TestListStacks_ItemFields_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+	delCreate, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
 		StackName:    aws.String("cfn21my-deleted-stack"),
 		TemplateBody: aws.String(okTemplate),
 	})
@@ -96,8 +96,13 @@ func TestListStacks_ItemFields_RealClient(t *testing.T) {
 	require.NotNil(t, descUpd.Stacks[0].LastUpdatedTime,
 		"DescribeStacks: LastUpdatedTime nil on an updated stack")
 
-	descDel, err := client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{
+	_, err = client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{
 		StackName: aws.String("cfn21my-deleted-stack"),
+	})
+	require.ErrorContains(t, err, "does not exist", "a deleted stack is not describable by name")
+
+	descDel, err := client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{
+		StackName: delCreate.StackId,
 	})
 	require.NoError(t, err)
 	require.Len(t, descDel.Stacks, 1)

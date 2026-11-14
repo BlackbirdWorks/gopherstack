@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -224,4 +225,81 @@ func TestStartTask_AwslogsLogConfiguration_CreatesLogGroupAndStream(t *testing.T
 	require.Len(t, calls, 1)
 	require.Equal(t, "/ecs/starttask", calls[0].group)
 	require.Equal(t, wantStream, calls[0].stream)
+}
+
+type groupCheckingCWLogs struct {
+	groups map[string]bool
+	mockECSCWLogsBackend
+}
+
+func (g *groupCheckingCWLogs) LogGroupExists(name string) bool { return g.groups[name] }
+
+func TestCheckAwslogsGroup(t *testing.T) {
+	t.Parallel()
+
+	cwl := &groupCheckingCWLogs{groups: map[string]bool{"/ecs/present": true}}
+
+	def := func(group, create string) ContainerDefinition {
+		cd := awslogsContainerDef(group, "")
+		if create != "" {
+			cd.LogConfiguration.Options[optAwslogsCreateGroup] = create
+		}
+
+		return cd
+	}
+
+	tests := []struct {
+		name    string
+		cd      ContainerDefinition
+		wantErr bool
+	}{
+		{name: "missing group fails", cd: def("/ecs/absent", ""), wantErr: true},
+		{name: "create group false fails", cd: def("/ecs/absent", "false"), wantErr: true},
+		{name: "create group true passes", cd: def("/ecs/absent", "true")},
+		{name: "existing group passes", cd: def("/ecs/present", "")},
+		{name: "other driver passes", cd: ContainerDefinition{
+			Name: "a", LogConfiguration: &LogConfiguration{LogDriver: "json-file"},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := checkAwslogsGroup(cwl, tt.cd)
+			if tt.wantErr {
+				require.ErrorIs(t, err, errLogGroupMissing)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDockerRunner_MissingAwslogsGroupFailsTask(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{}
+	runner := newLaunchRunner(t, fake)
+	b := NewInMemoryBackend("000000000000", "us-east-1", runner)
+	b.wireRunnerHooks(runner)
+	b.SetCWLogsBackend(&groupCheckingCWLogs{groups: map[string]bool{}})
+
+	_, err := b.CreateCluster(CreateClusterInput{ClusterName: "c"})
+	require.NoError(t, err)
+
+	_, err = b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family: "job", ContainerDefinitions: []ContainerDefinition{awslogsContainerDef("/ecs/absent", "p")},
+	})
+	require.NoError(t, err)
+
+	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "c", TaskDefinition: "job"})
+	require.NoError(t, err)
+
+	got := describeOne(t, b, settleTasks(t, b, tasks)[0].TaskArn)
+	assert.Equal(t, statusStopped, got.LastStatus)
+	assert.Equal(t, stopCodeTaskFailedToStart, got.StopCode)
+	assert.Contains(t, got.StoppedReason, "log group does not exist")
 }

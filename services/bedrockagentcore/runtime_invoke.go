@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -37,7 +39,7 @@ func forwardRequestHeaders() []string {
 // forwardResponseHeaders are copied from the agent container to the SDK response.
 func forwardResponseHeaders() []string {
 	return []string{
-		"Content-Type", "Baggage", "Traceparent", "Tracestate", "X-Amzn-Trace-Id", "Mcp-Protocol-Version",
+		"Baggage", "Traceparent", "Tracestate", "X-Amzn-Trace-Id", "Mcp-Protocol-Version",
 		"Mcp-Session-Id", "Cache-Control",
 	}
 }
@@ -85,6 +87,12 @@ func (b *InMemoryBackend) resolveRuntime(r *http.Request, p map[string]string, s
 		return nil, retryableConflict("agent runtime %q is not READY", id)
 	case err != nil:
 		return nil, internal("resolving the agent runtime failed")
+	}
+
+	if info.Authorize != nil {
+		if f := info.Authorize(r.Context(), r); f != nil {
+			return nil, authRejected(f)
+		}
 	}
 
 	return &runtimeTarget{sc: sc, info: info, key: runtimeKey(sc, id, qualifier, session), sessionID: session}, nil
@@ -142,6 +150,10 @@ func (b *InMemoryBackend) invokeAgentRuntime(c *echo.Context, p map[string]strin
 }
 
 func writeErr(c *echo.Context, err error) error {
+	if ae, ok := errors.AsType[*authError](err); ok && ae.challenge != "" {
+		c.Response().Header().Set("WWW-Authenticate", ae.challenge)
+	}
+
 	if apiErr, ok := errors.AsType[*restroute.Error](err); ok {
 		return restroute.WriteError(c, apiErr.Status, apiErr.Code, apiErr.Message, apiErr.Extra)
 	}
@@ -155,15 +167,18 @@ func writeErr(c *echo.Context, err error) error {
 	)
 }
 
+// maxInvokePayloadBytes is the InvokeAgentRuntime payload limit of the AWS API Reference (100000000).
+const maxInvokePayloadBytes = 100_000_000
+
 func (e *engine) outbound(ctx context.Context, r *http.Request, rs *runtimeSession, method, path string) (
 	*http.Request, error,
 ) {
 	var body io.Reader = http.NoBody
 
 	if method == http.MethodPost {
-		payload, err := httputils.ReadBody(r)
+		payload, err := httputils.ReadBodyLimit(r, maxInvokePayloadBytes)
 		if err != nil {
-			return nil, invalid("the payload could not be read or exceeds %d bytes", httputils.MaxRequestBodyBytes)
+			return nil, invalid("the payload could not be read or exceeds %d bytes", maxInvokePayloadBytes)
 		}
 
 		body = bytes.NewReader(payload)
@@ -220,6 +235,8 @@ func (b *InMemoryBackend) proxyInvocation(
 	return streamResponse(c, resp, tgt.sessionID)
 }
 
+var reCharset = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
+
 func streamResponse(c *echo.Context, resp *http.Response, session string) error {
 	w := c.Response()
 
@@ -230,6 +247,30 @@ func streamResponse(c *echo.Context, resp *http.Response, session string) error 
 	}
 
 	w.Header().Set(hdrSession, session)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	mt, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+
+	switch mt {
+	case "application/json":
+		w.Header().Set("Content-Type", "application/json")
+	case "text/event-stream":
+		w.Header().Set("Content-Type", "text/event-stream")
+	case "application/x-ndjson":
+		w.Header().Set("Content-Type", "application/x-ndjson")
+	case "text/plain":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	switch mt {
+	case "application/json", "application/x-ndjson":
+		if cs := params["charset"]; reCharset.MatchString(cs) {
+			w.Header().Set("Content-Type", mt+"; charset="+cs)
+		}
+	}
+
 	w.WriteHeader(resp.StatusCode)
 
 	rc := http.NewResponseController(w)

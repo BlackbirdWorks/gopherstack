@@ -61,6 +61,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateBuildTrigger", "GetBuildTrigger", "ListBuildTriggers", "DeleteBuildTrigger", "UpdateBuildTrigger",
 		"RunBuildTrigger", "ReceiveTriggerWebhook",
 		"CreateWorkerPool", "GetWorkerPool", "ListWorkerPools", "UpdateWorkerPool", "DeleteWorkerPool",
+		"GetDefaultServiceAccount",
 		"GetOperation", "ListOperations", "DeleteOperation", "CancelOperation", "WaitOperation",
 	}
 }

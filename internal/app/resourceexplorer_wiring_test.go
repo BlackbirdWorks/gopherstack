@@ -83,7 +83,7 @@ func TestResourceExplorerWiringSearchesRealResources(t *testing.T) {
 	_, err = sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("re2-fresh")})
 	require.NoError(t, err)
 
-	fresh, err := re.Search(ctx, &resourceexplorer2.SearchInput{QueryString: aws.String("re2-fresh")})
+	fresh, err := re.Search(ctx, &resourceexplorer2.SearchInput{QueryString: aws.String(`"re2-fresh"`)})
 	require.NoError(t, err)
 	assert.Len(t, fresh.Resources, 1, "a resource created after a search is searchable at once")
 }

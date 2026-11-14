@@ -99,11 +99,6 @@ func TestCreateRepositoryErrors(t *testing.T) {
 	}{
 		{name: "duplicate", req: &artifactregistrypb.CreateRepositoryRequest{
 			Parent: loc, RepositoryId: "exists", Repository: dockerRepo()}, want: codes.AlreadyExists},
-		{name: "duplicate in other location", req: &artifactregistrypb.CreateRepositoryRequest{
-			Parent:       "projects/" + project + "/locations/europe-west1",
-			RepositoryId: "exists",
-			Repository:   dockerRepo(),
-		}, want: codes.AlreadyExists},
 		{name: "bad id", req: &artifactregistrypb.CreateRepositoryRequest{
 			Parent: loc, RepositoryId: "Bad_ID", Repository: dockerRepo()}, want: codes.InvalidArgument},
 		{name: "empty id", req: &artifactregistrypb.CreateRepositoryRequest{
@@ -149,7 +144,7 @@ func TestNonDockerRepository(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, "")
-	e.createRepo(t, "maven", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
+	e.createRepo(t, "maven", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_RUBY})
 
 	_, err := e.client.GetPackage(t.Context(), &artifactregistrypb.GetPackageRequest{
 		Name: repoName("maven") + "/packages/x",
@@ -211,4 +206,42 @@ func TestInvalidNames(t *testing.T) {
 			assert.Equal(t, tt.want, status.Code(tt.call()))
 		})
 	}
+}
+
+func TestRepositoryIDPerLocation(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	other := "projects/" + project + "/locations/europe-west1"
+	mavenRepo := func() *artifactregistrypb.Repository {
+		return &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_MAVEN}
+	}
+
+	create := func(parent, id string, repo *artifactregistrypb.Repository) error {
+		_, err := e.client.CreateRepository(t.Context(), &artifactregistrypb.CreateRepositoryRequest{
+			Parent: parent, RepositoryId: id, Repository: repo,
+		})
+
+		return err
+	}
+
+	require.NoError(t, create(loc, "shared", mavenRepo()))
+	require.NoError(t, create(other, "shared", mavenRepo()), "same id in another location")
+	assert.Equal(t, codes.AlreadyExists, status.Code(create(other, "shared", mavenRepo())))
+
+	require.NoError(t, create(other, "shared-docker", dockerRepo()))
+	require.NoError(t, create(loc, "shared-docker", dockerRepo()), "docker ids are per location too")
+	assert.Equal(t, codes.AlreadyExists, status.Code(create(loc, "shared-docker", dockerRepo())))
+	require.NoError(t, create("projects/"+project+"/locations/asia-east1", "shared", dockerRepo()),
+		"docker may share an id with maven repositories")
+
+	_, err := e.client.DeleteRepository(t.Context(), &artifactregistrypb.DeleteRepositoryRequest{
+		Name: other + "/repositories/shared",
+	})
+	require.NoError(t, err)
+
+	_, err = e.client.GetRepository(t.Context(), &artifactregistrypb.GetRepositoryRequest{
+		Name: loc + "/repositories/shared",
+	})
+	require.NoError(t, err)
 }

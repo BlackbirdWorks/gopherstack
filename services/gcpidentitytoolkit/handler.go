@@ -34,7 +34,7 @@ const (
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
 	keyCacheSeconds   = 3600
-	supportedOpCount  = 14
+	supportedOpCount  = 17
 )
 
 // Handler serves the Identity Toolkit and Secure Token REST APIs on a dedicated listener.
@@ -66,9 +66,26 @@ func (h *Handler) Name() string { return "GCPIdentityToolkit" }
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	ops := make([]string, 0, supportedOpCount+len(accountVerbs))
-	ops = append(ops,
-		opAdminCreate, opBatchGet, opCreateSessionCookie, opToken, opPublicKeys, opGetConfig, opUpdateConfig,
-		opListTenants, opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant, opListOobCodes, opClearAccounts,
+	ops = append(
+		ops,
+		opAdminCreate,
+		opBatchGet,
+		opCreateSessionCookie,
+		opToken,
+		opPublicKeys,
+		opGetConfig,
+		opUpdateConfig,
+		opListTenants,
+		opCreateTenant,
+		opGetTenant,
+		opUpdateTenant,
+		opDeleteTenant,
+		opListOobCodes,
+		opListVerificationCodes,
+		opClearAccounts,
+		opEmulatorAction,
+		opGetPasswordPolicy,
+		opGetRecaptchaConfig,
 	)
 	ops = append(ops, accountVerbs...)
 
@@ -179,6 +196,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.fail(c, errNotFound("NOT_FOUND"))
 		}
 
+		if rt.op == opEmulatorAction {
+			return h.emulatorAction(c)
+		}
+
 		out, err := h.dispatch(c, rt)
 		if err != nil {
 			return h.fail(c, err)
@@ -202,8 +223,12 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return h.token(c)
 	case opPublicKeys:
 		return h.publicKeys(c)
-	case opListOobCodes, opClearAccounts:
+	case opListOobCodes, opListVerificationCodes, opClearAccounts:
 		return h.emulatorOp(rt, cl)
+	}
+
+	if rt.op == opGetPasswordPolicy || rt.op == opGetRecaptchaConfig {
+		return h.clientConfig(c, rt, cl)
 	}
 
 	if (rt.version == "v2" || slices.Contains(adminOps, rt.op)) && !cl.admin {
@@ -233,6 +258,13 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 		}
 
 		return map[string]any{"oobCodes": codes}, nil
+	case opListVerificationCodes:
+		codes, err := h.Backend.VerificationCodes(cl.project, rt.tenant)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"verificationCodes": codes}, nil
 	default:
 		if err := h.Backend.ClearAccounts(cl.project, rt.tenant); err != nil {
 			return nil, err
@@ -240,6 +272,18 @@ func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 
 		return map[string]any{}, nil
 	}
+}
+
+func (h *Handler) clientConfig(c *echo.Context, rt route, cl call) (any, error) {
+	if !cl.admin && c.QueryParam("key") == "" && c.Request().Header.Get("X-Goog-Api-Key") == "" {
+		return nil, errNoKey()
+	}
+
+	if rt.op == opGetPasswordPolicy {
+		return h.Backend.PasswordPolicy(cl.project, cl.tenant)
+	}
+
+	return h.Backend.RecaptchaConfig(cl.project, cl.tenant, c.QueryParam("clientType"))
 }
 
 func adminGuard(cl call) error {
@@ -333,6 +377,17 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 		return b.CreateAuthURI(cl, req)
 	case opCreateSessionCookie:
 		return b.CreateSessionCookie(cl, req)
+	}
+
+	return h.phoneOp(op, cl, req)
+}
+
+func (h *Handler) phoneOp(op string, cl call, req *authRequest) (any, error) {
+	switch op {
+	case "sendVerificationCode":
+		return h.Backend.SendVerificationCode(cl, req)
+	case "signInWithPhoneNumber":
+		return h.Backend.SignInWithPhoneNumber(cl, req)
 	}
 
 	return nil, errNotFound("NOT_FOUND")

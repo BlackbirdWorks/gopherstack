@@ -7,25 +7,24 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (27 ok, 18 partial) |
-| Feature families | 8 (7 ok, 1 partial) |
-| Known gaps | 11 |
+| PARITY entries audited | 57 (28 ok, 29 partial) |
+| Feature families | 9 (8 ok, 1 partial) |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Backup and restore of vaults and keys (BackupVault, BackupKey, RestoreVaultFromFile/ObjectStore, RestoreKeyFromFile/ObjectStore) are not routed.
-- Vault and key replication (CreateVaultReplica, DeleteVaultReplica, ListVaultReplicas, GetReplicationStatus), HSM clusters, EKMS private endpoints, external vaults and external keys, and UpdateRegisteredVaultForMtls are not implemented.
-- Secret rotation (RotateSecret, CancelSecretRotation, rotationConfig), secret replication, secret generation contexts and auto-generation are not implemented and requests carrying them are rejected.
+- HSM clusters, EKMS private endpoints, external vaults and external keys, and UpdateRegisteredVaultForMtls are not implemented.
+- Secret replication (replicationConfig) is not implemented and is rejected; ADB rotation targets are not contacted (no ADB password is changed); rotation failures are logged only because the SDK has no work requests.
 - HSM and SOFTWARE protection modes are both in-process software keys; HSM only differs by being non-exportable.
-- Create, schedule, cancel, enable and disable responses report the transitional lifecycle state but every transition completes synchronously; the transitional state is never observable on a later read.
-- The vault wrapping key is RSA 2048; the live service size, the plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here) are unverified.
-- Several error codes and statuses are unverified against the live service: 409 Conflict for a duplicate secret name, 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key.
-- opc-retry-token idempotency, service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
+- Key version states are not transitional, and replica endpoints share the primary state: a key is readable there before its replication operation reports REPLICATED.
+- Not published (checked the keymanagement SDK DecryptedData and SignedData comments): the plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here)
+- Not published (checked the vault SDK CreateSecretDetails comments and apierrors.htm): 409 Conflict for a duplicate secret name (the SDK says names should be unique within a vault), 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key
+- Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are not published (checked backingupvaultsandkeys.htm and the keymanagement SDK comments)
+- Service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied.
 - Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client.
 - Resource principal and instance principal tokens are not understood; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace.
 
 ## More
 

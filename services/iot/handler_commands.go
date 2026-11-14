@@ -244,6 +244,10 @@ func commandExecutionDetailFields(ex *IoTCommandExecution, includeResult bool) m
 		out["lastUpdatedAt"] = ex.LastUpdatedAt
 	}
 
+	if ex.CreationDate > 0 {
+		out["timeToLive"] = commandExecutionTTL(ex.CreationDate)
+	}
+
 	if len(ex.Parameters) > 0 {
 		out["parameters"] = ex.Parameters
 	}
@@ -453,4 +457,18 @@ func filterCommands(items []*IoTCommand, namespace, parameterName string) []*IoT
 	}
 
 	return filtered
+}
+
+const (
+	nanosPerSecond   = 1e9
+	commandTTLMonths = 6
+)
+
+// commandExecutionTTL is when an execution is dropped: six months after creation, the default in the
+// GetCommandExecution TimeToLive documentation.
+func commandExecutionTTL(createdAt float64) float64 {
+	sec := int64(createdAt)
+	nsec := int64((createdAt - float64(sec)) * nanosPerSecond)
+
+	return float64(time.Unix(sec, nsec).UTC().AddDate(0, commandTTLMonths, 0).UnixMilli()) / millisPerSecond
 }

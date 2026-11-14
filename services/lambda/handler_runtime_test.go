@@ -21,6 +21,7 @@ import (
 
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -87,9 +88,9 @@ func TestBackend_InvokeFunction(t *testing.T) {
 		name           string
 		funcToInvoke   string
 		invocationType lambda.InvocationType
-		portRange      [2]int
 		wantCode       int
 		createFunc     bool
+		withPortAlloc  bool
 	}{
 		{
 			name:           "no_port_alloc",
@@ -100,7 +101,7 @@ func TestBackend_InvokeFunction(t *testing.T) {
 		},
 		{
 			name:           "no_docker",
-			portRange:      [2]int{19000, 19100},
+			withPortAlloc:  true,
 			createFunc:     true,
 			funcToInvoke:   "invoke-func",
 			invocationType: lambda.InvocationTypeRequestResponse,
@@ -127,10 +128,8 @@ func TestBackend_InvokeFunction(t *testing.T) {
 			t.Parallel()
 
 			var pa *portalloc.Allocator
-			if tt.portRange[0] > 0 {
-				var err error
-				pa, err = portalloc.New(tt.portRange[0], tt.portRange[1])
-				require.NoError(t, err)
+			if tt.withPortAlloc {
+				pa = portalloctest.New(t, 50)
 			}
 
 			bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
@@ -576,19 +575,16 @@ func TestBackend_InvokeFunction_MockDocker(t *testing.T) {
 	tests := []struct {
 		name      string
 		funcName  string
-		portRange [2]int
 		wantCode  int
 		callTwice bool
 	}{
 		{
-			name:      "event_with_mock_docker",
-			portRange: [2]int{19200, 19250},
-			funcName:  "event-fn",
-			wantCode:  http.StatusAccepted,
+			name:     "event_with_mock_docker",
+			funcName: "event-fn",
+			wantCode: http.StatusAccepted,
 		},
 		{
 			name:      "event_second_call_reuse_runtime",
-			portRange: [2]int{19300, 19350},
 			funcName:  "reuse-fn",
 			wantCode:  http.StatusAccepted,
 			callTwice: true,
@@ -599,8 +595,7 @@ func TestBackend_InvokeFunction_MockDocker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			dc := newMockDockerClient()
 			bk := lambda.NewInMemoryBackend(
@@ -641,14 +636,12 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		funcName  string
-		portRange [2]int
+		name     string
+		funcName string
 	}{
 		{
-			name:      "deletes_with_runtime",
-			portRange: [2]int{19400, 19450},
-			funcName:  "delete-with-rt",
+			name:     "deletes_with_runtime",
+			funcName: "delete-with-rt",
 		},
 	}
 
@@ -656,8 +649,7 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			dc := newMockDockerClient()
 			bk := lambda.NewInMemoryBackend(
@@ -680,7 +672,7 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 
 			require.NoError(t, bk.DeleteFunction(tt.funcName))
 
-			_, err = bk.GetFunction(tt.funcName)
+			_, err := bk.GetFunction(tt.funcName)
 			assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 		})
 	}
@@ -690,14 +682,12 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		funcName  string
-		portRange [2]int
+		name     string
+		funcName string
 	}{
 		{
-			name:      "request_response_mock_docker",
-			portRange: [2]int{19500, 19550},
-			funcName:  "rr-fn",
+			name:     "request_response_mock_docker",
+			funcName: "rr-fn",
 		},
 	}
 
@@ -705,8 +695,7 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			dc := newMockDockerClient()
 			bk := lambda.NewInMemoryBackend(
@@ -750,7 +739,7 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 			client := newHTTPClient(t, 200*time.Millisecond)
 
 			require.Eventually(t, func() bool {
-				for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
+				for p := range pa.Allocated() {
 					req, reqErr := http.NewRequestWithContext(
 						t.Context(),
 						http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,

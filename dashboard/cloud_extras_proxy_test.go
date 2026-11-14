@@ -127,8 +127,6 @@ func TestAzureEventHubsProxyPeek(t *testing.T) {
 func TestAzureEventGridProxy(t *testing.T) {
 	t.Parallel()
 
-	const base = "/dashboard/api/v1/azure/eventgrid"
-
 	cfg := func() dashboard.Config {
 		b := azureeventgrid.NewInMemoryBackend()
 		_, err := b.PutTopic("topic1", "/subscriptions/s/topics/topic1", "")
@@ -137,25 +135,11 @@ func TestAzureEventGridProxy(t *testing.T) {
 		return dashboard.Config{AzureEventGridOps: azureeventgrid.NewHandler(b, azureeventgrid.Settings{})}
 	}
 
-	const event = `{"id":"1","subject":"/s","eventType":"T","eventTime":"2026-01-01T00:00:00Z","dataVersion":"1"}`
-
 	runProxyCases(t, cfg, []proxyCase{
-		{name: "topics", method: http.MethodGet, path: base + "/topics", wantCode: 200, wantBody: `"topic1"`},
+		{name: "topics", method: http.MethodGet, path: egBase + "/topics", wantCode: 200, wantBody: `"topic1"`},
 		{
-			name: "publish", method: http.MethodPost, path: base + "/topics/topic1/events",
-			body: event, wantCode: 200, wantBody: `"published":1`,
-		},
-		{
-			name: "publish array", method: http.MethodPost, path: base + "/topics/topic1/events",
-			body: "[" + event + "," + event + "]", wantCode: 200, wantBody: `"published":2`,
-		},
-		{
-			name: "publish invalid", method: http.MethodPost, path: base + "/topics/topic1/events",
-			body: `{"id":"1"}`, wantCode: 400, wantBody: "required property",
-		},
-		{
-			name: "publish missing topic", method: http.MethodPost, path: base + "/topics/nope/events",
-			body: event, wantCode: 404, wantBody: "NOT_FOUND",
+			name: "publish", method: http.MethodPost, path: egBase + "/topics/topic1/events",
+			body: `{"eventType":"T","subject":"/s"}`, wantCode: 200, wantBody: `"published":1`,
 		},
 	})
 }

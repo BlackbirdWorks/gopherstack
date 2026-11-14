@@ -332,7 +332,9 @@ func (p *EventGridProvider) putDataPlane(
 	case egKindTopic:
 		schema, _ := props["inputSchema"].(string)
 
-		_, err := p.dataPlane.PutTopic(rec.name, id.ARMID(), schema)
+		mapping, _ := props["inputSchemaMapping"].(map[string]any)
+
+		_, err := p.dataPlane.PutTopic(rec.name, id.ARMID(), schema, mapping)
 
 		return err
 	case egKindTopicSub:

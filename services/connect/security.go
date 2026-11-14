@@ -186,7 +186,7 @@ func (b *Backend) ListSecurityProfilePermissions(inst, id, token string, maxResu
 }
 
 // UpdateSecurityProfile changes the supplied settings of a security profile.
-func (b *Backend) UpdateSecurityProfile(ctx context.Context, in *UpdateSecurityProfileInput) (*empty, error) {
+func (b *Backend) UpdateSecurityProfile(ctx context.Context, in *UpdateSecurityProfileInput) (*EmptyOutput, error) {
 	if len(in.Permissions) > maxPermissions {
 		return nil, invalidParamErr("Permissions can hold at most %d entries", maxPermissions)
 	}
@@ -248,11 +248,11 @@ func (b *Backend) UpdateSecurityProfile(ctx context.Context, in *UpdateSecurityP
 
 	p.Profile.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DeleteSecurityProfile removes a security profile no user holds.
-func (b *Backend) DeleteSecurityProfile(inst, id string) (*empty, error) {
+func (b *Backend) DeleteSecurityProfile(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteSecurityProfile")
 	defer b.mu.Unlock()
 

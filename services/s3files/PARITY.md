@@ -31,9 +31,7 @@ items_still_open:
   - "CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface."
   - "CreateFileSystem: AcceptBucketWarning is accepted but no bucket warnings exist; the error code for a missing role or key (ValidationException) is inferred, the SDK does not pin it."
   - "GetSynchronizationConfiguration returns ResourceNotFoundException until a configuration is put; the real service may seed a default configuration at creation, which the SDK docs do not state."
-  - "ServiceQuotaExceededException, ThrottlingException and InternalServerException are never returned: the S3 Files quotas are not published in the SDK, so no limit is enforced."
-  - "Error HTTP statuses (400/404/409) are inferred; the SDK dispatches on the X-Amzn-Errortype header and does not pin statuses. ConflictException carries resourceId and resourceType."
-  - "Access point and file system ARN resource paths (access-point/<id>, file-system/<id>) are assumed from sibling services; the SDK documents ARNs only as opaque strings."
+  - "ThrottlingException and InternalServerException are never returned: s3-files-quotas.html lists no request-rate limits and nothing triggers a server fault."
   - "The creating/deleting dwell is zero by default and is not exposed as a CLI lifecycle setting; tests drive it with SetLifecycleDelay."
 structural_gaps:
   - "No NFS/file data plane: files are not served from or exported to the S3 bucket, and no import or expiration rule is ever evaluated."
@@ -48,3 +46,8 @@ Protocol: **restjson1**, unversioned paths (`/file-systems`, `/access-points`, `
 Timestamps are epoch-seconds numbers. IDs are `fs-`, `fsap-`, `fsmt-` plus 17 hex characters; any input that takes an ID also takes the ARN (URL-escaped in the path).
 
 Cross-service: bucket existence is checked against the S3 emulator and mount-target subnets, security groups and network interfaces against EC2, role ARNs against IAM and KMS keys against KMS (`internal/app/s3files_wiring.go`); unwired backends accept any of them.
+
+### 2026-11-13
+
+- Verified against API_S3Files_CreateFileSystem.html / CreateAccessPoint.html: statuses 400/404/409/500/402/429 and ConflictException resourceId/resourceType; ARNs are file-system/<fs-id> and file-system/<fs-id>/access-point/<fsap-id> (access point ARN previously lacked the file-system segment).
+- Quotas from s3-files-quotas.html now enforced with ServiceQuotaExceededException (402): 1,000 file systems per account and region, 25,000 access points per file system, one mount target per Availability Zone and one VPC per file system; the file system policy limit is 20,000 characters (was 20,480 bytes).

@@ -144,18 +144,43 @@ func parseShareExtras(h http.Header, o shareOptions) (shareOptions, *apiError) {
 		return o, aerr
 	}
 
-	if o.Extra.Iops, aerr = optInt(h, "x-ms-share-provisioned-iops"); aerr != nil {
+	if o.Extra.Iops, aerr = optIntRange(h, "x-ms-share-provisioned-iops", minProvIops, maxProvIops); aerr != nil {
 		return o, aerr
 	}
 
-	o.Extra.Bandwidth, aerr = optInt(h, "x-ms-share-provisioned-bandwidth-mibps")
+	o.Extra.Bandwidth, aerr = optIntRange(h, "x-ms-share-provisioned-bandwidth-mibps", minProvMiBps, maxProvMiBps)
 
 	return o, aerr
+}
+
+// Union of the HDD and SSD tier ranges documented on Create Share; the emulator keeps no account tier.
+const (
+	minProvIops  = 500
+	maxProvIops  = 102400
+	minProvMiBps = 60
+	maxProvMiBps = 10340
+)
+
+func optIntRange(h http.Header, name string, lo, hi int64) (*int64, *apiError) {
+	n, err := optInt(h, name)
+	if err != nil || n == nil {
+		return n, err
+	}
+
+	if *n < lo || *n > hi {
+		return nil, errInvalidHeader(name)
+	}
+
+	return n, nil
 }
 
 func (o shareOptions) applyTo(sh *share, now time.Time) *apiError {
 	if o.Squash != "" && !strs.Equal(sh.Protocols, protoNFS) {
 		return errInvalidHeader("x-ms-root-squash")
+	}
+
+	if (o.Extra.BurstIops != nil || o.Extra.BurstBandwidth != nil) && !o.burstingEnabled(sh) {
+		return errInvalidHeader("x-ms-share-paid-bursting-enabled")
 	}
 
 	if o.Quota != nil {
@@ -174,6 +199,14 @@ func (o shareOptions) applyTo(sh *share, now time.Time) *apiError {
 	mergeExtra(&sh.Extra, o.Extra)
 
 	return nil
+}
+
+func (o shareOptions) burstingEnabled(sh *share) bool {
+	if o.Extra.PaidBursting != nil {
+		return *o.Extra.PaidBursting
+	}
+
+	return sh.Extra.PaidBursting != nil && *sh.Extra.PaidBursting
 }
 
 func mergeExtra(dst *shareExtra, src shareExtra) {
@@ -239,6 +272,10 @@ func (h *Handler) createShare(rc *reqCtx) (*resp, *apiError) {
 
 	if err := opts.applyTo(sh, rc.now); err != nil {
 		return nil, err
+	}
+
+	if aerr = sh.initNFS(sh.Root, nfsIn{}, true); aerr != nil {
+		return nil, aerr
 	}
 
 	a.Shares[strs.Fold(rc.share)] = sh
@@ -502,25 +539,35 @@ func (h *Handler) restoreShare(rc *reqCtx) (*resp, *apiError) {
 	b.mu.Lock("RestoreShare")
 	defer b.mu.Unlock()
 
-	a := b.acct(rc.acct)
-	a.purgeExpired(rc.now)
+	d, aerr := b.restoreLocked(rc.acct, rc.share, name, version, rc.now)
+	if aerr != nil {
+		return nil, aerr
+	}
 
-	if _, ok := a.Shares[strs.Fold(rc.share)]; ok {
+	rs := newResp(http.StatusCreated)
+	rs.hdr.Set("ETag", d.ETag)
+	rs.hdr.Set("Last-Modified", fmtHTTP(d.LastModified))
+
+	return rs, nil
+}
+
+// restoreLocked revives the soft-deleted share name@version as target. Caller holds the write lock.
+func (b *InMemoryBackend) restoreLocked(account, target, name, version string, now time.Time) (*share, *apiError) {
+	a := b.acct(account)
+	a.purgeExpired(now)
+
+	if _, ok := a.Shares[strs.Fold(target)]; ok {
 		return nil, newErr(http.StatusConflict, "ShareAlreadyExists", "The specified share already exists.")
 	}
 
 	for i, d := range a.Deleted {
 		if strs.Equal(d.Name, name) && d.Version == version {
 			a.Deleted = append(a.Deleted[:i], a.Deleted[i+1:]...)
-			d.Deleted, d.Version, d.DeletedAt, d.Name = false, "", time.Time{}, rc.share
-			d.ETag, d.LastModified = b.etag(), rc.now
-			a.Shares[strs.Fold(rc.share)] = d
+			d.Deleted, d.Version, d.DeletedAt, d.Name = false, "", time.Time{}, target
+			d.ETag, d.LastModified = b.etag(), now
+			a.Shares[strs.Fold(target)] = d
 
-			rs := newResp(http.StatusCreated)
-			rs.hdr.Set("ETag", d.ETag)
-			rs.hdr.Set("Last-Modified", fmtHTTP(d.LastModified))
-
-			return rs, nil
+			return d, nil
 		}
 	}
 
@@ -629,6 +676,8 @@ func (h *Handler) setShareACL(rc *reqCtx) (*resp, *apiError) {
 	return rs, nil
 }
 
+const gibShift = 30
+
 type shareStatsXML struct {
 	XMLName xml.Name `xml:"ShareStats"`
 	Usage   int64    `xml:"ShareUsageBytes"`
@@ -645,6 +694,19 @@ func (n *node) usage() int64 {
 	}
 
 	return total
+}
+
+// checkQuota refuses a write that grows the share's usage past its quota.
+func (s *share) checkQuota(delta int64) *apiError {
+	if delta <= 0 || s.Quota <= 0 {
+		return nil
+	}
+
+	if s.Root.usage()+delta > int64(s.Quota)<<gibShift {
+		return errShareFull()
+	}
+
+	return nil
 }
 
 func (h *Handler) getShareStats(rc *reqCtx) (*resp, *apiError) {
@@ -795,7 +857,7 @@ func (h *Handler) getPermission(rc *reqCtx) (*resp, *apiError) {
 
 	sddl, ok := sh.Permissions[key]
 	if !ok {
-		return nil, errInvalidHeader("x-ms-file-permission-key")
+		return nil, errInvalidPermissionKey()
 	}
 
 	body, err := json.Marshal(permissionJSON{Permission: sddl, Format: "Sddl"}, jsonx.V1())

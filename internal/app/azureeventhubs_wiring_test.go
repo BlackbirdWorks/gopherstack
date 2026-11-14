@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 )
@@ -29,12 +28,11 @@ func TestReserveFixedServicePorts_AzureEventHubs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(10000, 10100)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.want, tt.port)
 
-			cli := CLI{AzureEventHubs: azureeventhubs.Settings{Port: tt.port}}
+			cli := CLI{AzureEventHubs: azureeventhubs.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
-			assert.Equal(t, tt.want, alloc.IsAllocated(tt.port))
+			assert.Equal(t, tt.want, alloc.IsAllocated(port))
 		})
 	}
 }
@@ -67,6 +65,14 @@ func TestAzureEventHubsAdapter(t *testing.T) {
 
 	_, err = a.PutRule("ns", "hub", "bad", nil)
 	require.Error(t, err)
+
+	regen, err := a.RegenerateRuleKey("ns", "hub", "r", "PrimaryKey", "")
+	require.NoError(t, err)
+	assert.NotEqual(t, rule.PrimaryKey, regen.PrimaryKey)
+	assert.Equal(t, rule.SecondaryKey, regen.SecondaryKey)
+
+	_, err = a.RegenerateRuleKey("ns", "hub", "nope", "PrimaryKey", "")
+	require.ErrorIs(t, err, azurearm.ErrEventHubRuleNotFound)
 
 	require.NoError(t, a.DeleteRule("ns", "hub", "r"))
 	require.NoError(t, a.DeleteRule("ns", "hub", "r"), "missing rule is not an error")

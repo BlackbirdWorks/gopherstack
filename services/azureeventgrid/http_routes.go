@@ -209,7 +209,13 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return writeErr(c, err)
 	}
 
-	events, err := ParseEvents(body, schema)
+	var events []Event
+	if schema == SchemaCustom && !pub.Domain {
+		events, err = ParseCustomEvents(body)
+	} else {
+		events, err = ParseEvents(body, schema)
+	}
+
 	if err != nil {
 		return writeErr(c, err)
 	}

@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strconv"
 
+	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -36,6 +38,29 @@ func (s cloudBuildStore) EnsureBucket(project, bucket string) error {
 	}
 
 	return nil
+}
+
+// ReadObjectGeneration reads an object at a generation (0 is the latest) and reports the generation read.
+func (s cloudBuildStore) ReadObjectGeneration(bucket, object string, gen int64) ([]byte, int64, error) {
+	o, err := s.b.GetObject(bucket, object, gen, gcpstoragebackend.Preconds{})
+	if err != nil {
+		return nil, 0, fmt.Errorf("read gs://%s/%s: %w", bucket, object, err)
+	}
+
+	return o.Data, o.Generation, nil
+}
+
+type cloudBuildKMS struct {
+	b *gcpkmsbackend.InMemoryBackend
+}
+
+func (k cloudBuildKMS) Decrypt(keyName string, ciphertext []byte) ([]byte, error) {
+	res, err := k.b.Decrypt(&kmspb.DecryptRequest{Name: keyName, Ciphertext: ciphertext})
+	if err != nil {
+		return nil, fmt.Errorf("kms decrypt: %w", err)
+	}
+
+	return res.GetPlaintext(), nil
 }
 
 // cloudBuildPublisher publishes build status messages to the project's cloud-builds topic, creating it on demand.
@@ -88,8 +113,13 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 		svc.Secrets = cloudBuildSecrets{b: sm.Backend}
 	}
 
+	if kms, ok := byName["GCPKMS"].(*gcpkmsbackend.Handler); ok {
+		svc.KMS = cloudBuildKMS{b: kms.Backend}
+	}
+
 	if ar, ok := byName["GCPArtifactRegistry"].(*gcparbackend.Handler); ok {
 		svc.RegistryAddr = "localhost:" + strconv.Itoa(ar.Port)
+		svc.Packages = ar.Backend
 	}
 
 	return svc
@@ -99,6 +129,7 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
+	wireGCPArtifactRegistry(byName)
 	wireGCPEventarc(byName)
 	wireGCPSecretRotation(byName)
 	wireGCPWorkflows(byName)
@@ -106,6 +137,7 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPContainer(byName)
 	wireGCPIdentityToolkit(byName)
 	wireGCPBatch(byName)
+	wireGCPStorageSecurity(byName)
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the
@@ -132,4 +164,33 @@ func wireGCPSecretRotation(byName map[string]service.Registerable) {
 	if okSM && okPS {
 		sm.Backend.SetPublisher(logSinkPublisher{b: ps.Backend})
 	}
+}
+
+// wireGCPArtifactRegistry connects Artifact Registry to the GCS emulator (imports and exports) and to Secret
+// Manager (remote repository credentials).
+func wireGCPArtifactRegistry(byName map[string]service.Registerable) {
+	ar, okAR := byName["GCPArtifactRegistry"].(*gcparbackend.Handler)
+	gcs, okGCS := byName["GCPStorage"].(*gcpstoragebackend.Handler)
+
+	if okAR && okGCS {
+		ar.Backend.SetObjectStore(gcsObjectStore{b: gcs.Backend})
+	}
+
+	if sm, okSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); okAR && okSM {
+		ar.Backend.SetSecretResolver(arSecrets{b: sm.Backend})
+	}
+}
+
+// arSecrets resolves Artifact Registry upstream_credentials password secret versions.
+type arSecrets struct {
+	b *gcpsecretmanagerbackend.InMemoryBackend
+}
+
+func (s arSecrets) AccessSecretVersion(name string) ([]byte, error) {
+	resp, err := s.b.AccessSecretVersion(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetPayload().GetData(), nil
 }

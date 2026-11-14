@@ -36,10 +36,21 @@ func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "Mi
 
 func errState(msg string) *APIError { return newErr(http.StatusConflict, "IncorrectState", msg) }
 
-func errExists(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
+func errExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
 
 func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }
 
+func errInvalidatedToken() *APIError {
+	return newErr(http.StatusConflict, "InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted")
+}
+
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
+
+func errTooMany(msg string) *APIError {
+	return newErr(http.StatusTooManyRequests, "TooManyRequests", msg)
+}

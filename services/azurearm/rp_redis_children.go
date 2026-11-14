@@ -31,9 +31,29 @@ func (p *RedisProvider) putFirewall(id ResourceID, body map[string]any) (map[str
 		rec.Firewall = map[string]redisFirewall{}
 	}
 
+	prev, hadPrev := rec.Firewall[key]
 	rec.Firewall[key] = fw
 
+	if err = p.syncFirewall(id, rec); err != nil {
+		if hadPrev {
+			rec.Firewall[key] = prev
+		} else {
+			delete(rec.Firewall, key)
+		}
+
+		return nil, err
+	}
+
 	return firewallBody(id, rec, fw), nil
+}
+
+// syncFirewall pushes the cache's rules to the data plane so new connections are filtered by them.
+func (p *RedisProvider) syncFirewall(id ResourceID, rec *redisRecord) error {
+	if _, err := p.dataPlane.Ensure(redisKey(id), redisSpecOf(rec)); err != nil {
+		return badRedisRequest(err)
+	}
+
+	return nil
 }
 
 func validIPRange(start, end string) error {
@@ -214,6 +234,8 @@ func (p *RedisProvider) deleteChild(id ResourceID, kind redisKind) error {
 		}
 
 		delete(rec.Firewall, key)
+
+		return p.syncFirewall(id, rec)
 	case redisKindPatch:
 		if rec.Patch == nil {
 			return ErrRedisPatchNotFound
@@ -226,6 +248,10 @@ func (p *RedisProvider) deleteChild(id ResourceID, kind redisKind) error {
 		}
 
 		delete(rec.Linked, key)
+	case redisKindPolicy:
+		return p.deletePolicy(id, rec)
+	case redisKindAssignment:
+		return p.deleteAssignment(id, rec)
 	case redisKindCache, redisKindUnsupported:
 	}
 
@@ -253,6 +279,10 @@ func (p *RedisProvider) ListChildren(parent ResourceID, childType string) ([]map
 		for _, ls := range sortedLinked(rec) {
 			out = append(out, linkedBody(childID(parent, redisLinkedType, ls.Name), rec, ls))
 		}
+	case strings.ToLower(redisPolicyType):
+		out = listPolicies(parent, rec)
+	case strings.ToLower(redisAssignmentType):
+		out = listAssignments(parent, rec)
 	case strings.ToLower(redisPatchType):
 		if body, perr := p.patchBody(childID(parent, redisPatchType, redisPatchDefault), rec); perr == nil {
 			out = append(out, body)

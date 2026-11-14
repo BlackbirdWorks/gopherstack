@@ -39,8 +39,12 @@ func (r repoRef) parent() string { return "projects/" + r.project + "/locations/
 
 func (r repoRef) full() string { return r.parent() + "/repositories/" + r.id }
 
-// dockerKey is the registry path prefix (without trailing slash) of the repository's images.
-func (r repoRef) dockerKey() string { return r.project + "/" + r.id }
+// dockerKey is the embedded registry's name of the repository (without trailing slash); it carries the location
+// so a Docker repository id may be reused in several locations.
+func (r repoRef) dockerKey() string { return r.project + "/" + r.location + "/" + r.id }
+
+// clientPath is the project/repository path clients push to and pull from.
+func (r repoRef) clientPath() string { return r.project + "/" + r.id }
 
 func (r repoRef) packageName(image string) string {
 	return r.full() + "/packages/" + escapeImage(image)

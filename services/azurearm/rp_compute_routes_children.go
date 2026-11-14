@@ -49,6 +49,10 @@ func isExtensionImagePath(segs []string) bool {
 
 // computeChildScope serves resource-group scope reads of children and filtered virtual machine lists.
 func (h *Handler) computeChildScope(c *echo.Context, cp *ComputeProvider, segs []string) (bool, error) {
+	if c.Request().Method == http.MethodPost && len(segs) == hostActionSegs && isHostRestart(segs) {
+		return true, h.computeHostRestart(c, cp, segs)
+	}
+
 	if c.Request().Method != http.MethodGet {
 		return false, nil
 	}

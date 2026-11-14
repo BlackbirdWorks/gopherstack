@@ -31,18 +31,20 @@ type cache struct {
 	plain  *front
 	keys   *keyring
 	minTLS *minTLS
+	fw     *firewall
 	spec   Spec
 }
 
 // InMemoryBackend runs one embedded Redis server per cache, with a TLS port always on and a plaintext port only
 // while the cache enables it.
 type InMemoryBackend struct {
+	blobs  BlobStore
 	mu     *lockmetrics.RWMutex
 	alloc  *portalloc.Allocator
-	blobs  BlobStore
 	caches map[string]*cache
 	cert   *tls.Certificate
 	wg     *sync.WaitGroup
+	tokens TokenValidator
 	cfg    Settings
 }
 
@@ -59,6 +61,14 @@ func (b *InMemoryBackend) SetPortPool(alloc *portalloc.Allocator) {
 	defer b.mu.Unlock()
 
 	b.alloc = alloc
+}
+
+// SetTokenValidator lets caches with Entra authentication enabled accept Microsoft Entra tokens.
+func (b *InMemoryBackend) SetTokenValidator(v TokenValidator) {
+	b.mu.Lock("SetTokenValidator")
+	defer b.mu.Unlock()
+
+	b.tokens = v
 }
 
 // SetBlobStore connects ImportData and ExportData to Blob Storage.
@@ -125,11 +135,20 @@ func (b *InMemoryBackend) startCache(spec Spec, keys Keys) (*cache, error) {
 
 	c := &cache{engine: eng, keys: &keyring{}, minTLS: &minTLS{}, spec: spec}
 	c.minTLS.set(spec.MinTLS)
+	c.fw = &firewall{}
+
+	if err = c.fw.set(spec.Firewall); err != nil {
+		c.close()
+
+		return nil, err
+	}
+
 	c.keys.set(keys)
+	c.keys.setPolicy(spec, b.tokens)
 	c.keys.install(eng.Mini.Server())
 	requireKey(c, spec, keys)
 
-	if c.tls, err = openFront(b.alloc, tlsLabel, eng.Addr(), c.minTLS.config(cert)); err != nil {
+	if c.tls, err = openFront(b.alloc, tlsLabel, eng.Addr(), c.minTLS.config(cert), c.fw.admit); err != nil {
 		c.close()
 
 		return nil, err
@@ -148,7 +167,7 @@ func (b *InMemoryBackend) startCache(spec Spec, keys Keys) (*cache, error) {
 func (b *InMemoryBackend) syncPlain(c *cache, spec Spec) error {
 	switch {
 	case spec.EnableNonSSLPort && c.plain == nil:
-		f, err := openFront(b.alloc, portLabel, c.engine.Addr(), nil)
+		f, err := openFront(b.alloc, portLabel, c.engine.Addr(), nil, c.fw.admit)
 		if err != nil {
 			return err
 		}
@@ -165,7 +184,7 @@ func (b *InMemoryBackend) syncPlain(c *cache, spec Spec) error {
 // requireKey makes the server demand the primary key, or nothing when the cache does not require authentication.
 func requireKey(c *cache, spec Spec, keys Keys) {
 	pw := keys.Primary
-	if spec.AuthNotRequired {
+	if spec.AuthNotRequired && !spec.DisableAccessKeys {
 		pw = ""
 	}
 
@@ -220,13 +239,25 @@ func (b *InMemoryBackend) Ensure(key string, spec Spec) (Endpoint, error) {
 }
 
 func (b *InMemoryBackend) update(c *cache, spec Spec) (Endpoint, error) {
+	if err := c.fw.set(spec.Firewall); err != nil {
+		return Endpoint{}, err
+	}
+
 	if err := b.syncPlain(c, spec); err != nil {
 		return Endpoint{}, err
 	}
 
+	keysToggled := c.spec.DisableAccessKeys != spec.DisableAccessKeys
+
 	c.spec = spec
+	c.keys.setPolicy(spec, b.tokens)
 	c.minTLS.set(spec.MinTLS)
 	requireKey(c, spec, c.keys.get())
+
+	if keysToggled {
+		c.tls.dropConnections()
+		c.plain.dropConnections()
+	}
 
 	return c.endpoint(), nil
 }

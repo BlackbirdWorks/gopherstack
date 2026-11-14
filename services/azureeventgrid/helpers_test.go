@@ -65,6 +65,13 @@ func (r *recorder) add(s sent) error {
 	return nil
 }
 
+func (r *recorder) setFail(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.err, r.fail = err, err != nil
+}
+
 func (r *recorder) all() []sent {
 	r.mu.Lock()
 	defer r.mu.Unlock()

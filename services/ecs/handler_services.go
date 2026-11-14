@@ -131,6 +131,7 @@ type createServiceInput struct {
 	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 	DesiredCount                  int                               `json:"desiredCount"`
 	EnableExecuteCommand          bool                              `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                              `json:"enableECSManagedTags,omitempty"`
@@ -170,6 +171,7 @@ func (h *Handler) handleCreateService(
 		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
 		DesiredCount:                  in.DesiredCount,
 		EnableExecuteCommand:          in.EnableExecuteCommand,
+		VolumeConfigurations:          in.VolumeConfigurations,
 	})
 	if err != nil {
 		return nil, err
@@ -281,6 +283,7 @@ type updateServiceInput struct {
 	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 	ForceNewDeployment            bool                              `json:"forceNewDeployment,omitempty"`
 }
 
@@ -313,6 +316,7 @@ func (h *Handler) handleUpdateService(
 		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
 		EnableExecuteCommand:          in.EnableExecuteCommand,
 		ForceNewDeployment:            in.ForceNewDeployment,
+		VolumeConfigurations:          in.VolumeConfigurations,
 	})
 	if err != nil {
 		return nil, err
@@ -646,16 +650,17 @@ type serviceEventView struct {
 
 // deploymentView is the handler view of a service deployment record.
 type deploymentView struct {
+	UpdatedAt                   *float64                         `json:"updatedAt,omitempty"`
 	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
 	CreatedAt                   *float64                         `json:"createdAt,omitempty"`
-	UpdatedAt                   *float64                         `json:"updatedAt,omitempty"`
+	TaskDefinition              string                           `json:"taskDefinition"`
 	ID                          string                           `json:"id"`
 	Status                      string                           `json:"status"`
-	TaskDefinition              string                           `json:"taskDefinition"`
 	LaunchType                  string                           `json:"launchType,omitempty"`
 	PlatformVersion             string                           `json:"platformVersion,omitempty"`
 	RolloutState                string                           `json:"rolloutState,omitempty"`
 	RolloutStateReason          string                           `json:"rolloutStateReason,omitempty"`
+	VolumeConfigurations        []VolumeConfiguration            `json:"volumeConfigurations,omitempty"`
 	DesiredCount                int                              `json:"desiredCount"`
 	PendingCount                int                              `json:"pendingCount"`
 	RunningCount                int                              `json:"runningCount"`
@@ -668,19 +673,20 @@ type deploymentView struct {
 // so it is intentionally omitted here.
 func toDeploymentView(d Deployment) deploymentView {
 	return deploymentView{
-		CreatedAt:          d.CreatedAt,
-		UpdatedAt:          d.UpdatedAt,
-		ID:                 d.ID,
-		Status:             d.Status,
-		TaskDefinition:     d.TaskDefinition,
-		LaunchType:         d.LaunchType,
-		PlatformVersion:    d.PlatformVersion,
-		RolloutState:       d.RolloutState,
-		RolloutStateReason: d.RolloutStateReason,
-		DesiredCount:       d.DesiredCount,
-		PendingCount:       d.PendingCount,
-		RunningCount:       d.RunningCount,
-		FailedTasks:        d.FailedTasks,
+		CreatedAt:            d.CreatedAt,
+		UpdatedAt:            d.UpdatedAt,
+		ID:                   d.ID,
+		Status:               d.Status,
+		TaskDefinition:       d.TaskDefinition,
+		LaunchType:           d.LaunchType,
+		PlatformVersion:      d.PlatformVersion,
+		RolloutState:         d.RolloutState,
+		RolloutStateReason:   d.RolloutStateReason,
+		DesiredCount:         d.DesiredCount,
+		PendingCount:         d.PendingCount,
+		RunningCount:         d.RunningCount,
+		FailedTasks:          d.FailedTasks,
+		VolumeConfigurations: d.VolumeConfigurations,
 	}
 }
 

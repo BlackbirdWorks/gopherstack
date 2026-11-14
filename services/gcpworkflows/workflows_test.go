@@ -388,7 +388,7 @@ func TestListWorkflows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, names)
 
-	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, Filter: "state=ACTIVE"})
+	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, Filter: "bogus=ACTIVE"})
 	assert.Equal(t, codes.InvalidArgument, code(err))
 
 	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, OrderBy: "bogus"})
@@ -410,4 +410,32 @@ func TestOperations(t *testing.T) {
 	assert.True(t, got.GetDone())
 	assert.Contains(t, got.GetName(), parent+"/operations/")
 	assert.Contains(t, got.GetMetadata().GetTypeUrl(), "google.cloud.workflows.v1.OperationMetadata")
+}
+
+func TestUpdateWithoutMaskReplacesWholeWorkflow(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	w := e.createWorkflow(t, "nomask", hello, func(w *workflowspb.Workflow) {
+		w.Description = "old"
+		w.Labels = map[string]string{"k": "v"}
+	})
+
+	_, err := e.wf.UpdateWorkflow(t.Context(), &workflowspb.UpdateWorkflowRequest{
+		Workflow: &workflowspb.Workflow{Name: w.GetName(), Description: "new"},
+	})
+	assert.Equal(t, codes.InvalidArgument, code(err), "a whole-workflow update needs the source")
+
+	op, err := e.wf.UpdateWorkflow(t.Context(), &workflowspb.UpdateWorkflowRequest{
+		Workflow: &workflowspb.Workflow{
+			Name: w.GetName(), Description: "new",
+			SourceCode: &workflowspb.Workflow_SourceContents{SourceContents: hello},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := op.Wait(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "new", got.GetDescription())
+	assert.Empty(t, got.GetLabels(), "fields absent from the request are cleared")
 }

@@ -42,7 +42,11 @@ func serveObject(c *echo.Context, o *Object) {
 		hdr.Set("ETag", `"`+objectETag(o)+`"`)
 	}
 
-	hdr.Set("X-Goog-Hash", hash)
+	if o.CRC32C != "" {
+		hdr.Set("X-Goog-Hash", hash)
+	}
+
+	setEncryptionHeaders(hdr, o)
 
 	for k, v := range map[string]string{
 		"Cache-Control": o.CacheControl, "Content-Disposition": o.ContentDisposition,
@@ -55,6 +59,12 @@ func serveObject(c *echo.Context, o *Object) {
 
 	for k, v := range o.Metadata {
 		hdr.Set(metaHeaderPrefix+k, v)
+	}
+
+	if transcodes(c.Request(), o) {
+		serveTranscoded(c, o)
+
+		return
 	}
 
 	http.ServeContent(c.Response(), c.Request(), "", o.Updated, bytes.NewReader(o.Data))
@@ -71,6 +81,11 @@ func (h *Handler) xmlGetObject(c *echo.Context, rt route) error {
 	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
 	if err != nil {
 		return err
+	}
+
+	o, apiErr = readableObject(c.Request(), o, c.Request().Method != http.MethodHead)
+	if apiErr != nil {
+		return apiErr
 	}
 
 	serveObject(c, o)
@@ -125,6 +140,11 @@ func (h *Handler) xmlPutObject(c *echo.Context, rt route) error {
 		meta[keyMetadata] = marshalRaw(custom)
 	}
 
+	meta, apiErr := withUploadKey(r, meta)
+	if apiErr != nil {
+		return apiErr
+	}
+
 	o, err := h.Backend.PutObject(rt.bucket, rt.object, data, meta, xmlPreconds(r.Header))
 	if err != nil {
 		return err
@@ -134,6 +154,7 @@ func (h *Handler) xmlPutObject(c *echo.Context, rt route) error {
 	hdr.Set("X-Goog-Generation", itoa64(o.Generation))
 	hdr.Set("X-Goog-Metageneration", itoa64(o.Metageneration))
 	hdr.Set("X-Goog-Hash", "crc32c="+o.CRC32C+",md5="+o.MD5)
+	setEncryptionHeaders(hdr, o)
 
 	if raw, decErr := base64.StdEncoding.DecodeString(o.MD5); decErr == nil {
 		hdr.Set("ETag", `"`+hex.EncodeToString(raw)+`"`)

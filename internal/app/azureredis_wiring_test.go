@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
@@ -76,4 +77,53 @@ func redisClient(ep azurearm.RedisEndpoint, password string) *goredis.Client {
 			MinVersion:         tls.VersionTLS12,
 		},
 	})
+}
+
+func TestRedisEntraValidator(t *testing.T) {
+	t.Parallel()
+
+	iss, err := aadauth.NewIssuer()
+	require.NoError(t, err)
+
+	issue := func(aud, oid string) string {
+		tok, issueErr := iss.IssueClientCredentialsToken(aadauth.ClientCredentialsClaims{
+			Issuer: "https://x/t/v2.0", Audience: aud, TenantID: "t", ClientID: "app", ObjectID: oid,
+		}, 0)
+		require.NoError(t, issueErr)
+
+		return tok
+	}
+
+	other, err := aadauth.NewIssuer()
+	require.NoError(t, err)
+
+	foreign, err := other.IssueClientCredentialsToken(aadauth.ClientCredentialsClaims{
+		Audience: "https://redis.azure.com/", ObjectID: "oid-1",
+	}, 0)
+	require.NoError(t, err)
+
+	validate := redisEntraValidator(iss)
+
+	tests := []struct {
+		name    string
+		token   string
+		wantOID string
+		wantOK  bool
+	}{
+		{name: "redis audience", token: issue("https://redis.azure.com/", "oid-1"), wantOID: "oid-1", wantOK: true},
+		{name: "app id audience", token: issue(redisEntraAppID, "oid-2"), wantOID: "oid-2", wantOK: true},
+		{name: "arm audience", token: issue("https://management.azure.com/", "oid-1")},
+		{name: "other issuer", token: foreign},
+		{name: "garbage", token: "nope"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			oid, ok := validate(tt.token)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantOID, oid)
+		})
+	}
 }

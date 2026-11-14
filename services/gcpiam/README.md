@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 31 (28 ok, 3 partial) |
 | Feature families | 6 (2 ok, 3 partial, 1 gap) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,9 +17,8 @@
 
 - Predefined role permission lists are representative, not Google's complete lists.
 - System-managed signing keys are not rotated.
-- SetIamPolicy ignores update_mask; TestIamPermissions grants everything requested.
-- Condition lint is syntactic only (no CEL parsing, no policy-level lint).
-- Deleted-service-account and deleted-role retention windows (30 and 7/37 days) are the documented figures, not verified against the live service.
+- TestIamPermissions grants everything requested (requests carry no authenticated principal to evaluate the policy for).
+- Condition lint parses CEL but does not type-check against the IAM condition attributes and has no policy-level lint.
 
 ## More
 

@@ -54,15 +54,12 @@ func toCandidate(src SourceResource, queryRegion, queryAccount string) (*candida
 		id: id, tags: src.Tags,
 	}
 
-	var sb strings.Builder
-
-	sb.WriteString(strings.ToLower(src.ARN))
+	c.words = words(src.ARN)
 
 	for k, v := range src.Tags {
-		sb.WriteString(" " + strings.ToLower(k) + " " + strings.ToLower(v))
+		c.words = append(c.words, words(k)...)
+		c.words = append(c.words, words(v)...)
 	}
-
-	c.blob = sb.String()
 
 	return c, true
 }

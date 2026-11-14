@@ -22,6 +22,11 @@ func TestIssueToken(t *testing.T) {
 			wantAudSuffix: "https://management.azure.com/"},
 		{name: "v1 resource without .default", scope: "https://management.azure.com/",
 			wantAudSuffix: "https://management.azure.com/"},
+		{name: "MSAL reserved scopes are not the resource",
+			scope:         "https://graph.microsoft.com/.default openid profile offline_access",
+			wantAudSuffix: "https://graph.microsoft.com/"},
+		{name: "reserved scopes first", scope: "openid https://management.azure.com/.default",
+			wantAudSuffix: "https://management.azure.com/"},
 		{name: "empty scope uses default audience", scope: "", wantAudSuffix: "https://management.azure.com/"},
 	}
 

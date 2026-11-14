@@ -146,7 +146,10 @@ func asyncCreateRollback(t *testing.T, _ *cloudformation.InMemoryBackend, c *cfn
 	assert.Equal(t, "CREATE_IN_PROGRESS", stackStatus(t, c, "async-rollback"))
 
 	s.runNext(t)
-	assert.Contains(t, []string{"ROLLBACK_COMPLETE", "CREATE_FAILED"}, stackStatus(t, c, "async-rollback"))
+	assert.Equal(t, "ROLLBACK_IN_PROGRESS", stackStatus(t, c, "async-rollback"))
+
+	s.runNext(t)
+	assert.Equal(t, "ROLLBACK_COMPLETE", stackStatus(t, c, "async-rollback"))
 }
 
 func asyncUpdateRejected(t *testing.T, _ *cloudformation.InMemoryBackend, c *cfnsdk.Client, s *manualScheduler) {

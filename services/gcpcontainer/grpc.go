@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cloud.google.com/go/container/apiv1/containerpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type clusterManager struct {
@@ -212,4 +213,53 @@ func (s *clusterManager) GetServerConfig(
 	in *containerpb.GetServerConfigRequest,
 ) (*containerpb.ServerConfig, error) {
 	return s.b.GetServerConfig(in)
+}
+
+func (s *clusterManager) CancelOperation(
+	_ context.Context,
+	in *containerpb.CancelOperationRequest,
+) (*emptypb.Empty, error) {
+	return s.b.CancelOperation(in)
+}
+
+func (s *clusterManager) CompleteNodePoolUpgrade(
+	_ context.Context,
+	in *containerpb.CompleteNodePoolUpgradeRequest,
+) (*emptypb.Empty, error) {
+	return s.b.CompleteNodePoolUpgrade(in)
+}
+
+func (s *clusterManager) CompleteControlPlaneUpgrade(
+	_ context.Context,
+	in *containerpb.CompleteControlPlaneUpgradeRequest,
+) (*containerpb.Operation, error) {
+	return s.b.CompleteControlPlaneUpgrade(in)
+}
+
+func (s *clusterManager) FetchClusterUpgradeInfo(
+	_ context.Context,
+	in *containerpb.FetchClusterUpgradeInfoRequest,
+) (*containerpb.ClusterUpgradeInfo, error) {
+	return s.b.FetchClusterUpgradeInfo(in)
+}
+
+func (s *clusterManager) FetchNodePoolUpgradeInfo(
+	_ context.Context,
+	in *containerpb.FetchNodePoolUpgradeInfoRequest,
+) (*containerpb.NodePoolUpgradeInfo, error) {
+	return s.b.FetchNodePoolUpgradeInfo(in)
+}
+
+func (s *clusterManager) GetJSONWebKeys(
+	_ context.Context,
+	in *containerpb.GetJSONWebKeysRequest,
+) (*containerpb.GetJSONWebKeysResponse, error) {
+	return s.b.GetJSONWebKeys(in)
+}
+
+func (s *clusterManager) ListUsableSubnetworks(
+	_ context.Context,
+	in *containerpb.ListUsableSubnetworksRequest,
+) (*containerpb.ListUsableSubnetworksResponse, error) {
+	return s.b.ListUsableSubnetworks(in)
 }

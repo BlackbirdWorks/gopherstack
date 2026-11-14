@@ -1,6 +1,9 @@
 package gcpbigquery
 
 import (
+	"maps"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,7 @@ type InsertRow struct {
 
 // InsertRequest is the tabledata.insertAll request body.
 type InsertRequest struct {
+	TemplateSuffix      string      `json:"templateSuffix"`
 	Rows                []InsertRow `json:"rows"`
 	SkipInvalidRows     bool        `json:"skipInvalidRows"`
 	IgnoreUnknownValues bool        `json:"ignoreUnknownValues"`
@@ -45,14 +49,18 @@ func (b *InMemoryBackend) InsertAll(project, ds, id string, req InsertRequest) (
 		return nil, err
 	}
 
-	_ = d
-
 	if t.ViewQuery != "" {
 		return nil, errInvalid("Cannot insert into view %s:%s.%s", project, ds, id)
 	}
 
 	if len(req.Rows) == 0 {
 		return nil, errInvalid("No rows present in the request.")
+	}
+
+	if req.TemplateSuffix != "" {
+		if t, err = b.instanceTableLocked(d, id, req.TemplateSuffix, t); err != nil {
+			return nil, err
+		}
 	}
 
 	opts := bqsql.ParseOptions{IgnoreUnknown: req.IgnoreUnknownValues}
@@ -84,6 +92,33 @@ func (b *InMemoryBackend) InsertAll(project, ds, id string, req InsertRequest) (
 	t.Seq = b.nextSeq()
 
 	return insertResponse(errs), nil
+}
+
+func templateSuffixPattern() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_]+$`) }
+
+// instanceTableLocked returns the "{template}{suffix}" table, creating it from the template's schema and metadata.
+func (b *InMemoryBackend) instanceTableLocked(
+	d *Dataset, id, suffix string, tmpl *Table,
+) (*Table, error) {
+	name := id + suffix
+	if len(name) > maxIDLen || !templateSuffixPattern().MatchString(suffix) || !tableIDPattern().MatchString(name) {
+		return nil, errInvalid("Invalid table ID %q.", name)
+	}
+
+	if t, ok := d.live(name); ok {
+		return t, nil
+	}
+
+	now := nowMs()
+	meta := make(map[string]any, len(tmpl.Meta))
+	maps.Copy(meta, tmpl.Meta)
+
+	t := &Table{
+		Meta: meta, Schema: slices.Clone(tmpl.Schema), Rows: [][]any{}, Created: now, Modified: now, Seq: b.nextSeq(),
+	}
+	d.Tables[name] = t
+
+	return t, nil
 }
 
 func stopRest(errs []map[string]any, bad map[int]bool, parsed [][]any) []map[string]any {

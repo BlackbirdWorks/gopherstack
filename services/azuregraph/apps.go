@@ -183,7 +183,7 @@ func (b *Backend) UpdateApplication(r Ref, body map[string]jsontext.Value) error
 	return nil
 }
 
-// DeleteApplication removes an application and its service principal.
+// DeleteApplication soft-deletes an application together with its service principal.
 func (b *Backend) DeleteApplication(r Ref) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
@@ -195,11 +195,11 @@ func (b *Backend) DeleteApplication(r Ref) error {
 
 	for _, sp := range b.sps.all() {
 		if strings.EqualFold(sp.AppID, a.AppID) && !isBuiltin(sp.ID) {
-			b.removeObject(sp.ID)
+			b.deleteObject(sp.ID)
 		}
 	}
 
-	b.removeObject(a.ID)
+	b.deleteObject(a.ID)
 
 	return nil
 }
@@ -227,12 +227,26 @@ func (b *Backend) removeObject(id string) {
 		delete(b.secrets, c)
 	}
 
+	for _, k := range b.keyIDsOf(id) {
+		delete(b.keyMaterial, k)
+	}
+
+	delete(b.fics, id)
+
+	for _, a := range b.roleAssigns.all() {
+		if lc(a.PrincipalID) == id || lc(a.DirectoryScopeID) == "/"+id {
+			b.roleAssigns.del(lc(a.ID))
+		}
+	}
+
 	b.apps.del(id)
 	b.sps.del(id)
 	b.users.del(id)
 	b.groups.del(id)
 	delete(b.owners, id)
 	delete(b.members, id)
+	b.dropAdminUnitRefs(id)
+	b.dropManagerRefs(id)
 
 	for k, v := range b.owners {
 		b.owners[k] = without(v, id)

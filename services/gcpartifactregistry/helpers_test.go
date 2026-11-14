@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	artifactregistry "cloud.google.com/go/artifactregistry/apiv1"
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -17,10 +18,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
+
+// testHTTP is the client the tests use against the emulator and httptest upstreams.
+var testHTTP = httpclient.New(time.Minute) //nolint:gochecknoglobals // shared test client
 
 const (
 	project = "test-project"
@@ -37,7 +42,18 @@ type env struct {
 func newEnv(t *testing.T, dataDir string) *env {
 	t.Helper()
 
+	return newEnvWith(t, dataDir, nil)
+}
+
+// newEnvWith is newEnv with a hook that configures the backend before the listener starts.
+func newEnvWith(t *testing.T, dataDir string, setup func(*gcpartifactregistry.InMemoryBackend)) *env {
+	t.Helper()
+
 	b := gcpartifactregistry.NewInMemoryBackend()
+	if setup != nil {
+		setup(b)
+	}
+
 	b.SetDataDir(dataDir)
 	b.SetContext(t.Context())
 

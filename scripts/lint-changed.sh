@@ -23,8 +23,13 @@
 #   scripts/lint-changed.sh --list         # print the changed package patterns and exit (no linting)
 #   scripts/lint-changed.sh --only FILE    # restrict to the patterns listed in FILE (CI shards)
 #
+# When go.mod differs from the base, packages that directly import a module
+# whose requirement/replace changed (scripts/lint-modimpact.sh) are added to
+# the changed-package set.
+#
 # Env: LINT_BATCH (15) max packages per golangci-lint/go vet invocation,
 #      LINT_TIMEOUT (30m) per-batch limit, LINT_CONCURRENCY (from GOFLAGS -p, else nproc/2),
+#      LINT_LIST_ONLY=1 prints the resolved package list and exits without linting,
 #      LINT_LOCK_RETRIES (20) x 15s waits when another golangci-lint holds the lock.
 
 set -euo pipefail
@@ -99,6 +104,7 @@ for bin in "${bins[@]}"; do
   }
 done
 
+mod_dirs=()
 if [[ ${#args[@]} -gt 0 ]]; then
   changed_files=("${args[@]}")
 else
@@ -124,9 +130,15 @@ else
       git ls-files --others --exclude-standard -- '*.go'
     } | sort -u
   )
+  if [[ -n "$merge_base" ]]; then
+    while IFS= read -r d; do
+      [[ -n "$d" ]] && mod_dirs+=("$d")
+    done < <(bash "$(dirname -- "${BASH_SOURCE[0]}")/lint-modimpact.sh" "$merge_base")
+    [[ ${#mod_dirs[@]} -gt 0 ]] && echo "lint-changed: go.mod changed -- adding ${#mod_dirs[@]} package(s) importing a changed module"
+  fi
 fi
 
-if [[ ${#changed_files[@]} -eq 0 ]]; then
+if [[ ${#changed_files[@]} -eq 0 && ${#mod_dirs[@]} -eq 0 ]]; then
   echo "lint-changed: no changed Go files -- nothing to check."
   exit 0
 fi
@@ -152,6 +164,12 @@ for f in "${changed_files[@]}"; do
   fi
 done
 
+for dir in "${mod_dirs[@]}"; do
+  [[ -n "${seen[$dir]:-}" ]] && continue
+  seen["$dir"]=1
+  [[ -d "$dir" ]] && pkgs+=("$dir")
+done
+
 if [[ ${#pkgs[@]} -eq 0 ]]; then
   echo "lint-changed: ${#changed_files[@]} changed Go file(s), but every containing package was deleted or excluded -- nothing to check."
   if [[ ${#skipped[@]} -gt 0 ]]; then
@@ -164,7 +182,7 @@ patterns=()
 for d in "${pkgs[@]}"; do
   [[ "$d" == "." ]] && patterns+=(".") || patterns+=("./$d")
 done
-IFS=$'\n' sorted_patterns=($(sort <<<"${patterns[*]}")); unset IFS
+mapfile -t sorted_patterns < <(printf '%s\n' "${patterns[@]}" | sort)
 
 if [[ -n "$ONLY_FILE" ]]; then
   mapfile -t sorted_patterns < <(comm -12 <(printf '%s\n' "${sorted_patterns[@]}" | LC_ALL=C sort -u) <(LC_ALL=C sort -u "$ONLY_FILE"))
@@ -184,6 +202,10 @@ printf '  %s\n' "${sorted_patterns[@]}"
 if [[ ${#skipped[@]} -gt 0 ]]; then
   echo "lint-changed: skipped ${#skipped[@]} path(s) (deleted or excluded, never silently dropped from the count above):"
   printf '  %s\n' "${skipped[@]}"
+fi
+
+if [[ "${LINT_LIST_ONLY:-0}" == 1 ]]; then
+  exit 0
 fi
 
 # Packages whose files all carry a //go:build constraint (test/e2e) are empty

@@ -2,9 +2,12 @@ package gcpresourcemanager
 
 import (
 	"crypto/rand"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/proto"
@@ -25,6 +28,7 @@ const (
 // InMemoryBackend holds Resource Manager and Service Usage state under one lock.
 type InMemoryBackend struct {
 	clock     atomic.Pointer[func() time.Time]
+	Audit     gcpaudit.Emitter
 	mu        *lockmetrics.RWMutex
 	org       orgRec
 	projects  map[string]*projectRec
@@ -33,6 +37,9 @@ type InMemoryBackend struct {
 	tagValues map[string]*tagValueRec
 	bindings  map[string]*bindingRec
 	enabled   map[string]map[string]time.Time
+	retired   map[string]bool
+	liens     map[string]*lienRec
+	holds     map[string]*holdRec
 	policies  *gcpiampolicy.Store
 	lro       *gcplro.Store
 	seed      string
@@ -62,6 +69,9 @@ func (b *InMemoryBackend) init(s Settings) {
 	b.projects, b.folders = map[string]*projectRec{}, map[string]*folderRec{}
 	b.tagKeys, b.tagValues = map[string]*tagKeyRec{}, map[string]*tagValueRec{}
 	b.bindings, b.enabled = map[string]*bindingRec{}, map[string]map[string]time.Time{}
+	b.retired = map[string]bool{}
+	b.liens = map[string]*lienRec{}
+	b.holds = map[string]*holdRec{}
 
 	for id := range strings.SplitSeq(s.SeedProjects, ",") {
 		if id = strings.TrimSpace(id); id != "" {
@@ -141,12 +151,70 @@ func (b *InMemoryBackend) purgeLocked() {
 		if f.requested() && !now.Before(f.Deleted.Add(b.retention)) {
 			delete(b.folders, id)
 			b.policies.Drop(kindFolders + "/" + id)
+			b.dropTagsOfLocked(kindFolders+"/"+id, resourcePrefix+kindFolders+"/"+id)
 		}
 	}
 }
 
 func (b *InMemoryBackend) dropProjectLocked(number string) {
+	p := b.projects[number]
+
 	delete(b.projects, number)
 	delete(b.enabled, number)
 	b.policies.Drop(kindProjects + "/" + number)
+
+	if p == nil {
+		return
+	}
+
+	if b.retention > 0 {
+		b.retired[p.ID] = true
+	}
+
+	b.dropLiensOfLocked(kindProjects + "/" + number)
+
+	b.dropTagsOfLocked(
+		kindProjects+"/"+number,
+		resourcePrefix+kindProjects+"/"+number,
+		resourcePrefix+kindProjects+"/"+p.ID,
+	)
+}
+
+// dropTagsOfLocked removes the tag keys, values and bindings that die with a purged resource: keys parented under
+// it, and bindings placed on it or on a value of those keys.
+func (b *InMemoryBackend) dropTagsOfLocked(parent string, bindingParents ...string) {
+	gone := map[string]bool{}
+
+	for id, k := range b.tagKeys {
+		if k.Parent == parent {
+			delete(b.tagKeys, id)
+			b.policies.Drop(kindTagKeys + "/" + id)
+			b.dropValuesOfKeyLocked(kindTagKeys+"/"+id, gone)
+		}
+	}
+
+	for name, bd := range b.bindings {
+		if gone[bd.TagValue] || slices.Contains(bindingParents, bd.Parent) {
+			delete(b.bindings, name)
+		}
+	}
+}
+
+func (b *InMemoryBackend) dropValuesOfKeyLocked(key string, gone map[string]bool) {
+	for vid, v := range b.tagValues {
+		if v.Parent != key {
+			continue
+		}
+
+		gone[kindTagValues+"/"+vid] = true
+
+		delete(b.tagValues, vid)
+		b.policies.Drop(kindTagValues + "/" + vid)
+
+		for hk := range b.holds {
+			if strings.HasPrefix(hk, vid+"/") {
+				delete(b.holds, hk)
+			}
+		}
+	}
 }

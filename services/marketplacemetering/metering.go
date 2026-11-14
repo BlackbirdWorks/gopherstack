@@ -173,8 +173,8 @@ func (b *InMemoryBackend) checkEntitledLocked(in *MeterUsageInput, account strin
 }
 
 // MeterUsage records hourly usage of one dimension for the calling account's product subscription.
-// A repeat of the same (product, customer, dimension, timestamp) with the same quantity returns the original record;
-// with another quantity it fails with DuplicateRequestException.
+// The timestamp is rounded down to the hour (API_MeterUsage): a repeat of the same (product, customer, dimension, hour)
+// with the same quantity returns the original record; with another quantity it fails with DuplicateRequestException.
 func (b *InMemoryBackend) MeterUsage(ctx context.Context, in *MeterUsageInput) (*MeterUsageOutput, error) {
 	quantity, err := validateMeterUsage(in)
 	if err != nil {
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) MeterUsage(ctx context.Context, in *MeterUsageInput) (
 		customer = s.CustomerIdentifier
 	}
 
-	key := usageDedupKey(in.ProductCode, customer, in.UsageDimension, in.Timestamp.Unix())
+	key := usageDedupKey(in.ProductCode, customer, in.UsageDimension, meterUsageSlot(in.Timestamp.Time))
 	if old, dup := b.usage.Get(key); dup {
 		if old.Quantity != quantity {
 			return nil, fail(ErrDuplicateRequest,
@@ -262,6 +262,20 @@ func (b *InMemoryBackend) BatchMeterUsage(in *BatchMeterUsageInput) (*BatchMeter
 	return out, nil
 }
 
+// batchDuplicateLocked finds a stored record for the same second, or a MeterUsage record for the same hour.
+func (b *InMemoryBackend) batchDuplicateLocked(productCode, customer string, r *UsageRecord) (*StoredUsage, bool) {
+	if old, dup := b.usage.Get(usageDedupKey(productCode, customer, r.Dimension, r.Timestamp.Unix())); dup {
+		return old, true
+	}
+
+	hourKey := usageDedupKey(productCode, customer, r.Dimension, meterUsageSlot(r.Timestamp.Time))
+	if old, dup := b.usage.Get(hourKey); dup && old.Operation == opMeterUsage {
+		return old, true
+	}
+
+	return nil, false
+}
+
 // meterRecordLocked returns false when the record cannot be processed and must be returned to the caller.
 func (b *InMemoryBackend) meterRecordLocked(productCode string, r UsageRecord) (UsageRecordResult, bool) {
 	rec := r
@@ -294,8 +308,7 @@ func (b *InMemoryBackend) meterRecordLocked(productCode string, r UsageRecord) (
 		customer = customerID(productCode, account)
 	}
 
-	key := usageDedupKey(productCode, customer, r.Dimension, r.Timestamp.Unix())
-	if old, dup := b.usage.Get(key); dup {
+	if old, dup := b.batchDuplicateLocked(productCode, customer, &r); dup {
 		return UsageRecordResult{UsageRecord: &rec, MeteringRecordID: old.ID, Status: statusDuplicate}, true
 	}
 

@@ -55,7 +55,7 @@ func checkConcurrencies(m []MediaConcurrency) error {
 	return nil
 }
 
-func (b *Backend) checkQueueConfigs(inst string, cfgs []RoutingProfileQueueConfig) error {
+func (b *Backend) checkQueueConfigs(inst string, cfgs []RoutingProfileQueueConfig, manual bool) error {
 	for _, c := range cfgs {
 		if err := oneOf("QueueReference.Channel", c.QueueReference.Channel, channels()...); err != nil {
 			return err
@@ -65,7 +65,7 @@ func (b *Backend) checkQueueConfigs(inst string, cfgs []RoutingProfileQueueConfi
 			return notFoundErr("Queue", c.QueueReference.QueueID)
 		}
 
-		if c.Priority < 1 || c.Priority > maxQueueConfigs || c.Delay < 0 {
+		if !manual && (c.Priority < 1 || c.Priority > maxQueueConfigs || c.Delay < 0) {
 			return invalidParamErr("QueueConfigs need Priority 1-%d and a non-negative Delay", maxQueueConfigs)
 		}
 	}
@@ -138,11 +138,11 @@ func (b *Backend) CreateRoutingProfile(ctx context.Context, in *CreateRoutingPro
 		return nil, notFoundErr("Queue", in.DefaultOutboundQueueID)
 	}
 
-	if err = b.checkQueueConfigs(inst, in.QueueConfigs); err != nil {
+	if err = b.checkQueueConfigs(inst, in.QueueConfigs, false); err != nil {
 		return nil, err
 	}
 
-	if err = b.checkQueueConfigs(inst, in.ManualAssignmentQueues); err != nil {
+	if err = b.checkQueueConfigs(inst, in.ManualAssignmentQueues, true); err != nil {
 		return nil, err
 	}
 
@@ -249,7 +249,7 @@ func (b *Backend) updateProfile(
 	ctx context.Context,
 	in *UpdateRoutingProfileInput,
 	apply func(p *routingProfileRec) error,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateRoutingProfile")
 	defer b.mu.Unlock()
 
@@ -269,11 +269,11 @@ func (b *Backend) updateProfile(
 
 	p.Profile.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateRoutingProfileName renames a routing profile.
-func (b *Backend) UpdateRoutingProfileName(ctx context.Context, in *UpdateRoutingProfileInput) (*empty, error) {
+func (b *Backend) UpdateRoutingProfileName(ctx context.Context, in *UpdateRoutingProfileInput) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
@@ -286,7 +286,10 @@ func (b *Backend) UpdateRoutingProfileName(ctx context.Context, in *UpdateRoutin
 }
 
 // UpdateRoutingProfileConcurrency replaces the per-channel concurrency.
-func (b *Backend) UpdateRoutingProfileConcurrency(ctx context.Context, in *UpdateRoutingProfileInput) (*empty, error) {
+func (b *Backend) UpdateRoutingProfileConcurrency(
+	ctx context.Context,
+	in *UpdateRoutingProfileInput,
+) (*EmptyOutput, error) {
 	if len(in.MediaConcurrencies) == 0 {
 		return nil, invalidParamErr("MediaConcurrencies is required")
 	}
@@ -306,7 +309,7 @@ func (b *Backend) UpdateRoutingProfileConcurrency(ctx context.Context, in *Updat
 func (b *Backend) UpdateRoutingProfileDefaultOutboundQueue(
 	ctx context.Context,
 	in *UpdateRoutingProfileInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if in.DefaultOutboundQueueID == nil {
 		return nil, invalidParamErr("DefaultOutboundQueueId is required")
 	}
@@ -326,7 +329,7 @@ func (b *Backend) UpdateRoutingProfileDefaultOutboundQueue(
 func (b *Backend) UpdateRoutingProfileAgentAvailabilityTimer(
 	ctx context.Context,
 	in *UpdateRoutingProfileInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if in.AgentAvailabilityTimer == nil {
 		return nil, invalidParamErr("AgentAvailabilityTimer is required")
 	}
@@ -348,12 +351,16 @@ func (b *Backend) UpdateRoutingProfileAgentAvailabilityTimer(
 }
 
 // AssociateRoutingProfileQueues adds queue configs.
-func (b *Backend) AssociateRoutingProfileQueues(ctx context.Context, in *UpdateRoutingProfileInput) (*empty, error) {
+func (b *Backend) AssociateRoutingProfileQueues(
+	ctx context.Context,
+	in *UpdateRoutingProfileInput,
+) (*EmptyOutput, error) {
 	return b.updateProfile(ctx, in, func(p *routingProfileRec) error {
-		for _, cfgs := range [][]RoutingProfileQueueConfig{in.QueueConfigs, in.ManualAssignmentQueues} {
-			if err := b.checkQueueConfigs(p.InstanceID, cfgs); err != nil {
-				return err
-			}
+		if err := firstError(
+			b.checkQueueConfigs(p.InstanceID, in.QueueConfigs, false),
+			b.checkQueueConfigs(p.InstanceID, in.ManualAssignmentQueues, true),
+		); err != nil {
+			return err
 		}
 
 		p.Queues = mergeQueueConfigs(p.Queues, in.QueueConfigs)
@@ -364,9 +371,9 @@ func (b *Backend) AssociateRoutingProfileQueues(ctx context.Context, in *UpdateR
 }
 
 // UpdateRoutingProfileQueues replaces the priority and delay of existing queue configs.
-func (b *Backend) UpdateRoutingProfileQueues(ctx context.Context, in *UpdateRoutingProfileInput) (*empty, error) {
+func (b *Backend) UpdateRoutingProfileQueues(ctx context.Context, in *UpdateRoutingProfileInput) (*EmptyOutput, error) {
 	return b.updateProfile(ctx, in, func(p *routingProfileRec) error {
-		if err := b.checkQueueConfigs(p.InstanceID, in.QueueConfigs); err != nil {
+		if err := b.checkQueueConfigs(p.InstanceID, in.QueueConfigs, false); err != nil {
 			return err
 		}
 
@@ -387,7 +394,10 @@ func (b *Backend) UpdateRoutingProfileQueues(ctx context.Context, in *UpdateRout
 }
 
 // DisassociateRoutingProfileQueues removes queue configs.
-func (b *Backend) DisassociateRoutingProfileQueues(ctx context.Context, in *UpdateRoutingProfileInput) (*empty, error) {
+func (b *Backend) DisassociateRoutingProfileQueues(
+	ctx context.Context,
+	in *UpdateRoutingProfileInput,
+) (*EmptyOutput, error) {
 	return b.updateProfile(ctx, in, func(p *routingProfileRec) error {
 		for _, ref := range in.QueueReferences {
 			if p.Profile.DefaultOutboundQueueID == ref.QueueID {
@@ -465,7 +475,7 @@ func (b *Backend) ListRoutingProfileQueues(
 }
 
 // DeleteRoutingProfile removes a routing profile that has no users.
-func (b *Backend) DeleteRoutingProfile(inst, id string) (*empty, error) {
+func (b *Backend) DeleteRoutingProfile(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteRoutingProfile")
 	defer b.mu.Unlock()
 
@@ -488,4 +498,62 @@ func (b *Backend) DeleteRoutingProfile(inst, id string) (*empty, error) {
 	}
 
 	return nil, b.routingProfiles.del(r.Instance.ID, id)
+}
+
+// ManualAssignmentQueueSummary is the list shape of a manual-assignment queue config.
+type ManualAssignmentQueueSummary struct {
+	Channel   string `json:"Channel"`
+	QueueArn  string `json:"QueueArn"`
+	QueueID   string `json:"QueueId"`
+	QueueName string `json:"QueueName"`
+}
+
+// ManualQueuesOut is the manual queues response.
+type ManualQueuesOut struct {
+	Stamp
+	NextToken string                         `json:"NextToken,omitempty"`
+	Queues    []ManualAssignmentQueueSummary `json:"RoutingProfileManualAssignmentQueueConfigSummaryList"`
+}
+
+// ListRoutingProfileManualAssignmentQueues pages through the manual-assignment queues of a profile.
+func (b *Backend) ListRoutingProfileManualAssignmentQueues(
+	inst, id, token string,
+	maxResults int32,
+) (*ManualQueuesOut, error) {
+	b.mu.RLock("ListRoutingProfileManualAssignmentQueues")
+
+	r, err := b.instanceLocked(inst)
+	if err != nil {
+		b.mu.RUnlock()
+
+		return nil, err
+	}
+
+	p, err := b.routingProfiles.get(r.Instance.ID, id)
+	if err != nil {
+		b.mu.RUnlock()
+
+		return nil, err
+	}
+
+	var all []ManualAssignmentQueueSummary
+
+	for _, c := range p.Manual {
+		if q, ok := b.queues.table.Get(r.Instance.ID + "/" + c.QueueReference.QueueID); ok {
+			all = append(all, ManualAssignmentQueueSummary{
+				QueueArn: q.Queue.QueueArn, QueueID: q.Queue.QueueID, QueueName: q.Queue.Name,
+				Channel: c.QueueReference.Channel,
+			})
+		}
+	}
+
+	stamp := p.Profile.Stamp
+	b.mu.RUnlock()
+
+	page, next, err := paged(all, token, maxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ManualQueuesOut{Stamp: stamp, NextToken: next, Queues: orEmpty(page)}, nil
 }
