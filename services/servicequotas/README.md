@@ -22,7 +22,7 @@
 - AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
 - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
 - Template: associating the template does not file increase requests for accounts created in or joined to the organization later (Organizations exposes no account-created hook)
-- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
+- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, customer managed policies and instance profiles 10,000, groups 500); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
 - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised (no emulated cause)
 
 ### Structural gaps

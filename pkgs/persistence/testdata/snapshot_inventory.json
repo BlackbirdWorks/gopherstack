@@ -4483,6 +4483,7 @@
       "deletedItem.Federated []FederatedCredential `json:\"federatedIdentityCredentials,omitempty\"`",
       "deletedItem.Group *Group `json:\"group,omitempty\"`",
       "deletedItem.KeyMaterial map[string]string `json:\"keyMaterial,omitempty\"`",
+      "deletedItem.MemberOf []string `json:\"memberOf,omitempty\"`",
       "deletedItem.Members []string `json:\"members,omitempty\"`",
       "deletedItem.Owners []string `json:\"owners,omitempty\"`",
       "deletedItem.Secrets map[string]string `json:\"secrets,omitempty\"`",

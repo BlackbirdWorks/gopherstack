@@ -794,7 +794,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Athena](services/athena/README.md) | A | 27 | 10 gaps; 6 structural gaps; 1 deferred |
+| [Athena](services/athena/README.md) | A | 27 | 5 gaps; 6 structural gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 18 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
@@ -863,7 +863,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 5 structural gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 structural gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 1 gap; 2 structural gaps; 1 deferred |
-| [Organizations](services/organizations/README.md) | A | 63 | 1 gap; 2 structural gaps |
+| [Organizations](services/organizations/README.md) | A | 63 | 2 structural gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 1 structural gap; 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 structural gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 structural gaps; 1 deferred |
@@ -1005,7 +1005,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Logging](services/ocilogging/README.md) | B | 32 | 7 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 18 | 8 gaps |
 | [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 40 | 9 gaps |
-| [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 10 gaps |
+| [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 9 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 7 gaps |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 57 | 6 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 6 gaps |

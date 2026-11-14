@@ -20,7 +20,7 @@
 - Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
 - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
 - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
-- Runtimes: a customJWTAuthorizer is enforced with the gateway's bearer validator (its 401/403 split and WWW-Authenticate text are unverified); runtimes without one accept any caller and no IAM policy is evaluated
+- Runtimes: runtimes without a customJWTAuthorizer accept any caller and no IAM policy is evaluated
 - Code interpreter: executeCode runs a fresh python process per call, so variables do not persist between calls; javascript, typescript and the async task tools are rejected
 - Code interpreter: network mode, certificates and filesystem configurations are stored but not applied to the sandbox
 - Browser: no automation or live-view streams, no profiles, and no browser process behind a session

@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence.
+- InstanceState and RelationalDatabaseState values are not published: checked API_InstanceState.html (names only running and pending, no code table), API_RelationalDatabase.html (state is a free string) and the AWS CLI references get-instance-state, get-instance, get-relational-database; the consts.go values (EC2-style instance codes, RDS-style database states) remain unconfirmed conventions
 
 ### Structural gaps
 

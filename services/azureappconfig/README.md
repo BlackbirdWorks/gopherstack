@@ -22,7 +22,7 @@
 - Customer-managed key encryption, private endpoint connections and SKU quotas are not modelled.
 - Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification.
 - History is capped at 50000 entries per store (the real limit is the tier storage quota, not an entry count).
-- Snapshots complete synchronously: no provisioning or failed state, and composition_type key keeps the later filter's key-value when filters select several labels of one key (behaviour inferred, not verified).
+- Snapshots complete synchronously: the create response carries status ready where the REST reference shows 201 with status provisioning, an Operation-Location header and later ready, and the failed state is never entered; with composition_type key, which key-value wins when several filters select different labels of one key is not published: checked rest-api-snapshot and concept-snapshots (emulator keeps the later filter's)
 - Replicas are metadata only and do not replicate or serve a separate data set.
 - Customer-managed key encryption, private endpoint connections, and SKU request quotas are not modelled.
 
