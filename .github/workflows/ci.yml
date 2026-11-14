@@ -22,6 +22,8 @@ concurrency:
 
 env:
   GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
+  # PR builds are throwaway test artefacts; release.yml keeps the default.pgo profile.
+  GOFLAGS: -pgo=off
 
 jobs:
   ui-lint:
