@@ -759,7 +759,7 @@ func (b *Backend) SearchWorkspaceAssociations(in *SearchRequest) (*SearchResult,
 		return nil, err
 	}
 
-	body := SearchResult{"WorkspaceAssociations": orEmpty(page), "ApproximateTotalCount": int64(len(all))}
+	body := SearchResult{"WorkspaceAssociations": orEmpty(page), keyApproxTotal: int64(len(all))}
 	if next != "" {
 		body["NextToken"] = next
 	}

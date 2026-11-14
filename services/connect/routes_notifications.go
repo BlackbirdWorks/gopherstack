@@ -24,6 +24,11 @@ func notificationRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: user + "/{NotificationId}", Op: "UpdateUserNotificationStatus"},
 		{Method: http.MethodPut, Path: push, Op: "CreatePushNotificationRegistration"},
 		{Method: http.MethodDelete, Path: push + "/{RegistrationId}", Op: "DeletePushNotificationRegistration"},
+		{
+			Method: http.MethodPost,
+			Path:   "/instance/{InstanceId}/outbound-web-notification",
+			Op:     "SendOutboundWebNotification",
+		},
 		{Method: http.MethodPost, Path: "/auth/code/{InstanceId}", Op: "CreateAuthCode"},
 		{Method: http.MethodDelete, Path: "/auth/sessions/{InstanceId}/{SessionId}", Op: "DeleteSession"},
 	}

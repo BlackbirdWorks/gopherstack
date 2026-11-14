@@ -201,7 +201,7 @@ func v2Specs() map[string]v2Spec {
 
 			return most
 		}},
-		"SERVICE_LEVEL": {threshold: true, eval: serviceLevel},
+		metricServiceLevel: {threshold: true, eval: serviceLevel},
 	}
 }
 

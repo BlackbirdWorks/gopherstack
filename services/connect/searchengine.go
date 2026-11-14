@@ -204,17 +204,17 @@ func compareNumber(c *numberCond, have float64) bool {
 	}
 
 	switch c.ComparisonType {
-	case "GREATER_OR_EQUAL":
+	case cmpGreaterOrEqual:
 		return have >= lo
-	case "GREATER":
+	case cmpGreater:
 		return have > lo
-	case "LESSER_OR_EQUAL":
+	case cmpLesserOrEqual:
 		return have <= hi
-	case "LESSER":
+	case cmpLesser:
 		return have < hi
-	case "NOT_EQUAL":
+	case cmpNotEqual:
 		return have != lo
-	case "RANGE":
+	case cmpRange:
 		return have >= lo && have <= hi
 	default:
 		return have == lo

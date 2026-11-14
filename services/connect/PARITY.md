@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 384 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 18 are unrouted and listed in items_still_open.
+overall: B            # 389 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 13 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -66,6 +66,11 @@ ops:
   UpdateTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial update of the version named by Status (default SAVED, seeded from the other version when missing); renames apply to the test case; same validation as create"}
   DeleteTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "removes both versions"}
   ListTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "sorted by name; Status is the published status when published; MaxResults 1-1000"}
+  SearchContactEvaluations: {wire: ok, errors: ok, state: ok, persist: ok, note: "StringCondition (EvaluationId, EvaluationArn, EvaluationFormId, EvaluationFormTitle, EvaluationType, Status, ContactId, EvaluatorArn, ContactAgentId), NumberCondition (EvaluationFormVersion, EarnedPoints, MaxBasePoint), DecimalCondition (ScorePercentage), BooleanCondition (AutoEvaluationEnabled, ScoreAutomaticFail, ScoreNotApplicable), DateTimeCondition (CreatedTime, LastModifiedTime), And/Or conditions, AttributeFilter tags and ContactEvaluationAttributeFilter (ContactAgentId EXACT); MaxResults 1-100, newest first. Shape: schemas.go SearchContactEvaluations; docs API_SearchContactEvaluations (its examples name EvaluationId, LastModifiedTime, EvaluationFormVersion, AutoEvaluationEnabled). The searchable field list is the summary and metadata members the emulator populates (the docs publish no list); condition bounds follow the documented MinValue examples: EQUAL, NOT_EQUAL and the GREATER types read MinValue, the LESSER types MaxValue, RANGE both"}
+  ListEvaluationFormAIVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "ContactInteractionType AGENT|AUTOMATED|CUSTOMER required, MaxResults 1-100; the AGENT catalog is the documented sample (AGENT_EVALUATION_2025-11-12 ACTIVE, AGENT_EVALUATION_2025-09-01 DEPRECATED, ended 2025-12-01), status strings follow types.EvaluationFormAIVersionStatus; AUTOMATED and CUSTOMER catalogs are not published and list empty. Shape: schemas.go ListEvaluationFormAIVersions; docs API_ListEvaluationFormAIVersions"}
+  ListAnalyticsDataLakeDataSets: {wire: ok, errors: ok, state: ok, persist: ok, note: "the 22 data lake table names of the admin guide table 'Data retention in the Connect Customer analytics data lake' (each DataSetIds value is a table name, per 'Access Connect Customer data lake'); DataSetName equals DataSetId (the docs publish no display names); MaxResults 1-1000. Shape: schemas.go ListAnalyticsDataLakeDataSets"}
+  StartContactConversationalAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "voice contact with an APPROVED VOICE_RECORDING attached file (CreateAttachedFile), AnalyticsModes only PostContact (API_StartContactConversationalAnalyticsJob), Behavior/Policy/MaskMode/SummaryModes enums from the SDK; the job is recorded on the contact (persisted) and the analysis itself is logged as 'would run' because no Contact Lens exists; ClientToken replays; unknown contact is ResourceNotFoundException. Shape: schemas.go StartContactConversationalAnalyticsJob"}
+  SendOutboundWebNotification: {wire: ok, errors: ok, state: ok, persist: ok, note: "BrowserId and SessionId 1-36 characters, Content.Type WIDGET_VIEW|WIDGET_ACTION, ViewArn must be a view of the instance when set, ExpiresAt must be in the future, Destination and Source.SourceCampaign members required, errors InvalidRequestException/ResourceNotFoundException per API_SendOutboundWebNotification; recorded in the instance (persisted) and the delivery to the widget is logged as 'would deliver'; the outbound-campaigns-only principal restriction is not enforced; ClientToken replays. Shape: schemas.go SendOutboundWebNotification"}
   SearchTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "StringCondition on name and description, StatusCondition, tag filter, And/Or conditions"}
   StartContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must exist in the instance (ContactNotFoundException) and the form must have an ACTIVE version, which the draft evaluation pins (InvalidRequestException otherwise, code unverified); AutoEvaluationConfiguration.Enabled is recorded but no automatic evaluation runs; ClientToken replays; tags join the tag model. Shape: schemas.go StartContactEvaluation; docs API_StartContactEvaluation"}
   UpdateContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "DRAFT evaluations only (submitted ones answer InvalidRequestException); answers merge by question RefId and are type-checked against the pinned form (SINGLESELECT option RefId in StringValue, MULTISELECT RefIds in StringValues, NUMERIC within the question range, DATETIME DateTimeValue, TEXT StringValue; NotApplicable always accepted), notes must belong to questions; UpdatedBy sets EvaluatorArn"}
@@ -74,8 +79,8 @@ ops:
   ListContactEvaluations: {wire: ok, errors: ok, state: ok, persist: ok, note: "evaluations of the contact newest first; NextToken is always empty, as the SDK docs say"}
   DeleteContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
-  ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
+  DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "customer-managed metrics by ID, AWS-managed ones by name (the 11 metrics GetMetricDataV2 computes: Type AWS_MANAGED, Status PUBLISHED, Unit INTEGER|PERCENT|SECONDS, the groupings it supports, SupportsCustomCalculation); other AWS-managed names answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
+  ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists the managed metrics sorted by name; CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
   SearchMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "string conditions on name and description, tag filter; boolean conditions are not applicable"}
   UpdateMetricContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial update of calculation, unit and trend indicator; no versioning ($LATEST/$SAVED ARN qualifiers are not modeled)"}
   UpdateMetricMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -395,19 +400,17 @@ ops:
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)"
-  - "EvaluationForms: ListEvaluationFormAIVersions is not routed: the AI version catalog is service-owned and API_ListEvaluationFormAIVersions shows only one sample response (AGENT_EVALUATION_2025-11-12 and 2025-09-01), so a catalog would be fabricated; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation"
-  - "TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced"
-  - "Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated"
-  - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
+  - "EvaluationForms: contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation"
+  - "TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced (the test case Content grammar is not published, API_CreateTestCase only calls it a JSON string, and the VOICE_CALL and CHAT entry points need a media plane to drive a flow)"
+  - "Notifications: push registrations are stored but no push is ever sent (nothing triggers one: there is no chat message plane); notifications from rules or the system are not generated"
   - "AttachedFiles: uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked"
-  - "Analytics: ListAnalyticsDataLakeDataSets and StartContactConversationalAnalyticsJob are not routed (the dataset catalog is not published; the job needs Contact Lens); associations are recorded without validating DataSetId against a catalog and without a RAM emulator"
+  - "Analytics: associations are recorded without validating DataSetId against the dataset catalog and without a RAM emulator; conversational analytics jobs are recorded but no Contact Lens analysis runs"
   - "Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them"
   - "Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model"
   - "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated"
   - "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated"
   - "Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled"
-  - "CloudFormation: AWS::Connect::AWSManagedView is not provisioned (no page for it exists in the CloudFormation resource reference, so its properties and attributes cannot be verified) and AWS::Connect::DataLakeAssociation is not provisioned (it is a RAM share of an analytics dataset and the analytics association operations above are unrouted); AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
+  - "CloudFormation: AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
 structural_gaps:
   - "No telephony or media plane: outbound calls are never placed, no audio flows, and contacts only change state through StopContact and UpdateContact because no agent softphone or customer endpoint exists."
   - "Phone numbers come from a fixed pool of fictional numbers: the carrier inventory behind SearchAvailablePhoneNumbers cannot exist in an emulator."
@@ -434,7 +437,12 @@ Emulator choices the SDK does not document:
 
 ## 2026-11-13 open-item re-check
 
-API_ListEvaluationFormAIVersions re-read: ContactInteractionType (AGENT|AUTOMATED|CUSTOMER) is required, but the only catalog data is one AGENT sample (AGENT_EVALUATION_2025-11-12 Active, 2025-09-01 Deprecated); AUTOMATED/CUSTOMER versions are not published, so the op stays unrouted.
+API_ListEvaluationFormAIVersions re-read: ContactInteractionType (AGENT|AUTOMATED|CUSTOMER) is required; only an AGENT sample (AGENT_EVALUATION_2025-11-12, 2025-09-01) is published, so the op lists that catalog for AGENT and nothing for the other types.
+
+## 2026-11-14 parity pass
+
+- AWS::Connect::AWSManagedView is not a CloudFormation resource: the Amazon Connect Customer page of the CloudFormation Template Reference (AWS_Connect) lists no such type, so there is nothing to provision.
+- AWS::Connect::DataLakeAssociation: Ref `<instance ID>|<dataset ID>|<target account ID>`, GetAtt ResourceShareArn and ResourceShareId, every property replaces on update (aws-resource-connect-datalakeassociation); it calls the AssociateAnalyticsDataSet backend.
 
 ## 2026-11-13 parity pass
 
@@ -447,9 +455,12 @@ API_ListEvaluationFormAIVersions re-read: ContactInteractionType (AGENT|AUTOMATE
 ## Emulator choices where the vendor is silent
 
 - Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ConnectedToSystemTimestamp, NextContacts (the NextContactEntry types are not documented), ContactDetails, WisdomInfo, GlobalResiliencyMetadata, Cases and the other contact analytics members are never populated (ContactAssociationId, TaskTemplateInfo, ContactEvaluations, QueuePriority, QueueTimeAdjustmentSeconds and RoutingCriteria are); Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated
+- AWS-managed metrics (ListMetrics/DescribeMetric): the catalog is the 11 metrics GetMetricDataV2 computes; the ID is the metric name and the ARN `instance/<id>/metric/<NAME>` (AWS publishes neither), no Category, DefaultStat or SupportedStats are returned.
+- ListAnalyticsDataLakeDataSets lists table names only; the dataset catalog beyond the admin guide table is not published.
 - CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced
 
 ## External effects that are recorded, not performed
 
+- StartContactConversationalAnalyticsJob keeps the job on the contact and logs the Contact Lens analysis as "would run"; SendOutboundWebNotification keeps the notification and logs the widget delivery as "would deliver".
 - StartAssistantContact, StartScreenSharing, StartWebRTCContact and TransferContact need a real-time media plane and are not routed (unknown operations are rejected, nothing is fabricated).
 - Lex bot associations are stored and listed; the access grant on the Lex bot is logged as "would grant" because no Lex service exists in the emulator.

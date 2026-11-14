@@ -60,6 +60,8 @@ func (b *Backend) registerViewTables() {
 		func(v *pushRegistrationRec) string { return v.InstanceID },
 		func(v *pushRegistrationRec) string { return v.ID },
 	)
+	b.webNotifications = newFamily(r, "webNotifications", labelWebNotification,
+		func(v *webNotificationRec) string { return v.InstanceID }, func(v *webNotificationRec) string { return v.ID })
 	b.authSessions = newFamily(r, "authSessions", labelSession,
 		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
 	b.testCases = newFamily(r, "testCases", labelTestCase,

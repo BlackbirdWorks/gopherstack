@@ -182,6 +182,7 @@ func searchOps() map[string]string {
 	return map[string]string{
 		"SearchAgentStatuses":             "/search-agent-statuses",
 		"SearchContactFlowModules":        "/search-contact-flow-modules",
+		"SearchContactEvaluations":        "/search-contact-evaluations",
 		"SearchContactFlows":              "/search-contact-flows",
 		"SearchDataTables":                "/search-data-tables",
 		"SearchEmailAddresses":            "/search-email-addresses",
@@ -241,6 +242,11 @@ func evaluationFormRoutes() []restroute.Route {
 		{Method: http.MethodGet, Path: base + "/{EvaluationFormId}", Op: "DescribeEvaluationForm"},
 		{Method: http.MethodGet, Path: base, Op: "ListEvaluationForms"},
 		{Method: http.MethodGet, Path: base + "/{EvaluationFormId}/versions", Op: "ListEvaluationFormVersions"},
+		{
+			Method: http.MethodGet,
+			Path:   "/instances/{InstanceId}/evaluation-form-ai-versions",
+			Op:     "ListEvaluationFormAIVersions",
+		},
 		{
 			Method: http.MethodGet,
 			Path:   base + "/{EvaluationFormId}/validation-results",
@@ -334,6 +340,7 @@ func analyticsRoutes() []restroute.Route {
 		{Method: http.MethodPut, Path: base + "/association", Op: "AssociateAnalyticsDataSet"},
 		{Method: http.MethodPost, Path: base + "/association", Op: "DisassociateAnalyticsDataSet"},
 		{Method: http.MethodGet, Path: base + "/association", Op: "ListAnalyticsDataAssociations"},
+		{Method: http.MethodGet, Path: base + "/datasets", Op: "ListAnalyticsDataLakeDataSets"},
 		{Method: http.MethodPut, Path: base + "/associations", Op: "BatchAssociateAnalyticsDataSet"},
 		{Method: http.MethodPost, Path: base + "/associations", Op: "BatchDisassociateAnalyticsDataSet"},
 		{Method: http.MethodGet, Path: "/prompts/{InstanceId}/{PromptId}/file", Op: "GetPromptFile"},

@@ -92,6 +92,7 @@ type promptRec struct {
 type contactRec struct {
 	PausedAt          *awstime.EpochTime   `json:"pausedAt,omitempty"`
 	MediaProcessor    *mediaProcessor      `json:"mediaProcessor,omitempty"`
+	AnalyticsJobs     []analyticsJobRec    `json:"analyticsJobs,omitempty"`
 	Recording         map[string]*recState `json:"recording,omitempty"`
 	Streams           map[string]string    `json:"streams,omitempty"`
 	ParticipantTimers map[string]int32     `json:"participantTimers,omitempty"`
@@ -177,6 +178,7 @@ type extras struct {
 	attachedFiles     family[attachedFileRec]
 	attachedConfigs   family[attachedConfigRec]
 	notifications     family[notificationRec]
+	webNotifications  family[webNotificationRec]
 	pushRegistrations family[pushRegistrationRec]
 	authSessions      family[authSessionRec]
 	testCases         family[testCaseRec]

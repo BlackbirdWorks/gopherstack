@@ -7,27 +7,25 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 387 (387 ok) |
-| Known gaps | 13 |
+| PARITY entries audited | 392 (392 ok) |
+| Known gaps | 11 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)
-- EvaluationForms: ListEvaluationFormAIVersions is not routed: the AI version catalog is service-owned and API_ListEvaluationFormAIVersions shows only one sample response (AGENT_EVALUATION_2025-11-12 and 2025-09-01), so a catalog would be fabricated; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
-- TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced
-- Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
-- Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
-- AttachedFiles: uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
-- Analytics: ListAnalyticsDataLakeDataSets and StartContactConversationalAnalyticsJob are not routed (the dataset catalog is not published; the job needs Contact Lens); associations are recorded without validating DataSetId against a catalog and without a RAM emulator
-- Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them
-- Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model
-- GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
-- PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
-- Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
-- CloudFormation: AWS::Connect::AWSManagedView is not provisioned (no page for it exists in the CloudFormation resource reference, so its properties and attributes cannot be verified) and AWS::Connect::DataLakeAssociation is not provisioned (it is a RAM share of an analytics dataset and the analytics association operations above are unrouted); AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
+- valuationForms: contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
+- "TestCases: executions are recorded (Start/Stop/List/ListRecords/GetSummary) but never leave INITIATED on their own, because the emulator has no flow test runner: no PASSED/FAILED outcome, observations or ObservationSummary are ever produced (the test case Content grammar is not published, API_CreateTestCase only calls it a JSON string, and the VOICE_CALL and CHAT entry points need a media plane to drive a flow)
+- "Notifications: push registrations are stored but no push is ever sent (nothing triggers one: there is no chat message plane); notifications from rules or the system are not generated
+- "AttachedFiles: uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
+- "Analytics: associations are recorded without validating DataSetId against the dataset catalog and without a RAM emulator; conversational analytics jobs are recorded but no Contact Lens analysis runs
+- "Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them
+- "Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model
+- "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
+- "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
+- "Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
+- "CloudFormation: AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
 
 ### Structural gaps
 

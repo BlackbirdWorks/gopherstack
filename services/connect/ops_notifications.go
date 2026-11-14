@@ -29,6 +29,8 @@ func (h *Handler) notificationOps(ops map[string]restroute.OpFunc) {
 		func(in *CreatePushNotificationRegistrationInput) string { return in.ClientToken },
 		b.CreatePushNotificationRegistration)
 	ops["DeletePushNotificationRegistration"] = typed(b.DeletePushNotificationRegistration)
+	ops["SendOutboundWebNotification"] = replay(h, "SendOutboundWebNotification",
+		func(in *SendOutboundWebNotificationInput) string { return in.ClientToken }, b.SendOutboundWebNotification)
 	ops["CreateAuthCode"] = typed(b.CreateAuthCode)
 	ops["DeleteSession"] = typed(b.DeleteSession)
 }

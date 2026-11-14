@@ -100,7 +100,10 @@ func connectPeopleTypes() map[string]connectOps {
 func connectLinkTypes() map[string]connectOps {
 	return map[string]connectOps{
 		resTypeConnectApprovedOrigin: {create: createConnectApprovedOrigin, del: deleteConnectApprovedOrigin},
-		resTypeConnectSecurityKey:    {create: createConnectSecurityKey, del: deleteConnectSecurityKey},
+		resTypeConnectDataLakeAssociation: {
+			create: createConnectDataLakeAssociation, del: deleteConnectDataLakeAssociation,
+		},
+		resTypeConnectSecurityKey: {create: createConnectSecurityKey, del: deleteConnectSecurityKey},
 		resTypeConnectInstanceStorageConfig: {
 			create: createConnectStorageConfig, update: updateConnectStorageConfig, del: deleteConnectStorageConfig,
 		},
@@ -148,6 +151,7 @@ func connectImmutableProps() map[string][]string {
 		resTypeConnectViewVersion:              {"ViewArn", connectViewSha, "VersionDescription"},
 		resTypeConnectInstanceStorageConfig:    {connectInstanceArnProp, "ResourceType"},
 		resTypeConnectTrafficDistributionGroup: {attrNameName, samKeyDesc},
+		resTypeConnectDataLakeAssociation:      {"DataSetId", connectInstanceIDProp, "TargetAccountId"},
 		resTypeConnectWorkspace:                {connectInstanceArnProp},
 		resTypeConnectDataTable:                {connectStatusProp, connectInstanceArnProp},
 		resTypeConnectDataTableAttribute:       {connectInstanceArnProp, "DataTableArn", attrNameName},

@@ -129,6 +129,7 @@
   "AWS::Connect::ContactFlowModuleAlias",
   "AWS::Connect::ContactFlowModuleVersion",
   "AWS::Connect::ContactFlowVersion",
+  "AWS::Connect::DataLakeAssociation",
   "AWS::Connect::DataTable",
   "AWS::Connect::DataTableAttribute",
   "AWS::Connect::DataTableRecord",

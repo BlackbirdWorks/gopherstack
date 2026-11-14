@@ -137,7 +137,7 @@ func TestMetricDefinitionLifecycle(t *testing.T) {
 		InstanceId: aws.String(inst), Type: types.MetricTypeAwsManaged,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, managed.MetricSummaryList)
+	assert.Len(t, managed.MetricSummaryList, 11)
 
 	f.clock.advance(5_000_000_000)
 	_, err = f.client.UpdateMetricContent(t.Context(), &sdk.UpdateMetricContentInput{
@@ -202,4 +202,57 @@ func TestMetricDefinitionLifecycle(t *testing.T) {
 	_, err = f.client.DescribeMetric(
 		t.Context(), &sdk.DescribeMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
+}
+
+func TestManagedMetricCatalogue(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t)
+	inst := aws.String(f.newInstance(t, "managed"))
+
+	list, listErr := f.client.ListMetrics(t.Context(), &sdk.ListMetricsInput{
+		InstanceId: inst, Type: types.MetricTypeAwsManaged, MaxResults: aws.Int32(4),
+	})
+	require.NoError(t, listErr)
+	require.Len(t, list.MetricSummaryList, 4)
+	require.NotNil(t, list.NextToken)
+
+	for _, s := range list.MetricSummaryList {
+		assert.Equal(t, types.MetricTypeAwsManaged, s.Type)
+		assert.Equal(t, types.MetricStatusPublished, s.Status)
+	}
+
+	tests := []struct {
+		name string
+		id   string
+		code string
+		unit types.MetricUnit
+	}{
+		{name: "count", id: "CONTACTS_HANDLED", unit: types.MetricUnitInteger},
+		{name: "percent", id: "SERVICE_LEVEL", unit: types.MetricUnitPercent},
+		{name: "seconds", id: "AVG_HANDLE_TIME", unit: types.MetricUnitSeconds},
+		{name: "unknown", id: "NOT_A_METRIC", code: "ResourceNotFoundException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := f.client.DescribeMetric(t.Context(), &sdk.DescribeMetricInput{
+				InstanceId: inst, MetricId: aws.String(tt.id),
+			})
+			if tt.code != "" {
+				assert.Equal(t, tt.code, apiCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, types.MetricTypeAwsManaged, out.Metric.Type)
+			assert.Equal(t, tt.unit, out.Metric.Unit)
+			assert.Equal(t, tt.id, aws.ToString(out.Metric.Name))
+			assert.Contains(t, aws.ToString(out.Metric.Arn), "/metric/"+tt.id)
+			assert.Contains(t, out.Metric.Groupings, "QUEUE")
+		})
+	}
 }

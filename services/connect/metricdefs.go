@@ -260,9 +260,15 @@ func (b *Backend) CreateMetric(ctx context.Context, in *CreateMetricInput) (*Met
 	})
 }
 
-// DescribeMetric returns a customer-managed metric definition.
+// DescribeMetric returns a customer-managed metric definition, or an AWS-managed one by its name.
 func (b *Backend) DescribeMetric(inst, id string) (*MetricDefinition, error) {
 	return readInstance(b, "DescribeMetric", inst, func(inst string) (*MetricDefinition, error) {
+		if isManagedMetricID(id) {
+			m := b.managedMetric(inst, strings.ToUpper(id))
+
+			return &m, nil
+		}
+
 		m, err := b.metricDefs.get(inst, id)
 		if err != nil {
 			return nil, err
@@ -274,7 +280,7 @@ func (b *Backend) DescribeMetric(inst, id string) (*MetricDefinition, error) {
 	})
 }
 
-// ListMetrics pages through the metric definitions; AWS-managed metrics are not modeled.
+// ListMetrics pages through the metric definitions; no type filter lists the customer-managed ones.
 func (b *Backend) ListMetrics(inst, typ, token string, maxResults int32) ([]MetricSummary, string, error) {
 	if typ != "" {
 		if err := oneOf("type", typ, metricAWS, metricCustomer); err != nil {
@@ -286,7 +292,7 @@ func (b *Backend) ListMetrics(inst, typ, token string, maxResults int32) ([]Metr
 		var out []MetricSummary
 
 		if typ == metricAWS {
-			return out, nil
+			return b.managedMetricSummaries(inst), nil
 		}
 
 		for _, m := range b.metricDefs.in(inst) {

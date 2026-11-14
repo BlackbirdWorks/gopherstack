@@ -309,6 +309,10 @@
     "FlowContentSha256",
     "Version"
   ],
+  "AWS::Connect::DataLakeAssociation": [
+    "ResourceShareArn",
+    "ResourceShareId"
+  ],
   "AWS::Connect::DataTable": [
     "Arn",
     "CreatedTime",

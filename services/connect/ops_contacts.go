@@ -32,6 +32,9 @@ func (h *Handler) contactControlOps(ops map[string]restroute.OpFunc) {
 	ops["DismissUserContact"] = typed(b.DismissUserContact)
 	ops["ResumeContact"] = typed(b.ResumeContact)
 	ops["StartContactRecording"] = typed(b.StartContactRecording)
+	ops["StartContactConversationalAnalyticsJob"] = replay(h, "StartContactConversationalAnalyticsJob",
+		func(in *StartConversationalAnalyticsJobInput) string { return in.ClientToken },
+		b.StartContactConversationalAnalyticsJob)
 	ops["StopContactRecording"] = typed(b.StopContactRecording)
 	ops["SuspendContactRecording"] = typed(b.SuspendContactRecording)
 	ops["ResumeContactRecording"] = typed(b.ResumeContactRecording)

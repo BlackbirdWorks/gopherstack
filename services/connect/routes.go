@@ -415,6 +415,11 @@ func contactsRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: "/users/{InstanceId}/{UserId}/contact", Op: "DismissUserContact"},
 		{Method: http.MethodPost, Path: "/contact/resume", Op: "ResumeContact"},
 		{Method: http.MethodPost, Path: "/contact/start-recording", Op: "StartContactRecording"},
+		{
+			Method: http.MethodPost,
+			Path:   "/contact/start-conversational-analytics-job/{InstanceId}/{ContactId}",
+			Op:     "StartContactConversationalAnalyticsJob",
+		},
 		{Method: http.MethodPost, Path: "/contact/stop-recording", Op: "StopContactRecording"},
 		{Method: http.MethodPost, Path: "/contact/suspend-recording", Op: "SuspendContactRecording"},
 		{Method: http.MethodPost, Path: "/contact/resume-recording", Op: "ResumeContactRecording"},
