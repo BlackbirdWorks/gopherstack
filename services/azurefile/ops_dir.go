@@ -230,6 +230,7 @@ type listFilesXML struct {
 	ShareName    string   `xml:"ShareName,attr"`
 	Snapshot     string   `xml:"ShareSnapshot,attr,omitempty"`
 	DirectoryPth string   `xml:"DirectoryPath,attr"`
+	DirectoryID  string   `xml:"DirectoryId"`
 	Prefix       string   `xml:"Prefix"`
 	Marker       string   `xml:"Marker"`
 	NextMarker   string   `xml:"NextMarker"`
@@ -246,8 +247,6 @@ func (h *Handler) listFilesDirs(rc *reqCtx) (*resp, *apiError) {
 		include[strs.Fold(strings.TrimSpace(v))] = true
 	}
 
-	extended := strings.EqualFold(rc.hdr("x-ms-file-extended-info"), "true")
-
 	maxResults := 0
 
 	if v := rc.q.Get("maxresults"); v != "" {
@@ -262,9 +261,13 @@ func (h *Handler) listFilesDirs(rc *reqCtx) (*resp, *apiError) {
 	h.Backend.mu.RLock("ListFilesAndDirectories")
 	defer h.Backend.mu.RUnlock()
 
-	_, dir, aerr := h.lookupDir(rc, false)
+	sh, dir, aerr := h.lookupDir(rc, false)
 	if aerr != nil {
 		return nil, aerr
+	}
+
+	if sh.isNFS() {
+		include = map[string]bool{}
 	}
 
 	prefix := strs.Fold(rc.q.Get("prefix"))
@@ -287,16 +290,21 @@ func (h *Handler) listFilesDirs(rc *reqCtx) (*resp, *apiError) {
 	pg := page.New(kids, rc.q.Get("marker"), maxResults, defaultMaxResults)
 
 	out := listFilesXML{
-		Endpoint: rc.endpoint + "/", ShareName: rc.share, Snapshot: rc.q.Get("sharesnapshot"),
-		DirectoryPth: strings.Trim(rc.path, "/"), Prefix: rc.q.Get("prefix"), Marker: rc.q.Get("marker"),
-		NextMarker: pg.Next,
+		Endpoint:     rc.endpoint + "/",
+		ShareName:    rc.share,
+		Snapshot:     rc.q.Get("sharesnapshot"),
+		DirectoryID:  dir.ID,
+		DirectoryPth: strings.Trim(rc.path, "/"),
+		Prefix:       rc.q.Get("prefix"),
+		Marker:       rc.q.Get("marker"),
+		NextMarker:   pg.Next,
 	}
 	if maxResults > 0 {
 		out.MaxResults = &maxResults
 	}
 
 	for _, c := range pg.Data {
-		e := dirEntry(c, include, extended)
+		e := dirEntry(c, include)
 		if c.Dir {
 			out.Entries.Directories = append(out.Entries.Directories, e)
 		} else {
@@ -307,16 +315,14 @@ func (h *Handler) listFilesDirs(rc *reqCtx) (*resp, *apiError) {
 	return newResp(http.StatusOK).xml(out), nil
 }
 
-func dirEntry(c *node, include map[string]bool, extended bool) listEntryXML {
+func dirEntry(c *node, include map[string]bool) listEntryXML {
 	e := listEntryXML{Name: c.Name}
 
 	if !c.Dir {
 		e.Properties = &listPropsXML{ContentLength: &c.Size}
 	}
 
-	if extended {
-		e.FileID = c.ID
-	}
+	e.FileID = c.ID
 
 	if include["timestamps"] {
 		if e.Properties == nil {
@@ -441,7 +447,7 @@ func (h *Handler) rename(rc *reqCtx, dir bool) (*resp, *apiError) {
 	b.mu.Lock("Rename")
 	defer b.mu.Unlock()
 
-	sh, aerr := b.peek(rc.acct).findShare(rc.share, rc.q.Get("sharesnapshot"), true)
+	sh, aerr := b.renameShare(rc)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -488,6 +494,23 @@ func (h *Handler) rename(rc *reqCtx, dir bool) (*resp, *apiError) {
 	src.ETag, src.LastModified, src.Changed = b.etag(), rc.now, rc.now
 
 	return nodeResp(http.StatusOK, src), nil
+}
+
+func (b *InMemoryBackend) renameShare(rc *reqCtx) (*share, *apiError) {
+	if rc.q.Get("sharesnapshot") != "" {
+		return nil, errInvalidQuery("sharesnapshot")
+	}
+
+	sh, aerr := b.peek(rc.acct).findShare(rc.share, "", true)
+	if aerr != nil {
+		return nil, aerr
+	}
+
+	if sh.isNFS() {
+		return nil, errNotSMB()
+	}
+
+	return sh, nil
 }
 
 // prepareRenameTarget enforces lease, read-only, replace and cycle rules.

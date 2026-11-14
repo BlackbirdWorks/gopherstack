@@ -229,7 +229,7 @@ func (sh *share) parentOf(path string) (*node, string, *apiError) {
 
 func (b *InMemoryBackend) newNode(parent *node, name string, dir bool, now time.Time) *node {
 	n := &node{
-		Name: name, Dir: dir, ID: b.newNodeID(), Created: now, LastWrite: now, Changed: now,
+		Name: name, Dir: dir, ID: b.newNodeID(), Created: now, Born: now, LastWrite: now, Changed: now,
 		LastModified: now, ETag: b.etag(), Attributes: attrArchive,
 	}
 

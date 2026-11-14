@@ -42,6 +42,7 @@ type leaseInfo struct {
 // node is a directory or a file inside a share.
 type node struct {
 	Created      time.Time         `json:"created"`
+	Born         time.Time         `json:"born,omitzero"`
 	LastWrite    time.Time         `json:"lastWrite"`
 	Changed      time.Time         `json:"changed"`
 	LastModified time.Time         `json:"lastModified"`

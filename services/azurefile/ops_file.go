@@ -635,20 +635,19 @@ func (h *Handler) listRanges(rc *reqCtx) (*resp, *apiError) {
 	out := rangesXML{}
 
 	if prev := rc.q.Get("prevsharesnapshot"); prev != "" {
-		ps, perr0 := h.Backend.peek(rc.acct).findShare(rc.share, prev, false)
-		if perr0 != nil {
-			return nil, perr0
+		pn, perr := h.prevSnapshotNode(rc, n, prev)
+		if perr != nil {
+			return nil, perr
 		}
 
-		pn, perr := ps.lookup(rc.path)
-		if perr != nil || pn.Dir {
-			out.Ranges = toRangeXML(n.Data.Ranges(from, to))
-		} else {
-			changed, cleared := n.Data.Diff(pn.Data, max(pn.Size, n.Size))
-			out.Ranges = toRangeXML(clipRanges(changed, from, to))
-			out.Clear = toRangeXML(clipRanges(cleared, from, to))
-		}
+		changed, cleared := n.Data.Diff(pn.Data, max(pn.Size, n.Size))
+		out.Ranges = toRangeXML(clipRanges(changed, from, to))
+		out.Clear = toRangeXML(clipRanges(cleared, from, to))
 	} else {
+		if rc.hdr("x-ms-file-support-rename") != "" {
+			return nil, errInvalidHeader("x-ms-file-support-rename")
+		}
+
 		out.Ranges = toRangeXML(n.Data.Ranges(from, to))
 	}
 

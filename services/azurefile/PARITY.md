@@ -26,8 +26,8 @@ ops:
   GetDirectoryProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET/HEAD; also serves the share root (?restype=directory on the share)."}
   SetDirectoryProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "SMB attributes, times and permission key; omitted values are preserved."}
   SetDirectoryMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces metadata."}
-  ListFilesAndDirectories: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Directories first then files, each sorted; prefix, marker, maxresults, include=Timestamps,ETag,Attributes,PermissionKey and x-ms-file-extended-info (FileId); share snapshots."}
-  RenameDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "Source is a URL or share-relative path in the same account/share; replace-if-exists (files only), ignore-readonly, destination/source lease ids, metadata and SMB overrides; moving a directory into itself is 400 InvalidInput."}
+  ListFilesAndDirectories: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FileId and DirectoryId always returned; NFS shares list FileId, Name and file Content-Length only (include is SMB-only and ignored). Directories first then files, each sorted; prefix, marker, maxresults, include=Timestamps,ETag,Attributes,PermissionKey and x-ms-file-extended-info (FileId); share snapshots."}
+  RenameDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "400 InvalidUri on NFS shares (not available there), 400 InvalidQueryParameterValue on a share snapshot. Source is a URL or share-relative path in the same account/share; replace-if-exists (files only), ignore-readonly, destination/source lease ids, metadata and SMB overrides; moving a directory into itself is 400 InvalidInput."}
   ListHandles: {wire: ok, errors: ok, state: partial, persist: n/a, note: "The emulator holds no SMB sessions, so the list is always empty (404 for a missing path)."}
   ForceCloseHandles: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Always reports 0 closed / 0 failed."}
   CreateFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "201; content length up to 4 TiB (sparse extents), content headers, metadata, SMB properties; re-creating an existing file resets it (lease and read-only checked); default attributes Archive."}
@@ -38,13 +38,13 @@ ops:
   SetFileMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces metadata; lease enforced."}
   PutRange: {wire: ok, errors: ok, state: ok, persist: ok, note: "update and clear writes, 4 MiB cap, Content-MD5 verification (400 Md5Mismatch), returns Content-MD5; last-write-time now/preserve; 416 beyond the file length."}
   PutRangeFromURL: {wire: ok, errors: ok, state: ok, persist: ok, note: "Sources: this emulator's file URLs and its Blob service (path or <account>.blob. host style). Other hosts get 403 CannotVerifyCopySource; an expired SAS (se) is refused."}
-  ListRanges: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Range list with optional x-ms-range window and prevsharesnapshot diff (Range plus ClearRange); x-ms-content-length header."}
+  ListRanges: {wire: ok, errors: ok, state: ok, persist: ok, note: "prevsharesnapshot matches the file by id: 404 when absent from the previous snapshot, 409 when deleted/recreated, overwritten by Create/Copy, or moved without x-ms-file-support-rename true; x-ms-file-support-rename without prevsharesnapshot is 400 InvalidHeaderValue. Range list with optional x-ms-range window and prevsharesnapshot diff (Range plus ClearRange); x-ms-content-length header."}
   CopyFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "202; small same-account copies from an emulator file or blob finish inside the request (success); cross-account or over-4-MiB sources answer x-ms-copy-status pending and turn success on the handler clock (2 s + 1 s per 32 MiB); metadata/SMB overrides with the source token; copy status appears on Get Properties."}
   AbortCopyFile: {wire: ok, errors: ok, state: ok, persist: n/a, note: "204 on a pending copy: status aborted, destination left zero-length with its metadata; a finished copy is 409 NoPendingCopyOperation, a wrong id 409 CopyIdMismatch."}
   RenameFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same rules as RenameDirectory; keeps content, metadata, id and lease."}
   LeaseFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "Infinite leases only (as in Azure); acquire/release/change/break."}
-  CreateHardLink: {wire: ok, errors: partial, state: ok, persist: ok, note: "PUT ?restype=hardlink with x-ms-file-target-file on NFS shares: 201 with x-ms-link-count, file type, mode, owner, group; links share size, content and metadata (writes, properties, metadata sync every link by file id) and deleting one lowers the count. Symlink or directory targets answer 400 XNfs4FileTypeUnsupportedException; the non-NFS-share refusal (400 InvalidUri) is unverified."}
-  CreateSymbolicLink: {wire: ok, errors: partial, state: ok, persist: ok, note: "PUT ?restype=symboliclink with x-ms-link-text (max 2 KiB), owner, group, times, metadata; type SymLink, mode 0777, size = link text length. 409 ResourceAlreadyExists; non-NFS refusal unverified."}
+  CreateHardLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT ?restype=hardlink with x-ms-file-target-file on NFS shares: 201 with x-ms-link-count, file type, mode, owner, group; links share size, content and metadata (writes, properties, metadata sync every link by file id) and deleting one lowers the count. Symlink or directory targets answer 400 XNfs4FileTypeUnsupportedException; the non-NFS-share refusal is 400 InvalidUri (see emulator choices)."}
+  CreateSymbolicLink: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT ?restype=symboliclink with x-ms-link-text (max 2 KiB), owner, group, times, metadata; type SymLink, mode 0777, size = link text length. 409 ResourceAlreadyExists; non-NFS refusal is 400 InvalidUri (see emulator choices)."}
   GetSymbolicLink: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET ?restype=symboliclink returns x-ms-link-text, ETag and Last-Modified; 400 ResourceTypeMismatch on a non-symlink."}
 families:
   routing: {status: ok, note: "Dedicated listener on a fixed port (10009, --azure-file-port/AZURE_FILE_PORT), no fallback pool, reserved in the shared PortAlloc pool. The account comes from the first path segment or from an <account>.file.<host> Host header; both address one backend, and the shared storage vhost listener forwards .file. hosts here. Ports 10000-10011 are now all assigned to Azure services."}
@@ -57,7 +57,6 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "NFS: Rename, ListFilesAndDirectories and snapshot diffs ignore NFS properties; file types other than Regular, SymLink and Directory are not modelled; the Create Hard Link and Create Symbolic Link references document no error code for SMB shares (400 InvalidUri is kept, unverified) and no default link count for directories (2 is kept, unverified)."
   - "SMB handles are never modelled, so List Handles is empty and Force Close Handles is a no-op."
   - "Metrics and logging settings are stored only."
   - "Get User Delegation Key and user delegation SAS are unsupported; SAS and Shared Key signatures are only verifiable for devstoreaccount1, verification is off by default, and the Bearer token is not validated. The codes for an unknown si, a service SAS used on a share-level operation (AuthorizationResourceTypeMismatch) and sr=f path mismatch on other accounts are unverified."
@@ -79,3 +78,14 @@ ARM file shares: learn.microsoft.com/rest/api/storagerp/file-shares (Create, Lis
 ## 2026-11-13 parity pass (history)
 
 Evidence (Microsoft Learn, fetched 2026-11-13): Create Hard Link and Create Symbolic Link (share snapshot is 400 InvalidQueryParameterValue; NFS only), Create Share and Set Share Properties (paid bursting max IOPS/bandwidth need x-ms-share-paid-bursting-enabled true, or an already enabled share on Set), Naming and referencing shares, directories, files, and metadata (reserved names, 2,048-character path, SMB trailing dots trimmed unless x-ms-allow-trailing-dot is true, NFS keeps them).
+
+## 2026-11-14 NFS and snapshot-diff pass (history)
+
+Evidence (Microsoft Learn, fetched 2026-11-14): Rename File (NFS not available; 400 on a share snapshot), List Directories and Files (NFS response body; include is SMB-only; FileId always returned from 2020-10-02), List Ranges (prevsharesnapshot 404/409 cases, x-ms-file-support-rename), Get File Properties (NFS file types Regular and Symlink, directories are Directory).
+
+## Emulator choices where the vendor is silent
+
+- Create Hard Link and Create Symbolic Link on an SMB share answer 400 InvalidUri; the references give no code.
+- A new NFS directory reports link count 2; the references give no default.
+- Rename on an NFS share answers 400 InvalidUri; the reference only marks NFS as not available.
+- List Ranges 409 cases carry the code FileChangedSincePreviousSnapshot; the reference gives the status only.

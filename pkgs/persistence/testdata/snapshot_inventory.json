@@ -4144,6 +4144,7 @@
       "nfsProps.Owner string `json:\"owner\"`",
       "nfsProps.Type string `json:\"type\"`",
       "node.Attributes string `json:\"attributes\"`",
+      "node.Born time.Time `json:\"born,omitzero\"`",
       "node.CacheControl string `json:\"cacheControl,omitempty\"`",
       "node.Changed time.Time `json:\"changed\"`",
       "node.Children map[string]*node `json:\"children,omitempty\"`",
