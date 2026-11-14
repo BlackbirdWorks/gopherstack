@@ -25,6 +25,7 @@ type DocFetcher func(ctx context.Context, src string) (Document, error)
 type UpdateOptions struct {
 	Fetch    Fetcher
 	FetchDoc DocFetcher
+	Service  ServiceFunc
 }
 
 // ParameterError is an invalid input value, such as a LOAD source that cannot be read or parsed.
@@ -75,6 +76,7 @@ type journalEntry struct {
 
 type updateTx struct {
 	s       *Store
+	service ServiceFunc
 	journal []journalEntry
 }
 
@@ -125,17 +127,22 @@ func (s *Store) Apply(ctx context.Context, u *Update, opts UpdateOptions) (Updat
 	s.mu.Lock("Update")
 	defer s.mu.Unlock()
 
-	tx := &updateTx{s: s}
+	tx := &updateTx{s: s, service: opts.Service}
+	s.begin()
 
 	var res UpdateResult
 
 	for i := range u.ops {
 		if err := tx.apply(ctx, &u.ops[i], opts, &res); err != nil {
 			tx.rollback()
+			s.pending = nil
+			s.recording = false
 
 			return UpdateResult{}, err
 		}
 	}
+
+	s.commit()
 
 	return res, nil
 }
@@ -239,6 +246,7 @@ func (t *updateTx) modify(ctx context.Context, op *updateOp, res *UpdateResult) 
 	}
 
 	ev := newEvaluator(ctx, ds, DefaultBase)
+	ev.svc, ev.prologue = t.service, op.Prologue
 
 	sols, err := ev.evalGroup(op.Where, Term{})
 	if err != nil {

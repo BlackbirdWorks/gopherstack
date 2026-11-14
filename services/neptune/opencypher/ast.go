@@ -39,7 +39,11 @@ type (
 		e      expr
 		labels []string
 	}
-	patternExpr  struct{ pat pattern }
+	patternExpr struct{ pat pattern }
+	reduceExpr  struct {
+		init, src, body expr
+		acc, v          string
+	}
 	listCompExpr struct {
 		src   expr
 		where expr
@@ -106,6 +110,10 @@ type (
 		v string
 	}
 	returnClause struct{ proj projection }
+	callClause   struct {
+		body    *query
+		imports []string
+	}
 )
 
 type setItem struct {

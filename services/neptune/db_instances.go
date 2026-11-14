@@ -404,6 +404,7 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBI
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	b.clearPendingRebootLocked(region, inst)
+	b.applyStreamPolicyLocked(region, inst.DBClusterIdentifier)
 	cp := *inst
 
 	return &cp, nil

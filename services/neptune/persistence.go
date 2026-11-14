@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -64,6 +65,9 @@ type backendSnapshot struct {
 	OpenCypherGraphs          map[string]jsontext.Value                      `json:"openCypherGraphs,omitempty"`
 	SparqlStores              map[string]string                              `json:"sparqlStores,omitempty"`
 	LoaderJobs                map[string]string                              `json:"loaderJobs,omitempty"`
+	Streams                   map[string]streamsDTO                          `json:"streams,omitempty"`
+	IndexRebuilds             map[string]string                              `json:"indexRebuilds,omitempty"`
+	ContainerGraphs           map[string]string                              `json:"containerGraphs,omitempty"`
 	GraphStatistics           map[string]graphStatsDTO                       `json:"graphStatistics,omitempty"`
 	AccountID                 string                                         `json:"accountID"`
 	Region                    string                                         `json:"region"`
@@ -180,6 +184,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		EventsLog:                 b.eventsLog,
 		OpenCypherGraphs:          b.exportGraphsLocked(ctx),
 		SparqlStores:              b.exportRDFLocked(),
+		Streams:                   b.exportStreamsLocked(ctx),
+		IndexRebuilds:             b.exportRebuildsLocked(),
+		ContainerGraphs:           b.exportContainerGraphsLocked(ctx),
 		LoaderJobs:                b.exportLoaderJobsLocked(),
 		GraphStatistics:           b.exportGraphStatsLocked(),
 		AccountID:                 b.accountID,
@@ -264,6 +271,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.eventsLog = snap.EventsLog
 	b.importGraphsLocked(ctx, snap.OpenCypherGraphs)
 	b.importRDFLocked(ctx, snap.SparqlStores)
+	b.importDataPlaneExtrasLocked(ctx, &snap)
 	b.importLoaderJobsLocked(ctx, snap.LoaderJobs)
 	b.importGraphStatsLocked(snap.GraphStatistics)
 
@@ -386,4 +394,11 @@ func (b *InMemoryBackend) importGraphsLocked(ctx context.Context, dumps map[stri
 
 		b.graphs[key] = g
 	}
+}
+
+func (b *InMemoryBackend) importDataPlaneExtrasLocked(ctx context.Context, snap *backendSnapshot) {
+	b.importStreamsLocked(ctx, snap.Streams)
+	b.importRebuildsLocked(snap.IndexRebuilds)
+	b.containerGraphs = make(map[string]string, len(snap.ContainerGraphs))
+	maps.Copy(b.containerGraphs, snap.ContainerGraphs)
 }

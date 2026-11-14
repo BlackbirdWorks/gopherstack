@@ -52,14 +52,15 @@ type engineInfo struct {
 }
 
 type statsState struct {
-	date   time.Time
-	mu     *lockmetrics.RWMutex
-	id     int64
-	sigs   int
-	insts  int
-	preds  int
-	active bool
-	auto   bool
+	date    time.Time
+	mu      *lockmetrics.RWMutex
+	summary []byte
+	id      int64
+	sigs    int
+	insts   int
+	preds   int
+	active  bool
+	auto    bool
 }
 
 func newStatsState() *statsState {
@@ -69,23 +70,49 @@ func newStatsState() *statsState {
 func (f *cypherFront) serveGraphAdmin(w http.ResponseWriter, r *http.Request) bool {
 	path := strings.ToLower(strings.TrimRight(r.URL.Path, "/"))
 
+	if f.serveStreams(w, r, path) {
+		return true
+	}
+
 	switch path {
 	case statusPath:
 		f.serveEngineStatus(w, r)
+	case systemPath:
+		f.serveSystem(w, r)
+	case storageInfoPath:
+		f.serveStorageInfo(w, r)
 	case statsRDFPath, statsSparqlPath:
 		f.serveStats(w, r, langSparql, f.rdf.rdfStats, f.rdfStatsCompute)
 	case statsPGPath, statsPGShortPath, statsGremlinPath:
 		f.serveStats(w, r, langOpenCypher, f.rdf.pgStats, f.pgStatsCompute)
+	case summaryRDFPath:
+		f.serveSummary(w, r, langSparql, f.rdf.rdfStats)
+	case summaryPGPath, summaryPGShortPath:
+		f.serveSummary(w, r, langOpenCypher, f.rdf.pgStats)
 	default:
+		if path == rebuildsPath || strings.HasPrefix(path, rebuildsPath+"/") {
+			f.serveRebuilds(w, r, path)
+
+			return true
+		}
+
 		return false
 	}
 
 	return true
 }
 
-func (f *cypherFront) rdfStatsCompute() (int, int, int) { return f.rdf.store.Stats() }
+func (f *cypherFront) rdfStatsCompute() (int, int, int, []byte) {
+	a, b, c := f.rdf.store.Stats()
 
-func (f *cypherFront) pgStatsCompute() (int, int, int) { return f.graph.Stats() }
+	return a, b, c, marshalSummary(f.rdf.store.Summary())
+}
+
+func (f *cypherFront) pgStatsCompute() (int, int, int, []byte) {
+	a, b, c := f.graph.Stats()
+
+	return a, b, c, marshalSummary(f.graph.Summary())
+}
 
 func (f *cypherFront) serveEngineStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -105,18 +132,18 @@ func (f *cypherFront) serveEngineStatus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	features := map[string]any{
-		"SlowQueryLogs": info.slowLog, "ResultCache": map[string]string{"status": statusDisabled},
+		"SlowQueryLogs": info.slowLog, "ResultCache": map[string]string{keyStatus: statusDisabled},
 		"IAMAuthentication": enabledWord(info.iamAuth), "Streams": enabledWord(info.streams),
 		"AuditLog": enabledWord(info.audit), "QueryTimeout": info.queryTimeout,
 	}
 
 	body := map[string]any{
-		"status":          "healthy",
+		keyStatus:         "healthy",
 		"startTime":       f.started.UTC().Format(javaDateLayout),
 		"dbEngineVersion": info.version,
 		"role":            "writer",
 		"dfeQueryEngine":  "viaQueryHint",
-		"gremlin":         map[string]string{keyVersion: gremlinEngineLabel},
+		keyGremlin:        map[string]string{keyVersion: gremlinEngineLabel},
 		"sparql":          map[string]string{keyVersion: sparqlEngineLabel},
 		"opencypher":      map[string]string{keyVersion: openCypherLabel},
 		"labMode": map[string]string{
@@ -149,7 +176,7 @@ func enabledWord(v bool) string {
 }
 
 func (f *cypherFront) serveStats(
-	w http.ResponseWriter, r *http.Request, lang string, st *statsState, compute func() (int, int, int),
+	w http.ResponseWriter, r *http.Request, lang string, st *statsState, compute func() (int, int, int, []byte),
 ) {
 	switch r.Method {
 	case http.MethodGet:
@@ -185,7 +212,7 @@ func (s *statsState) payload() map[string]any {
 	return p
 }
 
-func manageStats(w http.ResponseWriter, r *http.Request, st *statsState, compute func() (int, int, int)) {
+func manageStats(w http.ResponseWriter, r *http.Request, st *statsState, compute func() (int, int, int, []byte)) {
 	if mediaType(r.Header.Get("Content-Type")) == "" {
 		writeCypherError(w, http.StatusBadRequest, codeMissingParam, "Content-type header not specified.")
 
@@ -215,7 +242,7 @@ func manageStats(w http.ResponseWriter, r *http.Request, st *statsState, compute
 		st.auto = false
 		writeCypherJSON(w, http.StatusOK, map[string]string{keyStatus: statusOK200})
 	case modeRefresh:
-		st.sigs, st.insts, st.preds = compute()
+		st.sigs, st.insts, st.preds, st.summary = compute()
 		st.id, st.date, st.active = time.Now().UnixMilli(), time.Now().UTC(), true
 		writeCypherJSON(w, http.StatusOK, envelope(map[string]string{keyStatisticsID: strconv.FormatInt(st.id, 10)}))
 	default:
@@ -234,7 +261,7 @@ func deleteStats(w http.ResponseWriter, st *statsState) {
 		return
 	}
 
-	st.active, st.id, st.sigs, st.insts, st.preds = false, -1, 0, 0, 0
+	st.active, st.id, st.sigs, st.insts, st.preds, st.summary = false, -1, 0, 0, 0, nil
 	writeCypherJSON(w, http.StatusOK, envelope(map[string]any{"active": false, keyStatisticsID: "-1"}))
 }
 

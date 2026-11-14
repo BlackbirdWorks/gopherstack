@@ -110,3 +110,18 @@ func SetLoaderCPUs(b *InMemoryBackend, n int) {
 
 // LoaderThreads exposes the parallelism-to-thread-count mapping.
 func LoaderThreads(level string, cpus int) int { return loaderThreads(level, cpus) }
+
+// HoldIndexRebuilds keeps index rebuild jobs of the cluster in PREPARING until release is called.
+func HoldIndexRebuilds(b *InMemoryBackend, region, cluster string) func() {
+	b.mu.Lock("HoldIndexRebuilds")
+	defer b.mu.Unlock()
+
+	r := b.rdfLocked(regionKey(region, cluster))
+	ch := make(chan struct{})
+
+	r.rebuilds.mu.Lock("hold")
+	r.rebuilds.gate = ch
+	r.rebuilds.mu.Unlock()
+
+	return func() { close(ch) }
+}

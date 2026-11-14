@@ -68,7 +68,13 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
+	pgData, rdfData, err := b.captureClusterDataLocked(ctx, region, clusterID)
+	if err != nil {
+		return nil, err
+	}
 	snap := &DBClusterSnapshot{
+		PropertyGraphData:                pgData,
+		RDFData:                          rdfData,
 		region:                           region,
 		DBClusterSnapshotIdentifier:      snapshotID,
 		DBClusterSnapshotArn:             b.clusterSnapshotARN(region, snapshotID),
@@ -269,6 +275,8 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		)
 	}
 	snap := &DBClusterSnapshot{
+		PropertyGraphData:                src.PropertyGraphData,
+		RDFData:                          src.RDFData,
 		region:                           region,
 		DBClusterSnapshotIdentifier:      targetSnapshotID,
 		DBClusterSnapshotArn:             b.clusterSnapshotARN(region, targetSnapshotID),

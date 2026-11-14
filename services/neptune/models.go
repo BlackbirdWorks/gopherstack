@@ -305,6 +305,9 @@ type DBClusterSnapshot struct {
 	ClusterCreateTime           string `json:"ClusterCreateTime"`
 	KmsKeyID                    string `json:"KmsKeyId"`
 	VpcID                       string `json:"VpcId"`
+	// PropertyGraphData and RDFData hold the cluster's graph contents when the snapshot was taken.
+	PropertyGraphData string `json:"propertyGraphData,omitempty"`
+	RDFData           string `json:"rdfData,omitempty"`
 	// RestoreAttributeValues holds the account IDs (or "all") authorized to
 	// copy/restore this manual snapshot via the "restore" DB cluster snapshot
 	// attribute -- the only attribute Neptune's API models (see

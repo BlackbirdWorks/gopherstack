@@ -64,3 +64,66 @@ func TestSparqlServiceFederation(t *testing.T) {
 		})
 	}
 }
+
+func TestSparqlServiceInUpdateWhere(t *testing.T) {
+	t.Parallel()
+
+	_, remote := newEmbeddedBackend(t)
+	sparqlUpdate(t, remote, `INSERT DATA {
+		<http://example.org/alice> <http://xmlns.com/foaf/0.1/knows> <http://example.org/bob> }`)
+
+	endpoint := "http://" + clusterAddr(remote) + "/sparql"
+
+	tests := []struct {
+		name       string
+		update     string
+		wantFriend bool
+		wantStatus int
+	}{
+		{
+			name: "insert from remote", wantStatus: 200, wantFriend: true,
+			update: `PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+				INSERT { ?p <http://example.org/friend> ?f }
+				WHERE { ?p a <http://example.org/Person> . SERVICE <` + endpoint + `> { ?p foaf:knows ?f } }`,
+		},
+		{
+			name: "silent unreachable", wantStatus: 200,
+			update: `INSERT { ?p <http://example.org/friend> ?p }
+				WHERE { ?p a <http://example.org/Person> . SERVICE SILENT <http://127.0.0.1:1/sparql> { ?p ?x ?y } }`,
+		},
+		{
+			name: "unreachable fails", wantStatus: 500,
+			update: `INSERT { ?p <http://example.org/friend> ?p }
+				WHERE { ?p a <http://example.org/Person> . SERVICE <http://127.0.0.1:1/sparql> { ?p ?x ?y } }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, local := newEmbeddedBackend(t)
+			sparqlUpdate(t, local, `INSERT DATA { <http://example.org/alice> a <http://example.org/Person> }`)
+
+			res := sparqlDo(
+				t,
+				local,
+				http.MethodPost,
+				"/sparql",
+				formCT,
+				"",
+				url.Values{"update": {tt.update}}.Encode(),
+			)
+			require.Equal(t, tt.wantStatus, res.status, res.body)
+
+			ask := sparqlDo(t, local, http.MethodGet, "/sparql?"+url.Values{
+				"query": {`ASK { <http://example.org/alice> <http://example.org/friend> <http://example.org/bob> }`},
+			}.Encode(), "", "application/sparql-results+json", "")
+			assert.Contains(
+				t,
+				ask.body,
+				map[bool]string{true: `"boolean":true`, false: `"boolean":false`}[tt.wantFriend],
+			)
+		})
+	}
+}

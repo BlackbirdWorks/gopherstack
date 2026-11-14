@@ -83,6 +83,8 @@ func (x *exec) evalCompound(e expr, r row, grp []row) (any, error) {
 		return n > 0, err
 	case listCompExpr:
 		return x.evalListComp(t, r, grp)
+	case reduceExpr:
+		return x.evalReduce(t, r, grp)
 	default:
 		return nil, unsupported("unsupported expression")
 	}
@@ -641,4 +643,62 @@ func (x *exec) evalListComp(t listCompExpr, r row, grp []row) (any, error) {
 	}
 
 	return out, nil
+}
+
+func (x *exec) evalReduce(t reduceExpr, r row, grp []row) (any, error) {
+	src, err := x.eval(t.src, r, grp)
+	if err != nil || src == nil {
+		return nil, err
+	}
+
+	items, ok := src.([]any)
+	if !ok {
+		return nil, malformed("Type mismatch: expected List but was %s", typeName(src))
+	}
+
+	acc, err := x.eval(t.init, r, grp)
+	if err != nil {
+		return nil, err
+	}
+
+	bin, isBin := t.body.(binaryExpr)
+	if !isBin {
+		return nil, unsupported("reduce() body must be a binary expression")
+	}
+
+	for _, it := range items {
+		env := r.with(t.acc, acc).with(t.v, it)
+
+		if acc, err = x.reduceStep(bin, env, grp); err != nil {
+			return nil, err
+		}
+	}
+
+	return acc, nil
+}
+
+func (x *exec) reduceStep(bin binaryExpr, env row, grp []row) (any, error) {
+	l, err := x.eval(bin.l, env, grp)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := x.eval(bin.r, env, grp)
+	if err != nil {
+		return nil, err
+	}
+
+	li, lok := l.(int64)
+	ri, rok := r.(int64)
+
+	if lok && rok {
+		v, ok := checkedIntOp(bin.op, li, ri)
+		if !ok {
+			return nil, &Error{Code: CodeInvalidParameter, Detail: "long overflow"}
+		}
+
+		return v, nil
+	}
+
+	return arith(bin.op, l, r)
 }

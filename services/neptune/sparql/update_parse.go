@@ -294,6 +294,7 @@ func (p *parser) parseModify() (updateOp, error) {
 	}
 
 	op.Where, err = p.parseGroup()
+	op.Prologue = prologueText(p.base, p.prefixes)
 
 	return op, err
 }

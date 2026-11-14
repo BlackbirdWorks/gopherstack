@@ -59,6 +59,7 @@ type rdfService struct {
 	roleAuth func() roleauth.Authorizer
 	info     func() engineInfo
 	rdfStats *statsState
+	rebuilds *rebuildState
 	pgStats  *statsState
 	cpus     func() int
 	webOnce  sync.Once
@@ -67,7 +68,7 @@ type rdfService struct {
 func newRDFService(s3 func() S3Reader) *rdfService {
 	return &rdfService{
 		store: sparql.NewStore(), queries: newQueryTracker(), loader: newLoaderState(), s3: s3,
-		rdfStats: newStatsState(), pgStats: newStatsState(),
+		rdfStats: newStatsState(), pgStats: newStatsState(), rebuilds: newRebuildState(),
 	}
 }
 

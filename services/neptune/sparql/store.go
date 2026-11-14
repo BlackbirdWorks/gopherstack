@@ -7,24 +7,28 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/services/neptune/streamlog"
 )
 
 type quadSet map[Quad]struct{}
 
 // Store is a concurrency-safe in-memory RDF quad store.
 type Store struct {
-	mu    *lockmetrics.RWMutex
-	quads map[Quad]uint64
-	byS   map[Term]quadSet
-	byP   map[Term]quadSet
-	byO   map[Term]quadSet
-	byG   map[Term]quadSet
-	seq   uint64
+	mu        *lockmetrics.RWMutex
+	stream    *streamlog.Log
+	quads     map[Quad]uint64
+	byS       map[Term]quadSet
+	byP       map[Term]quadSet
+	byO       map[Term]quadSet
+	byG       map[Term]quadSet
+	pending   []streamlog.Change
+	seq       uint64
+	recording bool
 }
 
 // NewStore returns an empty store.
 func NewStore() *Store {
-	s := &Store{mu: lockmetrics.New("neptune-sparql")}
+	s := &Store{mu: lockmetrics.New("neptune-sparql"), stream: streamlog.New()}
 	s.reset()
 
 	return s
@@ -93,6 +97,7 @@ func (s *Store) add(q Quad) bool {
 	indexAdd(s.byP, q.P, q)
 	indexAdd(s.byO, q.O, q)
 	indexAdd(s.byG, q.G, q)
+	s.note(streamlog.OpAdd, q)
 
 	return true
 }
@@ -109,6 +114,7 @@ func (s *Store) remove(q Quad) bool {
 	indexDel(s.byP, q.P, q)
 	indexDel(s.byO, q.O, q)
 	indexDel(s.byG, q.G, q)
+	s.note(streamlog.OpRemove, q)
 
 	return true
 }
@@ -180,6 +186,8 @@ func (s *Store) Len() int {
 func (s *Store) Add(qs []Quad) int {
 	s.mu.Lock("Add")
 	defer s.mu.Unlock()
+	s.begin()
+	defer s.commit()
 
 	n := 0
 
@@ -196,6 +204,12 @@ func (s *Store) Add(qs []Quad) int {
 func (s *Store) Clear() {
 	s.mu.Lock("Clear")
 	defer s.mu.Unlock()
+	s.begin()
+	defer s.commit()
+
+	for _, q := range s.allQuads() {
+		s.remove(q)
+	}
 
 	s.reset()
 }
@@ -231,6 +245,8 @@ func (s *Store) GraphQuads(g Term) []Quad {
 func (s *Store) ClearGraph(g Term) int {
 	s.mu.Lock("ClearGraph")
 	defer s.mu.Unlock()
+	s.begin()
+	defer s.commit()
 
 	return s.clearGraph(g)
 }
@@ -248,6 +264,8 @@ func (s *Store) clearGraph(g Term) int {
 func (s *Store) ReplaceGraph(g Term, qs []Quad) {
 	s.mu.Lock("ReplaceGraph")
 	defer s.mu.Unlock()
+	s.begin()
+	defer s.commit()
 
 	s.clearGraph(g)
 
@@ -338,6 +356,8 @@ func (s *Store) allQuads() []Quad {
 func (s *Store) ApplyGraphWrite(g Term, qs []Quad, replace bool) {
 	s.mu.Lock("GraphWrite")
 	defer s.mu.Unlock()
+	s.begin()
+	defer s.commit()
 
 	if replace {
 		s.clearGraph(g)

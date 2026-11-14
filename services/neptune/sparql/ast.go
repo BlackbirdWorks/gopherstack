@@ -211,6 +211,7 @@ type updateOp struct {
 	With       Term
 	Where      *group
 	Src        string
+	Prologue   string
 	Into       Term
 	Graph      Term
 	To         Term

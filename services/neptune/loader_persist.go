@@ -120,13 +120,14 @@ func (b *InMemoryBackend) importLoaderJobsLocked(ctx context.Context, jobs map[s
 }
 
 type statsDTO struct {
-	Date   time.Time `json:"date"`
-	ID     int64     `json:"statisticsId"`
-	Sigs   int       `json:"signatureCount"`
-	Insts  int       `json:"instanceCount"`
-	Preds  int       `json:"predicateCount"`
-	Auto   bool      `json:"autoCompute"`
-	Active bool      `json:"active"`
+	Date    time.Time `json:"date"`
+	Summary []byte    `json:"summary,omitempty"`
+	ID      int64     `json:"statisticsId"`
+	Sigs    int       `json:"signatureCount"`
+	Insts   int       `json:"instanceCount"`
+	Preds   int       `json:"predicateCount"`
+	Auto    bool      `json:"autoCompute"`
+	Active  bool      `json:"active"`
 }
 
 type graphStatsDTO struct {
@@ -143,13 +144,14 @@ func (s *statsState) dto() *statsDTO {
 	}
 
 	return &statsDTO{
-		Date:   s.date,
-		ID:     s.id,
-		Sigs:   s.sigs,
-		Insts:  s.insts,
-		Preds:  s.preds,
-		Auto:   s.auto,
-		Active: s.active,
+		Date:    s.date,
+		Summary: s.summary,
+		ID:      s.id,
+		Sigs:    s.sigs,
+		Insts:   s.insts,
+		Preds:   s.preds,
+		Auto:    s.auto,
+		Active:  s.active,
 	}
 }
 
@@ -162,6 +164,7 @@ func (s *statsState) load(d *statsDTO) {
 	defer s.mu.Unlock()
 
 	s.date, s.id, s.sigs, s.insts, s.preds, s.auto, s.active = d.Date, d.ID, d.Sigs, d.Insts, d.Preds, d.Auto, d.Active
+	s.summary = d.Summary
 }
 
 func (b *InMemoryBackend) exportGraphStatsLocked() map[string]graphStatsDTO {

@@ -48,6 +48,7 @@ type cypherFront struct {
 	graph          *opencypher.Graph
 	rdf            *rdfService
 	queries        *queryTracker
+	resets         *resetTokens
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
 	auth           func() clusterAuth
@@ -90,6 +91,7 @@ func startCypherFront(
 		graph:   graph,
 		rdf:     rdf,
 		queries: newQueryTracker(),
+		resets:  newResetTokens(),
 		tr:      httpclient.NewTransport(),
 		started: time.Now(),
 	}

@@ -52,20 +52,22 @@ func (p *parser) parseService(g *group) error {
 	return nil
 }
 
-func servicePrologue(q *Query) string {
+func servicePrologue(q *Query) string { return prologueText(q.Base, q.Prefixes) }
+
+func prologueText(base string, prefixes map[string]string) string {
 	var sb strings.Builder
 
-	sb.WriteString("BASE <" + q.Base + ">\n")
+	sb.WriteString("BASE <" + base + ">\n")
 
-	names := make([]string, 0, len(q.Prefixes))
-	for k := range q.Prefixes {
+	names := make([]string, 0, len(prefixes))
+	for k := range prefixes {
 		names = append(names, k)
 	}
 
 	sort.Strings(names)
 
 	for _, k := range names {
-		sb.WriteString("PREFIX " + k + ": <" + q.Prefixes[k] + ">\n")
+		sb.WriteString("PREFIX " + k + ": <" + prefixes[k] + ">\n")
 	}
 
 	return sb.String()

@@ -328,7 +328,11 @@ func (f *cypherFront) runSparqlUpdate(w http.ResponseWriter, r *http.Request, ca
 
 	defer finish()
 
-	if _, err = f.rdf.store.Apply(ctx, u, sparql.UpdateOptions{FetchDoc: f.rdf.fetchDoc}); err != nil {
+	if _, err = f.rdf.store.Apply(
+		ctx,
+		u,
+		sparql.UpdateOptions{FetchDoc: f.rdf.fetchDoc, Service: f.rdf.service},
+	); err != nil {
 		writeSparqlFailure(ctx, w, err)
 
 		return
