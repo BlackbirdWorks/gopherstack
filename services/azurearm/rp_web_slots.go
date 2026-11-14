@@ -296,6 +296,12 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 
 	parent.Slots[strings.ToLower(slot)] = rec
 
+	p.syncIdentities()
+
+	if exists {
+		p.restartOnIdentityChange(rec.dpName(), existing, ident)
+	}
+
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
@@ -439,6 +445,7 @@ func (p *WebProvider) deleteSlot(id ResourceID) error {
 	}
 
 	delete(parent.Slots, key)
+	p.syncIdentities()
 
 	return nil
 }
@@ -538,6 +545,10 @@ func (p *WebProvider) swapSides(id ResourceID, body map[string]any) (*slotSides,
 		return nil, badWebRequest(fmt.Errorf("%w: source and target slots are the same", ErrWebInvalidSiteConfig))
 	}
 
+	return newSlotSides(parent, rec, target), nil
+}
+
+func newSlotSides(parent, rec, target *storedWebSite) *slotSides {
 	label := func(s *storedWebSite) string {
 		if s.Slot == "" {
 			return webSlotProduction
@@ -549,7 +560,7 @@ func (p *WebProvider) swapSides(id ResourceID, body map[string]any) (*slotSides,
 	return &slotSides{
 		parent: parent, source: rec, target: target, sourceLabel: label(rec), targetLabel: label(target),
 		appSticky: stickyNames(parent, "appSettingNames"), connSticky: stickyNames(parent, "connectionStringNames"),
-	}, nil
+	}
 }
 
 func connStringsOf(s *storedWebSite) map[string]any {
@@ -758,6 +769,7 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 	now := time.Now().UTC()
 	status := &swapStatus{Time: now, Source: sd.sourceLabel, Destination: sd.targetLabel}
 	src.LastSwap, tgt.LastSwap = status, status
+	p.syncIdentities()
 
 	return nil
 }

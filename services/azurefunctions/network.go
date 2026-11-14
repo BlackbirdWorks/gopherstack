@@ -2,6 +2,7 @@ package azurefunctions
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"runtime"
@@ -98,6 +99,8 @@ func (b *InMemoryBackend) forContainer(st *appState) *appState {
 
 		out.Settings[k] = n.rewrite(v, host)
 	}
+
+	maps.Copy(out.Settings, b.identityEnv(st, host))
 
 	out.ConnEnv = make(map[string]string, len(st.ConnEnv))
 

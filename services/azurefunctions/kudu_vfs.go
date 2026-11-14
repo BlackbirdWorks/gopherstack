@@ -124,7 +124,7 @@ func etagOf(data []byte) string {
 func (b *InMemoryBackend) kuduVFS(w http.ResponseWriter, r *http.Request, name string) {
 	rel, ok := vfsRel(strings.TrimPrefix(r.URL.Path, kuduVFS))
 	if !ok {
-		http.NotFound(w, r)
+		b.vfsHome(w, r, name)
 
 		return
 	}
@@ -303,6 +303,14 @@ func (b *InMemoryBackend) vfsDelete(w http.ResponseWriter, r *http.Request, name
 	for _, f := range files {
 		if f.name != rel {
 			kept = append(kept, f)
+
+			continue
+		}
+
+		if im := r.Header.Get("If-Match"); im != "" && im != "*" && im != etagOf(f.data) {
+			http.Error(w, "the file changed; its ETag no longer matches If-Match", http.StatusPreconditionFailed)
+
+			return
 		}
 	}
 

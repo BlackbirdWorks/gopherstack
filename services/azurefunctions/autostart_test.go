@@ -45,6 +45,39 @@ func TestAutoStart(t *testing.T) {
 			"queue trigger starts the host",
 			true,
 		},
+		{
+			map[string]string{
+				"host.json": `{"version":"2.0"}`,
+				"src/functions/tick.js": "const { app } = require('@azure/functions');\n" +
+					"app.timer('tick', { schedule: '0 */5 * * * *', handler: () => {} });\n",
+			},
+			"node v4 timer starts the host",
+			true,
+		},
+		{
+			map[string]string{
+				"host.json": `{"version":"2.0"}`,
+				"function_app.py": "import azure.functions as func\napp = func.FunctionApp()\n" +
+					"@app.queue_trigger(arg_name='m', queue_name='q', connection='C')\ndef f(m): pass\n",
+			},
+			"python v2 queue trigger starts the host",
+			true,
+		},
+		{
+			map[string]string{
+				"host.json": `{"version":"2.0"}`,
+				"src/functions/web.js": "const { app } = require('@azure/functions');\n" +
+					"app.http('web', { handler: () => {} });\n",
+				"node_modules/dep/index.js": "x.timer('a', {})",
+			},
+			"node v4 http only waits for a request",
+			false,
+		},
+		{
+			map[string]string{"host.json": `{"version":"2.0"}`, "App.dll": "xxTimerTriggerAttributexx"},
+			"compiled timer trigger starts the host",
+			true,
+		},
 	}
 
 	for _, tt := range tests {

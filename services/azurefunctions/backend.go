@@ -39,7 +39,19 @@ type Deployment struct {
 	ID        string    `json:"id"`
 	Deployer  string    `json:"deployer"`
 	Message   string    `json:"message"`
+	Log       string    `json:"log,omitempty"`
 	Succeeded bool      `json:"succeeded"`
+}
+
+// WebJobRun is one run of a triggered WebJob.
+type WebJobRun struct {
+	Start  time.Time `json:"start"`
+	End    time.Time `json:"end"`
+	Job    string    `json:"job"`
+	ID     string    `json:"id"`
+	Status string    `json:"status"`
+	Output string    `json:"output,omitempty"`
+	Error  string    `json:"error,omitempty"`
 }
 
 // appState is the persisted part of a function app.
@@ -60,6 +72,8 @@ type appState struct {
 	PublishPassword string                       `json:"publishPassword"`
 	Zip             []byte                       `json:"zip"`
 	Deployments     []Deployment                 `json:"deployments"`
+	WebJobRuns      []WebJobRun                  `json:"webJobRuns,omitempty"`
+	StoppedJobs     []string                     `json:"stoppedJobs,omitempty"`
 	Stopped         bool                         `json:"stopped"`
 	Flex            bool                         `json:"flex,omitempty"`
 }
@@ -67,6 +81,9 @@ type appState struct {
 // app is a function app with its running host, if any.
 type app struct {
 	starting    chan struct{}
+	loops       context.Context
+	stopLoops   context.CancelFunc
+	cont        map[string]*contJob
 	containerID string
 	dir         string
 	secretsDir  string
@@ -83,6 +100,10 @@ type InMemoryBackend struct {
 	apps           map[string]*app
 	runtime        func() (Runner, error)
 	onClose        func()
+	identity       IdentityResolver
+	rules          func(app string) []RoutingRule
+	onDeploy       func(ctx context.Context, name string)
+	issuer         TokenIssuer
 	mu             *lockmetrics.RWMutex
 	transport      *http.Transport
 	wg             *sync.WaitGroup
@@ -90,6 +111,8 @@ type InMemoryBackend struct {
 	domain         string
 	network        Network
 	startupTimeout time.Duration
+	healthEvery    time.Duration
+	healthReplace  time.Duration
 	port           int
 }
 
@@ -105,6 +128,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		domain:         DefaultDomain,
 		port:           DefaultPort,
 		startupTimeout: DefaultStartupTimeout,
+		healthEvery:    healthPingInterval,
+		healthReplace:  healthReplaceAfter,
 	}
 }
 
@@ -512,6 +537,10 @@ func (b *InMemoryBackend) PublishingCredentials(name string) (string, string, st
 
 // Deploy stores a zip package as the app's site content and records the deployment.
 func (b *InMemoryBackend) Deploy(name string, zipData []byte, deployer, message string) (Deployment, error) {
+	return b.deploy(name, zipData, deployer, message, "")
+}
+
+func (b *InMemoryBackend) deploy(name string, zipData []byte, deployer, message, buildLog string) (Deployment, error) {
 	if err := validatePackage(zipData); err != nil {
 		return Deployment{}, err
 	}
@@ -532,6 +561,7 @@ func (b *InMemoryBackend) Deploy(name string, zipData []byte, deployer, message 
 		Finished:  now,
 		Deployer:  deployer,
 		Message:   message,
+		Log:       buildLog,
 		Succeeded: true,
 	}
 

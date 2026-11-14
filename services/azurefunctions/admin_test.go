@@ -135,6 +135,15 @@ func TestKuduVFS(t *testing.T) {
 	resp, _ = e.do(t, http.MethodPut, host, "/api/vfs/site/wwwroot/new/a.txt/b", []byte("x"), auth)
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 
+	stale := map[string]string{"If-Match": `"stale"`, "basic": auth["basic"]}
+	resp, _ = e.do(t, http.MethodDelete, host, "/api/vfs/site/wwwroot/new/a.txt", nil, stale)
+	assert.Equal(
+		t,
+		http.StatusPreconditionFailed,
+		resp.StatusCode,
+		"delete honours If-Match (Kudu wiki: ETag on delete)",
+	)
+
 	resp, _ = e.do(t, http.MethodDelete, host, "/api/vfs/site/wwwroot/new/a.txt", nil, auth)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 

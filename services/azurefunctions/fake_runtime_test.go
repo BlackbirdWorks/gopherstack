@@ -32,10 +32,14 @@ type fakeContainer struct {
 // fakeRuntime stands in for the container runtime: every container serves HTTP on its published port and
 // echoes the request it received.
 type fakeRuntime struct {
-	boxes   map[string]*fakeContainer
+	boxes map[string]*fakeContainer
+	// onExec, when set, handles Exec on a container started without ports (a build container).
+	onExec  func(spec container.Spec, cmd []string) container.ExecResult
 	started []container.Spec
 	reqs    []hostRequest
 	removed []string
+	execs   [][]string
+	pulls   []string
 	seq     atomic.Int64
 	// unhealthy is how many health-check probes still get a 503.
 	unhealthy atomic.Int64
@@ -45,6 +49,17 @@ type fakeRuntime struct {
 func newFakeRuntime() *fakeRuntime { return &fakeRuntime{boxes: map[string]*fakeContainer{}} }
 
 func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
+	if len(spec.Ports) == 0 {
+		id := fmt.Sprintf("fake-%d", f.seq.Add(1))
+
+		f.mu.Lock()
+		f.boxes[id] = &fakeContainer{spec: spec}
+		f.started = append(f.started, spec)
+		f.mu.Unlock()
+
+		return id, nil
+	}
+
 	_, host, _, err := container.ParsePortSpec(spec.Ports[0])
 	if err != nil {
 		return "", err
@@ -106,11 +121,68 @@ func (f *fakeRuntime) StopAndRemove(_ context.Context, id string) error {
 	f.removed = append(f.removed, id)
 	f.mu.Unlock()
 
-	if c != nil {
+	if c != nil && c.srv != nil {
 		_ = c.srv.Close()
 	}
 
 	return nil
+}
+
+func (f *fakeRuntime) Exec(_ context.Context, id string, cmd []string) (container.ExecResult, error) {
+	f.mu.Lock()
+	c := f.boxes[id]
+	f.execs = append(f.execs, cmd)
+	hook := f.onExec
+	f.mu.Unlock()
+
+	if c == nil || hook == nil {
+		return container.ExecResult{}, container.ErrContainerNotFound
+	}
+
+	return hook(c.spec, cmd), nil
+}
+
+func (f *fakeRuntime) ReadLogs(ctx context.Context, _, _ string, follow bool, stdout, _ io.Writer) error {
+	_, _ = io.WriteString(stdout, "host log line\n")
+
+	if follow {
+		<-ctx.Done()
+	}
+
+	return nil
+}
+
+func (f *fakeRuntime) PullImageWithCredentials(_ context.Context, image, user, pass string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.pulls = append(f.pulls, image+"|"+user+"|"+pass)
+
+	return nil
+}
+
+func (f *fakeRuntime) pulled() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.pulls...)
+}
+
+// ExecStream writes the hook's output, then keeps running like a long-lived process until ctx ends.
+func (f *fakeRuntime) ExecStream(ctx context.Context, id string, cmd []string, out io.Writer) (int, error) {
+	f.mu.Lock()
+	c := f.boxes[id]
+	f.execs = append(f.execs, cmd)
+	hook := f.onExec
+	f.mu.Unlock()
+
+	if c != nil && hook != nil {
+		_, _ = io.WriteString(out, hook(c.spec, cmd).Stdout)
+	}
+
+	<-ctx.Done()
+
+	return 0, nil
 }
 
 func (f *fakeRuntime) running() int {

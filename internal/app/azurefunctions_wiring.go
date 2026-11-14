@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
@@ -28,7 +31,64 @@ func wireAzureFunctions(byName map[string]service.Registerable) {
 
 	if armH, ok := byName["AzureARM"].(*azurearm.Handler); ok {
 		armH.Registry.SetFunctionApps(&azureFunctionAppsAdapter{backend: h.Backend})
+		wireAzureFunctionsIdentity(h.Backend, armH)
+		wireAzureFunctionsSlots(h.Backend, armH)
 	}
+}
+
+// wireAzureFunctionsSlots gives the data plane ARM's traffic routing rules and auto swap.
+func wireAzureFunctionsSlots(backend *azurefunctions.InMemoryBackend, armH *azurearm.Handler) {
+	rules := func(app string) []azurefunctions.RoutingRule {
+		var out []azurefunctions.RoutingRule
+		for _, r := range armH.Registry.SiteRampUpRules(app) {
+			out = append(out, azurefunctions.RoutingRule{Slot: r.Name, Percent: r.Percent})
+		}
+
+		return out
+	}
+
+	backend.SetSlotHooks(rules, func(ctx context.Context, name string) {
+		if err := armH.Registry.AutoSwap(ctx, name); err != nil {
+			logger.Load(ctx).WarnContext(ctx, "azurefunctions: auto swap failed", "app", name, "error", err)
+		}
+	})
+}
+
+// wireAzureFunctionsIdentity serves apps' local managed-identity token endpoint from ARM's site identities and
+// token issuer.
+func wireAzureFunctionsIdentity(backend *azurefunctions.InMemoryBackend, armH *azurearm.Handler) {
+	if armH.Issuer == nil {
+		return
+	}
+
+	resolve := func(app string) (azurefunctions.Identity, bool) {
+		id, ok := armH.Registry.SiteIdentity(app)
+		if !ok {
+			return azurefunctions.Identity{}, false
+		}
+
+		out := azurefunctions.Identity{TenantID: id.TenantID, SystemPrincipalID: id.SystemPrincipalID}
+		for _, u := range id.User {
+			out.User = append(out.User, azurefunctions.UserIdentity{
+				ResourceID: u.ResourceID, ClientID: u.ClientID, PrincipalID: u.PrincipalID,
+			})
+		}
+
+		return out, true
+	}
+
+	issue := func(tenant, clientID, objectID, resource string) (string, time.Time, error) {
+		base := "https://localhost:" + strconv.Itoa(armH.Port)
+
+		tok, err := azurearm.IssueTokenForObject(armH.Issuer, base, tenant, clientID, objectID, resource)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+
+		return tok.AccessToken, time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second), nil
+	}
+
+	backend.SetIdentity(resolve, issue)
 }
 
 // azureFunctionsNetwork reports the storage listener ports function host containers connect to.

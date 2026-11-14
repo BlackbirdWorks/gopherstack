@@ -126,3 +126,52 @@ func TestDocker_SlotSwap(t *testing.T) {
 
 	e.backend.DeleteApp("shop")
 }
+
+// TestDocker_RemoteBuildAndCommand builds a Python web app's requirements in a real container and runs a Kudu
+// command in the app's host. Opt-in like TestDocker_WebAppContainer; pip needs network access.
+func TestDocker_RemoteBuildAndCommand(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv(webDockerOptIn) == "" {
+		t.Skipf("set %s=1 to run against a real container runtime", webDockerOptIn)
+	}
+
+	lr := gcpserve.NewLazyRuntime(nil, "azurefunctions.test.buildruntime")
+	t.Cleanup(func() { _ = lr.Close() })
+
+	if _, err := lr.Get(); err != nil {
+		t.Skipf("container runtime unavailable: %v", err)
+	}
+
+	e := newEnv(t, false)
+	e.backend.SetRuntime(func() (azurefunctions.Runner, error) { return lr.Get() })
+	e.backend.Configure(azurefunctions.Settings{StartupTimeout: 5 * time.Minute})
+	e.backend.PutApp("py", azurefunctions.AppConfig{
+		Kind: webKind, LinuxFx: "PYTHON|3.12",
+	})
+
+	pkg := zipOf(t, map[string]string{
+		"app.py": "import six\n" +
+			"def app(environ, start_response):\n" +
+			"    start_response('200 OK', [('Content-Type', 'text/plain')])\n" +
+			"    return [b'hello from gunicorn ' + six.__version__.encode()]\n",
+		"requirements.txt": "six==1.16.0",
+	})
+	auth, scm := e.kuduAuth(t, "py"), "py.scm."+testDomain
+
+	resp, body := e.do(t, http.MethodPost, scm, "/api/publish?type=zip&RemoteBuild=true", pkg, auth)
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+
+	_, body = e.do(t, http.MethodGet, scm, "/api/vfs/site/wwwroot/.python_packages/lib/site-packages/", nil, auth)
+	assert.Contains(t, body, "six.py")
+
+	resp, body = e.do(t, http.MethodGet, "py."+testDomain, "/", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.Equal(t, "hello from gunicorn 1.16.0", body, "gunicorn runs app:app with the built dependencies")
+
+	resp, body = e.do(t, http.MethodPost, scm, "/api/command", []byte(`{"command":"ls","dir":"site/wwwroot"}`), auth)
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.Contains(t, body, "app.py")
+
+	e.backend.DeleteApp("py")
+}

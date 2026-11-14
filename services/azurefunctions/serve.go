@@ -67,6 +67,12 @@ func (b *InMemoryBackend) resolve(host string) (target, bool) {
 func (b *InMemoryBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "Kestrel")
 
+	if strings.EqualFold(r.URL.Path, msiPath) {
+		b.serveMSI(w, r)
+
+		return
+	}
+
 	t, ok := b.resolve(r.Host)
 	if !ok {
 		w.Header().Set("Content-Type", "text/html")
@@ -85,6 +91,8 @@ func (b *InMemoryBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request, name string) {
+	name = b.routeSlot(w, r, name)
+
 	b.mu.RLock("serveInvoke")
 
 	a, err := b.appLocked(name)

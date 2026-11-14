@@ -29,6 +29,8 @@ func (fakeFunctionApps) PutApp(name string, _ azurearm.FunctionAppConfig) (azure
 
 func (fakeFunctionApps) DeleteApp(string) error { return nil }
 
+func (fakeFunctionApps) Restart(string) error { return nil }
+
 func (fakeFunctionApps) AppInfo(name string) (azurearm.FunctionAppInfo, bool) {
 	return azurearm.FunctionAppInfo{Created: time.Now(), HostName: name + ".local", SCMHost: name + ".scm.local"}, true
 }

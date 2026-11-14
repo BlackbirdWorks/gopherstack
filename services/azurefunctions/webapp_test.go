@@ -62,8 +62,24 @@ func TestWebApp_ContainerSpec(t *testing.T) {
 			wantMount: "/home/site/wwwroot",
 		},
 		{
-			name: "python", linuxFx: "PYTHON|3.12", files: map[string]string{"app.py": "1"},
-			wantImage: "python:3.12-slim", wantCmd: "python app.py", wantPort: "8080", wantMount: "/home/site/wwwroot",
+			name: "python main", linuxFx: "PYTHON|3.12", files: map[string]string{"main.py": "1"},
+			wantImage: "python:3.12-slim", wantCmd: "python main.py", wantPort: "8080", wantMount: "/home/site/wwwroot",
+		},
+		{
+			name: "python flask", linuxFx: "PYTHON|3.12", files: map[string]string{"app.py": "1"},
+			wantImage: "python:3.12-slim", wantCmd: pyGunicornCmd("app:app"), wantPort: "8080",
+			wantMount: "/home/site/wwwroot",
+		},
+		{
+			name: "python flask application", linuxFx: "PYTHON|3.12", files: map[string]string{"application.py": "1"},
+			wantImage: "python:3.12-slim", wantCmd: pyGunicornCmd("application:app"), wantPort: "8080",
+			wantMount: "/home/site/wwwroot",
+		},
+		{
+			name: "python django", linuxFx: "PYTHON|3.12",
+			files:     map[string]string{"app.py": "1", "mysite/wsgi.py": "1"},
+			wantImage: "python:3.12-slim", wantCmd: pyGunicornCmd("mysite.wsgi"), wantPort: "8080",
+			wantMount: "/home/site/wwwroot",
 		},
 		{
 			name:      "dotnet",
@@ -361,4 +377,128 @@ func TestWebApp_PersistenceRoundTrip(t *testing.T) {
 	spec := dst.rt.specs()[0]
 	assert.Equal(t, "node:20-slim", spec.Image)
 	assert.Equal(t, []string{"sh", "-c", "node a.js"}, spec.Cmd)
+}
+
+func TestWebApp_UnhealthyInstanceIsReplaced(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		unhealthy int64
+		replaced  bool
+	}{
+		{"healthy stays", 0, false},
+		{"unhealthy for too long", 1 << 40, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, true)
+			e.backend.SetHealthTiming(20*time.Millisecond, 100*time.Millisecond)
+			e.backend.PutApp("w", azurefunctions.AppConfig{
+				Kind: webKind, LinuxFx: "DOCKER|busybox", HealthCheckPath: "/up",
+			})
+			_, err := e.backend.Deploy("w", helloZip(t), "t", "m")
+			require.NoError(t, err)
+
+			resp, _ := e.do(t, http.MethodGet, "w."+testDomain, "/", nil, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, 1, e.rt.running())
+
+			e.rt.unhealthy.Store(tt.unhealthy)
+
+			if tt.replaced {
+				require.Eventually(t, func() bool { return e.rt.running() == 0 }, 10*time.Second, 10*time.Millisecond,
+					"the instance is replaced after continuous failures")
+
+				e.rt.unhealthy.Store(0)
+
+				resp, _ = e.do(t, http.MethodGet, "w."+testDomain, "/", nil, nil)
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				assert.Len(t, e.rt.specs(), 2, "the next request starts a new instance")
+
+				return
+			}
+
+			pings := func() int {
+				n := 0
+
+				for _, r := range e.rt.requests() {
+					if r.Headers.Get("User-Agent") == "HealthCheck/1.0" {
+						n++
+					}
+				}
+
+				return n
+			}
+
+			require.Eventually(t, func() bool { return pings() >= 5 }, 10*time.Second, 10*time.Millisecond)
+			assert.Equal(t, 1, e.rt.running())
+		})
+	}
+}
+
+func TestWebApp_PrivateRegistryCredentials(t *testing.T) {
+	t.Parallel()
+
+	creds := map[string]string{
+		"DOCKER_REGISTRY_SERVER_URL":      "https://reg.azurecr.io",
+		"DOCKER_REGISTRY_SERVER_USERNAME": "u",
+		"DOCKER_REGISTRY_SERVER_PASSWORD": "p",
+	}
+
+	tests := []struct {
+		settings map[string]string
+		name     string
+		image    string
+		want     []string
+	}{
+		{creds, "matching registry", "reg.azurecr.io/team/app:1", []string{"reg.azurecr.io/team/app:1|u|p"}},
+		{creds, "other registry", "other.example.com/app:1", nil},
+		{creds, "docker hub", "busybox", nil},
+		{map[string]string{"DOCKER_REGISTRY_SERVER_URL": "reg.azurecr.io"}, "no login", "reg.azurecr.io/a", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, true)
+			e.backend.PutApp("w", azurefunctions.AppConfig{Kind: "app,linux,container", LinuxFx: "DOCKER|" + tt.image})
+			require.NoError(t, e.backend.SetSettings("w", tt.settings))
+
+			resp, _ := e.do(t, http.MethodGet, "w."+testDomain, "/", nil, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, tt.want, e.rt.pulled())
+
+			for _, spec := range e.rt.specs() {
+				env := envOf(spec)
+				assert.NotContains(t, env, "DOCKER_REGISTRY_SERVER_PASSWORD", "reserved names are not exposed")
+				assert.NotContains(t, env, "DOCKER_REGISTRY_SERVER_USERNAME")
+			}
+		})
+	}
+}
+
+func TestFunctionApp_PrivateRegistryCredentials(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, true)
+	e.backend.PutApp("fn", azurefunctions.AppConfig{LinuxFx: "DOCKER|reg.azurecr.io/fn:1"})
+	require.NoError(t, e.backend.SetSettings("fn", map[string]string{
+		"DOCKER_REGISTRY_SERVER_URL": "reg.azurecr.io", "DOCKER_REGISTRY_SERVER_USERNAME": "u",
+		"DOCKER_REGISTRY_SERVER_PASSWORD": "p", "FUNCTIONS_WORKER_RUNTIME": "node",
+	}))
+
+	resp, _ := e.do(t, http.MethodGet, "fn."+testDomain, "/api/x", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, []string{"reg.azurecr.io/fn:1|u|p"}, e.rt.pulled())
+}
+
+func pyGunicornCmd(target string) string {
+	return `sh -c python -c "import gunicorn" 2>/dev/null || ` +
+		`pip install --quiet --disable-pip-version-check --target /tmp/gunicorn gunicorn; ` +
+		`PYTHONPATH="/tmp/gunicorn:$PYTHONPATH" exec python -m gunicorn --bind=0.0.0.0:"$PORT" --timeout 600 ` + target
 }
