@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 14 (14 ok) |
+| PARITY entries audited | 17 (17 ok) |
 | Feature families | 8 (8 ok) |
 | Known gaps | 8 |
 | Deferred items | 0 |
@@ -16,12 +16,12 @@
 ### Known gaps
 
 - Bundle-extension triggers other than timer, queue, blob, Service Bus and Event Hubs (Cosmos DB, Event Grid and the rest) are not exercised against a real host (triggers_docker_test.go).
-- The listener is plain HTTP, and continuous WebJobs are not run (triggered WebJobs, command, logstream and vfs are).
+- The listener is plain HTTP: no TLS listener, so httpsOnly is stored but not enforced.
 - Windows function apps and Functions runtime versions other than ~4 run in the same Linux v4 images.
-- Not implemented: app-level managed identity, VNet integration, custom domains and certificates, easy auth (authsettings are stored only); Flex Consumption deployment.storage is validated but not used as the package store, and alwaysReady, maximumInstanceCount and perInstanceConcurrency have no runtime effect.
-- Container-reachable address: loopback hosts in app settings are rewritten to AZURE_FUNCTIONS_CONTAINER_HOST (default LAMBDA_DOCKER_HOST or 172.17.0.1, host.docker.internal on macOS and Windows); other runtimes (Kubernetes pods) are not verified, and Service Bus and Event Hubs connection strings need an explicit port (UseDevelopmentEmulator=true) because the emulator's AMQP ports are not the SDK defaults.
-- Deployment slots: no auto swap, no testing-in-production traffic routing (x-ms-routing-name), no slot-level custom domains; slotsdiffs lists only the swapped settings that differ (diffRule and description strings are not verified against Azure) and not the sticky-setting changes of the preview phases; function and host keys, Kudu deployment history and the publishing password stay with their slot on a swap (unverified against Azure); the slot-limit and swap-conflict error codes (409 Conflict) are not verified against Azure (Learn documents the slot limits per tier but no error code or message); a swap holds the Microsoft.Web provider lock while it warms the source slot.
-- Web apps: ACR managed-identity pulls and EXPOSE auto-detection are not done (DOCKER apps use WEBSITES_PORT, PORT or 80); Python apps need appCommandLine or an app.py/main.py entry (no gunicorn auto-detection); Tomcat, JBoss, Ruby and Go stacks, Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
+- Not implemented: VNet integration, custom domains and certificates, easy auth (authsettings are stored only); Flex Consumption deployment.storage is validated but not used as the package store, and alwaysReady, maximumInstanceCount and perInstanceConcurrency have no runtime effect.
+- Service Bus and Event Hubs connection strings need an explicit port (UseDevelopmentEmulator=true) because the emulator's AMQP listeners are plaintext on non-default ports (the SDK defaults need TLS on 5671); the container-reachable address follows the Lambda and RDS convention (LAMBDA_DOCKER_HOST, 172.17.0.1, host.docker.internal) and is not verified on Kubernetes.
+- Deployment slots: no slot-level custom domains; slotsdiffs does not list the sticky-setting changes of the preview phases; a swap holds the Microsoft.Web provider lock while it warms the source slot.
+- Web apps: ACR managed-identity image pulls (acrUseManagedIdentityCreds) are not done because the ACR emulator has no token exchange; Tomcat, JBoss, Ruby and Go stacks are rejected because the supported version matrix is not published on Learn (it comes from az webapp list-runtimes); Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
 - Hosts are never reaped while idle (no Consumption scale to zero, no 20 minute unload of apps without Always On); a stopped, redeployed or deleted app, or an emulator shutdown, removes them.
 
 ## More

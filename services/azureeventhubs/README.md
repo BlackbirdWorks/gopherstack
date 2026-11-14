@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 16 (9 ok, 7 partial) |
 | Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,7 +21,6 @@
 - Kafka endpoint for Event Hubs (port 9093) is not implemented.
 - Capture, geo-replication, compaction and application-group features are not implemented.
 - Geo-disaster recovery data plane: the alias FQDN does not resolve to the active namespace (AMQP and HTTP carry no namespace, so a client cannot connect through <alias> and see it move on failover), the secondary data plane is not read-only while paired (only ARM entity writes are refused), replication is synchronous and covers event hubs and consumer groups only, and the alias is not blocked for namespaces in the same dedicated cluster (clusters are not modelled).
-- Geo-DR error codes and texts are unverified: the REST reference (rest/api/eventhub/disaster-recovery-configs, 2024-01-01) documents status codes only, so the 400s for a same-region pair, a tier mismatch, a re-paired secondary, a write to the secondary and fail over from the primary, the 409 for an alias in use and the NameInUse/InvalidName message texts are inferred from Learn (event-hubs/event-hubs-geo-dr, configure-geo-disaster-recovery).
 
 ## More
 
