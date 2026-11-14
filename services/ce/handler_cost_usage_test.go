@@ -1005,7 +1005,7 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name: "returns_empty_results",
+			name: "no_resource_rows_totals_zero",
 			body: map[string]any{
 				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 				"Granularity": "MONTHLY",
@@ -1057,10 +1057,16 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 			}
 
 			var out struct {
-				ResultsByTime []any `json:"ResultsByTime"`
+				ResultsByTime []struct {
+					Total map[string]struct{ Amount string } `json:"Total"`
+				} `json:"ResultsByTime"`
 			}
 			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
-			assert.Empty(t, out.ResultsByTime)
+			require.NotEmpty(t, out.ResultsByTime)
+
+			for _, r := range out.ResultsByTime {
+				assert.Equal(t, "0.0000", r.Total["BlendedCost"].Amount)
+			}
 		})
 	}
 }

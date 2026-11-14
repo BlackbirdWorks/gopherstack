@@ -280,7 +280,7 @@ func limitForPeriod(bg *Budget, start time.Time) *Spend {
 // calcSpendLocked derives CalculatedSpend for the current period.
 func (b *InMemoryBackend) calcSpendLocked(bg *Budget) *CalculatedSpend {
 	if bg.BudgetType != budgetTypeCost && bg.BudgetType != budgetTypeUsage {
-		return &CalculatedSpend{ActualSpend: Spend{Amount: "0", Unit: unitPercentage}}
+		return b.calcCommitmentLocked(bg)
 	}
 
 	unit := limitUnit(bg)
@@ -300,6 +300,27 @@ func (b *InMemoryBackend) calcSpendLocked(bg *Budget) *CalculatedSpend {
 
 	out.ActualSpend.Amount = formatAmount(actual)
 	out.ForecastedSpend = &Spend{Amount: formatAmount(forecast(actual, start, end, now)), Unit: unit}
+
+	return out
+}
+
+func (b *InMemoryBackend) calcCommitmentLocked(bg *Budget) *CalculatedSpend {
+	out := &CalculatedSpend{ActualSpend: Spend{Amount: "0", Unit: unitPercentage}}
+
+	if b.commit == nil || (bg.BudgetType != budgetTypeRIUtilization && bg.BudgetType != budgetTypeRICoverage) {
+		return out
+	}
+
+	now := b.now()
+
+	start, end, ok := currentPeriod(bg, now)
+	if !ok {
+		return out
+	}
+
+	if pct, found := b.commit.Commitment(start, minTime(end, now), bg.BudgetType, filtersOf(bg)); found {
+		out.ActualSpend.Amount = formatAmount(pct)
+	}
 
 	return out
 }

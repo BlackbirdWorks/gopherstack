@@ -703,24 +703,19 @@ func (h *Handler) handleGetCostAndUsageComparisons(
 }
 
 type getCostAndUsageWithResourcesInput struct {
-	Filter      any               `json:"Filter"`
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Granularity string            `json:"Granularity"`
-	Metrics     []string          `json:"Metrics"`
-	GroupBy     []groupBySpec     `json:"GroupBy"`
+	Filter        *ceExpression     `json:"Filter"`
+	TimePeriod    map[string]string `json:"TimePeriod"`
+	Granularity   string            `json:"Granularity"`
+	NextPageToken string            `json:"NextPageToken"`
+	Metrics       []string          `json:"Metrics"`
+	GroupBy       []groupBySpec     `json:"GroupBy"`
 }
 
-// getCostAndUsageWithResourcesOutput's GroupDefinitions field was previously missing
-// entirely -- see aws-sdk-go-v2/service/costexplorer's GetCostAndUsageWithResourcesOutput.
-// ResultsByTime is legitimately always empty: real AWS resource-level cost data is keyed
-// by individual resource ID (e.g. a specific EC2 instance ARN), and this emulator's
-// synthetic cost ledger (seedCostLedger) only models service+date granularity, not
-// per-resource entries, so there is no state to derive a non-empty result from.
 type getCostAndUsageWithResourcesOutput struct {
-	NextPageToken            string        `json:"NextPageToken,omitempty"`
-	ResultsByTime            []any         `json:"ResultsByTime"`
-	GroupDefinitions         []groupBySpec `json:"GroupDefinitions"`
-	DimensionValueAttributes []any         `json:"DimensionValueAttributes"`
+	NextPageToken            string         `json:"NextPageToken,omitempty"`
+	ResultsByTime            []ResultByTime `json:"ResultsByTime"`
+	GroupDefinitions         []groupBySpec  `json:"GroupDefinitions"`
+	DimensionValueAttributes []any          `json:"DimensionValueAttributes"`
 }
 
 func (h *Handler) handleGetCostAndUsageWithResources(
@@ -735,11 +730,6 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 		return nil, fmt.Errorf("%w: Granularity is required", ErrValidation)
 	}
 
-	// Real GetCostAndUsageWithResourcesInput requires TimePeriod and Metrics
-	// (see api_op_GetCostAndUsageWithResources.go), same required-field gap
-	// this pass closed on GetCostAndUsage. ResultsByTime stays legitimately
-	// empty regardless (see the output type's doc comment above) -- this is
-	// validation-only, not a behavior change to the empty result.
 	if in.TimePeriod == nil || in.TimePeriod[timePeriodKeyStart] == "" || in.TimePeriod[timePeriodKeyEnd] == "" {
 		return nil, fmt.Errorf("%w: TimePeriod is required", ErrValidation)
 	}
@@ -748,8 +738,28 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 		return nil, fmt.Errorf("%w: Metrics is required", ErrValidation)
 	}
 
+	if err := validateCostUsageMetrics(in.Metrics); err != nil {
+		return nil, err
+	}
+
+	if err := validateGroupBy(in.GroupBy); err != nil {
+		return nil, err
+	}
+
+	groupBy := make([]GroupBySpec, len(in.GroupBy))
+	for i, g := range in.GroupBy {
+		groupBy[i] = GroupBySpec(g)
+	}
+
+	results := h.Backend.GetCostAndUsageWithResources(
+		in.TimePeriod[timePeriodKeyStart], in.TimePeriod[timePeriodKeyEnd], in.Granularity,
+		in.Metrics, groupBy, in.Filter,
+	)
+	page, nextToken := paginateList(results, 0, in.NextPageToken, resultByTimeKey)
+
 	return &getCostAndUsageWithResourcesOutput{
-		ResultsByTime:            []any{},
+		ResultsByTime:            page,
+		NextPageToken:            nextToken,
 		GroupDefinitions:         in.GroupBy,
 		DimensionValueAttributes: []any{},
 	}, nil

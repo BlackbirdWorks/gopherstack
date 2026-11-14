@@ -64,6 +64,8 @@ func (b *InMemoryBackend) emitInvocationMetrics(
 	elapsed time.Duration,
 	failed bool,
 ) {
+	b.observeInvocation(functionName, elapsed)
+
 	if !b.metrics.Enabled() {
 		return
 	}

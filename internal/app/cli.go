@@ -4036,6 +4036,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"], byName["STS"])
 	wireCognitoCodeEncryption(byName["CognitoIDP"], byName["KMS"])
 	wireBudgets(byName)
+	wireCostMetering(byName)
 	wireSignin(byName)
 	wireS3VectorsKMS(byName)
 	wireGCPCMEK(byName)

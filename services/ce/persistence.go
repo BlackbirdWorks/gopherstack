@@ -42,6 +42,7 @@ type backendSnapshot struct {
 	AccountID    string                    `json:"accountID"`
 	Region       string                    `json:"region"`
 	BackfillJobs []*BackfillJob            `json:"backfillJobs"`
+	Metered      []CostEntry               `json:"metered,omitempty"`
 	AnomalyTTL   time.Duration             `json:"anomalyTTL"`
 	Version      int                       `json:"version"`
 }
@@ -65,6 +66,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountID:    b.accountID,
 		Region:       b.region,
 		BackfillJobs: b.backfillJobs,
+		Metered:      b.meteredEntriesLocked(),
 		AnomalyTTL:   b.anomalyTTL,
 	}
 
@@ -103,6 +105,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.costLedger = nil
+		b.meterIdx = nil
 		b.backfillJobs = nil
 		b.anomalyTTL = DefaultAnomalyTTL
 		b.seedCostLedger()
@@ -117,6 +120,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.backfillJobs = snap.BackfillJobs
+	b.restoreMeteredLocked(snap.Metered)
 
 	// Default to DefaultAnomalyTTL when restoring from a pre-AnomalyTTL
 	// snapshot to avoid evicting every anomaly on Restore (zero TTL is

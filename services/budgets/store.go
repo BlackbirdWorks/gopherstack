@@ -19,6 +19,12 @@ type SpendSource interface {
 	Spend(start, end time.Time, filters map[string][]string, metric string) (float64, bool)
 }
 
+// CommitmentSource supplies reservation utilization and coverage, as percentages, for a window [start, end).
+// ok is false when no reservation exists to measure.
+type CommitmentSource interface {
+	Commitment(start, end time.Time, budgetType string, filters map[string][]string) (float64, bool)
+}
+
 // ExpressionSpendSource is a SpendSource that also evaluates a FilterExpression tree.
 type ExpressionSpendSource interface {
 	SpendExpression(
@@ -77,6 +83,7 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	now       func() time.Time
 	spend     SpendSource
+	commit    CommitmentSource
 	notifier  Notifier
 	executor  ActionExecutor
 	accountID string
@@ -114,6 +121,14 @@ func (b *InMemoryBackend) SetSpendSource(s SpendSource) {
 	defer b.mu.Unlock()
 
 	b.spend = s
+}
+
+// SetCommitmentSource wires the reservation data used for RI_UTILIZATION and RI_COVERAGE budgets.
+func (b *InMemoryBackend) SetCommitmentSource(c CommitmentSource) {
+	b.mu.Lock("SetCommitmentSource")
+	defer b.mu.Unlock()
+
+	b.commit = c
 }
 
 // SetNotifier wires alert delivery.

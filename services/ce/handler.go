@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -30,6 +32,7 @@ const (
 	handlerROI              = "25.0000"
 	handlerSPUtilPct        = "85.0000"
 	handlerCurrencyCode     = "USD"
+	meteringInterval        = time.Minute
 
 	anomalyActualSpendMultiplier   = 1.2  // actual spend is 20% above impact
 	anomalyExpectedSpendMultiplier = 0.9  // expected spend is 10% below impact
@@ -267,4 +270,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// generic-server exception at all -- left untyped rather than inventing one.
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
+}
+
+// StartWorker books usage for held resources (running instances, stored bytes) every minute until ctx is cancelled.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	g := worker.NewGroup(ctx, "ce")
+	g.Ticker("Metering", meteringInterval, 0, func(context.Context) { h.Backend.Accrue() })
+
+	go func() {
+		<-ctx.Done()
+		g.Stop()
+	}()
+
+	return nil
 }

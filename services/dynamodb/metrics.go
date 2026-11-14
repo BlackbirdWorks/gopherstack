@@ -29,10 +29,12 @@ func ddbTableDim(table string) cwmetric.Dimension {
 }
 
 func (db *InMemoryDB) emitRCU(region, table string, units float64) {
+	db.meterCapacity(region, table, units, 0)
 	db.metrics.Put(region, ddbMetricNamespace, "ConsumedReadCapacityUnits", ddbUnitCount, units, ddbTableDim(table))
 }
 
 func (db *InMemoryDB) emitWCU(region, table string, units float64) {
+	db.meterCapacity(region, table, 0, units)
 	db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, units, ddbTableDim(table))
 }
 

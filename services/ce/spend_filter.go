@@ -22,6 +22,8 @@ type SpendFilter struct {
 func (b *InMemoryBackend) LedgerSpendFiltered(
 	start, end string, f *SpendFilter, filters map[string][]string, metric string,
 ) float64 {
+	b.Accrue()
+
 	b.mu.RLock("LedgerSpendFiltered")
 	defer b.mu.RUnlock()
 
