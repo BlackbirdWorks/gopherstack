@@ -21,7 +21,7 @@
 - NFS data plane is NFSv3 over TCP on a loopback port per mount target without portmapper or NLM; clients mount with explicit port and mountport (mount -o port=N,mountport=N,nolock,tcp). The mount target's private IP lives in OCI Core only. Snapshots are full copies taken while writes may be in flight (not atomic) and meteredBytes counts apparent sizes with no deduplication; exclusiveBytes is always 0.
 - Replication cycle phases and deltaProgress are timer-driven state (structural): no byte counters. With the nfs engine each cycle copies the whole snapshot tree to the target rather than a delta. Cross-region targets are not modelled (the emulator has one region).
 - Hydration of clones is a timer (4 transition periods); the data is copied at creation with the nfs engine.
-- Not modelled: IAM policy enforcement and quotas, NSG rule enforcement on the mount target, security attributes (ZPR) beyond storage, kmsKeyId validation against OCI Vault, opc-dry-run, and Kerberos ticket validation against keytabs.
+- Not modelled: IAM policy enforcement and quotas, NSG rule enforcement on the mount target, security attributes (ZPR) beyond storage, opc-dry-run, and Kerberos ticket validation against keytabs.
 
 ## More
 

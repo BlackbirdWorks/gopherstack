@@ -21,7 +21,7 @@
 - STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels.
 - RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts).
 - After a restore every instance starts on a new port and, for TLS, a new CA.
-- Cross-region replication, customer-managed keys, maintenance_version and suspension reasons are stored or empty but not modelled.
+- Cross-region replication and maintenance_version are stored or empty but not modelled.
 
 ## More
 

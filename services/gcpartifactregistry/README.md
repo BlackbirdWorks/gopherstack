@@ -9,27 +9,23 @@
 | --- | --- |
 | PARITY entries audited | 50 (50 ok) |
 | Feature families | 12 (11 ok, 1 partial) |
-| Known gaps | 15 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- Attachments: oci_version_name is not populated and deleting a target or file does not remove its attachments; ExportArtifact cannot export DOCKER images and its object layout is the emulator's choice.
+- ExportArtifact: the object names under gcs_path are the emulator's choice because Google does not document how an export is laid out.
 - KFP: the .zip package form and the description header are not specified beyond the client example; remote and virtual KFP repositories are rejected; the real KFP SDK client is not exercised.
 - apt and yum signing: the signing key is the emulator's own per-repository key at dists/<repo>/apt-key.asc|gpg (Google documents no key URL for such repositories); yum repomd.xml.asc/.key follow the createrepo layout. apt and yum package names, version strings and file paths, the pool layout and the Go upload operation response shape are the emulator's choice, not verified against the live service; the documented gcloud path with the ar+https transport is not modelled.
-- Remote repositories: upstream_credentials username/password (Secret Manager version) are sent as Basic auth to the upstream host (and a Docker token realm) and never logged or returned, but only the in-process Secret Manager is consulted and other credential types do not exist; the public-repository to URL mapping for apt and yum bases is recalled and unverified, upstream validation at create time is not done, Go and KFP remotes do not exist, and an offline read answers 502 (the live service's error for an unreachable upstream is undocumented).
-- Operations: pending states exist only with --gcp-artifacts-operation-delay > 0 (default finishes immediately); only attachment and export operations are cancellable, and Google publishes no operation durations.
+- Remote repositories: only the in-process Secret Manager is consulted for upstream_credentials (the proto has no other type); the failed-validation error code (INVALID_ARGUMENT) and the 502 for an unreachable upstream at read time are undocumented; the docs describe Go remote repositories (proxy.golang.org) but the pinned RemoteRepositoryConfig has no field for them.
+- Operations: only attachment create/delete and ExportArtifact can be pending (--gcp-artifacts-operation-delay, default 0s); every other operation finishes before the call returns and cannot be cancelled; Google publishes no operation durations.
 - Maven and Python repositories expose no Tag resources (only npm dist-tags are mapped); Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven HTTP DELETE, the Python JSON simple API (PEP 691) and yank, and npm search/audit/login endpoints are not implemented because Google's documentation does not describe them (deletion is through the API, console and gcloud); file and package names for these formats are the emulator's choice.
-- Virtual repositories answer from the first upstream that has the artifact; npm packuments, PyPI simple pages and maven-metadata.xml combine the versions of every upstream, but apt and yum indices (Packages, Release, repomd.xml) come from the first upstream only.
-- Cleanup policies write no audit log entries, so the dry-run audit trail the cleanup-policy page describes is absent.
-- Rule condition variables are the emulator's choice (see rule_conditions); download rules are enforced on Docker manifest and blob reads, file downloads, and npm, Python, Maven, apt, yum and Go downloads only.
-- Project settings and the VPC-SC policy are stored; nothing consults them.
-- Docker repository ids are unique per project across locations because the registry path (project/repository/image) carries no location and image data is stored by that path; other formats may reuse an id in several locations (pkg.dev hosts select the location, other routes take the first by name).
+- Virtual apt and yum indices merge only non-remote upstreams; the indices of REMOTE upstreams are the upstream's own opaque mirror files and are not merged in.
+- Project settings (legacy_redirection_state, pull_percent) matter only with a Container Registry backend, which does not exist, and the VPC-SC policy applies only to resources inside a service perimeter, which are not modelled; both are stored and nothing consults them. The REST reference says an unset VPC-SC policy behaves as DENY while the emulator reads ALLOW.
 - Authentication is not checked and IAM is not enforced; every credential is accepted.
-- Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled).
 - Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served.
-- The embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
+- The embedded distribution library leaves one go-events broadcaster goroutine running until process exit; its App.Shutdown does not close it and the broadcaster is unreachable from outside the library.
 
 ## More
 

@@ -15,10 +15,10 @@
 
 ### Known gaps
 
-- CalculatedSpend: spend comes from the Cost Explorer ledger, which is synthetic seed data (90 days), not real usage
+- CalculatedSpend: spend comes from the Cost Explorer ledger, whose rows are the seeded 90-day catalog plus RecordCharge entries; no emulated service meters usage into it
 - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; the only utilization data in the emulator is Cost Explorer's constant-ratio synthetic values (ce/reservations.go, ce/savings_plans.go), which would be fabricated here
-- CostFilters: AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, etc. do not narrow spend (the ledger does not model them); FilterExpression And/Or/Not, Dimensions and Tags (MatchOptions EQUALS, ABSENT, STARTS_WITH, ENDS_WITH, CONTAINS, CASE_SENSITIVE, CASE_INSENSITIVE) narrow spend when a Cost Explorer ledger is wired, but CostCategories and ProductAttributes clauses do not (the ledger assigns no cost category and carries no product attributes)
-- CostTypes: Include* flags exclude ledger entries by charge type (ce CostEntry.ChargeType, RECORD_TYPE-style values), but the synthetic seed ledger only holds Usage entries, so flags change spend only for entries added with RecordCharge; the flag-to-charge-type mapping (Subscription, Fee, Discount) is unverified
+- CostFilters/FilterExpression: CostCategories and ProductAttributes clauses and the CostFilters CostCategory and SubscriptionId keys do not narrow spend (cost category rules carry no expression and ledger rows carry no product attributes or subscription)
+- CostTypes: Include* flags exclude ledger entries by charge type, but only the seeded Usage rows and RecordCharge entries exist, so no emulated service ever produces Tax, Credit, Refund, Support or Subscription charges
 - Alerting: topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
 - ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
 - BillingViewArn: format-checked only; HealthStatus is always HEALTHY

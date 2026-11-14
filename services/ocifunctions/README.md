@@ -21,7 +21,7 @@
 - The exact response headers (Fn-Http-Status and Fn-Http-H-* are passed through, status stays 200) are unverified against the live service.
 - The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon).
 - Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent.
-- Subnet, network security group, KMS key and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull.
+- Subnet, network security group and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull.
 - Application and function name syntax, per-tenancy limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More

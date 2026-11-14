@@ -18,7 +18,7 @@
 - Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed.
 - A missing sink destination is not rejected at create time (the sinks.create reference does not say the destination must exist) and only logs a warning when an entry is exported; the live service reports a failed export through the sink writer permission, which is not modelled.
 - Cloud Storage export appends to the hourly object immediately instead of batching with the live service's delay; BigQuery tables use a fixed schema with JSON columns instead of the live typed schema, and partitioned tables are plain tables.
-- CMEK keys and settings are stored only; nothing is encrypted and the key is not validated against Cloud KMS.
+- ListLogEntries and routing do not fail after a bucket's or the organization's CMEK key becomes unavailable (the docs say queries stop functioning); nothing is encrypted.
 - Error message texts of the live service, quota errors (60 ListLogEntries requests per minute, 10 tail sessions, 60000 tail entries per minute, 1000 resource names per write) and SaveStatus details are not modelled or not documented; Tail does not buffer entries for buffer_window and sends no keepalives.
 - Bucket index_configs, restricted_fields and analytics_enabled are stored but have no effect on queries.
 

@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; CMEK (crypto_key_name) is stored, not used.
+- execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; already running executions are not failed when their CMEK key is disabled.
 - Quotas are only partly modelled: 100000 steps per execution and a call depth of 20 are enforced; the 512 KB result/argument rules, concurrent execution limits, QUEUED state and the 1 year execution timeout are not.
 - Variable use is not statically checked: undefined variables, writes to non-shared parent variables inside parallel steps and loop-variable scope leaks fail at run time instead of at deployment.
 - experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference.

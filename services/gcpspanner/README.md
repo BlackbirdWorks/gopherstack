@@ -20,7 +20,7 @@
 - RestoreDatabase and ListDatabaseOperations are UNIMPLEMENTED: restoring would create emulator databases the backend does not track. Backups created through the proxy live only in the emulator and are lost on restart.
 - User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, and replica_compute_capacity are not implemented.
 - The emulator runs every instance in its single emulator-config with 1 node; node_count and processing_units are metadata only, and the data plane is one shared emulator process.
-- Customer-managed encryption on databases is UNIMPLEMENTED; backend instance and database create_time values are not shared with the emulator.
+- Customer-managed encryption is validated on CreateDatabase for single-region instance configs only (kms_key_names coverage of a multi-region config's replicas is not checked); backend instance and database create_time values are not shared with the emulator.
 
 ## More
 
