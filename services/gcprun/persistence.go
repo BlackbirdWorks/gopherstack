@@ -25,6 +25,18 @@ type svcSnap struct {
 	RevSeq  int            `json:"revSeq"`
 }
 
+type poolSnap struct {
+	Failure    string         `json:"failure"`
+	WorkerPool jsontext.Value `json:"workerPool"`
+	RevSeq     int            `json:"revSeq"`
+}
+
+type instSnap struct {
+	Failure  string         `json:"failure"`
+	Instance jsontext.Value `json:"instance"`
+	Stopped  bool           `json:"stopped"`
+}
+
 type revSnap struct {
 	StartErr string         `json:"startErr"`
 	Revision jsontext.Value `json:"revision"`
@@ -37,18 +49,22 @@ type taskSnap struct {
 }
 
 type backendSnapshot struct {
-	Services   map[string]svcSnap        `json:"services"`
-	Revisions  map[string]revSnap        `json:"revisions"`
-	Jobs       map[string]jsontext.Value `json:"jobs"`
-	Executions map[string]jsontext.Value `json:"executions"`
-	Tasks      map[string]taskSnap       `json:"tasks"`
-	Operations map[string]jsontext.Value `json:"operations"`
-	DeletedSvc map[string]jsontext.Value `json:"deletedServices"`
-	DeletedJob map[string]jsontext.Value `json:"deletedJobs"`
-	DeletedExe map[string]jsontext.Value `json:"deletedExecutions"`
-	IAM        map[string]jsontext.Value `json:"iamPolicies"`
-	IAMSeq     uint64                    `json:"iamSeq"`
-	Version    int                       `json:"version"`
+	Services    map[string]svcSnap        `json:"services"`
+	Revisions   map[string]revSnap        `json:"revisions"`
+	Jobs        map[string]jsontext.Value `json:"jobs"`
+	Executions  map[string]jsontext.Value `json:"executions"`
+	Tasks       map[string]taskSnap       `json:"tasks"`
+	Operations  map[string]jsontext.Value `json:"operations"`
+	DeletedSvc  map[string]jsontext.Value `json:"deletedServices"`
+	DeletedJob  map[string]jsontext.Value `json:"deletedJobs"`
+	DeletedExe  map[string]jsontext.Value `json:"deletedExecutions"`
+	WorkerPools map[string]poolSnap       `json:"workerPools,omitempty"`
+	Instances   map[string]instSnap       `json:"instances,omitempty"`
+	DeletedPool map[string]jsontext.Value `json:"deletedWorkerPools,omitempty"`
+	DeletedInst map[string]jsontext.Value `json:"deletedInstances,omitempty"`
+	IAM         map[string]jsontext.Value `json:"iamPolicies"`
+	IAMSeq      uint64                    `json:"iamSeq"`
+	Version     int                       `json:"version"`
 }
 
 func marshalPB(m proto.Message) jsontext.Value {
@@ -109,6 +125,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Services[name] = svcSnap{Service: marshalPB(r.pb), Failure: r.failure, RevSeq: r.revSeq}
 	}
 
+	snap.WorkerPools = make(map[string]poolSnap, len(b.workerPools))
+	for name, r := range b.workerPools {
+		snap.WorkerPools[name] = poolSnap{WorkerPool: marshalPB(r.pb), Failure: r.failure, RevSeq: r.revSeq}
+	}
+
+	snap.Instances = make(map[string]instSnap, len(b.instances))
+	for name, r := range b.instances {
+		snap.Instances[name] = instSnap{Instance: marshalPB(r.pb), Failure: r.failure, Stopped: r.stopped}
+	}
+
 	for name, r := range b.revisions {
 		snap.Revisions[name] = revSnap{Revision: marshalPB(r.pb), StartErr: r.startErr, Seq: r.seq}
 	}
@@ -127,6 +153,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	snap.DeletedSvc, snap.DeletedJob, snap.DeletedExe = marshalMap(b.deleted.services),
 		marshalMap(b.deleted.jobs), marshalMap(b.deleted.executions)
+
+	snap.DeletedPool, snap.DeletedInst = marshalMap(b.deleted.workerPools), marshalMap(b.deleted.instances)
 
 	policies, seq := b.iam.Snapshot()
 	snap.IAM, snap.IAMSeq = marshalMap(policies), seq
@@ -155,7 +183,27 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	return b.swapState(&snap)
+	if err := b.swapState(&snap); err != nil {
+		return err
+	}
+
+	b.warmAllWorkerPools()
+
+	return nil
+}
+
+func (b *InMemoryBackend) warmAllWorkerPools() {
+	b.mu.RLock("warmAllWorkerPools")
+
+	names := make([]string, 0, len(b.workerPools))
+	for name := range b.workerPools {
+		names = append(names, name)
+	}
+	b.mu.RUnlock()
+
+	for _, name := range names {
+		b.warmWorkerPool(name)
+	}
 }
 
 // swapState replaces live state with snap and tears down containers of the replaced revisions.
@@ -209,6 +257,10 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 		b.jobs[name] = pb
 	}
 
+	if err := b.restoreWorkloads(snap); err != nil {
+		return err
+	}
+
 	if err := b.restoreRuns(snap); err != nil {
 		return err
 	}
@@ -218,6 +270,28 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 	}
 
 	b.interruptLocked()
+
+	return nil
+}
+
+func (b *InMemoryBackend) restoreWorkloads(snap *backendSnapshot) error {
+	for name, s := range snap.WorkerPools {
+		pb, err := unmarshalPB(s.WorkerPool, &runpb.WorkerPool{})
+		if err != nil {
+			return fmt.Errorf("gcprun: restore worker pool %q: %w", name, err)
+		}
+
+		b.workerPools[name] = &poolRec{pb: pb, failure: s.Failure, revSeq: s.RevSeq}
+	}
+
+	for name, s := range snap.Instances {
+		pb, err := unmarshalPB(s.Instance, &runpb.Instance{})
+		if err != nil {
+			return fmt.Errorf("gcprun: restore instance %q: %w", name, err)
+		}
+
+		b.instances[name] = &instRec{pb: pb, failure: s.Failure, stopped: s.Stopped}
+	}
 
 	return nil
 }
@@ -271,6 +345,22 @@ func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
 		return err
 	}
 
+	if b.deleted.workerPools, err = unmarshalMap(
+		snap.DeletedPool,
+		func() *runpb.WorkerPool { return &runpb.WorkerPool{} },
+		"deleted worker pool",
+	); err != nil {
+		return err
+	}
+
+	if b.deleted.instances, err = unmarshalMap(
+		snap.DeletedInst,
+		func() *runpb.Instance { return &runpb.Instance{} },
+		"deleted instance",
+	); err != nil {
+		return err
+	}
+
 	policies, err := unmarshalMap(snap.IAM, func() *iampb.Policy { return &iampb.Policy{} }, "iam policy")
 	if err != nil {
 		return err
@@ -297,6 +387,16 @@ func (b *InMemoryBackend) interruptLocked() {
 	for _, rec := range b.services {
 		rec.pending = 0
 		b.refreshLocked(rec)
+	}
+
+	for _, rec := range b.workerPools {
+		rec.pending = 0
+		b.refreshPoolLocked(rec)
+	}
+
+	for _, rec := range b.instances {
+		rec.pending, rec.stopped = 0, true
+		b.refreshInstanceLocked(rec)
 	}
 
 	for name, e := range b.executions {

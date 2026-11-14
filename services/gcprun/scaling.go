@@ -45,6 +45,12 @@ func (c backendClock) AfterFunc(d time.Duration, f func()) Timer { return c.b.cl
 func (b *InMemoryBackend) scalingLimits(r *revRec) (int, int) {
 	minN, maxN := int(r.pb.GetScaling().GetMinInstanceCount()), int(r.pb.GetScaling().GetMaxInstanceCount())
 
+	if wp := b.workerPools[ownerOf(r.pb.GetName())]; wp != nil {
+		n := int(poolInstanceCount(wp.pb))
+
+		return n, max(n, 1)
+	}
+
 	if svc := b.services[r.pb.GetService()]; svc != nil {
 		if minN == 0 {
 			minN = int(svc.pb.GetScaling().GetMinInstanceCount())
@@ -96,7 +102,15 @@ func (b *InMemoryBackend) poolFor(name string) (*gcpscale.Pool[*inst], string, e
 		r.pool = b.newPoolLocked(name, r)
 	}
 
-	return r.pool, r.pb.GetService(), nil
+	return r.pool, owner(r), nil
+}
+
+func owner(r *revRec) string {
+	if o := ownerOf(r.pb.GetName()); o != "" && r.pb.GetService() == "" {
+		return o
+	}
+
+	return r.pb.GetService()
 }
 
 func goneIfClosed(err error) error {
@@ -195,5 +209,6 @@ func (b *InMemoryBackend) killInstance(name string, in *inst) {
 
 	if pool.Remove(func(x *inst) bool { return x == in }) {
 		b.warmServing(svcName)
+		b.warmWorkerPool(svcName)
 	}
 }

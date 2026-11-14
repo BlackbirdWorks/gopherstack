@@ -283,7 +283,7 @@ func TestPurge(t *testing.T) {
 	}{
 		{
 			queue.PurgeQueueDetails{PurgeType: queue.PurgeQueueDetailsPurgeTypeNormal, ConsumerGroupId: new("g")},
-			"group", 0, http.StatusBadRequest,
+			"group", 0, http.StatusNotFound,
 		},
 		{
 			queue.PurgeQueueDetails{PurgeType: queue.PurgeQueueDetailsPurgeTypeNormal, ChannelIds: []string{"x"}},

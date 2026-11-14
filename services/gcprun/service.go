@@ -15,11 +15,8 @@ import (
 )
 
 func serviceMutable() []string {
-	return []string{
-		"description", "labels", "annotations", "client", "client_version", "ingress", "launch_stage",
-		"binary_authorization", "template", "traffic", "scaling", "invoker_iam_disabled", "default_uri_disabled",
-		"custom_audiences", "iap_enabled",
-	}
+	return commonMutable("description", "ingress", "traffic", "scaling", "invoker_iam_disabled",
+		"default_uri_disabled", "custom_audiences", "iap_enabled")
 }
 
 func (b *InMemoryBackend) host(n resName) string {
@@ -242,36 +239,8 @@ func (b *InMemoryBackend) deploy(op, svcName, revName string) {
 
 // settleLocked records the outcome of starting rev and returns a failure message, empty on success.
 func (b *InMemoryBackend) settleLocked(rec *svcRec, rev *revRec, err error) string {
-	at := b.ts()
 	rec.pending--
-	rev.pb.Reconciling = false
-	rev.pb.UpdateTime = at
-
-	var failure string
-
-	switch {
-	case err == nil:
-		rev.pb.Conditions = setCondition(
-			rev.pb.GetConditions(),
-			newCondition(condReady, runpb.Condition_CONDITION_SUCCEEDED, "", at),
-		)
-	case errors.Is(err, errNoRuntime):
-		msg := "Revision is deployed but cannot serve: " + err.Error()
-		rev.pb.Conditions = setCondition(
-			rev.pb.GetConditions(),
-			newCondition(condReady, runpb.Condition_CONDITION_SUCCEEDED, msg, at),
-		)
-	default:
-		failure = fmt.Sprintf(
-			"Revision '%s' is not ready and cannot serve traffic. %s",
-			lastSegment(rev.pb.GetName()),
-			err,
-		)
-		rev.pb.Conditions = setCondition(
-			rev.pb.GetConditions(),
-			newCondition(condReady, runpb.Condition_CONDITION_FAILED, failure, at),
-		)
-	}
+	failure := b.settleRevision(rev, err, "serve", " and cannot serve traffic")
 
 	if failure == "" {
 		rec.failure = ""
@@ -549,4 +518,42 @@ func sortedKeys[V any](m map[string]V, prefix string) []string {
 	slices.Sort(keys)
 
 	return keys
+}
+
+// commonMutable returns the update-mask fields every Cloud Run resource shares plus extra.
+func commonMutable(extra ...string) []string {
+	return append([]string{
+		"labels", "annotations", "client", "client_version", "launch_stage", "binary_authorization", "template",
+	}, extra...)
+}
+
+// settleRevision records the outcome of starting rev on its conditions and returns a failure message.
+func (b *InMemoryBackend) settleRevision(rev *revRec, err error, verb, failTail string) string {
+	at := b.ts()
+	rev.pb.Reconciling = false
+	rev.pb.UpdateTime = at
+
+	var failure string
+
+	switch {
+	case err == nil:
+		rev.pb.Conditions = setCondition(
+			rev.pb.GetConditions(),
+			newCondition(condReady, runpb.Condition_CONDITION_SUCCEEDED, "", at),
+		)
+	case errors.Is(err, errNoRuntime):
+		msg := "Revision is deployed but cannot " + verb + ": " + err.Error()
+		rev.pb.Conditions = setCondition(
+			rev.pb.GetConditions(),
+			newCondition(condReady, runpb.Condition_CONDITION_SUCCEEDED, msg, at),
+		)
+	default:
+		failure = fmt.Sprintf("Revision '%s' is not ready%s. %s", lastSegment(rev.pb.GetName()), failTail, err)
+		rev.pb.Conditions = setCondition(
+			rev.pb.GetConditions(),
+			newCondition(condReady, runpb.Condition_CONDITION_FAILED, failure, at),
+		)
+	}
+
+	return failure
 }

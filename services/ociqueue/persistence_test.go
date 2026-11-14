@@ -29,7 +29,7 @@ func TestSnapshotRestore(t *testing.T) {
 	restored.SetClock(e.clock.Now)
 	require.NoError(t, restored.Restore(t.Context(), snap))
 
-	st, err := restored.GetStats(*q.Id, "")
+	st, err := restored.GetStats(*q.Id, "", "")
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, st.DLQ.VisibleMessages, "the dead lettered message survives")
 	assert.EqualValues(t, 1, st.Queue.VisibleMessages)

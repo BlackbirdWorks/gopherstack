@@ -98,7 +98,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return parseRoute(c
 // ExtractResource returns the addressed resource id for metrics.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	p := parseRoute(c.Request()).params
-	for _, k := range []string{"queueId", "workRequestId"} {
+	for _, k := range []string{"queueId", "consumerGroupId", "workRequestId"} {
 		if v := p[k]; v != "" {
 			return v
 		}

@@ -63,6 +63,7 @@ type GetParams struct {
 	Timeout       *int
 	Limit         *int
 	ChannelFilter string
+	ConsumerGroup string
 }
 
 type UpdatedWire struct {
@@ -187,7 +188,7 @@ func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]PutMe
 			m.Channel, m.Props = *e.Metadata.ChannelID, e.Metadata.CustomProperties
 		}
 
-		q.Messages = append(q.Messages, m)
+		q.fanOut(m)
 		out = append(out, PutMessageWire{ID: m.ID, ExpireAfter: m.Expire})
 	}
 
@@ -228,12 +229,17 @@ func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, err
 		return pollResult{}, aerr
 	}
 
+	ln, aerr := q.laneFor(p.ConsumerGroup)
+	if aerr != nil {
+		return pollResult{}, aerr
+	}
+
 	vis, limit := def(p.Visibility, q.Visibility), def(p.Limit, defaultGetLimit)
 	res := pollResult{timeout: def(p.Timeout, q.Timeout), after: b.after, wake: q.waiter(), until: -1}
 	now := b.nowUTC()
 	res.msgs = []GetMessageWire{}
 
-	for _, m := range q.Messages {
+	for _, m := range *ln.msgs {
 		if !matchChannel(m, p.ChannelFilter) {
 			continue
 		}
@@ -309,12 +315,12 @@ func (b *InMemoryBackend) GetMessages(
 	}
 }
 
-func findReceipt(q *Queue, receipt string) *Message {
+func findReceipt(ln lane, receipt string) *Message {
 	if receipt == "" {
 		return nil
 	}
 
-	for _, m := range q.Messages {
+	for _, m := range *ln.msgs {
 		if m.Receipt == receipt {
 			return m
 		}
@@ -327,8 +333,8 @@ func errReceipt() *APIError {
 	return errNotFound("message receipt")
 }
 
-func (b *InMemoryBackend) setVisibility(q *Queue, receipt string, vis int) (*Message, *APIError) {
-	m := findReceipt(q, receipt)
+func (b *InMemoryBackend) setVisibility(q *Queue, ln lane, receipt string, vis int) (*Message, *APIError) {
+	m := findReceipt(ln, receipt)
 	if m == nil {
 		return nil, errReceipt()
 	}
@@ -340,7 +346,7 @@ func (b *InMemoryBackend) setVisibility(q *Queue, receipt string, vis int) (*Mes
 }
 
 // UpdateMessage changes the visibility of one in-flight message.
-func (b *InMemoryBackend) UpdateMessage(queueID, receipt string, vis *int) (UpdatedWire, error) {
+func (b *InMemoryBackend) UpdateMessage(queueID, group, receipt string, vis *int) (UpdatedWire, error) {
 	if vis == nil {
 		return UpdatedWire{}, errMissing("visibilityInSeconds is required")
 	}
@@ -357,7 +363,12 @@ func (b *InMemoryBackend) UpdateMessage(queueID, receipt string, vis *int) (Upda
 		return UpdatedWire{}, aerr
 	}
 
-	m, aerr := b.setVisibility(q, receipt, *vis)
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return UpdatedWire{}, aerr
+	}
+
+	m, aerr := b.setVisibility(q, ln, receipt, *vis)
 	if aerr != nil {
 		return UpdatedWire{}, aerr
 	}
@@ -384,7 +395,7 @@ func failEntry(res *BatchResultWire, msg string) {
 }
 
 // UpdateMessages changes the visibility of several in-flight messages; each entry reports its own result.
-func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (BatchResultWire, error) {
+func (b *InMemoryBackend) UpdateMessages(queueID, group string, in receiptsIn) (BatchResultWire, error) {
 	if aerr := checkEntries(len(in.Entries)); aerr != nil {
 		return BatchResultWire{}, aerr
 	}
@@ -407,10 +418,15 @@ func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (BatchRe
 		return BatchResultWire{}, aerr
 	}
 
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return BatchResultWire{}, aerr
+	}
+
 	res := BatchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
 
 	for _, e := range in.Entries {
-		m, ae := b.setVisibility(q, e.Receipt, *e.Visibility)
+		m, ae := b.setVisibility(q, ln, e.Receipt, *e.Visibility)
 		if ae != nil {
 			failEntry(&res, "The message receipt is invalid or the message no longer exists")
 
@@ -423,19 +439,19 @@ func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (BatchRe
 	return res, nil
 }
 
-func (q *Queue) remove(receipt string) bool {
-	i := slices.IndexFunc(q.Messages, func(m *Message) bool { return receipt != "" && m.Receipt == receipt })
+func (ln lane) remove(receipt string) bool {
+	i := slices.IndexFunc(*ln.msgs, func(m *Message) bool { return receipt != "" && m.Receipt == receipt })
 	if i < 0 {
 		return false
 	}
 
-	q.Messages = slices.Delete(q.Messages, i, i+1)
+	*ln.msgs = slices.Delete(*ln.msgs, i, i+1)
 
 	return true
 }
 
 // DeleteMessage deletes one message by receipt.
-func (b *InMemoryBackend) DeleteMessage(queueID, receipt string) error {
+func (b *InMemoryBackend) DeleteMessage(queueID, group, receipt string) error {
 	b.mu.Lock("DeleteMessage")
 	defer b.mu.Unlock()
 
@@ -444,7 +460,12 @@ func (b *InMemoryBackend) DeleteMessage(queueID, receipt string) error {
 		return aerr
 	}
 
-	if !q.remove(receipt) {
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return aerr
+	}
+
+	if !ln.remove(receipt) {
 		return errReceipt()
 	}
 
@@ -454,7 +475,7 @@ func (b *InMemoryBackend) DeleteMessage(queueID, receipt string) error {
 }
 
 // DeleteMessages deletes several messages by receipt; each entry reports its own result.
-func (b *InMemoryBackend) DeleteMessages(queueID string, in receiptsIn) (BatchResultWire, error) {
+func (b *InMemoryBackend) DeleteMessages(queueID, group string, in receiptsIn) (BatchResultWire, error) {
 	if aerr := checkEntries(len(in.Entries)); aerr != nil {
 		return BatchResultWire{}, aerr
 	}
@@ -467,10 +488,15 @@ func (b *InMemoryBackend) DeleteMessages(queueID string, in receiptsIn) (BatchRe
 		return BatchResultWire{}, aerr
 	}
 
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return BatchResultWire{}, aerr
+	}
+
 	res := BatchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
 
 	for _, e := range in.Entries {
-		if !q.remove(e.Receipt) {
+		if !ln.remove(e.Receipt) {
 			failEntry(&res, "The message receipt is invalid or the message no longer exists")
 
 			continue
@@ -505,7 +531,7 @@ func tally(msgs []*Message, now time.Time, channel string) statsWire {
 }
 
 // GetStats counts visible and in-flight messages and their size, for the queue and its dead letter queue.
-func (b *InMemoryBackend) GetStats(queueID, channel string) (QueueStatsWire, error) {
+func (b *InMemoryBackend) GetStats(queueID, group, channel string) (QueueStatsWire, error) {
 	b.mu.Lock("GetStats")
 	defer b.mu.Unlock()
 
@@ -514,13 +540,18 @@ func (b *InMemoryBackend) GetStats(queueID, channel string) (QueueStatsWire, err
 		return QueueStatsWire{}, aerr
 	}
 
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return QueueStatsWire{}, aerr
+	}
+
 	now := b.nowUTC()
 
-	return QueueStatsWire{Queue: tally(q.Messages, now, channel), DLQ: tally(q.DLQ, now, channel)}, nil
+	return QueueStatsWire{Queue: tally(*ln.msgs, now, channel), DLQ: tally(*ln.dlq, now, channel)}, nil
 }
 
 // ListChannels lists the channels that currently hold messages.
-func (b *InMemoryBackend) ListChannels(queueID, filter string, o ListOpts) (page.Page[string], error) {
+func (b *InMemoryBackend) ListChannels(queueID, group, filter string, o ListOpts) (page.Page[string], error) {
 	b.mu.Lock("ListChannels")
 	defer b.mu.Unlock()
 
@@ -529,9 +560,14 @@ func (b *InMemoryBackend) ListChannels(queueID, filter string, o ListOpts) (page
 		return page.Page[string]{}, aerr
 	}
 
+	ln, aerr := q.laneFor(group)
+	if aerr != nil {
+		return page.Page[string]{}, aerr
+	}
+
 	seen := map[string]bool{}
 
-	for _, m := range append(slices.Clone(q.Messages), q.DLQ...) {
+	for _, m := range append(slices.Clone(*ln.msgs), *ln.dlq...) {
 		if m.Channel != "" && (filter == "" || strings.Contains(m.Channel, filter)) {
 			seen[m.Channel] = true
 		}
@@ -575,7 +611,7 @@ func (h *Handler) putMessages(q *req) error {
 func (h *Handler) getMessages(q *req) error {
 	out, err := h.Backend.GetMessages(q.r.Context(), h.stopCh(), q.param("queueId"), GetParams{
 		Visibility: queryInt(q, "visibilityInSeconds"), Timeout: queryInt(q, "timeoutInSeconds"),
-		Limit: queryInt(q, "limit"), ChannelFilter: q.query("channelFilter"),
+		Limit: queryInt(q, "limit"), ChannelFilter: q.query("channelFilter"), ConsumerGroup: q.query("consumerGroupId"),
 	})
 
 	return reply(q, map[string]any{"messages": out}, "", err)
@@ -590,7 +626,8 @@ func (h *Handler) updateMessage(q *req) error {
 		return err
 	}
 
-	out, err := h.Backend.UpdateMessage(q.param("queueId"), q.param("messageReceipt"), in.Visibility)
+	out, err := h.Backend.UpdateMessage(
+		q.param("queueId"), q.query("consumerGroupId"), q.param("messageReceipt"), in.Visibility)
 
 	return reply(q, out, "", err)
 }
@@ -601,13 +638,14 @@ func (h *Handler) updateMessages(q *req) error {
 		return err
 	}
 
-	out, err := h.Backend.UpdateMessages(q.param("queueId"), in)
+	out, err := h.Backend.UpdateMessages(q.param("queueId"), q.query("consumerGroupId"), in)
 
 	return reply(q, out, "", err)
 }
 
 func (h *Handler) deleteMessage(q *req) error {
-	if err := h.Backend.DeleteMessage(q.param("queueId"), q.param("messageReceipt")); err != nil {
+	err := h.Backend.DeleteMessage(q.param("queueId"), q.query("consumerGroupId"), q.param("messageReceipt"))
+	if err != nil {
 		return err
 	}
 
@@ -622,19 +660,20 @@ func (h *Handler) deleteMessages(q *req) error {
 		return err
 	}
 
-	out, err := h.Backend.DeleteMessages(q.param("queueId"), in)
+	out, err := h.Backend.DeleteMessages(q.param("queueId"), q.query("consumerGroupId"), in)
 
 	return reply(q, out, "", err)
 }
 
 func (h *Handler) getStats(q *req) error {
-	out, err := h.Backend.GetStats(q.param("queueId"), q.query("channelId"))
+	out, err := h.Backend.GetStats(q.param("queueId"), q.query("consumerGroupId"), q.query("channelId"))
 
 	return reply(q, out, "", err)
 }
 
 func (h *Handler) listChannels(q *req) error {
-	pg, err := h.Backend.ListChannels(q.param("queueId"), q.query("channelFilter"), q.listOpts())
+	pg, err := h.Backend.ListChannels(
+		q.param("queueId"), q.query("consumerGroupId"), q.query("channelFilter"), q.listOpts())
 	if err != nil {
 		return err
 	}
