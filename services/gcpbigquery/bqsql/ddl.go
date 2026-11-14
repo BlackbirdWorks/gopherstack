@@ -2,6 +2,7 @@ package bqsql
 
 import (
 	"context"
+	"strings"
 )
 
 func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Result, error) {
@@ -23,6 +24,10 @@ func (c *compiler) runDDL(ctx context.Context, st *Statement, dryRun bool) (*Res
 		eff, err = c.ddlDrop(st)
 	case StmtAlter:
 		eff, err = c.ddlAlter(st)
+	case StmtCreateRoutine:
+		eff, err = c.ddlCreateRoutine(st)
+	case StmtDropRoutine:
+		eff, err = c.ddlDropRoutine(st)
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		err = unsupported("statement")
 	}
@@ -47,6 +52,10 @@ func ddlName(st *Statement) string {
 
 		return "CREATE_TABLE"
 	case StmtCreateView:
+		if st.materialized {
+			return "CREATE_MATERIALIZED_VIEW"
+		}
+
 		return "CREATE_VIEW"
 	case StmtCreateSchema:
 		return "CREATE_SCHEMA"
@@ -54,6 +63,10 @@ func ddlName(st *Statement) string {
 		return "DROP_" + st.dropKind
 	case StmtAlter:
 		return "ALTER_TABLE"
+	case StmtCreateRoutine:
+		return routineEffectName(st)
+	case StmtDropRoutine:
+		return dropRoutineName(st.dropKind)
 	case StmtQuery, StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		return litSelect
 	}
@@ -166,6 +179,7 @@ func (c *compiler) ddlCreateView(st *Statement) ([]Effect, error) {
 
 	return []Effect{{
 		Op: OpCreateView, Ref: ref, ViewQuery: st.viewSQL, Fields: fields, OrReplace: st.orReplace, Options: st.options,
+		Materialized: st.materialized,
 	}}, nil
 }
 
@@ -215,8 +229,8 @@ func (c *compiler) ddlDrop(st *Statement) ([]Effect, error) {
 		op = OpDropView
 	}
 
-	if (st.dropKind == "VIEW") != (td.ViewQuery != "") {
-		return nil, invalid("Cannot drop %s with DROP %s", ref, st.dropKind)
+	if dropKindOf(td) != st.dropKind {
+		return nil, invalid("Cannot drop %s with DROP %s", ref, strings.ReplaceAll(st.dropKind, "_", " "))
 	}
 
 	return []Effect{{Op: op, Ref: ref}}, nil
@@ -283,4 +297,15 @@ func (c *compiler) alterDrop(td *TableData, st *Statement, e Effect) ([]Effect, 
 	}
 
 	return []Effect{e}, nil
+}
+
+func dropKindOf(td *TableData) string {
+	switch {
+	case td.Materialized:
+		return "MATERIALIZED_VIEW"
+	case td.ViewQuery != "":
+		return "VIEW"
+	}
+
+	return "TABLE"
 }

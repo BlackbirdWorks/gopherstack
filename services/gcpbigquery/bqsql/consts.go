@@ -53,4 +53,8 @@ const (
 	litJSON        = "JSON"
 	litNumeric     = "NUMERIC"
 	litFloat       = "FLOAT"
+	litUnionAll    = "UNION ALL"
+	litRecord      = "RECORD"
+	langSQL        = "SQL"
+	setVarName     = "__set"
 )

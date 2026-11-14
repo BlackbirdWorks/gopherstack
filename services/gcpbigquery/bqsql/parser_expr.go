@@ -517,6 +517,7 @@ func (p *parser) callExpr(parts []string, pos int) (*node, error) {
 	}
 
 	n.name = strings.ToUpper(strings.Join(parts, "."))
+	n.parts = parts
 
 	if p.acceptKw(litDistinct) {
 		n.distinct = true

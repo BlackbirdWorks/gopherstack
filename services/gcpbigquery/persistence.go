@@ -77,6 +77,16 @@ func normalizeDataset(d *Dataset) {
 		d.Tables = map[string]*Table{}
 	}
 
+	if d.Routines == nil {
+		d.Routines = map[string]*Routine{}
+	}
+
+	for id, r := range d.Routines {
+		if r == nil || r.Resource == nil {
+			delete(d.Routines, id)
+		}
+	}
+
 	for id, t := range d.Tables {
 		if t == nil {
 			delete(d.Tables, id)

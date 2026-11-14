@@ -52,6 +52,8 @@ func statusText(status int) string {
 		return "INVALID_ARGUMENT"
 	case http.StatusForbidden:
 		return "PERMISSION_DENIED"
+	case http.StatusPreconditionFailed:
+		return "FAILED_PRECONDITION"
 	case http.StatusRequestEntityTooLarge:
 		return "INVALID_ARGUMENT"
 	}

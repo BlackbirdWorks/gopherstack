@@ -305,7 +305,7 @@ func arityOK(d *fnDef, n int) bool { return n >= d.min && (d.max < 0 || n <= d.m
 func (c *compiler) call(n *node, sc *scope) (*gx, error) {
 	d, ok := c.fns[n.name]
 	if !ok {
-		return nil, invalid("Function not found: %s at [1:%d]", n.name, n.pos+1)
+		return c.userCall(n, sc)
 	}
 
 	if !arityOK(d, len(n.args)) {

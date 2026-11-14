@@ -286,7 +286,7 @@ func (p *parser) query() (*Query, error) {
 }
 
 func (p *parser) withClauses(q *Query) error {
-	p.acceptKw("RECURSIVE")
+	q.recursive = p.acceptKw("RECURSIVE")
 
 	for {
 		name, err := p.identName()
@@ -530,7 +530,7 @@ func (p *parser) selectTail(s *selectStmt) error {
 			return err
 		}
 
-		if s.groupBy, err = p.exprList(); err != nil {
+		if err = p.parseGroupBy(s); err != nil {
 			return err
 		}
 	}
@@ -771,21 +771,48 @@ func (p *parser) fromPrimary() (*fromItem, error) {
 
 	f := &fromItem{kind: fromTable, path: path}
 
-	if err = p.skipSystemTime(); err != nil {
+	if p.peek().isPunct("(") {
+		f.call = true
+
+		if f.args, err = p.tvfArgs(); err != nil {
+			return nil, err
+		}
+	}
+
+	if f.alias, err = p.optAlias(); err != nil {
 		return nil, err
 	}
 
-	f.alias, err = p.optAlias()
-
-	return f, err
-}
-
-func (p *parser) skipSystemTime() error {
-	if p.kw("FOR") && p.peekNext().isKw("SYSTEM_TIME") {
-		return syntaxErr(p.peek().pos, "FOR SYSTEM_TIME AS OF is not supported")
+	if f.asOf, err = p.systemTime(); err != nil {
+		return nil, err
 	}
 
-	return nil
+	if f.alias == "" {
+		if f.alias, err = p.optAlias(); err != nil {
+			return nil, err
+		}
+	}
+
+	return p.pivotSuffix(f)
+}
+
+// systemTime parses an optional FOR SYSTEM_TIME AS OF clause.
+func (p *parser) systemTime() (*node, error) {
+	if !p.kw("FOR") || !p.peekNext().isKw("SYSTEM_TIME") {
+		return nil, nil //nolint:nilnil // no clause present
+	}
+
+	p.i += 2
+
+	if err := p.expectKw("AS"); err != nil {
+		return nil, err
+	}
+
+	if err := p.expectKw("OF"); err != nil {
+		return nil, err
+	}
+
+	return p.expr()
 }
 
 func (p *parser) fromParen() (*fromItem, error) {
@@ -802,9 +829,12 @@ func (p *parser) fromParen() (*fromItem, error) {
 		}
 
 		f := &fromItem{kind: fromSubquery, query: q}
-		f.alias, err = p.optAlias()
 
-		return f, err
+		if f.alias, err = p.optAlias(); err != nil {
+			return nil, err
+		}
+
+		return p.pivotSuffix(f)
 	}
 
 	inner, err := p.fromClause()
@@ -852,6 +882,10 @@ func (p *parser) fromUnnest() (*fromItem, error) {
 func (p *parser) optAlias() (string, error) {
 	if p.acceptKw("AS") {
 		return p.anyIdent()
+	}
+
+	if p.atPivot() {
+		return "", nil
 	}
 
 	if t := p.peek(); t.kind == tkQuoted || t.kind == tkIdent && !reserved()[strings.ToUpper(t.text)] {

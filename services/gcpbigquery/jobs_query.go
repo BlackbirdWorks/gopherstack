@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
@@ -72,7 +73,7 @@ func decodeQueryConfig(raw any) (queryConfig, error) {
 // execQuery runs a query-job statement; the caller holds the write lock.
 func (b *InMemoryBackend) execQuery(
 	ctx context.Context,
-	project string,
+	project, jobID string,
 	qc queryConfig,
 	dryRun bool,
 ) (*outcome, error) {
@@ -84,7 +85,7 @@ func (b *InMemoryBackend) execQuery(
 		return nil, errInvalidQuery("Query text is required")
 	}
 
-	st, err := bqsql.ParseStatement(qc.Query)
+	sc, err := bqsql.ParseScript(qc.Query)
 	if err != nil {
 		return nil, fromSQL(err)
 	}
@@ -100,6 +101,11 @@ func (b *InMemoryBackend) execQuery(
 		if qc.DefaultDataset.ProjectID != "" {
 			in.Project = qc.DefaultDataset.ProjectID
 		}
+	}
+
+	st, single := sc.Single()
+	if !single {
+		return b.execScript(ctx, project, jobID, sc, in, dryRun)
 	}
 
 	res, err := bqsql.Run(ctx, st, in, dryRun)
@@ -225,6 +231,8 @@ func (b *InMemoryBackend) fillExisting(
 	write string,
 	replaceSchema bool,
 ) *jobError {
+	t.record(nowMs())
+
 	switch write {
 	case writeEmpty:
 		if len(t.Rows) > 0 {
@@ -296,6 +304,10 @@ func (b *InMemoryBackend) applyEffect(e bqsql.Effect) error {
 		return b.effectDropSchema(e)
 	case bqsql.OpAlter:
 		return b.effectAlter(e)
+	case bqsql.OpCreateRoutine, bqsql.OpDropRoutine:
+		return b.applyRoutineEffect(e)
+	case bqsql.OpRefreshView:
+		return b.effectRefresh(e)
 	}
 
 	return errInvalidQuery("Unsupported catalog operation " + e.Op)
@@ -320,6 +332,8 @@ func (b *InMemoryBackend) effectWrite(e bqsql.Effect) error {
 	if err != nil {
 		return err
 	}
+
+	t.record(nowMs())
 
 	t.Rows, t.Schema = e.Rows, e.Fields
 	t.Modified = nowMs()
@@ -349,8 +363,14 @@ func (b *InMemoryBackend) effectCreate(e bqsql.Effect) error {
 		t.Rows = [][]any{}
 	}
 
+	if e.Materialized {
+		t.MV = materializedOptions(e.Options, now)
+	}
+
 	if old, exists := d.live(e.Ref.Table); exists && e.OrReplace {
 		t.Created = old.Created
+		old.record(now)
+		t.History = old.History
 	}
 
 	d.Tables[e.Ref.Table] = t
@@ -416,6 +436,8 @@ func (b *InMemoryBackend) effectAlter(e bqsql.Effect) error {
 	case "OPTIONS":
 		mergePatch(t.Meta, optionsMeta(e.Options))
 	default:
+		t.record(nowMs())
+
 		t.Schema, t.Rows = e.Fields, e.Rows
 	}
 
@@ -475,4 +497,42 @@ func apiMessage(err error) string {
 	}
 
 	return err.Error()
+}
+
+func (b *InMemoryBackend) effectRefresh(e bqsql.Effect) error {
+	t, err := b.effectTable(e)
+	if err != nil {
+		return err
+	}
+
+	if t.MV == nil {
+		return errInvalidQuery(e.Ref.String() + " is not a materialized view")
+	}
+
+	t.MV["lastRefreshTime"] = msString(nowMs())
+	t.Modified = nowMs()
+	t.Seq = b.nextSeq()
+
+	return nil
+}
+
+// materializedOptions maps the OPTIONS of CREATE MATERIALIZED VIEW onto the REST materializedView settings.
+func materializedOptions(opts map[string]string, now int64) map[string]any {
+	mv := map[string]any{"lastRefreshTime": msString(now)}
+
+	if v, ok := opts["enable_refresh"]; ok {
+		mv["enableRefresh"] = strings.EqualFold(v, "true")
+	}
+
+	if v, ok := opts["refresh_interval_minutes"]; ok {
+		if minutes, err := strconv.ParseFloat(v, 64); err == nil {
+			mv["refreshIntervalMs"] = strconv.FormatInt(int64(minutes*float64(time.Minute.Milliseconds())), 10)
+		}
+	}
+
+	if v, ok := opts["max_staleness"]; ok {
+		mv["maxStaleness"] = v
+	}
+
+	return mv
 }

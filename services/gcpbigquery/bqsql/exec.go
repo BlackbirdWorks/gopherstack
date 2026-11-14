@@ -9,29 +9,34 @@ import (
 
 // Effect is a catalog change a statement asks the caller to apply.
 type Effect struct {
-	Options    map[string]string
-	Ref        TableRef
-	Op         string
-	ViewQuery  string
-	AlterOp    string
-	Fields     []Field
-	Rows       [][]any
-	OrReplace  bool
-	IfNotExist bool
-	IfExists   bool
-	Cascade    bool
+	Options      map[string]string
+	Routine      *RoutineData
+	Ref          TableRef
+	Op           string
+	ViewQuery    string
+	AlterOp      string
+	Fields       []Field
+	Rows         [][]any
+	OrReplace    bool
+	IfNotExist   bool
+	IfExists     bool
+	Materialized bool
+	Cascade      bool
 }
 
 // Effect operations.
 const (
-	OpWrite        = "WRITE"
-	OpCreateTable  = "CREATE_TABLE"
-	OpCreateView   = "CREATE_VIEW"
-	OpCreateSchema = "CREATE_SCHEMA"
-	OpDropTable    = "DROP_TABLE"
-	OpDropView     = "DROP_VIEW"
-	OpDropSchema   = "DROP_SCHEMA"
-	OpAlter        = "ALTER"
+	OpWrite         = "WRITE"
+	OpCreateTable   = "CREATE_TABLE"
+	OpCreateView    = "CREATE_VIEW"
+	OpCreateSchema  = "CREATE_SCHEMA"
+	OpDropTable     = "DROP_TABLE"
+	OpDropView      = "DROP_VIEW"
+	OpDropSchema    = "DROP_SCHEMA"
+	OpAlter         = "ALTER"
+	OpRefreshView   = "REFRESH_VIEW"
+	OpCreateRoutine = "CREATE_ROUTINE"
+	OpDropRoutine   = "DROP_ROUTINE"
 )
 
 // Result is the outcome of one statement.
@@ -50,13 +55,15 @@ type Result struct {
 // Run executes st. With dryRun set, queries are only analysed and the result carries the schema alone.
 func Run(ctx context.Context, st *Statement, in *Input, dryRun bool) (*Result, error) {
 	c := newCompiler(in)
+	c.ctx = ctx
 
 	switch st.Kind {
 	case StmtQuery:
 		return c.runQuery(ctx, st, dryRun)
 	case StmtInsert, StmtUpdate, StmtDelete, StmtMerge, StmtTruncate:
 		return c.runDML(ctx, st, dryRun)
-	case StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter:
+	case StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
+		StmtDropRoutine:
 		return c.runDDL(ctx, st, dryRun)
 	}
 

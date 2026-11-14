@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ func tableManaged() map[string]bool {
 		"lastModifiedTime": true, "numRows": true, "numBytes": true, "numLongTermBytes": true, litType: true,
 		litLocation: true, "schema": true, "view": true, "streamingBuffer": true, "numActiveLogicalBytes": true,
 		"numTotalLogicalBytes": true, "numActivePhysicalBytes": true, "numPhysicalBytes": true,
+		"materializedView": true,
 	}
 }
 
@@ -62,10 +64,41 @@ func (b *InMemoryBackend) tableLocked(project, ds, id string) (*Dataset, *Table,
 }
 
 func viewQueryOf(body map[string]any) string {
-	v, _ := body["view"].(map[string]any)
-	q, _ := v["query"].(string)
+	for _, key := range []string{"view", "materializedView"} {
+		if v, ok := body[key].(map[string]any); ok {
+			if q, _ := v["query"].(string); q != "" {
+				return q
+			}
+		}
+	}
 
-	return q
+	return ""
+}
+
+func mvSettings() []string {
+	return []string{"enableRefresh", "refreshIntervalMs", "maxStaleness", "allowNonIncrementalDefinition"}
+}
+
+// materializedFrom extracts the materializedView definition of a request body; nil means the body is not one.
+func materializedFrom(body map[string]any, now int64) (map[string]any, error) {
+	def, ok := body["materializedView"].(map[string]any)
+	if !ok {
+		return nil, nil //nolint:nilnil // not a materialized view
+	}
+
+	if q, _ := def["query"].(string); q == "" {
+		return nil, errInvalid("materializedView.query is required")
+	}
+
+	mv := map[string]any{"lastRefreshTime": msString(now)}
+
+	for _, k := range mvSettings() {
+		if v, set := def[k]; set {
+			mv[k] = v
+		}
+	}
+
+	return mv, nil
 }
 
 // tableIDFromBody validates the tableReference of an insert body against the request path.
@@ -121,6 +154,11 @@ func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (
 
 	view := viewQueryOf(body)
 
+	mv, err := materializedFrom(body, nowMs())
+	if err != nil {
+		return nil, err
+	}
+
 	if view == "" && len(schema) == 0 && body["externalDataConfiguration"] == nil {
 		schema = []bqsql.Field{}
 	}
@@ -145,7 +183,7 @@ func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (
 
 	now := nowMs()
 	t := &Table{
-		Meta: metaFrom(body, tableManaged()), Schema: schema, Rows: [][]any{}, ViewQuery: view, Created: now,
+		Meta: metaFrom(body, tableManaged()), Schema: schema, Rows: [][]any{}, ViewQuery: view, MV: mv, Created: now,
 		Modified: now, Seq: b.nextSeq(),
 	}
 
@@ -219,6 +257,8 @@ func (b *InMemoryBackend) UpdateTable(
 		}
 	}
 
+	t.mergeMaterialized(body)
+
 	if q := viewQueryOf(body); q != "" && t.ViewQuery != "" {
 		if _, err = b.viewSchema(project, ds, q); err != nil {
 			return nil, err
@@ -242,6 +282,19 @@ func (b *InMemoryBackend) UpdateTable(
 	t.Seq = b.nextSeq()
 
 	return tableWire(project, ds, id, t, d.Location), nil
+}
+
+func (t *Table) mergeMaterialized(body map[string]any) {
+	def, ok := body["materializedView"].(map[string]any)
+	if !ok || t.MV == nil {
+		return
+	}
+
+	for _, k := range mvSettings() {
+		if v, set := def[k]; set {
+			t.MV[k] = v
+		}
+	}
 }
 
 // applySchema accepts only additive or mode-relaxing schema changes, as BigQuery does.
@@ -269,11 +322,15 @@ func (t *Table) applySchema(next []bqsql.Field) error {
 	}
 
 	pad := len(next) - len(t.Schema)
+	padded := make([][]any, len(t.Rows))
+
 	for i, row := range t.Rows {
-		t.Rows[i] = append(row, make([]any, pad)...)
+		padded[i] = append(slices.Clip(row), make([]any, pad)...)
 	}
 
-	t.Schema = next
+	t.record(nowMs())
+
+	t.Rows, t.Schema = padded, next
 
 	return nil
 }

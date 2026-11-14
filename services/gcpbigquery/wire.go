@@ -1,6 +1,7 @@
 package gcpbigquery
 
 import (
+	"maps"
 	"sort"
 	"strconv"
 
@@ -101,9 +102,12 @@ func tableWire(project, ds, id string, t *Table, location string) map[string]any
 	out[litType] = t.kind()
 	out[litLocation] = location
 
-	if t.ViewQuery != "" {
+	switch {
+	case t.MV != nil:
+		out["materializedView"] = materializedWire(t)
+	case t.ViewQuery != "":
 		out["view"] = map[string]any{"query": t.ViewQuery, litUselegacysql: false}
-	} else {
+	default:
 		out["numRows"] = strconv.Itoa(len(t.Rows))
 		out["numBytes"] = msString(tableBytes(t))
 		out["numLongTermBytes"] = "0"
@@ -128,9 +132,18 @@ func tableSummary(project, ds, id string, t *Table) map[string]any {
 		}
 	}
 
-	if t.ViewQuery != "" {
+	if t.ViewQuery != "" && t.MV == nil {
 		out["view"] = map[string]any{litUselegacysql: false}
 	}
+
+	return out
+}
+
+// materializedWire renders the materializedView block; refresh settings default as the REST docs state.
+func materializedWire(t *Table) map[string]any {
+	out := map[string]any{"enableRefresh": true, "refreshIntervalMs": "1800000"}
+	maps.Copy(out, t.MV)
+	out["query"] = t.ViewQuery
 
 	return out
 }

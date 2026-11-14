@@ -31,6 +31,10 @@ const (
 	nIndex
 	nField
 	nInterval
+	nNullOf
+	nRecurIter
+	nRawSQL
+	nTableArg
 )
 
 // node is one expression.
@@ -84,9 +88,12 @@ const (
 	fromSubquery
 	fromUnnest
 	fromJoin
+	fromPivot
 )
 
 type fromItem struct {
+	asOf        *node
+	pivot       *pivotSpec
 	left        *fromItem
 	right       *fromItem
 	query       *Query
@@ -95,10 +102,12 @@ type fromItem struct {
 	alias       string
 	offsetAlias string
 	joinType    string
+	args        []*node
 	path        []string
 	using       []string
 	kind        fromKind
 	withOffset  bool
+	call        bool
 }
 
 type setExpr struct {
@@ -110,15 +119,17 @@ type setExpr struct {
 }
 
 type selectStmt struct {
-	from     *fromItem
-	where    *node
-	having   *node
-	qualify  *node
-	windows  map[string]*windowSpec
-	items    []selectItem
-	groupBy  []*node
-	distinct bool
-	asStruct bool
+	from      *fromItem
+	where     *node
+	having    *node
+	qualify   *node
+	windows   map[string]*windowSpec
+	items     []selectItem
+	groupBy   []*node
+	groupSets [][]*node
+	distinct  bool
+	asStruct  bool
+	global    bool
 }
 
 type cte struct {
@@ -129,11 +140,12 @@ type cte struct {
 
 // Query is a parsed SELECT statement, possibly with set operations, CTEs, ORDER BY and LIMIT.
 type Query struct {
-	body   *setExpr
-	limit  *node
-	offset *node
-	with   []cte
-	order  []orderItem
+	body      *setExpr
+	limit     *node
+	offset    *node
+	with      []cte
+	order     []orderItem
+	recursive bool
 }
 
 // StmtKind classifies a parsed statement.
@@ -152,6 +164,8 @@ const (
 	StmtDrop
 	StmtTruncate
 	StmtAlter
+	StmtCreateRoutine
+	StmtDropRoutine
 )
 
 // DML reports whether the statement modifies table rows.
@@ -183,29 +197,31 @@ type colDef struct {
 
 // Statement is one parsed GoogleSQL statement.
 type Statement struct {
-	options   map[string]string
-	where     *node
-	on        *node
-	from      *fromItem
-	source    *fromItem
-	query     *Query
-	Text      string
-	alias     string
-	dropKind  string
-	alterOp   string
-	viewSQL   string
-	target    []string
-	cols      []string
-	alterCols []colDef
-	colDefs   []colDef
-	whens     []mergeWhen
-	set       []assignment
-	rows      [][]*node
-	Kind      StmtKind
-	orReplace bool
-	ifNot     bool
-	ifExists  bool
-	temp      bool
-	cascade   bool
-	hasValues bool
+	routine      *RoutineData
+	options      map[string]string
+	where        *node
+	on           *node
+	from         *fromItem
+	source       *fromItem
+	query        *Query
+	Text         string
+	alias        string
+	dropKind     string
+	alterOp      string
+	viewSQL      string
+	target       []string
+	cols         []string
+	alterCols    []colDef
+	colDefs      []colDef
+	whens        []mergeWhen
+	set          []assignment
+	rows         [][]*node
+	Kind         StmtKind
+	orReplace    bool
+	ifNot        bool
+	ifExists     bool
+	temp         bool
+	materialized bool
+	cascade      bool
+	hasValues    bool
 }

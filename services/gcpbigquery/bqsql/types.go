@@ -71,7 +71,7 @@ func kindNames() map[string]Kind {
 		litFloat64: KindFloat, litBoolean: KindBool, litBool: KindBool, litTimestamp: KindTimestamp, litDate: KindDate,
 		litTime: KindTime, litDatetime: KindDatetime, litNumeric: KindNumeric, litDecimal: KindNumeric,
 		litBignumeric: KindBigNumeric, "BIGDECIMAL": KindBigNumeric, litJSON: KindJSON, litGeography: KindGeography,
-		"RECORD": KindStruct, litStruct: KindStruct,
+		litRecord: KindStruct, litStruct: KindStruct,
 	}
 }
 
@@ -110,7 +110,7 @@ func (k Kind) RESTName() string {
 	case KindGeography:
 		return litGeography
 	case KindStruct, KindArray:
-		return "RECORD"
+		return litRecord
 	case KindUnknown, KindString:
 		return litString
 	}

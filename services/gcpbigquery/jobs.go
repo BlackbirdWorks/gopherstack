@@ -2,6 +2,7 @@ package gcpbigquery
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"regexp"
 	"sort"
@@ -36,6 +37,7 @@ type outcome struct {
 	Err     *jobError
 	Dest    *tableRef
 	Stats   map[string]any
+	Extra   map[string]any
 	Fields  []bqsql.Field
 	Rows    [][]any
 	NumDML  int64
@@ -156,7 +158,7 @@ func (b *InMemoryBackend) execute(
 			return nil, err
 		}
 
-		return b.execQuery(ctx, job.Project, qc, job.DryRun)
+		return b.execQuery(ctx, job.Project, job.ID, qc, job.DryRun)
 	case jobLoad:
 		return b.execLoad(job.Project, objectOf(cfg, jobLoad), media, job.DryRun)
 	case jobCopy:
@@ -182,6 +184,8 @@ func (b *InMemoryBackend) finishJob(job *Job, kind string, out *outcome) {
 	if out.Stats != nil {
 		stats[kind] = out.Stats
 	}
+
+	maps.Copy(stats, out.Extra)
 
 	job.Stats = stats
 }
@@ -256,6 +260,7 @@ func (b *InMemoryBackend) DeleteJob(project, id string) error {
 // JobListOptions are the jobs.list parameters.
 type JobListOptions struct {
 	PageToken   string
+	Parent      string
 	StateFilter []string
 	MinCreated  int64
 	MaxCreated  int64
@@ -270,8 +275,10 @@ func (b *InMemoryBackend) ListJobs(project string, o JobListOptions) page.Page[m
 	var jobs []*Job
 
 	for _, j := range b.jobs {
+		parent, _ := j.Stats[litParentJobID].(string)
+
 		if j.Project != project || !stateWanted(o.StateFilter) || j.Created < o.MinCreated ||
-			o.MaxCreated > 0 && j.Created > o.MaxCreated {
+			o.MaxCreated > 0 && j.Created > o.MaxCreated || parent != o.Parent {
 			continue
 		}
 

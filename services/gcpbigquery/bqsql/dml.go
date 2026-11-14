@@ -59,7 +59,8 @@ func stmtName(k StmtKind) string {
 		return "MERGE"
 	case StmtTruncate:
 		return "TRUNCATE_TABLE"
-	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter:
+	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
+		StmtDropRoutine:
 		return litSelect
 	}
 
@@ -91,7 +92,8 @@ func (c *compiler) runDML(ctx context.Context, st *Statement, dryRun bool) (*Res
 		target, steps, err = c.planMerge(st, sc)
 	case StmtTruncate:
 		target, steps, err = c.planTruncate(st, sc)
-	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter:
+	case StmtQuery, StmtCreateTable, StmtCreateView, StmtCreateSchema, StmtDrop, StmtAlter, StmtCreateRoutine,
+		StmtDropRoutine:
 		err = unsupported("statement")
 	}
 

@@ -319,25 +319,24 @@ func (p *parser) createStmt() (*Statement, error) {
 
 	st := &Statement{}
 
-	if p.kw("OR") {
-		p.i++
+	if err := p.createModifiers(st); err != nil {
+		return nil, err
+	}
 
-		if err := p.expectKw("REPLACE"); err != nil {
+	if kind, ok, err := p.routineKind(); err != nil || ok {
+		if err != nil {
 			return nil, err
 		}
 
-		st.orReplace = true
+		return p.createRoutine(st, kind)
 	}
-
-	if p.acceptKw("TEMP") || p.acceptKw("TEMPORARY") {
-		st.temp = true
-	}
-
-	p.acceptKw("EXTERNAL")
 
 	switch {
 	case p.acceptKw("TABLE"):
 		st.Kind = StmtCreateTable
+	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
+		p.i += 2
+		st.Kind, st.materialized = StmtCreateView, true
 	case p.acceptKw("VIEW"):
 		st.Kind = StmtCreateView
 	case p.acceptKw("SCHEMA"):
@@ -368,6 +367,39 @@ func (p *parser) createStmt() (*Statement, error) {
 	st.target = path
 
 	return st, p.createBody(st)
+}
+
+func (p *parser) createModifiers(st *Statement) error {
+	if p.acceptKw("OR") {
+		if err := p.expectKw("REPLACE"); err != nil {
+			return err
+		}
+
+		st.orReplace = true
+	}
+
+	st.temp = p.acceptKw("TEMP") || p.acceptKw("TEMPORARY")
+	p.acceptKw("EXTERNAL")
+
+	return nil
+}
+
+// routineKind consumes FUNCTION, TABLE FUNCTION or PROCEDURE after CREATE or DROP.
+func (p *parser) routineKind() (string, bool, error) {
+	switch {
+	case p.kw("TABLE") && p.peekNext().isKw("FUNCTION"):
+		p.i += 2
+
+		return RoutineTable, true, nil
+	case p.acceptKw("FUNCTION"):
+		return RoutineScalar, true, nil
+	case p.acceptKw("PROCEDURE"):
+		return RoutineProcedure, true, nil
+	case p.kw("AGGREGATE") && p.peekNext().isKw("FUNCTION"):
+		return "", false, unsupported("CREATE AGGREGATE FUNCTION")
+	}
+
+	return "", false, nil
 }
 
 func (p *parser) createBody(st *Statement) error {
@@ -510,7 +542,18 @@ func (p *parser) dropStmt() (*Statement, error) {
 
 	st := &Statement{Kind: StmtDrop}
 
+	if kind, ok, err := p.routineKind(); err != nil || ok {
+		if err != nil {
+			return nil, err
+		}
+
+		return p.dropRoutine(st, kind)
+	}
+
 	switch {
+	case p.kw("MATERIALIZED") && p.peekNext().isKw("VIEW"):
+		p.i += 2
+		st.dropKind = "MATERIALIZED_VIEW"
 	case p.acceptKw("TABLE"):
 		st.dropKind = "TABLE"
 	case p.acceptKw("VIEW"):

@@ -31,6 +31,12 @@ const (
 	opDeleteJob       = "DeleteJob"
 	opQuery           = "Query"
 	opGetQueryResults = "GetQueryResults"
+	opInsertRoutine   = "InsertRoutine"
+	opGetRoutine      = "GetRoutine"
+	opListRoutines    = "ListRoutines"
+	opUpdateRoutine   = "UpdateRoutine"
+	opDeleteRoutine   = "DeleteRoutine"
+	segRoutines       = "routines"
 	unknownOperation  = "Unknown"
 	segProjects       = "projects"
 	segDatasets       = "datasets"
@@ -55,6 +61,7 @@ type route struct {
 	dataset string
 	table   string
 	job     string
+	routine string
 }
 
 func splitSegments(escaped string) []string {
@@ -193,11 +200,29 @@ func datasetRoute(method string, s []string, rt route) route {
 	}
 
 	rt.dataset = s[3]
-	if s[4] != segTables {
-		return rt
+
+	switch s[4] {
+	case segTables:
+		return tableRoute(method, s, rt)
+	case segRoutines:
+		return routineRoute(method, s, rt)
 	}
 
-	return tableRoute(method, s, rt)
+	return rt
+}
+
+func routineRoute(method string, s []string, rt route) route {
+	switch len(s) {
+	case datasetCollection:
+		rt.op = methodOp(method, map[string]string{http.MethodGet: opListRoutines, http.MethodPost: opInsertRoutine})
+	case tableItem:
+		rt.routine = s[5]
+		rt.op = methodOp(method, map[string]string{
+			http.MethodGet: opGetRoutine, http.MethodPut: opUpdateRoutine, http.MethodDelete: opDeleteRoutine,
+		})
+	}
+
+	return rt
 }
 
 func tableRoute(method string, s []string, rt route) route {

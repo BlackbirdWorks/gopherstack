@@ -154,6 +154,7 @@ func (t *Table) appendRows(in []InsertRow, parsed [][]any) {
 	}
 
 	now := nowMs()
+	t.record(now)
 
 	for i, row := range parsed {
 		if row == nil {

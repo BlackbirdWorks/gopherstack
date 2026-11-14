@@ -74,6 +74,8 @@ func (c *compiler) expr(n *node, sc *scope) (*gx, error) {
 		return &gx{sql: litNull}, nil
 	case nInt, nFloat, nString, nBytes, nBool, nTyped:
 		return c.literal(n)
+	case nNullOf, nRecurIter, nTableArg, nRawSQL:
+		return c.internalExpr(n, sc)
 	case nParam:
 		return c.param(n)
 	case nPath:
@@ -91,6 +93,25 @@ func (c *compiler) expr(n *node, sc *scope) (*gx, error) {
 	}
 
 	return nil, invalid("unsupported expression")
+}
+
+// internalExpr compiles the synthetic nodes the compiler builds itself.
+func (c *compiler) internalExpr(n *node, sc *scope) (*gx, error) {
+	switch n.kind { //nolint:exhaustive // only the synthetic kinds are routed here
+	case nNullOf:
+		g, err := c.expr(n.args[0], sc)
+		if err != nil {
+			return nil, err
+		}
+
+		return &gx{sql: litNull, typ: g.typ}, nil
+	case nRecurIter:
+		return recurIter(sc)
+	case nRawSQL:
+		return &gx{sql: n.str, typ: *n.castTo}, nil
+	}
+
+	return nil, invalid("TABLE arguments are only allowed for table function parameters")
 }
 
 func (c *compiler) operatorExpr(n *node, sc *scope) (*gx, error) {
@@ -169,7 +190,8 @@ func (c *compiler) literal(n *node) (*gx, error) {
 
 		return &gx{sql: sql, typ: scalar(KindBool), lit: n}, nil
 	case nNull, nParam, nPath, nStar, nUnary, nBinary, nCall, nCase, nCast, nExtract, nBetween, nIn, nLike, nIs,
-		nExists, nSubquery, nArrayQuery, nArray, nStruct, nIndex, nField, nInterval, nTyped:
+		nExists, nSubquery, nArrayQuery, nArray, nStruct, nIndex, nField, nInterval, nTyped, nNullOf, nRecurIter,
+		nRawSQL, nTableArg:
 	}
 
 	return c.typedLiteral(n)
@@ -253,6 +275,10 @@ func (c *compiler) path(n *node, sc *scope) (*gx, error) {
 		if found {
 			return g, nil
 		}
+	}
+
+	if g, ok, err := c.resolveVar(n.parts); ok || err != nil {
+		return g, err
 	}
 
 	return nil, invalid("Unrecognized name: %s at [1:%d]", n.parts[0], n.pos+1)
@@ -647,7 +673,8 @@ func (c *compiler) predicate(n *node, sc *scope) (*gx, error) {
 	case nIn:
 		return c.inPredicate(n, args, sc)
 	case nNull, nInt, nFloat, nString, nBytes, nBool, nTyped, nParam, nPath, nStar, nUnary, nBinary, nCall, nCase,
-		nCast, nExtract, nExists, nSubquery, nArrayQuery, nArray, nStruct, nIndex, nField, nInterval:
+		nCast, nExtract, nExists, nSubquery, nArrayQuery, nArray, nStruct, nIndex, nField, nInterval, nNullOf, nRecurIter,
+		nRawSQL, nTableArg:
 	}
 
 	return nil, invalid("unsupported predicate")
@@ -731,7 +758,8 @@ func (c *compiler) subquery(n *node, sc *scope) (*gx, error) {
 
 		return &gx{sql: sql, typ: arrayOf(cq.cols[0].Type)}, nil
 	case nNull, nInt, nFloat, nString, nBytes, nBool, nTyped, nParam, nPath, nStar, nUnary, nBinary, nCall, nCase,
-		nCast, nExtract, nBetween, nIn, nLike, nIs, nSubquery, nArray, nStruct, nIndex, nField, nInterval:
+		nCast, nExtract, nBetween, nIn, nLike, nIs, nSubquery, nArray, nStruct, nIndex, nField, nInterval, nNullOf,
+		nRecurIter, nRawSQL, nTableArg:
 	}
 
 	if len(cq.cols) != 1 {
