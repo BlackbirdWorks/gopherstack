@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 20 (20 ok) |
+| PARITY entries audited | 34 (34 ok) |
 | Feature families | 13 (5 ok, 8 partial) |
 | Known gaps | 4 |
 | Deferred items | 0 |
@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- WorkerPools, Instances, Builds and Locations are not served.
+- The container output of worker pools and instances is not written to Cloud Logging (no monitored resource type is verified for them), and a worker pool or instance container that exits is not restarted.
 - Only the first container of a job task is run; sidecars, volumes and probes apply to services only. VPC access is stored but not applied (no VPC network exists to attach).
 - Cloud Storage FUSE, NFS and Cloud SQL volumes are not supported (the revision fails to deploy with a message).
 - The URI is an http .localhost address, not https://*.run.app.

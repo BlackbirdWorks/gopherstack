@@ -967,7 +967,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 8 gaps |
-| [Cloud Run](services/gcprun/README.md) | B | 20 | 4 gaps |
+| [Cloud Run](services/gcprun/README.md) | B | 34 | 4 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 42 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
@@ -1007,8 +1007,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 40 | 9 gaps |
 | [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 27 | 10 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 7 gaps |
-| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 52 | 8 gaps |
-| [OCI Queue](services/ociqueue/README.md) | B | 19 | 7 gaps |
+| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 57 | 6 gaps |
+| [OCI Queue](services/ociqueue/README.md) | B | 19 | 6 gaps |
 | [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 6 gaps |
 | [OCI Vault](services/ocivault/README.md) | B | 57 | 10 gaps |
 

@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 52 (41 ok, 11 partial) |
-| Feature families | 10 (4 ok, 6 partial) |
+| Feature families | 11 (4 ok, 7 partial) |
 | Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
@@ -16,11 +16,11 @@
 ### Known gaps
 
 - Unverified, chosen by the emulator: 202 for creates and compartment moves; 409 Conflict for the remaining non-create conflicts; 412 PreconditionFailed for failed REQUIRE and PROHIBIT; 400 InvalidParameter for CNAME, ALIAS and apex violations; GLOBAL as the default scope for lookups and lists; 404 for an empty domain or record set; retiming a record set on an ADD with a new ttl; the SOA rdata (ns1.p68.dns.oraclecloud.net., hostmaster.<zone>., serial, 3600 600 604800 1800), the SOA ttl of 300, the NS ttl of 86400 and the four ns1 to ns4.p68.dns.oraclecloud.net nameservers; the recordHash algorithm; OCID prefixes (ocid1.dns-zone, dnsview, dnsresolver, dnsresolverendpoint, tsigkey, steeringpolicy, steeringpolicyattachment with an empty region); the 192.0.2.53 and .54 transfer servers.
-- Secondary zones never transfer: externalMasters are stored and validated, but no AXFR or IXFR is requested, so a SECONDARY zone stays empty; externalDownstreams never receive NOTIFY or transfers, TSIG keys sign nothing, and the data plane refuses AXFR and IXFR.
+- TSIG keys with algorithm hmac-sha1 are accepted and stored (the SDK lists it) but never sign or verify: a transfer or NOTIFY that names such a key fails with a logged error, because crypto/sha1 is barred by test/guards/weak_hash_guard_test.go and only the SHA-2 family is implemented.
 - DNSSEC is state only: dnssecState is stored, but no keys are generated, dnssecConfig is never returned, answers are unsigned, and StageZoneDnssecKeyVersion and PromoteZoneDnssecKeyVersion are not routed.
 - Steering policies are stored and attached but never evaluated: the data plane answers from the zone's own records and ignores attachments, rules and health checks (healthCheckMonitorId is not checked against any monitor).
 - Private DNS is not served: resolver endpoint addresses, forwarding rules, views attached to resolvers and PRIVATE zones affect no query. resolutionMode TRANSPARENT and RTYPE_TRANSPARENT are stored only.
-- ALIAS records are stored and exclusive with A, AAAA and CNAME but are not resolved on the wire. Record types beyond the supported list, DNSSEC types and non-apex SOA are refused; rdata is validated and normalised by the DNS library, which may differ from Oracle's presentation.
+- ALIAS targets outside the GLOBAL zones of this emulator are not resolved (no recursion), so those names answer NODATA. Record types beyond the supported list, DNSSEC types and non-apex SOA are refused; rdata is validated and normalised by the DNS library, which may differ from Oracle's presentation.
 - History is not kept: zoneVersion queries for older versions are 404, and the CREATING, UPDATING and DELETING lifecycle states, work requests, opc-retry-token on the compartment moves (idempotent by construction), quotas and IAM policy enforcement are not modelled. Unicode zone names are not converted to punycode.
 
 ## More

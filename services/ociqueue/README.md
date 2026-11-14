@@ -8,14 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 19 (12 ok, 7 partial) |
-| Feature families | 11 (10 ok, 1 partial) |
-| Known gaps | 7 |
+| Feature families | 12 (11 ok, 1 partial) |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Consumer groups (CreateConsumerGroup, GetConsumerGroup, ListConsumerGroups, UpdateConsumerGroup, DeleteConsumerGroup) are not routed, the consumerGroupId query parameter is ignored by the data plane and the CONSUMER_GROUPS capability is rejected.
 - The LARGE_MESSAGES capability is rejected; the 256 KB standard message limit applies and the capability's larger limit is not documented in the pages read.
 - The 64 character channel id limit and the 1 to 100 channelConsumptionLimit range are undocumented (the SDK describes channelConsumptionLimit only as the percentage of queue capacity one channel may use); deadLetterQueueDeliveryCount 0 disables the DLQ per the SDK while the overview states a range of 1 to 20.
 - channelFilter is an exact match on GetMessages and a substring match on ListChannels; the documentation says a filter can match several channels (one is chosen at random) but not how ids are matched.

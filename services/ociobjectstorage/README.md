@@ -7,21 +7,19 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 52 (31 ok, 21 partial) |
+| PARITY entries audited | 57 (36 ok, 21 partial) |
 | Feature families | 9 (6 ok, 3 partial) |
-| Known gaps | 8 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Resource principal and instance principal tokens (and delegation/session tokens) are not understood; only API-key signatures are verified.
+- Resource principal, instance principal and session tokens (ST$ keyIds) are not verified: the tokens come from IMDS and the OCI auth service, which are not emulated, so an ST$ request is accepted unverified by default and rejected under --oci-objectstorage-enforce-auth; only API-key signatures are verified.
 - Cross-tenancy CopyObject is not implemented; regions are nominal (buckets are not partitioned per region, a destination region is any non-empty name and the bucket is found by name).
-- Objects are not encrypted at rest: SSE-C keys are validated and only their SHA-256 is kept (reads with a wrong key fail), KMS key ids are validated against ocivault and recorded; the wrong/missing-key error code InvalidSseCustomerKey is unverified.
-- Private endpoints (/n/{ns}/pe) are not implemented.
+- Objects are not encrypted at rest: SSE-C keys are validated and only their SHA-256 is kept (reads with a wrong key fail), KMS key ids are validated against ocivault and recorded.
 - The OCI Amazon S3 compatibility API (structural: ociidentity generates customer secret keys but does not store them, so SigV4 cannot be verified) and the Swift API are out of scope.
-- InvalidDigest for a checksum mismatch and the opt-in minimum part size are not verified against the live service (the documented message is Unmatched Content CRC32C/SHA256/SHA384, code not published).
-- Several error codes are unverified against the live service (see families.error_envelope).
+- Object Storage specific error codes are not published by Oracle and remain best-effort: BucketNotFound, ObjectNotFound, BucketAlreadyExists, BucketNotEmpty, NoSuchUpload, InvalidUploadPart, InvalidDigest (the documented message is Unmatched Content CRC32C/SHA256/SHA384), InvalidSseCustomerKey, InvalidRange, IfNoneMatchFailed, NotRestored, ObjectUnderRetention, LifecyclePolicyNotFound, ReplicationPolicyAlreadyExists, InvalidReplicationConfiguration and BucketReplicationEnabled.
 - Namespaces are single-tenant: only one namespace is served and no compartment or IAM policy checks apply.
 
 ## More
