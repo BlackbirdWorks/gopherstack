@@ -22,7 +22,7 @@
 - RemoteWrite: the out-of-order window is measured against the same series' newest sample (Prometheus measures against the head's newest sample across series) and its default of 0 is unverified; exemplar limits (128 runes, newest 100 per series) follow Prometheus and are silently dropped; per-workspace ingestion limits and throttling do not exist
 - LoggingConfiguration: the delivered log line layout (JSON with level, component, ts, msg) and the stream names ruler and alertmanager are not documented by AWS and are unverified; only rule evaluation failures and alert notification failures are delivered
 - Authorization: with --validate-sigv4 the data plane requires an aps-scoped SigV4 signature checked against --sigv4-secret and evaluates the workspace resource policy by account only (the IAM evaluator ignores Principal); the error codes for missing and mis-scoped signatures are unverified; cross-account callers resolve workspaces in their own account, so a cross-account allow still answers 404
-- CreateWorkspace: a missing or disabled KMS key is a ValidationException; the real error code is unverified, and the key is not used to encrypt anything
+- CreateWorkspace: a missing or disabled KMS key is a ValidationException; the real error code is unverified, and the key is not used to encrypt anything API_CreateWorkspace.html (checked 2026-11-13) lists no KMS-specific error and its kmsKeyArn pattern is the only constraint.
 
 ### Structural gaps
 

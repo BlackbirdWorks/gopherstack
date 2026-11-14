@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 6 (4 ok, 2 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,7 +19,6 @@
 - Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed.
 - Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list.
 - Customer-managed encryption keys are stored and echoed in replication_status but never used or validated against Cloud KMS.
-- Secret tags and secret_type are stored but not validated.
 
 ## More
 

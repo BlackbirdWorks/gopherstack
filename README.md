@@ -727,7 +727,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 3 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
-| [S3 Files](services/s3files/README.md) | B | 21 | 7 gaps; 1 structural gap |
+| [S3 Files](services/s3files/README.md) | B | 21 | 5 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | clean |
 
@@ -764,7 +764,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 4 gaps; 4 structural gaps; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 1 gap; 1 deferred |
-| [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 2 structural gaps; 2 deferred |
+| [ELBv2](services/elbv2/README.md) | A | 51 | 1 gap; 2 structural gaps; 2 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
 | [Route 53 Recovery Cluster](services/route53recoverycluster/README.md) | A | 4 | clean |
 | [Route 53 Recovery Control Config](services/route53recoverycontrolconfig/README.md) | A | 25 | 1 structural gap |
@@ -938,7 +938,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 10 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 13 | 10 gaps |
-| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 9 gaps |
+| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 8 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | A | 35 | clean |
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 10 | 10 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 16 | 7 gaps |
@@ -963,7 +963,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 9 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 5 gaps |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
-| [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
+| [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 9 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 8 gaps |
@@ -971,7 +971,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud SQL](services/gcpsql/README.md) | B | 42 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
-| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
+| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 2 gaps |
 | [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 9 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 9 gaps |
 | [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 9 gaps |
@@ -980,7 +980,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
 | [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 9 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 39 | 9 gaps |
-| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 5 gaps |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 4 gaps |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 6 gaps |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 5 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
@@ -1027,9 +1027,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Budgets](services/budgets/README.md) | B | 26 | 8 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 3 gaps; 3 structural gaps |
-| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
+| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 4 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 387 | 17 gaps; 2 structural gaps |
-| [Cur](services/cur/README.md) | B | 7 | 6 gaps |
+| [Cur](services/cur/README.md) | B | 7 | 5 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 8 gaps; 2 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
@@ -1050,10 +1050,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
-| [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 29 | 11 gaps; 1 structural gap |
+| [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 29 | 10 gaps; 1 structural gap |
 | [Rum](services/rum/README.md) | B | 20 | 6 gaps; 2 structural gaps |
 | [S3vectors](services/s3vectors/README.md) | B | 21 | 6 gaps; 1 structural gap |
-| [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 7 gaps; 1 structural gap |
+| [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 6 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 20 | 1 structural gap; 1 deferred |
 | [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 4 gaps; 3 structural gaps |

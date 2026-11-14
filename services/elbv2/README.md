@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 51 (50 ok, 1 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -17,7 +17,6 @@
 ### Known gaps
 
 - Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree.
-- LB VpcId/ZoneName from the real subnet needs internal/app/cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones.
 
 ### Structural gaps
 

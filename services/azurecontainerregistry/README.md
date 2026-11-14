@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- Access-token scopes are enforced on /v2 only; the /acr/v1 metadata API accepts any valid token.
 - The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry.
 - Repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled.
 - ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect.

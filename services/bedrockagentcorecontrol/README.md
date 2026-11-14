@@ -26,7 +26,7 @@
 - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
 - Registry records: synchronizationConfiguration is stored but nothing synchronizes
 - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
-- Quotas: no per-account resource limits are enforced
+- Quotas: resource-count limits are enforced as listed on bedrock-agentcore-limits.html, but request-rate limits (TPS throttling), the per-memory strategy count, memory/gateway payload sizes and the "active" concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned.
 
 ### Structural gaps
 
