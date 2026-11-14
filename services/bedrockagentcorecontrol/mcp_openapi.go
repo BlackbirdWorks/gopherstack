@@ -157,7 +157,7 @@ func serverURL(spec map[string]any) (string, error) {
 	}
 
 	parsed, err := url.Parse(u)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+	if err != nil || (parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS) || parsed.Host == "" {
 		return "", fmt.Errorf("%w: server url %q must be absolute http(s)", errBadOpenAPI, u)
 	}
 

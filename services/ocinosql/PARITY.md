@@ -43,14 +43,16 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-nosql-port / OCI_NOSQL_PORT (default 8162); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Schema freezing uses WITH SCHEMA FROZEN on CREATE TABLE and ALTER TABLE FREEZE SCHEMA / UNFREEZE SCHEMA; the Oracle pages reached describe freezing only through the console, so this DDL spelling is unverified."
   - "Region names for CreateReplica are format-checked, not matched against a catalogue of OCI regions, and replicas have no data, throttling or per-replica limits beyond maxWriteUnits."
   - "DeleteWorkRequest only marks the work request CANCELED; the resource transition is not rolled back. The entityType of UPDATE_CONFIGURATION work requests (configuration), the dry-run response and the kmsKey OCID prefixes are not documented by the SDK."
   - "Throughput and storage limits are validated but not enforced: no read or write throttling, no storage quota, so the throttle counts of ListTableUsage stay 0."
   - "The 50/50/25 auto-reclaimable (Always Free) defaults and the minimum of 1 unit are not found in any primary source reached; the documented region-level limits (30 tables, 3 on-demand tables, 4 DDL operations per minute, 100 schema updates per table, 4 limit decreases per day, once-a-day capacity mode change, 10000/5000 on-demand ceiling) are not enforced."
-  - "The REST error code for oversize keys, rows and query strings is LimitExceeded (400) by inference from the OCI error reference; the NoSQL REST reference page itself could not be fetched. Key and row size are approximated from string and number bytes, not the server's serialized form."
+  - "Which REST error code applies to oversize keys, rows and query strings is not published: the OCI error reference (apierrors.htm) defines LimitExceeded as a tenancy-level resource limit and no NoSQL page states the code for size limits (emulator: LimitExceeded 400); key and row size are approximated from string and number bytes, not the server's serialized form."
   - "Queries scan all rows of a table; indexes only validate and order ORDER BY clauses, there is no index selection, and maxReadInKBs is accepted but not used to cut a batch."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
   - "The dashboard has no OCI NoSQL page."
   - "systemTags are never set."
 ---
+
+## Primary-source checks (2026-11-13)
+- ocinosql: Global Active table pages (creating-global-active-table.htm, dtddt global-active-tables) and mkdfa document CREATE TABLE ... WITH SCHEMA FROZEN [FORCE] and ALTER TABLE ... FREEZE SCHEMA [FORCE] / UNFREEZE SCHEMA; the FORCE variants are now accepted.

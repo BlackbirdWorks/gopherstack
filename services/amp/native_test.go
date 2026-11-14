@@ -391,6 +391,42 @@ func TestOutOfOrderWindow(t *testing.T) {
 	}
 }
 
+func TestOutOfOrderWindowMeasuredAgainstHead(t *testing.T) {
+	t.Parallel()
+
+	lbl := map[string]string{"__name__": "a"}
+	other := map[string]string{"__name__": "b"}
+	tests := []struct {
+		name       string
+		second     int64
+		wantStatus int
+	}{
+		{name: "inside head window", second: 70_000, wantStatus: http.StatusOK},
+		{name: "outside head window", second: 69_999, wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			ws := f.workspace(t)
+
+			_, err := f.client.UpdateWorkspaceConfiguration(t.Context(), &ampsdk.UpdateWorkspaceConfigurationInput{
+				WorkspaceId: aws.String(ws), OutOfOrderTimeWindowInSeconds: aws.Int32(30),
+			})
+			require.NoError(t, err)
+			f.settle()
+
+			require.Equal(t, http.StatusOK, f.write(t, ws, newSeries(lbl, 80_000, 1)).status)
+			require.Equal(t, http.StatusOK, f.write(t, ws, newSeries(other, 100_000, 1)).status)
+
+			r := f.write(t, ws, newSeries(lbl, tt.second, 2))
+			assert.Equal(t, tt.wantStatus, r.status, string(r.body))
+		})
+	}
+}
+
 func newSeries(lbl map[string]string, ts int64, v float64) amp.WriteSeries {
 	return amp.NewSeries(lbl, sample(ts, v))
 }

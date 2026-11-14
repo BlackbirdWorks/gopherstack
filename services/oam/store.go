@@ -13,6 +13,9 @@ const (
 	defaultPageSize   = 50
 	maxPageSize       = 50
 	maxSinksPerRegion = 1
+
+	maxMonitoringAccountsPerSource = 5
+	maxSourceAccountsPerMonitoring = 100000
 )
 
 // AccountInfo describes an account for link labels and sink policy conditions.

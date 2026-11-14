@@ -23,7 +23,7 @@ const (
 	extraColumns     = 2
 	defaultMaxFileKB = 1048576
 	bytesPerKB       = 1024
-	seqModulo        = 1000
+	seqModulo        = 10000
 )
 
 // s3Options mirrors the S3Settings members the writer honours (types.S3Settings).
@@ -336,7 +336,7 @@ func (t *s3Target) Commit(ctx context.Context) error {
 	t.mu.Unlock()
 
 	if t.parquet {
-		name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%seqModulo) + ".parquet"
+		name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%04d", seq%seqModulo) + ".parquet"
 
 		for _, b := range pendingPQ {
 			if err := t.writeParquet(ctx, b, name); err != nil {
@@ -347,7 +347,7 @@ func (t *s3Target) Commit(ctx context.Context) error {
 		return nil
 	}
 
-	name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%seqModulo) + ".csv"
+	name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%04d", seq%seqModulo) + ".csv"
 
 	for key, buf := range pending {
 		if buf.Len() == 0 {

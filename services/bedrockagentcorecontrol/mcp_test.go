@@ -462,8 +462,16 @@ func TestGatewayMCPJWTAuthorizer(t *testing.T) {
 			status, hdr := postRPC(t, endpoint, bearerValue(tt.token()), `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
 			assert.Equal(t, tt.wantStatus, status)
 
-			if tt.wantStatus != http.StatusOK {
-				assert.Contains(t, hdr.Get("WWW-Authenticate"), "Bearer")
+			switch tt.wantStatus {
+			case http.StatusUnauthorized:
+				assert.Regexp(t,
+					`^Bearer resource_metadata="[^"]+/\.well-known/oauth-protected-resource", scope="mcp\.read"$`,
+					hdr.Get("WWW-Authenticate"))
+			case http.StatusForbidden:
+				assert.Regexp(t,
+					`^Bearer error="insufficient_scope", scope="mcp\.read", `+
+						`resource_metadata="[^"]+/\.well-known/oauth-protected-resource"$`,
+					hdr.Get("WWW-Authenticate"))
 			}
 		})
 	}

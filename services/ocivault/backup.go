@@ -311,7 +311,7 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	return view, etag, nil
 }
 
-// RestoreVault recreates a vault from a backup file; the vault keeps its OCID and lands in compartment.
+// RestoreVault recreates a vault from a backup file; it keeps its OCID and must land in its original compartment.
 func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte) (vaultWire, string, error) {
 	if compartment == "" {
 		return vaultWire{}, "", errMissing("compartmentId is required")
@@ -326,11 +326,15 @@ func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte
 	defer b.mu.Unlock()
 
 	v := bk.Vault
+	if v.CompartmentID != compartment {
+		return vaultWire{}, "", errParam("A vault can only be restored to the compartment it was backed up from")
+	}
+
 	if cur, ok := b.vaults[v.ID]; ok && cur.State != stateDeleted {
 		return vaultWire{}, "", errExists("Vault " + v.ID + " already exists")
 	}
 
-	v.CompartmentID, v.RestoredFrom, v.TimeOfDeletion = compartment, v.ID, nil
+	v.RestoredFrom, v.TimeOfDeletion = v.ID, nil
 	v.Etag, v.Seq = newEtag(), b.nextSeq()
 	b.begin(&v.State, &v.transition, stateRestoring, stateActive)
 	b.vaults[v.ID] = &v

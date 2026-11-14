@@ -272,6 +272,18 @@ func TestRestoreRules(t *testing.T) {
 			http: http.StatusConflict, code: "Conflict",
 		},
 		{
+			name: "other compartment",
+			call: func() error {
+				_, e := be.e.vaults.RestoreVaultFromFile(ctx, keymanagement.RestoreVaultFromFileRequest{
+					CompartmentId:               new("ocid1.compartment.oc1..other"),
+					RestoreVaultFromFileDetails: io.NopCloser(bytes.NewReader(vBlob)),
+				})
+
+				return e
+			},
+			http: http.StatusBadRequest, code: "InvalidParameter",
+		},
+		{
 			name: "key still exists",
 			call: func() error {
 				_, e := be.m.RestoreKeyFromFile(ctx, keymanagement.RestoreKeyFromFileRequest{

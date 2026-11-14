@@ -24,8 +24,8 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
   - "Event producers cover Object Storage objects and buckets and Functions applications and functions (create, update, delete, changeapplicationcompartment). Other services emit nothing, including NoSQL, whose event names were not found in a reachable primary source; Object Storage RenameObject is not in the producer reference's object event list, so it emits nothing."
-  - "Unverified, chosen by the emulator: case-sensitive value comparison; numbers and booleans compared by their text form; unknown top-level condition keys are accepted and matched against the whole envelope; no rejection of conditions that can never match; rule displayName limit of 255 and no uniqueness rule. filterevents.htm documents arrays, wildcards and null handling (all implemented) but says nothing on these."
-  - "Unverified, from memory: the eventrule/eventaction OCID prefixes, rules going ACTIVE with no CREATING state (the SDK enum has CREATING and UPDATING), 404 for a missing action target, lifecycleMessage always empty, and DELETE answering 204. The SDK, oci-cli and oci-python-sdk give enums only, no status codes or prefixes."
+  - "Not published (checked filterevents.htm, which documents arrays, wildcards and null handling only): case-sensitive value comparison; numbers and booleans compared by their text form; unknown top-level condition keys are accepted and matched against the whole envelope; no rejection of conditions that can never match; rule displayName limit of 255 and no uniqueness rule (all emulator choices)"
+  - "Not published (checked eventsoverview.htm, filterevents.htm and the events SDK comments, which give enums only): the eventrule/eventaction OCID prefixes, rules going ACTIVE with no CREATING state (the SDK enum has CREATING and UPDATING), 404 for a missing action target, lifecycleMessage always empty, and DELETE answering 204"
   - "Delivery is best effort and unordered across events with no retry on Events' side; eventsoverview.htm and managingrules.htm state no at-least-once or retry behaviour. Delivery to ONS, OSS and FAAS in other compartments is not restricted."
   - "IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. systemTags are never set. The dashboard has no OCI Events page."
 ---
@@ -34,3 +34,6 @@ items_still_open:
 
 - Object Storage bucket events (createbucket, updatebucket, deletebucket, buckets emit regardless of objectEventsEnabled) and Functions updateapplication, updatefunction and changeapplicationcompartment now emit (Content/Events/Reference/eventsproducers.htm). Envelopes carry data.compartmentName (OCI Identity) and, for buckets, data.freeFormTags and data.definedTags, so filters on them match (the Functions examples on that page show no tags).
 - The 50-rule tenancy limit and 10 actions per rule are confirmed (Content/Events/Concepts/eventsoverview.htm "Limits on Events Resources", Task/managingrules.htm); 400 LimitExceeded is listed in Content/API/References/apierrors.htm.
+
+## Primary-source checks (2026-11-13)
+- ocievents: filterevents.htm documents the condition matching the emulator implements (arrays, wildcards, null handling).

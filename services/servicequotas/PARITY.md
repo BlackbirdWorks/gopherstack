@@ -44,7 +44,7 @@ items_still_open:
   - AutoManagement: NotifyAndAdjust sends the 95% notification only (as documented) but files no automatic increase request: the Automatic Management page (docs.aws.amazon.com/servicequotas/latest/userguide/automatic-management.html) does not state the requested value or which quotas qualify for automated approval
   - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and Lambda, SQS, SNS and the other newly catalogued quotas are never enforced
   - Template: associating the template does not file increase requests for accounts created in or joined to the organization later (Organizations exposes no account-created hook)
-  - RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)
+  - "RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, customer managed policies and instance profiles 10,000, groups 500); NOT_APPROVED and INVALID_REQUEST are never entered (CASE_CLOSED is entered when the request's Support case is resolved)"
   - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TooManyRequests and ServiceException are not raised (no emulated cause)
 gaps: []
 structural_gaps:
@@ -70,3 +70,6 @@ Emulator choices the SDK does not document:
 ## 2026-11-13 template limits
 
 Quota request templates answer TemplatesNotAvailableInRegionException in opt-in, China and GovCloud Regions and hold at most 10 items (QuotaExceededException on the 11th); sources docs.aws.amazon.com/servicequotas/latest/userguide/organization-templates.html and docs.aws.amazon.com/accounts/latest/reference/manage-acct-regions.html.
+
+## Primary-source checks (2026-11-13)
+- servicequotas: IAM reference_iam-quotas.html lists the maximum quotas per account as roles 10,000, customer managed policies 10,000, instance profiles 10,000 and groups 500 (catalog fixed from 5,000).

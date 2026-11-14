@@ -117,6 +117,7 @@ func parseCreate(sql string) (*createSpec, *APIError) {
 			return nil, e
 		}
 
+		_ = p.acceptKw("FORCE")
 		spec.frozen = true
 	}
 
@@ -282,6 +283,8 @@ func (p *parser) parseFreeze() (*bool, *APIError) {
 	if e := p.expectKw("SCHEMA"); e != nil {
 		return nil, e
 	}
+
+	_ = p.acceptKw("FORCE")
 
 	return &v, nil
 }

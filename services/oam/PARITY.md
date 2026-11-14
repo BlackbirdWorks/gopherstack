@@ -25,8 +25,8 @@ families:
   Link: {status: ok, note: "Links belong to the source account and Region; filters are parsed (IN, NOT IN, LIKE, NOT LIKE joined by AND/OR) and must match the link's resource types."}
   SinkPolicy: {status: ok, note: "Statements are filtered by Principal and passed to services/iam EvaluatePolicies with oam:resourcetypes and aws:principalorgid in the condition context."}
 items_still_open:
-  - SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException because OAM models no access-denied exception; the live error code is not verified
-  - Quotas: the one sink per account and Region limit and the one link per source account, Region and sink limit follow AWS documentation and are not verified against the live API
+  - "SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException; not published: API_PutSinkPolicy.html and API_CreateLink.html model no access-denied exception and do not say which code a sink-policy denial returns"
+  - "Quotas: one link per source account, Region and sink (ConflictException) is not published: API_CreateLink.html states only the 100,000 and five account limits"
   - LabelTemplate: without an Organizations directory $AccountName, $AccountEmail and $AccountEmailNoDomain all resolve to the account ID
 gaps: []
 structural_gaps:
@@ -40,3 +40,6 @@ leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; no
 Protocol is restjson1: every operation is `POST /<Operation>` except the tag operations on `/tags/{ResourceArn}` (GET list, PUT tag, DELETE untag with repeated `tagKeys`). Routing matches on the `oam` SigV4 signing name or the SDK user agent plus the path shape, so it cannot swallow another service's `/tags/` requests.
 
 Sink and link IDs are UUIDs; ARNs are `arn:aws:oam:<region>:<account>:sink/<id>` and `link/<id>`. Quota errors use HTTP 402.
+
+## Primary-source checks (2026-11-13)
+- oam: API_CreateSink and CloudWatch-Unified-Cross-Account.html confirm one sink per account and Region; API_CreateLink.html limits a monitoring account to 100,000 source accounts and a source account to five monitoring accounts (now enforced as ServiceQuotaExceededException).

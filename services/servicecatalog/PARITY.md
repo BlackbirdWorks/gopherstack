@@ -111,7 +111,7 @@ items_still_open:
   - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
   - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
   - CreateProduct MARKETPLACE: rejected with InvalidParametersException
-  - TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
+  - "TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; API_TerminateProvisionedProduct.html models only ResourceNotFoundException (400) and the SDK doc comment says only that an unknown product returns ResourceNotFound, so the class is an emulator choice (InvalidParametersException is a modeled shape of the service)"
 structural_gaps:
   - "Terraform, EXTERNAL and CodeStar-sourced products have no engine inside the emulator: an engine would have to call Notify*EngineWorkflowResult itself."
 deferred: []
@@ -143,3 +143,6 @@ Emulator choices the SDK does not document:
 ### 2026-11-13
 
 Accept/RejectPortfolioShare with PortfolioShareType AWS_SERVICECATALOG return ResourceNotFoundException (API_AcceptPortfolioShare.html, API_RejectPortfolioShare.html: "Not supported. (Throws ResourceNotFoundException.)").
+
+## Primary-source checks (2026-11-13)
+- servicecatalog: API_TerminateProvisionedProduct.html lists only ResourceNotFoundException.

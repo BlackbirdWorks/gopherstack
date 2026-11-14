@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -155,7 +156,10 @@ func (h *Handler) serveSecurityResource(
 	w http.ResponseWriter, r *http.Request, domain string, perms effectivePerms, kind securityKind, name string,
 ) {
 	if !perms.hasRole(roleAllAccess, roleSecurityManager, roleSecurityRESTAPI) {
-		writeSecStatus(w, http.StatusForbidden, "FORBIDDEN", "No permission to access REST API")
+		roles := slices.Sorted(slices.Values(perms.Roles))
+		writeSecStatus(w, http.StatusForbidden, "FORBIDDEN", "No permission to access REST API: User "+
+			perms.Principal.Name+" with Security roles ["+strings.Join(roles, ", ")+
+			"] does not have any role privileged for admin access")
 
 		return
 	}

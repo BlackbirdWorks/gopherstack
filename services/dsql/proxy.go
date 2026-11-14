@@ -233,11 +233,25 @@ func (i *dockerInstance) requestPassword(c *clientConn) (string, bool) {
 	return pw.Password, true
 }
 
+// loginFailureMessage uses the texts of the Aurora DSQL troubleshooting page (authentication errors).
+func loginFailureMessage(err error, user string) string {
+	if errors.Is(err, errTokenRole) {
+		action := tokenActionUser
+		if user != adminRole {
+			action = tokenActionAdmin
+		}
+
+		return fmt.Sprintf("Wrong user to action mapping. user: %s, action: %s", user, action)
+	}
+
+	return fmt.Sprintf("IAM authentication failed for user %q", user)
+}
+
 func (i *dockerInstance) verify(c *clientConn, user, password string) (upstreamLogin, bool) {
 	deny := func(err error) (upstreamLogin, bool) {
 		logger.Load(context.Background()).Info("dsql: IAM authentication refused", "cluster", i.ref.ID,
 			"user", user, "error", err)
-		c.fatal(pgPasswordFailedCode, fmt.Sprintf("password authentication failed for user %q", user))
+		c.fatal(pgPasswordFailedCode, loginFailureMessage(err, user))
 
 		return upstreamLogin{}, false
 	}

@@ -41,14 +41,73 @@ type JWKSProvider interface {
 type authFailure struct {
 	challenge string
 	message   string
+	code      string
 	status    int
 }
 
 func bearerFailure(status int, code, msg string) *authFailure {
-	return &authFailure{
-		status: status, message: msg,
-		challenge: fmt.Sprintf(`Bearer error=%q, error_description=%q`, code, msg),
+	return &authFailure{status: status, message: msg, code: code}
+}
+
+const (
+	protectedResourceSuffix = "/.well-known/oauth-protected-resource"
+	schemeHTTP              = "http"
+	schemeHTTPS             = "https"
+)
+
+// protectedResourceURL is the metadata URL a challenge advertises: the gateway root, or the runtime's
+// invocation URL with its qualifier.
+func protectedResourceURL(r *http.Request) string {
+	scheme := schemeHTTP
+	if r.TLS != nil {
+		scheme = schemeHTTPS
 	}
+
+	base := scheme + "://" + r.Host
+
+	path := r.URL.EscapedPath()
+	if rest, ok := strings.CutPrefix(path, "/runtimes/"); ok {
+		arn, _, _ := strings.Cut(rest, "/")
+		url := base + "/runtimes/" + arn + "/invocations" + protectedResourceSuffix
+		if q := r.URL.Query().Get("qualifier"); q != "" {
+			url += "?qualifier=" + q
+		}
+
+		return url
+	}
+
+	return base + protectedResourceSuffix
+}
+
+func advertisedScopes(cfg map[string]any) string {
+	mapping := objOf(cfg, "advertisedScopeMapping")
+	out := stringsOf(cfg["allowedScopes"])
+
+	for i, sc := range out {
+		if v, ok := mapping[sc].(string); ok && v != "" {
+			out[i] = v
+		}
+	}
+
+	return strings.Join(out, " ")
+}
+
+// jwtChallenge builds the WWW-Authenticate value: gateways advertise resource_metadata and scope on 401,
+// plus error="insufficient_scope" on 403; runtimes advertise resource_metadata only.
+func jwtChallenge(r *http.Request, f *authFailure, cfg map[string]any) string {
+	resource := fmt.Sprintf("resource_metadata=%q", protectedResourceURL(r))
+
+	var scope string
+	if sc := advertisedScopes(cfg); sc != "" && !strings.HasPrefix(r.URL.Path, "/runtimes/") {
+		scope = fmt.Sprintf("scope=%q", sc)
+	}
+
+	parts := []string{resource, scope}
+	if f.status == http.StatusForbidden && f.code == "insufficient_scope" {
+		parts = []string{`error="insufficient_scope"`, scope, resource}
+	}
+
+	return "Bearer " + strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), ", ")
 }
 
 // authorize enforces the gateway's inbound authorizer.
@@ -63,11 +122,10 @@ func (b *InMemoryBackend) authorize(ctx context.Context, r *http.Request, gw *ga
 				return nil
 			}
 
-			return bearerFailure(
-				http.StatusUnauthorized,
-				"invalid_token",
-				"gateway has no JWT authorizer configuration",
-			)
+			f := bearerFailure(http.StatusUnauthorized, "invalid_token", "gateway has no JWT authorizer configuration")
+			f.challenge = jwtChallenge(r, f, nil)
+
+			return f
 		}
 
 		return b.authorizeJWT(ctx, r, cfg)
@@ -98,6 +156,15 @@ func (b *InMemoryBackend) authorizeIAM(r *http.Request) *authFailure {
 }
 
 func (b *InMemoryBackend) authorizeJWT(ctx context.Context, r *http.Request, cfg map[string]any) *authFailure {
+	f := b.verifyJWT(ctx, r, cfg)
+	if f != nil {
+		f.challenge = jwtChallenge(r, f, cfg)
+	}
+
+	return f
+}
+
+func (b *InMemoryBackend) verifyJWT(ctx context.Context, r *http.Request, cfg map[string]any) *authFailure {
 	h := r.Header.Get("Authorization")
 
 	token, found := strings.CutPrefix(h, "Bearer ")

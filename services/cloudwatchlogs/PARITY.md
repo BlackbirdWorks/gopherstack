@@ -128,7 +128,7 @@ items_still_open:
   - "SyslogConfiguration's VpcEndpointId is stored as an opaque string: the pinned SDK documents no validation or error for it, so cross-checking against EC2 endpoint state would invent behaviour (2026-10-07)."
   - "LookupTable's ARN format (arn:{partition}:logs:{region}:{account}:lookup-table:{name}) is unverifiable: no pinned-SDK doc comment or model gives the LookupTableArn pattern (re-checked 2026-10-07)."
   - "Data protection masking detects EmailAddress, IpAddress, CreditCardNumber (Luhn), CreditCardExpiration, CreditCardSecurityCode, AwsSecretKey, OpenSsh/Pgp/Pkcs/Putty private keys, Ssn-US, custom identifiers, and checksum/format identifiers CpfCode-BR, Cnpj-BR, CepCode-BR, NationalInsuranceNumber-GB, PostalCode-CA, DrugEnforcementAgencyNumber-US, IndividualTaxIdentificationNumber-US, NifNumber-ES, NieNumber-ES (public national formats; the managed-identifiers page lists names only). Not modeled: keyword-proximity identifiers whose keyword sets and formats the docs do not give (Name, Address, LatLong, VehicleIdentificationNumber, PhoneNumber-*, PassportNumber-*, DriversLicense-*, BankAccountNumber-*, ZipCode-US, TaxId-*, Ssn-ES, NationalIdentificationNumber-*, NhsNumber-GB, SocialInsuranceNumber-CA, NationalProviderId-US, health/insurance codes); Audit findings destinations and SELECTION_CRITERIA account policies are not modeled."
-  - "Subscription-filter denial messages are documented text, not SDK-verified (2026-10-03)."
+  - "Subscription-filter denial messages for Firehose and Kinesis destinations are not published: checked SubscriptionFilters.html, API_PutSubscriptionFilter.html and Subscriptions troubleshooting search results (the Lambda text is confirmed)"
 structural_gaps:
   - "Anomaly Histogram/LogSamples/PatternString/PatternTokens are populated only via the AddAnomalyInternal seam: no pattern-detection ML engine exists to derive them from log content."
   - "IncludeLinkedAccounts (no cross-account link model), DataSources/FieldIndexNames (no field-indexing engine) and LogGroup.DataProtectionStatus/InheritedProperties are not modeled; aggregate Limit is moot with a single bucket."
@@ -1103,3 +1103,6 @@ DescribeExportTasks no longer emits logStreamNamePrefix (not a member of types.E
 ## 2026-10-07: managed data identifiers
 
 - Masking in GetLogEvents/FilterLogEvents (skipped with Unmask) now covers keyword-context identifiers (CreditCardSecurityCode, CreditCardExpiration, AwsSecretKey mask only the value) and multi-line private keys. Proof: `TestDataProtection_ManagedIdentifiers`.
+
+## Primary-source checks (2026-11-13)
+- cloudwatchlogs: Lambda subscription denial text confirmed by an AWS re:Post PutSubscriptionFilter InvalidParameterException report (trailing period added); Firehose and Kinesis texts have no published source.

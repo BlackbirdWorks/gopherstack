@@ -347,6 +347,10 @@ func TestFGAC_ReadOnlyUserAndFieldLevelSecurity(t *testing.T) {
 		code, body := secAPI(t, bob, http.MethodGet, "/_plugins/_security/api/internalusers", nil)
 		assert.Equal(t, http.StatusForbidden, code)
 		assert.Equal(t, "FORBIDDEN", body["status"])
+		assert.Regexp(t,
+			`^No permission to access REST API: User \S+ with Security roles \[.*\] does not have any role `+
+				`privileged for admin access$`,
+			body["message"])
 	})
 
 	t.Run("master sees everything", func(t *testing.T) {

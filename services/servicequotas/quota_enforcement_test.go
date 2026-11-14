@@ -95,8 +95,8 @@ func TestRequests_DeniedAboveMax(t *testing.T) {
 		desired float64
 		applied float64
 	}{
-		{name: "within max", desired: 4000, want: sqtypes.RequestStatusApproved, applied: 4000},
-		{name: "above max", desired: 5001, want: sqtypes.RequestStatusDenied, applied: 1000},
+		{name: "within max", desired: 9000, want: sqtypes.RequestStatusApproved, applied: 9000},
+		{name: "above max", desired: 10001, want: sqtypes.RequestStatusDenied, applied: 1000},
 	}
 
 	for _, tc := range tests {

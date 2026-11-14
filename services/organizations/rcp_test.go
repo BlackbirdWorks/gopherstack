@@ -132,6 +132,10 @@ func TestRCPsForAccount(t *testing.T) {
 
 	require.ErrorContains(t, o.b.DetachPolicy("p-RCPFullAWSAccess", o.ouID), "InvalidInputException")
 
+	managed, err := o.b.DescribePolicy("p-RCPFullAWSAccess")
+	require.NoError(t, err)
+	assert.Equal(t, "Allows access to every resource", managed.PolicySummary.Description)
+
 	_, err = o.b.DisablePolicyType(o.rootID, "RESOURCE_CONTROL_POLICY")
 	require.NoError(t, err)
 

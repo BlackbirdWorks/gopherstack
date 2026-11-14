@@ -49,7 +49,7 @@ var (
 		"mysql.session", "mysql.infoschema", "mysql_option_tracker_persister", "mysql_rest_service_admin",
 		"mysql_rest_service_data_provider", "mysql_rest_service_dev", "mysql_rest_service_meta_provider",
 		"mysql_rest_service_schema_admin", "mysql_rest_service_user", "mysql_task_admin", "mysql_task_user",
-		"rrhhuser", "mysqlexport", "root",
+		"rrhhuser", "mysqlexport",
 	}
 	hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 	extraKeys   = []string{

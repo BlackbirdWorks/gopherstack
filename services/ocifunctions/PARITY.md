@@ -35,7 +35,7 @@ items_still_open:
   - "Pre-built function sources (PRE_BUILT_FUNCTIONS), archive sources, the pbfListings, functionsRuntimes and triggers APIs are not implemented; CreateFunction accepts only CONTAINER_IMAGE."
   - "Provisioned concurrency, failure and success destinations, syslogUrl, traceConfig, logging and imagePolicyConfig are stored and returned but have no effect: containers are not pre-warmed, detached results are not delivered to streams, queues or notifications, function output is not forwarded to syslog and image signatures are not verified."
   - "memoryInMBs is passed to the function as FN_MEMORY and FN_TMPSIZE is always 0; neither is enforced as a container memory or tmp limit, and shape (CPU architecture) does not select a platform."
-  - "The exact response headers (Fn-Http-Status and Fn-Http-H-* are passed through, status stays 200) are unverified against the live service."
+  - "What the live invoke endpoint does with the function's Fn-Http-Status and Fn-Http-H-* response headers (emulator: passed through, status stays 200) is not published (checked functionsinvokingfunctions.htm, functionsconcepts.htm and functionsusingapigateway.htm; the FDK source only shows the function side)"
   - "The FDK socket is shared through a bind mount, so the container runtime must run on the same host as the emulator (not Docker Desktop VMs or a remote daemon)."
   - "Function stdout and stderr are not captured or exposed; there is no Fn-Fdk-Version/Fn-Fdk-Runtime handling and no cloudevent-specific request shaping for fn-intent."
   - "Subnet, network security group and image registry references are stored without being resolved against other emulated services; an image is whatever the container runtime can pull."
@@ -49,3 +49,6 @@ items_still_open:
 - Invoke errors 502 FunctionInvokeExecutionFailed, 502 FunctionInvokeResponseBodyTooLarge, 504 FunctionInvokeTimeout, 429 TooManyRequests, 503 FunctionInvokeServiceUnavailable and 413 FunctionInvokeRequestContentTooLarge: https://docs.oracle.com/en-us/iaas/Content/Functions/Tasks/functionstroubleshooting.htm.
 
 Pass 2026-11-13: imagePolicyConfig.keyDetails[].kmsKeyId is validated against OCI Vault when wired (404 NotAuthorizedOrNotFound for an unknown key, 409 IncorrectState when it is not ENABLED).
+
+## Primary-source checks (2026-11-13)
+- ocifunctions: fnproject/fdk-go handler.go confirms a function reports its status as Fn-Http-Status and its headers as Fn-Http-H-*.

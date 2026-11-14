@@ -35,7 +35,7 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-database-port / OCI_DATABASE_PORT (default 8170); never on the shared AWS router; cli.go reserves the port."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "Unverified, chosen by the emulator: ECPU maximum of 512 and OCPU range 1 to 128 (the SDK says the maximum depends on the infrastructure shape), the minimum storage of 1 TB or 20 GB, long-term backup minimum of 90 days, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes. Checked: oci-go-sdk database create_autonomous_database_base.go, create_autonomous_database_backup_details.go and the Autonomous Database provisioning and Always Free pages; none states them."
+  - "Not published (checked the database SDK comments in create_autonomous_database_base.go and create_autonomous_database_backup_details.go): the ECPU maximum of 512 and OCPU range 1 to 128 (the SDK says the maximum depends on the compute model and infrastructure), the long-term backup minimum of 90 days, work request operation types, the _tls profile names, the connectionUrls hosts, the apexDetails versions, and OCID prefixes (all emulator choices)"
   - "cwallet.sso, keystore.jks and truststore.jks are not in the wallet zip; ewallet.p12 is encrypted with the modern PKCS#12 scheme, which very old Oracle clients may not read."
   - "Backups and restore are lifecycle only: no data is copied, so restore never changes a database, with or without the docker engine."
   - "Not routed: clones, refreshable clones, Data Guard, disaster recovery, key rotation and Vault keys, secretId, Data Safe, Operations Insights, Database Management, maintenance windows, resource pools, scheduled operations, regional wallets, character set listing, shrink, upgrade and the Exadata, container database and software image families. opc-dry-run is ignored."
@@ -53,3 +53,6 @@ items_still_open:
 - Verified: ECPU minimum of 2 (database/create_autonomous_database_base.go), maximum storage of 384 TB (adbsb/autonomous-provision.html), at most 2 Always Free databases and 20 GB (adbsb/autonomous-always-free.html).
 - Always Free databases reject manual and long-term backups and restore with 400 InvalidParameter, and an update to paid applies 4 ECPUs and 1 TB for Transaction Processing and Lakehouse workloads (same Always Free page; the OCPU model and JSON/APEX workloads are not documented there, so compute and storage are left unchanged for them).
 - Character set listing stays unrouted: the SDK points to a docs page that lists no values, and the allowed set depends on region and workload.
+
+## Primary-source checks (2026-11-13)
+- ocidatabase: create_autonomous_database_base.go confirms the ECPU minimum of two (one in an elastic resource pool), the OLTP default workload, dataStorageSizeInTBs versus dataStorageSizeInGBs exclusivity (GBs for dedicated Exadata only).

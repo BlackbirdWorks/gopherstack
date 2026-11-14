@@ -23,13 +23,10 @@ func isValidChannelName(s string) bool {
 	return channelNameRe.MatchString(s)
 }
 
-// buildChannelARN builds a Kinesis channel ARN. The real SDK doc comments
-// give no ARN format for channels (unlike stream/consumer ARNs, which are
-// documented in the IAM access-control guide); this follows the same
-// "{service}/{resource-name}" convention AWS uses for every other Kinesis
-// resource type (stream/{name}, stream/{name}/consumer/{name}).
-func buildChannelARN(region, accountID, channelName string) string {
-	return arn.Build("kinesis", region, accountID, "channel/"+channelName)
+// buildChannelARN builds a channel ARN, arn:aws:kinesis:<region>:<account>:channel/<channel-id>
+// (kinesis API_ChannelSummary.html and data-delivery-s3-describe.html examples).
+func buildChannelARN(region, accountID, channelID string) string {
+	return arn.Build("kinesis", region, accountID, "channel/"+channelID)
 }
 
 // isChannelARN reports whether a resolves to a channel resource, i.e. its
@@ -312,7 +309,7 @@ func (b *InMemoryBackend) CreateChannel(ctx context.Context, input *CreateChanne
 
 	channel := &Channel{
 		ChannelID:                channelID,
-		ChannelARN:               buildChannelARN(region, b.accountID, input.ChannelName),
+		ChannelARN:               buildChannelARN(region, b.accountID, channelID),
 		ChannelName:              input.ChannelName,
 		ChannelStatus:            channelStatusActive,
 		ServiceExecutionRoleARN:  input.ServiceExecutionRoleARN,

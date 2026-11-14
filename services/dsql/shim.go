@@ -10,7 +10,7 @@ import (
 // tablespaces, PL/pgSQL, a single built-in database). The error text is not documented.
 const (
 	unsupportedSQLState = "0A000"
-	// plainIndexMessage: the User Guide says to use CREATE INDEX ASYNC; the exact text is recalled, not documented.
+	// plainIndexMessage: troubleshooting.html titles the error "use CREATE INDEX ASYNC instead" without the full text.
 	plainIndexMessage = "unsupported mode. please use CREATE INDEX ASYNC"
 )
 

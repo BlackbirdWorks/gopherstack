@@ -197,7 +197,7 @@ func TestS3TargetCSV(t *testing.T) {
 					got[k] = v
 				} else {
 					got[k[:strings.LastIndex(k, "/")]+"/cdc"] = v
-					assert.Regexp(t, `/\d{8}-\d{6}\d{3}\.csv$`, k)
+					assert.Regexp(t, `/\d{8}-\d{6}\d{4}\.csv$`, k)
 				}
 			}
 

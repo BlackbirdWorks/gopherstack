@@ -17,7 +17,6 @@ const (
 	selectBurnRate = "select_slo_burn_rate"
 	selectHealth   = "select_slo_health"
 	daysPerWeek    = 7
-	daysPerFortnit = 14
 )
 
 var sloSelectorRe = regexp.MustCompile(
@@ -123,7 +122,9 @@ func sloPeriodStart(slo *monitoringpb.ServiceLevelObjective, now time.Time) time
 	case calendarperiod.CalendarPeriod_WEEK:
 		return midnight.AddDate(0, 0, -((int(now.Weekday()) + daysPerWeek - 1) % daysPerWeek))
 	case calendarperiod.CalendarPeriod_FORTNIGHT:
-		return midnight.AddDate(0, 0, -(now.YearDay()-1)%daysPerFortnit)
+		_, week := now.ISOWeek()
+
+		return midnight.AddDate(0, 0, -((int(now.Weekday())+daysPerWeek-1)%daysPerWeek + (week-1)%2*daysPerWeek))
 	case calendarperiod.CalendarPeriod_MONTH:
 		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	case calendarperiod.CalendarPeriod_CALENDAR_PERIOD_UNSPECIFIED, calendarperiod.CalendarPeriod_DAY,

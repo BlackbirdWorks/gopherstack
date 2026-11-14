@@ -126,7 +126,7 @@ items_still_open:
   - "GraphqlApi dns is unmodeled: the GraphqlApi type and GetGraphqlApi pages say only \"The DNS records for the API\" and give no key set (Event API dns is modelled with HTTP and REALTIME)."
   - "OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20."
   - "Not implemented (docs do not define them or need delta-sync state): util.transform.toElasticsearchQueryDSL has no APPSYNC_JS equivalent in the developer guide; DynamoDB Sync with lastSync (delta table) needs conflict-detection/delta-sync writes that PutItem/UpdateItem/DeleteItem do not maintain (base-table Sync works); the @aws-appsync/utils/dynamodb batch/transact JS helpers are not in the documented module (write the request object by hand). Resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-25."
-  - "EvaluateCode codeErrors: syntax errors return PARSER_ERROR with line/column (span -1); runtime exceptions return line/column of the innermost frame without an errorType (AWS names unverified); LINT_ERROR is never produced. toElasticsearchQueryDSL emits fields in sorted order (VTL maps are unordered) and the single-operator wrapping is unverified. 2026-10-25."
+  - "EvaluateCode codeErrors: LINT_ERROR is never produced (SDK CodeError docs name LINT_ERROR and PARSER_ERROR as examples, not an exhaustive list); not published: checked SDK types.CodeError / CodeErrorLocation and API_CodeError.html, which give no errorType for runtime exceptions and no span value for syntax errors (emulator: span -1, innermost-frame location, no errorType); toElasticsearchQueryDSL field order and single-operator wrapping are not published in devguide resolver-util-reference.html, built-in-util-js.html or resolver-reference-elasticsearch.html (emulator emits sorted field order)"
 structural_gaps:
   - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
 deferred:
@@ -572,3 +572,6 @@ CreateDataSource names must match `[_A-Za-z][_0-9A-Za-z]*` (max 65). Error messa
 `GraphQLAuth.ServiceInvoked` lets an in-process AWS service caller (EventBridge AppSync targets) satisfy AWS_IAM
 authorization without a SigV4-signed request; it is ignored for every other auth type. Test:
 TestExecuteGraphQLServiceInvoked.
+
+## Primary-source checks (2026-11-13)
+- appsync: PARSER_ERROR and its 'Parsing error: ...' Value text match SDK types.CodeError docs (appsync@v1.60.0 types.go:408).

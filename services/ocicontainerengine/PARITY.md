@@ -63,8 +63,8 @@ families:
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --oci-oke-port / OCI_CONTAINER_ENGINE_PORT (default 8158); never on the shared AWS router; cli.go reserves the port in the shared pool."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
-  - "ListPodShapes is not routed: the Oracle pod shape catalogue (names, OCPU, memory and bandwidth options) could not be fetched from a primary source, so virtual node pools only require a non-empty podConfiguration.shape."
-  - "The virtual node pool size cap of 1000 is copied from the node pool cap and unverified (the service limits page lists only virtual nodes per region, 9 or 3, and pods per virtual node); essential add-ons (CoreDNS, kube-proxy, the CNI plugin) are not pre-installed on enhanced clusters, add-on API names follow the display names of the Oracle add-on table, and add-on configuration keys, addonSchemaVersion, addonGroup and descriptions are not modelled."
+  - "ListPodShapes is not routed: the pod shape names are published (Pod.Standard.A1.Flex, E3.Flex, E4.Flex and E5.Flex, contengimagesshapes.htm) but the OCPU, memory and network bandwidth options per shape are not (checked contengimagesshapes.htm, contengcreatingvirtualnodes_topic.htm and the containerengine SDK PodShape comments), so virtual node pools only require a non-empty podConfiguration.shape."
+  - "The virtual node pool size cap of 1000 is copied from the node pool cap (1,000 nodes per node pool) and is not published for virtual node pools: the service limits page default.htm lists only virtual nodes per region (9 or 3) and pods per virtual node; essential add-ons (CoreDNS, kube-proxy, the CNI plugin) are not pre-installed on enhanced clusters, add-on API names follow the display names of the Oracle add-on table, and add-on configuration keys, addonSchemaVersion, addonGroup and descriptions are not modelled."
   - "Credential rotation and endpoint decommission change state only: no certificates or tokens are regenerated and kubeconfig tokens keep working; the operation types of workload mapping changes (no work request is returned) and the 30 day default rollback deadline are not documented by the SDK; WorkloadMapping.mappedTenancyId is never populated."
   - "DeleteWorkRequest only marks a work request CANCELED; the SDK says it cancels work that has not started, which the emulator cannot distinguish because work starts when it is accepted."
   - "Worker nodes are metadata: they get unique private IPs from the subnet CIDR and ocid1.instance identifiers but are not OCI Core instances and do not join the k3s cluster, so a docker-mode cluster has only the control plane node."
@@ -72,10 +72,14 @@ items_still_open:
   - "Without OKE_ENGINE=docker the API server endpoints are documentation-range (or subnet CIDR) addresses nothing listens on; VCN_HOSTNAME endpoints and endpoint.vcnHostnameEndpoint are never populated."
   - "OpenID Connect token authentication and discovery, secondaryVnics, primaryVnic, networkLaunchType, computeClusterId, preemptible/capacity-reservation scheduling effects, node eviction and cycling settings (stored and echoed only) are not applied."
   - "The one-minor-ahead control plane upgrade rule (availableKubernetesUpgrades and the UpdateCluster check) is not stated by the Oracle control plane upgrade page (contengupgradingk8smasternode.htm), which requires only that every worker node is ready and every node pool and node version is compatible with the target; the emulator keeps the one-minor limit."
-  - "Default list ordering (newest first), the cascade deletion of node pools with their cluster, whether DELETED resources are listed by default, and the NODEPOOL_UPDATE operation type for DeleteNode are unverified against the live service."
+  - "Not published (checked the containerengine SDK request docs and contengoverview.htm): the default list ordering (emulator: newest first), the cascade deletion of node pools with their cluster, whether DELETED resources are listed by default, and the work request operation type for DeleteNode (the SDK enum has NODEPOOL_UPDATE and NODEPOOL_DELETE, emulator uses NODEPOOL_UPDATE)"
   - "Service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
 ---
 
 ## 2026-11-13 version rules
 
 Verified: the version catalogue against docs.oracle.com contengaboutk8sversions.htm (1.34.1, 1.34.2, 1.34.10, 1.35.2, 1.36.1, 1.36.4; previews and 1.37.0 OC1-only are not offered), the three-minor skew from 1.28 on (same page), 1,000 nodes per node pool (General/Concepts/servicelimits.htm). UpdateCluster now refuses a control plane upgrade while a worker node is not ACTIVE (409 IncorrectState) or when a node pool or node would be more than three minors behind the target (400).
+
+## Primary-source checks (2026-11-13)
+- ocicontainerengine: contengimagesshapes.htm lists the virtual node pod shapes; service-limits default.htm lists 1000 pods per virtual node and 9 or 3 virtual nodes per region.
+- ocicontainerengine: SDK WorkRequestOperationType enum contains NODEPOOL_UPDATE.

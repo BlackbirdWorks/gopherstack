@@ -271,7 +271,13 @@ func TestCreateDbSystemValidation(t *testing.T) {
 			"InvalidParameter",
 			400,
 		},
-		{func(d *my.CreateDbSystemDetails) { d.AdminUsername = new("ROOT") }, "root user", "InvalidParameter", 400},
+		{func(d *my.CreateDbSystemDetails) { d.AdminUsername = new("root") }, "root is not reserved", "", 0},
+		{
+			func(d *my.CreateDbSystemDetails) { d.AdminUsername = new("MYSQL.SYS") },
+			"reserved user folded",
+			"InvalidParameter",
+			400,
+		},
 		{
 			func(d *my.CreateDbSystemDetails) { d.AdminUsername = new(strings.Repeat("a", 33)) },
 			"long username",

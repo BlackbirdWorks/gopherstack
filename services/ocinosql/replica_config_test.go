@@ -266,6 +266,21 @@ func TestFrozenSchemaDDL(t *testing.T) {
 	require.NoError(t, e.alter(t, "born", "ALTER TABLE born (ADD extra STRING)"))
 }
 
+func TestFrozenSchemaForceDDL(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	e.createTable(t, "forced", usersDDL("forced")+" WITH SCHEMA FROZEN FORCE", nil)
+	e.settle()
+	assert.Equal(t, nosql.TableSchemaStateFrozen, e.getTable(t, "forced").SchemaState)
+
+	require.NoError(t, e.alter(t, "forced", "ALTER TABLE forced UNFREEZE SCHEMA"))
+	e.settle()
+	require.NoError(t, e.alter(t, "forced", "ALTER TABLE forced FREEZE SCHEMA FORCE"))
+	e.settle()
+	assert.Equal(t, nosql.TableSchemaStateFrozen, e.getTable(t, "forced").SchemaState)
+}
+
 func TestReplicaRetryToken(t *testing.T) {
 	t.Parallel()
 

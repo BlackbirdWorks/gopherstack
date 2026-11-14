@@ -68,7 +68,7 @@ families:
 gaps: []
 items_still_open:
   - "LocationUri schemes \"object-storage://\" and \"azure-blob://\" violate the published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ in API_DescribeLocationObjectStorage.html), and no AWS doc or SDK text names the scheme real AWS returns for these two types (re-checked 2026-10-07); not changed to a guessed scheme."
-  - "LocationUri scheme \"fsxl://\" for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but API_DescribeLocationFsxLustre.html shows no example value, so the exact scheme is unconfirmed."
+  - "LocationUri scheme fsxl:// for FSx Lustre matches the published pattern fsx[a-z0-9-]+ but the exact scheme is not published: checked API_DescribeLocationFsxLustre.html, API_LocationListEntry.html, API_DescribeLocationFsxOntap.html and the CloudFormation LocationFSxLustre page, none of which gives an example value"
 structural_gaps:
   - "AgentListEntry.Platform (agent software Version) is never emitted: it describes the real agent appliance, and CreateAgent has no input to source it from."
   - "ManagedSecretConfig stays absent from DescribeLocation*: AWS auto-provisions a service-owned Secrets Manager secret for plaintext credentials, so there is no SecretArn to honestly report."
@@ -312,3 +312,6 @@ CreateTask/UpdateTask store the Options defaults documented on types.Options (At
 ## 2026-10-05 (input enum validation)
 
 15 request members typed as SDK enums are now checked against `Values()` and an unknown value is InvalidRequestException: AuthenticationType, AccessTier and BlobType on Azure Blob locations, HDFS AuthenticationType, EFS InTransitEncryption, object-storage ServerProtocol, S3StorageClass and CreateTask TaskMode (Create and Update where the op takes them). Proof: `TestSDK_EnumInputValidation`.
+
+## Primary-source checks (2026-11-13)
+- datasync: LocationUri pattern ^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://... and TYPE://GLOBAL_ID/SUBDIR format confirmed on API_DescribeLocationFsxLustre.html and API_LocationListEntry.html.

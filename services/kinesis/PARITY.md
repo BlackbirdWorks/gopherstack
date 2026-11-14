@@ -56,7 +56,7 @@ families:
   UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
 gaps: []
 items_still_open:
-  - "Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format (checked data-delivery-s3-key-template and the SDK; neither states them). (gopherstack-s781r)"
+  - "Channel S3-delivery details not published (checked data-delivery-s3-about, data-delivery-s3-key-template and the SDK): where the automatic unique suffix sits in the object key, the delivered byte layout per record format and compression, and the dead-letter JSON schema and default error prefix (gopherstack-s781r)"
 structural_gaps:
   - "Read/WriteProvisionedThroughputExceeded counts outside the FIS throughput fault, and SubscribeToShard.* metrics: no per-shard throughput model."
   - "Channel S3Tables (Iceberg) delivery is unmodeled (no services/s3tables data-file write path): such a channel accepts PutRecord but never buffers or flushes. Plain S3 delivery is real. (gopherstack-s781r)"
@@ -1143,3 +1143,6 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
   - `GET /_gopherstack/kinesis/streams/<name>/shards`: every shard (open and closed) with hash range, sequence range, parent/adjacent parent, child shard ids, retained record count.
   - `GET /_gopherstack/kinesis/streams/<name>/shards/<shardId>/records?from=<seq>&limit=N`: retained records at or after `from` without a shard iterator; `limit` defaults to 100, capped at 1000; nothing is consumed.
   - `GET /_gopherstack/kinesis/consumers/<consumer-arn>`: consumer status plus the SubscribeToShard streams currently open (shard, starting position type, start and expiry).
+
+## Primary-source checks (2026-11-13)
+- kinesis: channel ARN is arn:aws:kinesis:<region>:<account>:channel/<id> per API_ChannelSummary and data-delivery-s3-describe (fixed: was the channel name); the default key template matches data-delivery-s3-key-template; the guide states a unique suffix is appended to every key.

@@ -47,7 +47,7 @@ func (b *InMemoryBackend) authorizeSubscription(region, groupName, roleArn, dest
 
 const (
 	msgLambdaDenied = "Could not execute the lambda function. " +
-		"Make sure you have given CloudWatch Logs permission to execute your function"
+		"Make sure you have given CloudWatch Logs permission to execute your function."
 	msgFirehoseDenied = "Could not deliver test message to specified Firehose stream. " +
 		"Check if the given Firehose stream is in ACTIVE state"
 	msgKinesisDenied = "Could not deliver test message to specified Kinesis stream. " +

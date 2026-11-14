@@ -13,7 +13,7 @@ import (
 const (
 	rcpFullAWSAccessPolicyID          = "p-RCPFullAWSAccess"
 	rcpFullAWSAccessPolicyName        = "RCPFullAWSAccess"
-	rcpFullAWSAccessPolicyDescription = "Allows access to every operation"
+	rcpFullAWSAccessPolicyDescription = "Allows access to every resource"
 	rcpFullAWSAccessPolicyContent     = `{"Version":"2012-10-17","Statement":` +
 		`[{"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}`
 	policyVersion = "2012-10-17"
