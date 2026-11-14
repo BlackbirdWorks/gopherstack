@@ -10,6 +10,8 @@ import (
 const (
 	acrFieldDefaultAction = "defaultAction"
 	acrStatusDisabled     = "disabled"
+	acrFieldUsername      = "username"
+	acrFieldPasswords     = "passwords"
 	acrRetentionDays      = 7
 	acrCredPassword       = "password"
 	acrCredPassword2      = "password2"
@@ -25,6 +27,8 @@ func (p *ContainerRegistryProvider) registryBody(
 		acrPropAdmin:           info.AdminEnabled,
 		acrPropStatus:          map[string]any{"displayStatus": "Ready", fieldMessage: "The registry is ready."},
 	})
+
+	describeEncryption(props)
 
 	out := map[string]any{
 		"id": id.ARMID(), fieldName: rec.name, fieldType: acrTypeName(acrKindRegistry),
@@ -51,7 +55,7 @@ func acrDefaultProps() map[string]any {
 		"encryption":               map[string]any{acrPropStatus: acrStatusDisabled},
 		"policies": map[string]any{
 			"quarantinePolicy": map[string]any{acrPropStatus: acrStatusDisabled},
-			"trustPolicy":      map[string]any{"type": "Notary", acrPropStatus: acrStatusDisabled},
+			"trustPolicy":      map[string]any{fieldType: "Notary", acrPropStatus: acrStatusDisabled},
 			"retentionPolicy":  map[string]any{"days": acrRetentionDays, acrPropStatus: acrStatusDisabled},
 			"exportPolicy":     map[string]any{"status": "enabled"},
 			"azureADAuthenticationAsArmPolicy": map[string]any{
@@ -77,16 +81,16 @@ func (p *ContainerRegistryProvider) childBody(id ResourceID, rec *storedACR) map
 		delete(props, "customHeaders")
 	}
 
-	return map[string]any{
+	return p.withCacheFields(map[string]any{
 		"id": id.ARMID(), fieldName: rec.name, fieldType: acrTypeName(rec.kind),
 		fieldLocation: rec.location, fieldTags: tagsOrEmpty(rec.tags), fieldProperties: props,
-	}
+	}, rec)
 }
 
 func credentialBody(c ContainerRegistryCredentials) map[string]any {
 	return map[string]any{
-		"username": c.Username,
-		"passwords": []any{
+		acrFieldUsername: c.Username,
+		acrFieldPasswords: []any{
 			map[string]any{fieldName: acrCredPassword, fieldValue: c.Password},
 			map[string]any{fieldName: acrCredPassword2, fieldValue: c.Password2},
 		},
@@ -264,4 +268,25 @@ func (h *Handler) containerRegistryProvider() (*ContainerRegistryProvider, bool)
 	cr, ok := p.(*ContainerRegistryProvider)
 
 	return cr, ok
+}
+
+// describeEncryption adds the key rotation fields: a key identifier without a version follows new key versions.
+func describeEncryption(props map[string]any) {
+	enc := maps.Clone(mapOf(props["encryption"]))
+	kv := maps.Clone(mapOf(enc["keyVaultProperties"]))
+
+	id := stringField(kv, "keyIdentifier")
+	if id == "" {
+		return
+	}
+
+	enc["keyVaultProperties"], props["encryption"] = kv, enc
+
+	_, afterKeys, _ := strings.Cut(id, "/keys/")
+	versioned := strings.Contains(afterKeys, "/")
+
+	kv["keyRotationEnabled"] = !versioned
+	if versioned {
+		kv["versionedKeyIdentifier"] = id
+	}
 }

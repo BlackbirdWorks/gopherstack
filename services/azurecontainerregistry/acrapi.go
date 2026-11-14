@@ -67,13 +67,13 @@ func (rt acrRoute) needs(method string) []need {
 		return []need{{typ: scopeCatalog, name: "catalog", action: "*", hint: "*"}}
 	}
 
-	action := "metadata_read"
+	action := actionMetaRead
 
 	switch {
 	case method == http.MethodPatch:
-		action = "metadata_write"
+		action = actionMetaWrite
 	case method == http.MethodDelete && rt.kind == kindTags:
-		action = "metadata_write"
+		action = actionMetaWrite
 	case method == http.MethodDelete:
 		action = actionDelete
 	}

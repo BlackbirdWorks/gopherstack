@@ -15,6 +15,7 @@ const (
 	acrActionCallbackConfig   = "getCallbackConfig"
 	acrActionPing             = "ping"
 	acrActionListEvents       = "listEvents"
+	acrActionImport           = "importImage"
 	acrSubCheckLen            = 5
 	acrRegistryLen            = 8
 	acrChildLen               = 10
@@ -60,7 +61,10 @@ var containerRegistryRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPatch && isACRScope(segs, acrChildLen) &&
-				(segAt(segs, acrWebhookTypeIdx, acrWebhooksType) || segAt(segs, acrWebhookTypeIdx, acrReplicationsType))
+				(segAt(segs, acrWebhookTypeIdx, acrWebhooksType) || segAt(segs, acrWebhookTypeIdx, acrReplicationsType) ||
+					segAt(segs, acrWebhookTypeIdx, acrScopeMapsType) || segAt(segs, acrWebhookTypeIdx, acrTokensType) ||
+					segAt(segs, acrWebhookTypeIdx, acrCacheRulesType) ||
+					segAt(segs, acrWebhookTypeIdx, acrCredentialSetsType))
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRPatch(c, segs) },
 	},
@@ -91,6 +95,57 @@ var containerRegistryRoutes = []armRoute{
 		handle: func(h *Handler, c *echo.Context, segs []string) error {
 			return h.handleACRListChildren(c, segs, acrKindWebhook)
 		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodGet, acrScopeMapsType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRListChildren(c, segs, acrKindScopeMap)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodGet, acrTokensType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRListChildren(c, segs, acrKindToken)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodDelete && isACRScope(segs, acrChildLen) &&
+				(segAt(segs, acrWebhookTypeIdx, acrCacheRulesType) || segAt(segs, acrWebhookTypeIdx, acrCredentialSetsType))
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRDeleteNoContent(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodGet, acrCacheRulesType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRListChildren(c, segs, acrKindCacheRule)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodGet, acrCredentialSetsType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRListChildren(c, segs, acrKindCredentialSet)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodPost, acrActionImport)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRImport(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isACRRegistryAction(segs, r, http.MethodPost, acrActionGenCreds)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRGenerateCredentials(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -271,4 +326,66 @@ func (h *Handler) handleACRCallbackConfig(c *echo.Context, segs []string) error 
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) handleACRGenerateCredentials(c *echo.Context, segs []string) error {
+	p, err := h.acrProviderOrNotFound(c)
+	if p == nil {
+		return err
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.GenerateCredentials(c.Request().Context(), id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) handleACRImport(c *echo.Context, segs []string) error {
+	p, err := h.acrProviderOrNotFound(c)
+	if p == nil {
+		return err
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.ImportImage(c.Request().Context(), id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
+}
+
+// handleACRDeleteNoContent deletes a cache rule or credential set; their clients accept only 202 and 204.
+func (h *Handler) handleACRDeleteNoContent(c *echo.Context, segs []string) error {
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if err = h.Registry.Delete(c.Request().Context(), id); err != nil && !isNotFoundOnDelete(err) {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }

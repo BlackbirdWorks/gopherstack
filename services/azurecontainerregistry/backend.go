@@ -41,30 +41,39 @@ type Credentials struct {
 }
 
 type registry struct {
-	CreatedAt time.Time                 `json:"createdAt"`
-	Repos     ociregistry.Ledger        `json:"repos"`
-	Webhooks  map[string]*Webhook       `json:"webhooks,omitempty"`
-	Events    map[string][]WebhookEvent `json:"events,omitempty"`
-	raw       http.Handler
-	app       http.Handler
-	Name      string `json:"name"`
-	Password1 string `json:"password1"`
-	Password2 string `json:"password2"`
-	Admin     bool   `json:"admin"`
-	Anonymous bool   `json:"anonymousPull,omitempty"`
+	CreatedAt  time.Time                 `json:"createdAt"`
+	Repos      ociregistry.Ledger        `json:"repos"`
+	Webhooks   map[string]*Webhook       `json:"webhooks,omitempty"`
+	Events     map[string][]WebhookEvent `json:"events,omitempty"`
+	ScopeMaps  map[string]*ScopeMap      `json:"scopeMaps,omitempty"`
+	Tokens     map[string]*Token         `json:"tokens,omitempty"`
+	CacheRules map[string]*CacheRule     `json:"cacheRules,omitempty"`
+	raw        http.Handler
+	app        http.Handler
+	Name       string       `json:"name"`
+	Password1  string       `json:"password1"`
+	Password2  string       `json:"password2"`
+	KeyID      string       `json:"keyId,omitempty"`
+	Network    NetworkRules `json:"network,omitzero"`
+	Admin      bool         `json:"admin"`
+	Anonymous  bool         `json:"anonymousPull,omitempty"`
 }
 
 // InMemoryBackend holds every registry's control-plane state under one lock; blobs and manifests live in
 // per-registry ociregistry handlers.
 type InMemoryBackend struct {
-	now     func() time.Time
-	ctx     context.Context //nolint:containedctx // lifetime of the lazily built registries
-	mu      *lockmetrics.RWMutex
-	httpc   *http.Client
-	hooks   *worker.Group
-	regs    map[string]*registry
-	dataDir string
-	secret  []byte
+	now           func() time.Time
+	ctx           context.Context //nolint:containedctx // lifetime of the lazily built registries
+	mu            *lockmetrics.RWMutex
+	httpc         *http.Client
+	importc       *http.Client
+	hooks         *worker.Group
+	regs          map[string]*registry
+	secrets       SecretResolver
+	keyCheck      KeyChecker
+	dataDir       string
+	secret        []byte
+	remoteImports bool
 }
 
 // NewInMemoryBackend creates an empty backend that keeps blobs in memory.
@@ -313,4 +322,12 @@ func (b *InMemoryBackend) Close() {
 	}
 
 	b.httpc.CloseIdleConnections()
+
+	b.mu.RLock("Close")
+	importc := b.importc
+	b.mu.RUnlock()
+
+	if importc != nil {
+		importc.CloseIdleConnections()
+	}
 }

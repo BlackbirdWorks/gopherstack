@@ -52,6 +52,10 @@ const (
 	acrKindRegistry
 	acrKindReplication
 	acrKindWebhook
+	acrKindScopeMap
+	acrKindToken
+	acrKindCacheRule
+	acrKindCredentialSet
 )
 
 type storedACR struct {
@@ -110,6 +114,10 @@ func (p *ContainerRegistryProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: acrRegistriesType, APIVersions: v, HasChildren: true},
 		{Type: acrRegistriesType + "/" + acrReplicationsType, APIVersions: v, HasChildren: false},
 		{Type: acrRegistriesType + "/" + acrWebhooksType, APIVersions: v, HasChildren: false},
+		{Type: acrRegistriesType + "/" + acrScopeMapsType, APIVersions: v, HasChildren: false},
+		{Type: acrRegistriesType + "/" + acrTokensType, APIVersions: v, HasChildren: false},
+		{Type: acrRegistriesType + "/" + acrCacheRulesType, APIVersions: v, HasChildren: false},
+		{Type: acrRegistriesType + "/" + acrCredentialSetsType, APIVersions: v, HasChildren: false},
 	}
 }
 
@@ -121,6 +129,14 @@ func classifyACRPath(id ResourceID) acrKind {
 		return acrKindReplication
 	case acrRegistriesType + "/" + acrWebhooksType:
 		return acrKindWebhook
+	case acrRegistriesType + "/" + "scopemaps":
+		return acrKindScopeMap
+	case acrRegistriesType + "/" + acrTokensType:
+		return acrKindToken
+	case acrRegistriesType + "/cacherules":
+		return acrKindCacheRule
+	case acrRegistriesType + "/credentialsets":
+		return acrKindCredentialSet
 	}
 
 	return acrKindUnsupported
@@ -144,6 +160,14 @@ func acrTypeName(kind acrKind) string {
 		return base + "/" + acrReplicationsType
 	case acrKindWebhook:
 		return base + "/" + acrWebhooksType
+	case acrKindScopeMap:
+		return base + "/" + acrScopeMapsType
+	case acrKindToken:
+		return base + "/" + acrTokensType
+	case acrKindCacheRule:
+		return base + "/" + acrCacheRulesType
+	case acrKindCredentialSet:
+		return base + "/" + acrCredentialSetsType
 	case acrKindRegistry, acrKindUnsupported:
 	}
 
@@ -156,6 +180,14 @@ func acrNotFound(kind acrKind) error {
 		return ErrACRReplicationNotFound
 	case acrKindWebhook:
 		return ErrACRWebhookNotFound
+	case acrKindScopeMap:
+		return ErrACRScopeMapNotFound
+	case acrKindToken:
+		return ErrACRTokenNotFound
+	case acrKindCacheRule:
+		return ErrACRCacheRuleNotFound
+	case acrKindCredentialSet:
+		return ErrACRCredentialSetNotFound
 	case acrKindRegistry, acrKindUnsupported:
 	}
 
@@ -196,6 +228,14 @@ func (p *ContainerRegistryProvider) Put(
 
 	if kind == acrKindRegistry {
 		return p.putRegistry(ctx, id, body)
+	}
+
+	if isACRDataChild(kind) {
+		return p.putDataChild(id, kind, body)
+	}
+
+	if isACRCacheKind(kind) {
+		return p.putCacheChild(id, kind, body)
 	}
 
 	return p.putChild(ctx, id, kind, body)
@@ -276,6 +316,21 @@ func (p *ContainerRegistryProvider) putRegistry(
 	}
 
 	if err = p.syncAnonymousPull(rec); err != nil {
+		return nil, err
+	}
+
+	if err = p.syncNetwork(rec); err != nil {
+		return nil, err
+	}
+
+	var was *bool
+
+	if exists {
+		prior := acrEncryptionEnabled(existing.extra)
+		was = &prior
+	}
+
+	if err = p.syncEncryption(rec, was); err != nil {
 		return nil, err
 	}
 
@@ -422,6 +477,9 @@ func (p *ContainerRegistryProvider) Patch(
 		return nil, ErrACRRegistryNotFound
 	}
 
+	prevExtra, prevSKU := maps.Clone(rec.extra), rec.sku
+	wasEncrypted := acrEncryptionEnabled(rec.extra)
+
 	if _, has := body[acrFieldSKU]; has {
 		sku, err := parseSKU(body, rec.sku)
 		if err != nil {
@@ -442,10 +500,24 @@ func (p *ContainerRegistryProvider) Patch(
 	if props := mapOf(body[fieldProperties]); props != nil {
 		updated, err := p.patchProps(rec, info, props)
 		if err != nil {
+			rec.extra = prevExtra
+
 			return nil, err
 		}
 
 		info = updated
+	}
+
+	if err := p.syncNetwork(rec); err != nil {
+		rec.extra, rec.sku = prevExtra, prevSKU
+
+		return nil, err
+	}
+
+	if err := p.syncEncryption(rec, &wasEncrypted); err != nil {
+		rec.extra, rec.sku = prevExtra, prevSKU
+
+		return nil, err
 	}
 
 	return p.registryBody(id, rec, info)
@@ -504,6 +576,10 @@ func (p *ContainerRegistryProvider) bodyFor(id ResourceID, kind acrKind) (map[st
 		return nil, ErrACRRegistryNotFound
 	}
 
+	if isACRDataChild(kind) {
+		return p.getDataChild(id, kind)
+	}
+
 	rec, ok := p.child(id, kind)
 	if !ok {
 		return nil, acrNotFound(kind)
@@ -526,6 +602,10 @@ func (p *ContainerRegistryProvider) Delete(_ context.Context, id ResourceID) err
 		return p.deleteRegistry(id.ResourceGroup, id.LeafName())
 	}
 
+	if isACRDataChild(kind) {
+		return p.deleteDataChild(id, kind)
+	}
+
 	key := acrKey(id.ResourceGroup, kind, id.Names[0], id.LeafName())
 	if _, ok := p.res[key]; !ok {
 		return acrNotFound(kind)
@@ -535,6 +615,10 @@ func (p *ContainerRegistryProvider) Delete(_ context.Context, id ResourceID) err
 		if err := p.dataPlane.DeleteWebhook(id.Names[0], id.LeafName()); err != nil {
 			return err
 		}
+	}
+
+	if err := p.beforeCacheDelete(id, kind); err != nil {
+		return err
 	}
 
 	delete(p.res, key)
@@ -596,8 +680,13 @@ func (p *ContainerRegistryProvider) ListChildren(id ResourceID, kind acrKind) ([
 	p.mu.RLock("ListChildren")
 	defer p.mu.RUnlock()
 
-	if _, ok := p.registry(id.ResourceGroup, id.Names[0]); !ok {
+	reg, ok := p.registry(id.ResourceGroup, id.Names[0])
+	if !ok {
 		return nil, ErrACRRegistryNotFound
+	}
+
+	if isACRDataChild(kind) {
+		return p.listDataChildren(id, kind, reg.name)
 	}
 
 	out := []map[string]any{}
@@ -621,8 +710,18 @@ func (p *ContainerRegistryProvider) ListChildren(id ResourceID, kind acrKind) ([
 }
 
 func childTypeSegment(kind acrKind) string {
-	if kind == acrKindReplication {
+	switch kind {
+	case acrKindReplication:
 		return acrReplicationsType
+	case acrKindScopeMap:
+		return acrScopeMapsType
+	case acrKindToken:
+		return acrTokensType
+	case acrKindCacheRule:
+		return acrCacheRulesType
+	case acrKindCredentialSet:
+		return acrCredentialSetsType
+	case acrKindRegistry, acrKindWebhook, acrKindUnsupported:
 	}
 
 	return acrWebhooksType
@@ -678,6 +777,19 @@ func acrErrorDetails(err error) (errorEntry, bool) {
 		{ErrACRAdminDisabled, errorEntry{"AdminUserDisabled", "The admin user is not enabled.", http.StatusBadRequest}},
 		{ErrACRInvalidCredential, errorEntry{
 			"InvalidParameter", "The credential name must be password or password2.", http.StatusBadRequest,
+		}},
+		{ErrACRScopeMapNotFound, notFoundEntry("The scope map was not found.")},
+		{ErrACRTokenNotFound, notFoundEntry("The token was not found.")},
+		{ErrACRCacheRuleNotFound, notFoundEntry("The cache rule was not found.")},
+		{ErrACRCredentialSetNotFound, notFoundEntry("The credential set was not found.")},
+		{ErrACRCredentialSetInUse, errorEntry{
+			apimCodeConflict, "The credential set is used by a cache rule.", http.StatusConflict,
+		}},
+		{ErrACRImportNotFound, notFoundEntry("The source image was not found.")},
+		{ErrACRImportTagExists, errorEntry{apimCodeConflict, "A target tag already exists.", http.StatusConflict}},
+		{ErrACRScopeMapInUse, errorEntry{apimCodeConflict, "The scope map is used by a token.", http.StatusConflict}},
+		{ErrACRScopeMapReadOnly, errorEntry{
+			"InvalidParameter", "System-defined scope maps cannot be modified.", http.StatusBadRequest,
 		}},
 		{ErrACRUnavailable, errorEntry{
 			"ServiceUnavailable", "The container registry data plane is not available.", http.StatusServiceUnavailable,

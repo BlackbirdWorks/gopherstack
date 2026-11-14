@@ -29,12 +29,15 @@ const (
 
 // Handler owns the registry listener.
 type Handler struct {
-	Backend  *InMemoryBackend
-	srvMu    *lockmetrics.RWMutex
-	srv      *http.Server
-	done     *sync.WaitGroup
-	Settings Settings
-	Port     int
+	// ValidateToken checks a Microsoft Entra access token offered to /oauth2/exchange; nil accepts any non-empty
+	// token.
+	ValidateToken func(token, tenant string) error
+	Backend       *InMemoryBackend
+	srvMu         *lockmetrics.RWMutex
+	srv           *http.Server
+	done          *sync.WaitGroup
+	Settings      Settings
+	Port          int
 }
 
 // NewHandler returns a Handler over backend.
@@ -42,6 +45,8 @@ func NewHandler(backend *InMemoryBackend, settings Settings) *Handler {
 	if settings.Port == 0 {
 		settings.Port = DefaultPort
 	}
+
+	backend.SetRemoteImports(settings.RemoteImports)
 
 	return &Handler{
 		Backend: backend, Settings: settings, Port: settings.Port,

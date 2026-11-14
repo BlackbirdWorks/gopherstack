@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"sync"
@@ -590,3 +591,47 @@ func TestContainerRegistryAnonymousPullReachesDataPlane(t *testing.T) {
 		assert.Equal(t, want, got)
 	}
 }
+
+func (f *fakeRegistries) ScopeMaps(string) ([]azurearm.ContainerRegistryScopeMap, error) {
+	return nil, azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) SetScopeMap(string, string, string, []string) error {
+	return azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) DeleteScopeMap(string, string) error { return azurearm.ErrACRUnavailable }
+
+func (f *fakeRegistries) Tokens(string) ([]azurearm.ContainerRegistryToken, error) {
+	return nil, azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) SetToken(string, string, string, bool) error {
+	return azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) DeleteToken(string, string) error { return azurearm.ErrACRUnavailable }
+
+func (f *fakeRegistries) GenerateTokenPassword(
+	string, string, string, *time.Time,
+) (azurearm.ContainerRegistryTokenPassword, error) {
+	return azurearm.ContainerRegistryTokenPassword{}, azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) ImportImage(context.Context, string, azurearm.ContainerRegistryImport) error {
+	return azurearm.ErrACRUnavailable
+}
+
+func (f *fakeRegistries) SetNetworkRules(string, azurearm.ContainerRegistryNetworkRules) error {
+	return nil
+}
+
+func (f *fakeRegistries) SetCacheRule(string, azurearm.ContainerRegistryCacheRule) error { return nil }
+
+func (f *fakeRegistries) DeleteCacheRule(string, string) error { return nil }
+
+func (f *fakeRegistries) CredentialHealth(string, string) (bool, string, string) { return true, "", "" }
+
+func (f *fakeRegistries) CheckEncryptionKey(string) error { return nil }
+
+func (f *fakeRegistries) SetEncryptionKey(string, string) error { return nil }
