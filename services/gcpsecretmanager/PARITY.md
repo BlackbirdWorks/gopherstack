@@ -7,7 +7,7 @@ overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "Secret id [a-zA-Z0-9_-]{1,255}; replication required (automatic or user_managed with unique locations, optional CMEK). Validates labels/annotations limits, topics, rotation (needs topics, next_rotation_time and a period of at least 1h), version_destroy_ttl (at least 24h), version_aliases. ttl is converted to a stored expire_time."}
+  CreateSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "Secret id [a-zA-Z0-9_-]{1,255}; replication required (automatic or user_managed with unique locations, optional CMEK). Validates labels/annotations limits, tags (key <parent>/<shortName> or tagKeys/<id>, non-empty value; input only, never echoed: secretmanagerpb resources.pb.go Secret.Tags), secret_type (defined enum values), topics, rotation (needs topics, next_rotation_time and a period of at least 1h), version_destroy_ttl (at least 24h), version_aliases. ttl is converted to a stored expire_time."}
   GetSecret: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NOT_FOUND for unknown or expired secrets."}
   UpdateSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask required; labels, annotations, topics, expire_time, ttl, rotation(.next_rotation_time/.rotation_period), version_aliases and version_destroy_ttl are mutable, anything else is INVALID_ARGUMENT. A stale etag is FAILED_PRECONDITION; every update issues a new etag."}
   ListSecrets: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, page_size (default 25, max 25000) and page_token via pkgs/page, total_size. filter supports name/labels.K/annotations.K/topics.name/create_time/expire_time with = != : < <= > >=, AND/OR/NOT/-, parentheses and bare terms."}
@@ -37,7 +37,6 @@ items_still_open:
   - "Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed."
   - "Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list."
   - "Customer-managed encryption keys are stored and echoed in replication_status but never used or validated against Cloud KMS."
-  - "Secret tags and secret_type are stored but not validated."
 leaks: {status: clean, note: "Background resources are the grpc.Server and the expiry janitor goroutine, both stopped and joined by Shutdown."}
 ---
 

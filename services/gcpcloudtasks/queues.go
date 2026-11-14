@@ -250,57 +250,6 @@ func (b *InMemoryBackend) ListQueues(req *cloudtaskspb.ListQueuesRequest) ([]*cl
 	return pg.Data, pg.Next, nil
 }
 
-// parseQueueFilter supports AND-joined `state=X`, `name=X` and `name:substring` terms.
-func parseQueueFilter(f string) (func(*cloudtaskspb.Queue) bool, error) {
-	var preds []func(*cloudtaskspb.Queue) bool
-
-	for term := range strings.SplitSeq(f, " AND ") {
-		term = strings.TrimSpace(term)
-		if term == "" {
-			continue
-		}
-
-		p, err := queueTerm(term)
-		if err != nil {
-			return nil, err
-		}
-
-		preds = append(preds, p)
-	}
-
-	return func(q *cloudtaskspb.Queue) bool {
-		for _, p := range preds {
-			if !p(q) {
-				return false
-			}
-		}
-
-		return true
-	}, nil
-}
-
-func queueTerm(term string) (func(*cloudtaskspb.Queue) bool, error) {
-	for _, op := range []string{"=", ":"} {
-		field, val, ok := strings.Cut(term, op)
-		if !ok {
-			continue
-		}
-
-		field, val = strings.TrimSpace(field), strings.Trim(strings.TrimSpace(val), `"`)
-
-		switch {
-		case field == "state" && op == "=":
-			return func(q *cloudtaskspb.Queue) bool { return q.GetState().String() == val }, nil
-		case field == "name" && op == "=":
-			return func(q *cloudtaskspb.Queue) bool { return q.GetName() == val }, nil
-		case field == "name":
-			return func(q *cloudtaskspb.Queue) bool { return strings.Contains(q.GetName(), val) }, nil
-		}
-	}
-
-	return nil, errInvalid("Unsupported filter term %q: use state=, name= or name:.", term)
-}
-
 // DeleteQueue removes a queue and its tasks; the name cannot be reused for 7 days.
 func (b *InMemoryBackend) DeleteQueue(name string) error {
 	if _, err := parseQueueName(name); err != nil {

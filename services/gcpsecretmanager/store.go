@@ -366,6 +366,16 @@ func (b *InMemoryBackend) CreateSecret(req *secretmanagerpb.CreateSecretRequest)
 		return nil, err
 	}
 
+	if err = validateTags(pb.GetTags()); err != nil {
+		return nil, err
+	}
+
+	if err = validateSecretType(pb.GetSecretType()); err != nil {
+		return nil, err
+	}
+
+	pb.Tags = nil
+
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 

@@ -200,7 +200,21 @@ func TestListQueues(t *testing.T) {
 		{name: "paged", pageSize: 2, want: []string{"alpha", "beta", "gamma"}},
 		{name: "state filter", filter: "state=PAUSED", want: []string{"beta"}},
 		{name: "name contains", filter: "name:amm", want: []string{"gamma"}},
-		{name: "unsupported", filter: "rateLimits>3", bad: true},
+		{name: "state colon space", filter: "state: PAUSED", want: []string{"beta"}},
+		{name: "not", filter: "NOT state=PAUSED", want: []string{"alpha", "gamma"}},
+		{name: "or", filter: "state=PAUSED OR name:alpha", want: []string{"alpha", "beta"}},
+		{name: "and parens", filter: "(name:alpha OR name:beta) AND state=RUNNING", want: []string{"alpha"}},
+		{name: "implicit and", filter: "name:a state=PAUSED", want: []string{"beta"}},
+		{name: "negated state", filter: "state!=PAUSED", want: []string{"alpha", "gamma"}},
+		{
+			name:   "numeric field",
+			filter: "rate_limits.max_dispatches_per_second>=0",
+			want:   []string{"alpha", "beta", "gamma"},
+		},
+		{name: "presence", filter: "rate_limits:*", want: []string{"alpha", "beta", "gamma"}},
+		{name: "unknown field", filter: "nope=3", bad: true},
+		{name: "bad operator", filter: "state=~PAUSED", bad: true},
+		{name: "unbalanced", filter: "(state=PAUSED", bad: true},
 	}
 
 	for _, tt := range tests {
