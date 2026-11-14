@@ -34,7 +34,7 @@ deferred: []
 items_still_open:
   - "Bearer token validation and AAD data-plane roles are not implemented; JWT-shaped bearer tokens are accepted without verification."
   - "History is capped at 50000 entries per store (the real limit is the tier storage quota, not an entry count)."
-  - "Snapshots complete synchronously: no provisioning or failed state, and composition_type key keeps the later filter's key-value when filters select several labels of one key (behaviour inferred, not verified)."
+  - "Snapshots complete synchronously: the create response carries status ready where the REST reference shows 201 with status provisioning, an Operation-Location header and later ready, and the failed state is never entered; with composition_type key, which key-value wins when several filters select different labels of one key is not published: checked rest-api-snapshot and concept-snapshots (emulator keeps the later filter's)"
   - "Replicas are metadata only and do not replicate or serve a separate data set."
   - "Customer-managed key encryption, private endpoint connections, and SKU request quotas are not modelled."
 leaks: {status: clean, note: "Shutdown closes the HTTPS server and waits for the serve goroutine; there are no background workers."}
@@ -49,3 +49,6 @@ One data plane serves every store; the store is resolved from the path prefix, t
 `azurerm_app_configuration_key` and `azurerm_app_configuration_feature` cannot run against a custom `metadata_host`: go-azure-sdk's `environments.FromEndpoint` documents that the App Configuration domain suffix is missing from the metadata document, so the provider fails before it reaches the data plane. The terraform test therefore applies the store and drives key-values through the SDK with the connection string ARM hands out.
 
 The azappconfig SDK sends its point-in-time selector as `after=<RFC 3339 time>` on list calls; the service treats a parseable timestamp in `after` as an Accept-Datetime and keeps it across pages through an `at` parameter on the next link.
+
+## Primary-source checks (2026-11-13)
+- azureappconfig: rest-api-snapshot lists status provisioning|ready|archived|failed, filter Count 1..3, and rejects multi-match label filters with composition_type key.

@@ -20,6 +20,7 @@ type deletedItem struct {
 	Federated        []FederatedCredential `json:"federatedIdentityCredentials,omitempty"`
 	Owners           []string              `json:"owners,omitempty"`
 	Members          []string              `json:"members,omitempty"`
+	MemberOf         []string              `json:"memberOf,omitempty"`
 }
 
 func (d *deletedItem) object() Object {
@@ -109,6 +110,10 @@ func (b *Backend) deleteObject(id string) {
 			Federated: slices.Clone(b.fics[id]),
 		}
 
+		if _, isUser := o.(*User); isUser {
+			item.MemberOf = b.groupsHolding(id)
+		}
+
 		switch e := o.(type) {
 		case *Application:
 			item.Application = e
@@ -196,8 +201,9 @@ func (b *Backend) PermanentDelete(id string) error {
 	return nil
 }
 
-// RestoreDeleted moves a soft-deleted object back into the directory with its own owners, members and
-// credentials. References from other objects to it are gone, as are its app role assignments and grants.
+// RestoreDeleted moves a soft-deleted object back into the directory with its own owners, members, credentials
+// and (for a user) group memberships. References from other objects to it are gone, as are its app role
+// assignments and grants.
 func (b *Backend) RestoreDeleted(id string) (Object, error) {
 	b.mu.Lock("RestoreDeleted")
 	defer b.mu.Unlock()
@@ -216,6 +222,7 @@ func (b *Backend) RestoreDeleted(id string) (Object, error) {
 	b.deleted.del(id)
 	b.owners[id] = b.stillPresent(d.Owners)
 	b.members[id] = b.stillPresent(d.Members)
+	b.rejoinGroups(id, d.MemberOf)
 	maps.Copy(b.secrets, d.Secrets)
 	maps.Copy(b.keyMaterial, d.KeyMaterial)
 
@@ -224,6 +231,28 @@ func (b *Backend) RestoreDeleted(id string) (Object, error) {
 	}
 
 	return d.object(), nil
+}
+
+func (b *Backend) groupsHolding(id string) []string {
+	var out []string
+
+	for g, members := range b.members {
+		if slices.ContainsFunc(members, func(m string) bool { return lc(m) == id }) {
+			out = append(out, g)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
+}
+
+func (b *Backend) rejoinGroups(id string, groups []string) {
+	for _, g := range groups {
+		if _, ok := b.groups.get(g); ok && !slices.Contains(b.members[g], id) {
+			b.members[g] = append(b.members[g], id)
+		}
+	}
 }
 
 func (b *Backend) stillPresent(ids []string) []string {

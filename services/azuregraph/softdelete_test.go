@@ -122,6 +122,24 @@ func TestSoftDeleteRules(t *testing.T) {
 			http.StatusNotFound, "Request_ResourceNotFound")
 	})
 
+	t.Run("restored user rejoins its groups", func(t *testing.T) {
+		t.Parallel()
+
+		e := newEnv(t)
+		g := newGroup(t, e, "Rejoin Group")
+		u := newUser(t, e, "rejoin"+upnDomain)
+		ref := map[string]any{"@odata.id": "https://graph.microsoft.com/v1.0/directoryObjects/" + str(u, "id")}
+		require.Equal(t, http.StatusNoContent,
+			e.req(t, http.MethodPost, "/v1.0/groups/"+str(g, "id")+"/members/$ref", ref).status)
+		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/users/"+str(u, "id"), nil).status)
+		assert.Empty(t, values2(e.req(t, http.MethodGet, "/v1.0/groups/"+str(g, "id")+"/members", nil), "id"))
+
+		require.Equal(t, http.StatusOK,
+			e.req(t, http.MethodPost, "/v1.0/directory/deletedItems/"+str(u, "id")+"/restore", nil).status)
+		assert.Equal(t, []string{str(u, "id")},
+			values2(e.req(t, http.MethodGet, "/v1.0/groups/"+str(g, "id")+"/members", nil), "id"))
+	})
+
 	t.Run("security group is hard deleted", func(t *testing.T) {
 		t.Parallel()
 
