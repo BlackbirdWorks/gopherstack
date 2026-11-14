@@ -251,6 +251,42 @@ func TestSDK_TrinoLambdas(t *testing.T) {
 			[][]string{{"[2, 1]"}},
 		},
 		{"null array", "SELECT transform(element_at(ARRAY[ARRAY[1]], 5), x -> x)", [][]string{{""}}},
+		{
+			"array_sort comparator desc",
+			"SELECT array_sort(ARRAY[3, 1, 2], (a, b) -> CASE WHEN a < b THEN 1 WHEN a > b THEN -1 ELSE 0 END)",
+			[][]string{{"[3, 2, 1]"}},
+		},
+		{
+			"array_sort by length keeps ties stable",
+			"SELECT array_sort(ARRAY['bb', 'a', 'cc', 'ddd'], (x, y) -> length(x) - length(y))",
+			[][]string{{"[a, bb, cc, ddd]"}},
+		},
+		{
+			"array_sort column",
+			"SELECT array_sort(nums, (a, b) -> b - a) FROM docs ORDER BY id",
+			[][]string{{"[3, 2, 1]"}, {"[5, 4]"}},
+		},
+		{
+			"map_zip_with",
+			"SELECT map_zip_with(MAP(ARRAY['a', 'b'], ARRAY[1, 2]), MAP(ARRAY['b', 'c'], ARRAY[10, 20]), " +
+				"(k, v1, v2) -> coalesce(v1, 0) + coalesce(v2, 0))",
+			[][]string{{"{a=1, b=12, c=20}"}},
+		},
+		{
+			"map_zip_with column",
+			"SELECT map_zip_with(m, m, (k, v1, v2) -> v1 * v2) FROM docs WHERE id = 1",
+			[][]string{{"{a=1, b=4}"}},
+		},
+		{
+			"reduce_agg",
+			"SELECT reduce_agg(id, 0, (s, x) -> s + x, (s1, s2) -> s1 + s2) FROM docs",
+			[][]string{{"3"}},
+		},
+		{
+			"reduce_agg grouped",
+			"SELECT id % 2, reduce_agg(id, 1, (s, x) -> s * (x + 1), (s1, s2) -> s1 * s2) FROM docs GROUP BY id % 2 ORDER BY 1",
+			[][]string{{"0", "3"}, {"1", "2"}},
+		},
 	}
 
 	for _, tc := range cases {
@@ -547,6 +583,60 @@ func TestSDK_PartitionProjection(t *testing.T) {
 			sql:    "SELECT id FROM logs WHERE year BETWEEN 2023 AND 2024 ORDER BY id",
 			want:   [][]string{{"2"}, {"3"}},
 			listed: []string{"lake/logs/year=2023", "lake/logs/year=2024"},
+		},
+		{
+			name: "or branches union their partitions",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.year.type": "integer", "projection.year.range": "2020,2025",
+			},
+			keys: []athena.Column{{Name: "year", Type: "int"}},
+			objects: map[string]string{
+				"lake/logs/year=2021/a.csv": "1,a\n", "lake/logs/year=2022/a.csv": "2,b\n",
+				"lake/logs/year=2024/a.csv": "3,c\n",
+			},
+			sql:    "SELECT id FROM logs WHERE year = 2021 OR year >= 2024 ORDER BY id",
+			want:   [][]string{{"1"}, {"3"}},
+			listed: []string{"lake/logs/year=2021", "lake/logs/year=2024", "lake/logs/year=2025"},
+		},
+		{
+			name:   "injected under or",
+			params: map[string]string{"projection.enabled": "true", "projection.tenant.type": "injected"},
+			keys:   []athena.Column{{Name: "tenant", Type: "string"}},
+			objects: map[string]string{
+				"lake/logs/tenant=a/x.csv": "1,a\n",
+				"lake/logs/tenant=b/x.csv": "2,b\n",
+				"lake/logs/tenant=c/x.csv": "3,c\n",
+			},
+			sql:    "SELECT id FROM logs WHERE tenant = 'a' OR tenant = 'c' ORDER BY id",
+			want:   [][]string{{"1"}, {"3"}},
+			listed: []string{"lake/logs/tenant=a", "lake/logs/tenant=c"},
+		},
+		{
+			name: "non literal integer predicate",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.year.type": "integer", "projection.year.range": "2020,2030",
+			},
+			keys: []athena.Column{{Name: "year", Type: "int"}},
+			objects: map[string]string{
+				"lake/logs/year=2025/a.csv": "1,a\n", "lake/logs/year=2026/a.csv": "2,b\n",
+			},
+			sql:    "SELECT id FROM logs WHERE year = 2020 + 5",
+			want:   [][]string{{"1"}},
+			listed: []string{"lake/logs/year=2025"},
+		},
+		{
+			name: "non literal date predicate",
+			params: map[string]string{
+				"projection.enabled": "true", "projection.dt.type": "date", "projection.dt.format": "yyyy-MM-dd",
+				"projection.dt.range": "2026-10-01,2026-10-31",
+			},
+			keys: []athena.Column{{Name: "dt", Type: "string"}},
+			objects: map[string]string{
+				"lake/logs/dt=2026-10-21/a.csv": "1,a\n", "lake/logs/dt=2026-10-23/a.csv": "2,b\n",
+			},
+			sql:    "SELECT id FROM logs WHERE dt = cast(date_add('day', 1, date '2026-10-20') as varchar)",
+			want:   [][]string{{"1"}},
+			listed: []string{"lake/logs/dt=2026-10-21"},
 		},
 		{
 			name: "integer interval and digits",

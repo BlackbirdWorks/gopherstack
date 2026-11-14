@@ -301,7 +301,7 @@ func (x *translator) preWord(toks []token, i, nxt int, lw string, out []token) (
 		return append(out, res), i, true
 	}
 
-	if lw == "interval" && nxt >= 0 && toks[nxt].kind == tkString {
+	if lw == kwInterval && nxt >= 0 && toks[nxt].kind == tkString {
 		res, end := x.interval(toks, i, out)
 
 		return res, end, true

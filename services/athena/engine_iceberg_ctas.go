@@ -30,11 +30,23 @@ func isIcebergCTASProp(k string) bool {
 }
 
 func (p *writePlan) isIcebergCTAS() bool {
-	return p.stmt.kind == writeCTAS && strings.EqualFold(firstProp(p.stmt.props, propTableType), tableTypeIceberg)
+	return p.stmt.kind == writeCTAS &&
+		(p.s3tables || strings.EqualFold(firstProp(p.stmt.props, propTableType), tableTypeIceberg))
 }
 
 func (p *writePlan) validateIcebergCTAS() statementOutcome {
 	props := p.stmt.props
+
+	if _, ok := props[propLocation]; ok && p.s3tables {
+		return stmtFail(
+			athenaErrTypeSyntax,
+			"INVALID_TABLE_PROPERTY: line 1:1: location is not supported in S3 Tables catalogs",
+		)
+	}
+
+	if tt := firstProp(props, propTableType); p.s3tables && tt != "" && !strings.EqualFold(tt, tableTypeIceberg) {
+		return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: S3 Tables catalogs only hold ICEBERG tables")
+	}
 
 	for k := range props {
 		if k == "external_location" {
@@ -146,6 +158,32 @@ func ctasColumnSpecs(res *sqlResult) ([]iceberg.ColumnSpec, statementOutcome) {
 }
 
 func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	alloc, ok := p.cat.(tableAllocator)
+	if !ok {
+		return p.createIcebergCTAS(ctx, res, limits)
+	}
+
+	info, err := alloc.AllocateTable(p.db, p.table)
+	if err != nil {
+		if errors.Is(err, ErrCatalogEntityExists) {
+			return stmtFail(athenaErrTypeEntityFound,
+				"TABLE_ALREADY_EXISTS: line 1:1: Table '%s' already exists", p.display())
+		}
+
+		return allocFailure(err, p.db, p.table)
+	}
+
+	p.location = withSlash(info.Location)
+
+	out := p.createIcebergCTAS(ctx, res, limits)
+	if out.failed {
+		_ = p.cat.DeleteTable(p.db, p.table)
+	}
+
+	return out
+}
+
+func (p *writePlan) createIcebergCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
 	icProps, err := p.icebergCTASProps()
 	if err != nil {
 		return engineFailure(err)

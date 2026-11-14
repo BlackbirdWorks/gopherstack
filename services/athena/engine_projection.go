@@ -234,10 +234,10 @@ func (w whereFilters) add(qual, col string, p wherePred) {
 	f.add(qual, p)
 }
 
-func (w whereFilters) conjunct(c []token) {
+func (w whereFilters) conjunct(c []token, ev *constEval) {
 	if left, op, right, ok := opSplit(c); ok {
 		q, col, cok := columnRef(left)
-		v, vok := literalValue(right)
+		v, vok := literalOrConst(right, ev)
 
 		if cok && vok {
 			w.add(q, col, wherePred{op: op, vals: []string{v}})
@@ -248,13 +248,13 @@ func (w whereFilters) conjunct(c []token) {
 
 	sig := significant(c)
 	if in := firstTopLevelWord(sig, "in"); in > 0 {
-		w.inList(sig, in)
+		w.inList(sig, in, ev)
 	} else if bt := firstTopLevelWord(sig, "between"); bt > 0 {
-		w.between(sig, bt)
+		w.between(sig, bt, ev)
 	}
 }
 
-func (w whereFilters) inList(sig []token, in int) {
+func (w whereFilters) inList(sig []token, in int, ev *constEval) {
 	q, col, ok := columnRef(sig[:in])
 	rest := sig[in+1:]
 
@@ -265,7 +265,7 @@ func (w whereFilters) inList(sig []token, in int) {
 	var vals []string
 
 	for _, part := range splitArgs(rest[1 : len(rest)-1]) {
-		v, vok := literalValue(part)
+		v, vok := literalOrConst(part, ev)
 		if !vok {
 			return
 		}
@@ -276,7 +276,7 @@ func (w whereFilters) inList(sig []token, in int) {
 	w.add(q, col, wherePred{op: "in", vals: vals})
 }
 
-func (w whereFilters) between(sig []token, bt int) {
+func (w whereFilters) between(sig []token, bt int, ev *constEval) {
 	q, col, ok := columnRef(sig[:bt])
 	and := firstTopLevelWord(sig[bt+1:], "and")
 
@@ -284,8 +284,8 @@ func (w whereFilters) between(sig []token, bt int) {
 		return
 	}
 
-	lo, lok := literalValue(sig[bt+1 : bt+1+and])
-	hi, hok := literalValue(sig[bt+1+and+1:])
+	lo, lok := literalOrConst(sig[bt+1:bt+1+and], ev)
+	hi, hok := literalOrConst(sig[bt+1+and+1:], ev)
 
 	if lok && hok {
 		w.add(q, col, wherePred{op: ">=", vals: []string{lo}})
@@ -293,33 +293,22 @@ func (w whereFilters) between(sig []token, bt int) {
 	}
 }
 
-// extractWhereFilters gathers simple column predicates from every WHERE clause in the query.
+// extractWhereFilters returns the predicates of a query whose WHERE clauses are plain conjunctions;
+// a disjunction yields no filters.
 func extractWhereFilters(query string) whereFilters {
-	out := whereFilters{}
-
-	toks, err := tokenize(query)
-	if err != nil {
-		return out
+	if sets := extractWhereSets(query, nil); len(sets) == 1 {
+		return sets[0]
 	}
 
-	for i, t := range toks {
-		if !t.isWord("where") {
-			continue
-		}
+	return whereFilters{}
+}
 
-		end := orderByLikeEnd(toks, i+1)
-
-		conj, ok := splitConjuncts(toks[i+1 : end])
-		if !ok {
-			continue
-		}
-
-		for _, c := range conj {
-			out.conjunct(c)
-		}
+func literalOrConst(toks []token, ev *constEval) (string, bool) {
+	if v, ok := literalValue(toks); ok {
+		return v, true
 	}
 
-	return out
+	return ev.value(toks)
 }
 
 func orderByLikeEnd(toks []token, from int) int {
@@ -610,20 +599,33 @@ func projectedLocation(def *GlueTableDef, template string, vals []string) string
 
 // applyProjection replaces the Glue partitions of projection-enabled tables.
 func applyProjection(plan *enginePlan, query string, now time.Time) error {
-	var filters whereFilters
+	var sets []whereFilters
 
 	for _, pt := range plan.tables {
 		if !projectionEnabled(pt.def) {
 			continue
 		}
 
-		if filters == nil {
-			filters = extractWhereFilters(query)
+		if sets == nil {
+			sets = extractWhereSets(query, &constEval{now: now})
 		}
 
-		parts, err := projectPartitions(pt.def, ownFilters(plan, pt, filters), now)
-		if err != nil {
-			return err
+		var parts []GluePartitionDef
+
+		seen := map[string]bool{}
+
+		for _, filters := range sets {
+			alt, err := projectPartitions(pt.def, ownFilters(plan, pt, filters), now)
+			if err != nil {
+				return err
+			}
+
+			for _, p := range alt {
+				if id := strings.Join(p.Values, "\x00"); !seen[id] {
+					seen[id] = true
+					parts = append(parts, p)
+				}
+			}
 		}
 
 		pt.parts = parts

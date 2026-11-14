@@ -120,7 +120,12 @@ func (t *planTable) loadDelta(ctx context.Context, conn *sql.Conn, l *tableLoade
 				bucket, key = b, k
 			}
 
-			if lerr := l.loadColumnarFile(ctx, bucket, key, deltaFileCols(snap, f), nil, sink); lerr != nil {
+			skip, derr := l.deltaDeletedRows(ctx, st, f.DeletionVector)
+			if derr != nil {
+				return derr
+			}
+
+			if lerr := l.loadColumnarFile(ctx, bucket, key, deltaFileCols(snap, f), skip, sink); lerr != nil {
 				return lerr
 			}
 		}
@@ -152,4 +157,50 @@ func deltaFileCols(snap *deltalog.Snapshot, f deltalog.AddFile) []fileCol {
 	}
 
 	return fcs
+}
+
+// deltaDeletedRows resolves a data file's deletion vector to the row indexes it removes.
+func (l *tableLoader) deltaDeletedRows(
+	ctx context.Context, st *deltaStorage, dv *deltalog.DeletionVector,
+) (map[int64]bool, error) {
+	if dv == nil {
+		return map[int64]bool{}, nil
+	}
+
+	if dv.StorageType == "i" {
+		rows, err := dv.ParseInline()
+		if err != nil {
+			return nil, fmt.Errorf("DELTA_LAKE_BAD_DATA: %w", err)
+		}
+
+		return rows, nil
+	}
+
+	p, abs, err := dv.FilePath()
+	if err != nil {
+		return nil, fmt.Errorf("DELTA_LAKE_BAD_DATA: %w", err)
+	}
+
+	bucket, key := st.bucket, st.prefix+p
+
+	if abs {
+		b, k, ok := splitS3URI(p)
+		if !ok {
+			return nil, fmt.Errorf("DELTA_LAKE_BAD_DATA: %w %q", errBadLocation, p)
+		}
+
+		bucket, key = b, k
+	}
+
+	data, err := l.readObject(ctx, bucket, key)
+	if err != nil {
+		return nil, fmt.Errorf("DELTA_LAKE_BAD_DATA: cannot read deletion vector: %w", err)
+	}
+
+	rows, err := dv.ParseFileDV(data)
+	if err != nil {
+		return nil, fmt.Errorf("DELTA_LAKE_BAD_DATA: %w", err)
+	}
+
+	return rows, nil
 }

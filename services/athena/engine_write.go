@@ -159,7 +159,7 @@ func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 		return stmtOK()
 	case writeCTAS:
 		if p.s3tables {
-			return stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error())
+			break
 		}
 
 		if _, err := b.glueSource.GetDatabase(p.db); err != nil {
@@ -314,6 +314,10 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 
 			return stmtFail(athenaErrTypeEntityFound,
 				"TABLE_ALREADY_EXISTS: line 1:1: Table '%s' already exists", p.display()), false
+		}
+
+		if p.s3tables {
+			return stmtOK(), false
 		}
 
 		loc, err := p.ctasLocation()
