@@ -31,6 +31,16 @@ func (b *InMemoryBackend) startEngineQuery(id string, plan *enginePlan) {
 		start := time.Now()
 		result, scanned, outcome := plan.run(ctx, limits)
 
+		for attempt := 1; outcome.conflict && plan.replan != nil && attempt < maxCommitAttempts; attempt++ {
+			next := plan.replan()
+			if next == nil {
+				break
+			}
+
+			plan = next
+			result, scanned, outcome = plan.run(ctx, limits)
+		}
+
 		b.completeEngineQuery(ctx, id, result, scanned, time.Since(start), outcome)
 	}()
 }

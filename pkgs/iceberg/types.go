@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/hivetype"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -89,7 +90,7 @@ func hivePrimitive(p string) (string, error) {
 		p == typeBinary:
 		return p, nil
 	case p == typeLong:
-		return "bigint", nil
+		return typeBigint, nil
 	case p == typeTime:
 		return typeTime, nil
 	case p == typeTimestamp:
@@ -118,7 +119,7 @@ func PrimitiveName(raw jsontext.Value) string {
 }
 
 // FromHive maps an Athena/Hive column type to an Iceberg primitive type name.
-// Nested types are not writable and return ErrUnsupportedType.
+// Nested types return ErrUnsupportedType; use TypeFromHive for them.
 func FromHive(hive string) (string, error) {
 	t := strings.ToLower(strings.TrimSpace(hive))
 	base, _, _ := strings.Cut(t, "(")
@@ -129,7 +130,7 @@ func FromHive(hive string) (string, error) {
 		return base, nil
 	case "tinyint", "smallint", typeInt, "integer":
 		return typeInt, nil
-	case "bigint":
+	case typeBigint:
 		return typeLong, nil
 	case "real":
 		return typeFloat, nil
@@ -162,6 +163,19 @@ func FromHive(hive string) (string, error) {
 	}
 }
 
+func columnType(hive string, next *int) (jsontext.Value, error) {
+	if t, err := hivetype.Parse(hive); err == nil && t.Nested() {
+		return TypeFromHive(hive, next)
+	}
+
+	t, err := FromHive(hive)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(t, jsonx.V1())
+}
+
 // ColumnSpec is a column of a table about to be created.
 type ColumnSpec struct {
 	Name    string
@@ -172,14 +186,14 @@ type ColumnSpec struct {
 // SchemaFromColumns builds a schema with sequential field ids; columns are optional (nullable).
 func SchemaFromColumns(cols []ColumnSpec) (Schema, error) {
 	fields := make([]Field, 0, len(cols))
+	next := len(cols) + 1
 
 	for i, c := range cols {
-		t, err := FromHive(c.Type)
+		raw, err := columnType(c.Type, &next)
 		if err != nil {
 			return Schema{}, err
 		}
 
-		raw, _ := json.Marshal(t, jsonx.V1())
 		fields = append(fields, Field{ID: i + 1, Name: c.Name, Type: raw, Doc: c.Comment})
 	}
 

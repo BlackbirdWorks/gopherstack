@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/hivetype"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -30,6 +31,7 @@ const (
 	fmtJSON
 	fmtParquet
 	fmtAvro
+	fmtORC
 )
 
 const (
@@ -124,8 +126,9 @@ func detectFormat(def *GlueTableDef) (tableFormat, error) {
 
 		return f, nil
 	case strings.Contains(lib, "orc") || strings.Contains(in, "orc"):
-		return f, fmt.Errorf("%w: ORC (SerDe %q); the embedded SQL engine reads CSV, TSV, JSON lines and Parquet only",
-			errUnsupportedFormat, def.SerdeLibrary)
+		f.kind = fmtORC
+
+		return f, nil
 	case strings.Contains(lib, "avro") || strings.Contains(in, "avro"):
 		f.kind = fmtAvro
 
@@ -247,16 +250,21 @@ func convertValue(raw string, k colKind, nullToken bool) any {
 }
 
 type rowSink struct {
-	stmt  *sql.Stmt
-	kinds []colKind
-	extra []any
-	nargs int
+	stmt *sql.Stmt
+	// reject drops a row (e.g. matched by an equality delete) before it is inserted.
+	reject func(rec []string, nulls []bool) bool
+	kinds  []colKind
+	extra  []any
+	// rowTypes holds the declared type of columns containing a struct, so their fields keep declaration order.
+	rowTypes []*hivetype.Type
+	nargs    int
 }
 
 type tableLoader struct {
 	get     S3Getter
 	list    S3Lister
 	want    columnSet
+	filters []filterTerm
 	limits  EngineLimits
 	scanned int64
 	rows    int
@@ -358,8 +366,8 @@ func (l *tableLoader) loadObject(
 	}
 	defer func() { _ = out.Body.Close() }()
 
-	if f.kind == fmtParquet {
-		return l.loadParquet(ctx, out.Body, bucket, key, cols, sink)
+	if f.kind == fmtParquet || f.kind == fmtORC {
+		return l.loadColumnar(ctx, out.Body, f.kind, bucket, key, cols, sink)
 	}
 
 	if f.kind == fmtAvro {
@@ -572,6 +580,10 @@ func (l *tableLoader) insert(ctx context.Context, sink *rowSink, rec []string, n
 }
 
 func (l *tableLoader) insertJSON(ctx context.Context, sink *rowSink, rec []string, nulls []bool) error {
+	if sink.reject != nil && sink.reject(rec, nulls) {
+		return nil
+	}
+
 	if err := l.checkRow(ctx); err != nil {
 		return err
 	}
@@ -579,9 +591,12 @@ func (l *tableLoader) insertJSON(ctx context.Context, sink *rowSink, rec []strin
 	args := make([]any, 0, sink.nargs)
 
 	for i, k := range sink.kinds {
-		if nulls[i] {
+		switch {
+		case nulls[i]:
 			args = append(args, nil)
-		} else {
+		case i < len(sink.rowTypes) && sink.rowTypes[i] != nil:
+			args = append(args, orderStructs(rec[i], sink.rowTypes[i]))
+		default:
 			args = append(args, convertValue(rec[i], k, false))
 		}
 	}

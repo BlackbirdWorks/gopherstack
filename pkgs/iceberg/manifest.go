@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/iskorotkov/avro/v2"
@@ -32,6 +33,8 @@ type DataFile struct {
 	Partition   map[string]any
 	ValueCounts map[int]int64
 	NullCounts  map[int]int64
+	LowerBounds map[int][]byte
+	UpperBounds map[int][]byte
 	Path        string
 	Format      string
 	EqualityIDs []int
@@ -192,6 +195,7 @@ func ReadManifest(data []byte) ([]ManifestEntry, error) {
 			Partition: unwrapMap(part), RecordCount: asInt64(df["record_count"]),
 			FileSize: asInt64(df["file_size_in_bytes"]), ValueCounts: intLongMap(df["value_counts"]),
 			NullCounts: intLongMap(df["null_value_counts"]), EqualityIDs: intList(df["equality_ids"]),
+			LowerBounds: intBytesMap(df["lower_bounds"]), UpperBounds: intBytesMap(df["upper_bounds"]),
 		}
 		out = append(out, e)
 	}
@@ -228,7 +232,16 @@ func unwrap(v any) any {
 	if m, ok := v.(map[string]any); ok && len(m) == 1 {
 		for k, inner := range m {
 			switch k {
-			case typeInt, typeLong, typeString, typeBoolean, typeFloat, typeDouble, "bytes", "array", typeMap, "record":
+			case typeInt,
+				typeLong,
+				typeString,
+				typeBoolean,
+				typeFloat,
+				typeDouble,
+				"bytes",
+				typeArray,
+				typeMap,
+				"record":
 				return inner
 			}
 		}
@@ -288,6 +301,28 @@ func intLongMap(v any) map[int]int64 {
 	return out
 }
 
+func intBytesMap(v any) map[int][]byte {
+	arr, ok := unwrap(v).([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make(map[int][]byte, len(arr))
+
+	for _, e := range arr {
+		m, isMap := e.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		if b, isBytes := unwrap(m["value"]).([]byte); isBytes {
+			out[int(asInt64(m["key"]))] = b
+		}
+	}
+
+	return out
+}
+
 func intList(v any) []int {
 	arr, ok := unwrap(v).([]any)
 	if !ok {
@@ -341,7 +376,7 @@ func avroOptional(name string, typ any, id int) map[string]any {
 
 func kvArray(name string, keyID, valID int, valType string) map[string]any {
 	return map[string]any{
-		keyType: "array", "logicalType": typeMap,
+		keyType: typeArray, "logicalType": typeMap,
 		"items": map[string]any{
 			keyType: avroRecord, keyName: name,
 			keyFields: []any{
@@ -386,6 +421,13 @@ func manifestSchema(meta *TableMetadata, spec PartitionSpec) (string, error) {
 				"null_value_counts",
 				kvArray("k121_v122", idNullCountsKey, idNullCountsValue, typeLong),
 				idNullCounts,
+			),
+			avroOptional("lower_bounds", kvArray("k126_v127", idLowerKey, idLowerValue, "bytes"), idLowerBounds),
+			avroOptional("upper_bounds", kvArray("k129_v130", idUpperKey, idUpperValue, "bytes"), idUpperBounds),
+			avroOptional(
+				"equality_ids",
+				map[string]any{keyType: typeArray, "items": typeInt, "element-id": idEqualityElement},
+				idEqualityIDs,
 			),
 		},
 	}
@@ -462,6 +504,8 @@ func entryRow(e ManifestEntry, spec PartitionSpec) map[string]any {
 		keyContent: i32(e.DataFile.Content), "file_path": e.DataFile.Path, "file_format": e.DataFile.Format,
 		"partition": part, "record_count": e.DataFile.RecordCount, "file_size_in_bytes": e.DataFile.FileSize,
 		"value_counts": kvRows(e.DataFile.ValueCounts), "null_value_counts": kvRows(e.DataFile.NullCounts),
+		"lower_bounds": kvBytesRows(e.DataFile.LowerBounds), "upper_bounds": kvBytesRows(e.DataFile.UpperBounds),
+		"equality_ids": eqIDRows(e.DataFile.EqualityIDs),
 	}
 
 	row := map[string]any{"status": i32(e.Status), "data_file": df}
@@ -470,6 +514,39 @@ func entryRow(e ManifestEntry, spec PartitionSpec) map[string]any {
 	row["file_sequence_number"] = e.SequenceNumber
 
 	return row
+}
+
+func kvBytesRows(m map[int][]byte) any {
+	if len(m) == 0 {
+		return nil
+	}
+
+	keys := make([]int, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	rows := make([]map[string]any, 0, len(m))
+	for _, k := range keys {
+		rows = append(rows, map[string]any{keyKey: i32(k), keyValue: m[k]})
+	}
+
+	return rows
+}
+
+func eqIDRows(ids []int) any {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	out := make([]int32, len(ids))
+	for i, id := range ids {
+		out[i] = i32(id)
+	}
+
+	return out
 }
 
 func kvRows(m map[int]int64) any {

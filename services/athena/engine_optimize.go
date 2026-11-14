@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
-	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
 const (
@@ -34,19 +33,13 @@ func (l *tableLoader) deleteRefs(ctx context.Context, dels []fileEntry) (map[str
 	out := make(map[string]map[string]bool, len(dels))
 
 	for _, d := range dels {
-		data, err := l.readURI(ctx, d.entry.DataFile.Path)
-		if err != nil {
-			return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s", d.entry.DataFile.Path)
+		if d.entry.DataFile.Content == iceberg.ContentEqualityDeletes {
+			continue
 		}
 
-		pf, err := parquetio.Open(data)
+		pf, err := l.openDeleteFile(ctx, d.entry.DataFile.Path, d.entry.DataFile.Format)
 		if err != nil {
-			return nil, icebergFailf(
-				"ICEBERG_CANNOT_OPEN_SPLIT",
-				"Cannot open delete file %s: %v",
-				d.entry.DataFile.Path,
-				err,
-			)
+			return nil, err
 		}
 
 		refs := map[string]bool{}
@@ -119,8 +112,9 @@ func (p *writePlan) optimizeInputs(
 // groups buckets the data files worth rewriting by partition.
 func (in *optInputs) groups(props map[string]string) ([]string, map[string]*optGroup) {
 	delThr := intProp(props, propRewriteDeleteThreshold, defaultDeleteThreshold)
-	minSize := int64(defaultTargetFileBytes * minFileRatioNum / minFileRatioDen)
-	maxSize := int64(defaultTargetFileBytes * maxFileRatioNum / maxFileRatioDen)
+	target := int64(intProp(props, propTargetFileBytes, defaultTargetFileBytes))
+	minSize := target * minFileRatioNum / minFileRatioDen
+	maxSize := target * maxFileRatioNum / maxFileRatioDen
 	matchedParts := map[string]bool{}
 
 	for _, f := range in.files.data {
@@ -198,9 +192,34 @@ func (in *optInputs) change(props map[string]string) (iceberg.Change, []int) {
 		}
 	}
 
+	in.dropCoveredEqualityDeletes(&ch)
 	sort.Ints(rewrite)
 
 	return ch, rewrite
+}
+
+// dropCoveredEqualityDeletes retires equality delete files whose every target data file is rewritten away.
+func (in *optInputs) dropCoveredEqualityDeletes(ch *iceberg.Change) {
+	for _, d := range in.files.deletes {
+		if d.entry.DataFile.Content != iceberg.ContentEqualityDeletes {
+			continue
+		}
+
+		eq := eqDelete{seq: d.seq, spec: d.spec, part: d.entry.DataFile.Partition}
+		covered := true
+
+		for _, f := range in.files.data {
+			if eq.appliesTo(f) && !ch.RemoveData[f.entry.DataFile.Path] {
+				covered = false
+
+				break
+			}
+		}
+
+		if covered {
+			ch.RemoveDeletes[d.entry.DataFile.Path] = true
+		}
+	}
 }
 
 func allRemoved(refs, removed map[string]bool) bool {

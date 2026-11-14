@@ -33,6 +33,7 @@ func icebergTableProps() map[string]string {
 		"vacuum_max_snapshot_age_seconds":        "history.expire.max-snapshot-age-ms",
 		"vacuum_max_metadata_files_to_keep":      "write.metadata.previous-versions-max",
 		"write_data_path_enabled":                "write.data.path.enabled",
+		"write_target_data_file_size_bytes":      propTargetFileBytes,
 	}
 }
 
@@ -61,9 +62,9 @@ func icebergProps(raw map[string]string) (map[string]string, error) {
 
 		switch lk {
 		case propFormat:
-			if !strings.EqualFold(v, "parquet") && !strings.EqualFold(v, "avro") {
+			if !strings.EqualFold(v, "parquet") && !strings.EqualFold(v, "avro") && !strings.EqualFold(v, "orc") {
 				return nil, fmt.Errorf(
-					"%w: Iceberg format %s; the embedded engine writes PARQUET and AVRO",
+					"%w: Iceberg format %s; the embedded engine writes PARQUET, AVRO and ORC",
 					errUnsupportedFormat,
 					v,
 				)

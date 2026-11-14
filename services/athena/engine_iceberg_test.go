@@ -388,8 +388,8 @@ func TestIceberg_ErrorsAndValidation(t *testing.T) {
 			want: "Unsupported table property key: bogus",
 		},
 		{
-			name: "orc format", sql: "CREATE TABLE x (id int) LOCATION 's3://lake/x/' " +
-				"TBLPROPERTIES ('table_type'='ICEBERG', 'format'='orc')",
+			name: "csv format", sql: "CREATE TABLE x (id int) LOCATION 's3://lake/x/' " +
+				"TBLPROPERTIES ('table_type'='ICEBERG', 'format'='csv')",
 			want: "NOT_SUPPORTED",
 		},
 		{

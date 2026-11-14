@@ -36,6 +36,7 @@ type commitTally struct {
 	addedDeleteFiles, addedDeletes         int64
 	removedFiles, removedRows, removedSize int64
 	removedDeleteFiles, removedDeletes     int64
+	removedEqDeletes                       int64
 }
 
 // PlanCommit prepares a snapshot applying ch to the table's current manifests
@@ -254,7 +255,12 @@ func (pc *planCtx) tallyRemoved(f DataFile) {
 		pc.tally.removedRows += f.RecordCount
 	} else {
 		pc.tally.removedDeleteFiles++
-		pc.tally.removedDeletes += f.RecordCount
+
+		if f.Content == ContentEqualityDeletes {
+			pc.tally.removedEqDeletes += f.RecordCount
+		} else {
+			pc.tally.removedDeletes += f.RecordCount
+		}
 	}
 
 	pc.tally.removedSize += f.FileSize
@@ -288,7 +294,7 @@ func (pc *planCtx) summary(prev map[string]string) map[string]string {
 	s[totalSize] = itoa(max(0, summaryInt(prev, totalSize)+t.addedSize-t.removedSize))
 	s[totalDeletes] = itoa(summaryInt(prev, totalDeletes) + t.addedDeleteFiles - t.removedDeleteFiles)
 	s[totalPosDeletes] = itoa(summaryInt(prev, totalPosDeletes) + t.addedDeletes - t.removedDeletes)
-	s[totalEqDeletes] = itoa(summaryInt(prev, totalEqDeletes))
+	s[totalEqDeletes] = itoa(max(0, summaryInt(prev, totalEqDeletes)-t.removedEqDeletes))
 
 	return s
 }

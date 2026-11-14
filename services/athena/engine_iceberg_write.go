@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	maxCommitAttempts = 4
-	propParquetCodec  = "write.parquet.compression-codec"
-	propDefaultFormat = "write.format.default"
-	nullPartition     = "null"
+	maxCommitAttempts   = 4
+	propParquetCodec    = "write.parquet.compression-codec"
+	propDefaultFormat   = "write.format.default"
+	propTargetFileBytes = "write.target-file-size-bytes"
+	nullPartition       = "null"
 )
 
 func (p *writePlan) precheckIcebergInsert(ctx context.Context, def *GlueTableDef) statementOutcome {
@@ -81,12 +82,10 @@ func (p *writePlan) writeIcebergFiles(
 	cols := make([]outCol, len(dest))
 
 	for i, c := range dest {
-		if iceberg.PrimitiveName(schema.Fields[i].Type) == "" {
-			return nil, stmtFail(athenaErrTypeSyntax,
-				"NOT_SUPPORTED: writing nested column '%s' to an Iceberg table is not supported", c.Name)
+		cols[i] = outCol{
+			name: c.Name, typ: writeHiveType(c.Type), src: src[i], id: schema.Fields[i].ID,
+			nestedIDs: iceberg.NestedIDs(schema.Fields[i]),
 		}
-
-		cols[i] = outCol{name: c.Name, typ: writeHiveType(c.Type), src: src[i], id: schema.Fields[i].ID}
 	}
 
 	groups, err := p.icebergGroups(res, schema, cols)
@@ -99,46 +98,98 @@ func (p *writePlan) writeIcebergFiles(
 		total int64
 	)
 
-	ext, avroFmt := ".parquet", strings.EqualFold(meta.Properties[propDefaultFormat], "avro")
-	if avroFmt {
-		ext = ".avro"
+	ext, kind := ".parquet", fmtParquet
+
+	switch strings.ToLower(meta.Properties[propDefaultFormat]) {
+	case "avro":
+		ext, kind = ".avro", fmtAvro
+	case "orc":
+		ext, kind = ".orc", fmtORC
 	}
 
-	for seq, g := range groups {
+	encode := func(rows []int) ([]byte, error) {
+		switch kind {
+		case fmtAvro:
+			return encodeAvroRows(res, rows, cols, avroCodecFor(meta.Properties[propParquetCodec]))
+		case fmtORC:
+			return encodeORCRows(res, rows, cols, orcCodecFor(meta.Properties[propParquetCodec]))
+		default:
+			return encodeParquetRows(res, rows, cols, meta.Properties[propParquetCodec])
+		}
+	}
+
+	target := int64(intProp(meta.Properties, propTargetFileBytes, 0))
+	seq := 0
+
+	for _, g := range groups {
 		if err = ctx.Err(); err != nil {
 			return nil, engineFailure(err)
 		}
 
-		var body []byte
-		if avroFmt {
-			body, err = encodeAvroRows(res, g.rows, cols, avroCodecFor(meta.Properties[propParquetCodec]))
-		} else {
-			body, err = encodeParquetRows(res, g.rows, cols, meta.Properties[propParquetCodec])
+		pieces, perr := splitBySize(g.rows, target, encode)
+		if perr != nil {
+			return nil, engineFailure(perr)
 		}
 
-		if err != nil {
-			return nil, engineFailure(err)
+		for _, piece := range pieces {
+			if total += int64(len(piece.body)); total > limits.MaxResultBytes {
+				return nil, engineFailure(fmt.Errorf("%w: more than %d bytes", errResultBytes, limits.MaxResultBytes))
+			}
+
+			path := fmt.Sprintf("%s/data/%s%s_%0*d%s", strings.TrimSuffix(meta.Location, "/"),
+				icebergPartDir(meta.DefaultSpec(), g.partition), p.queryID, fileSeqWidth, seq, ext)
+			seq++
+
+			if out := p.putObjectAt(ctx, path, piece.body); out.failed {
+				return nil, out
+			}
+
+			lower, upper := columnBounds(res, piece.rows, cols, schema)
+
+			files = append(files, iceberg.DataFile{
+				Path: path, Format: strings.ToUpper(ext[1:]), Partition: g.partition,
+				RecordCount: int64(len(piece.rows)), FileSize: int64(len(piece.body)),
+				ValueCounts: countsFor(res, piece.rows, cols, false),
+				NullCounts:  countsFor(res, piece.rows, cols, true), LowerBounds: lower, UpperBounds: upper,
+			})
 		}
-
-		if total += int64(len(body)); total > limits.MaxResultBytes {
-			return nil, engineFailure(fmt.Errorf("%w: more than %d bytes", errResultBytes, limits.MaxResultBytes))
-		}
-
-		path := fmt.Sprintf("%s/data/%s%s_%0*d%s", strings.TrimSuffix(meta.Location, "/"),
-			icebergPartDir(meta.DefaultSpec(), g.partition), p.queryID, fileSeqWidth, seq, ext)
-
-		if out := p.putObjectAt(ctx, path, body); out.failed {
-			return nil, out
-		}
-
-		files = append(files, iceberg.DataFile{
-			Path: path, Format: strings.ToUpper(ext[1:]), Partition: g.partition, RecordCount: int64(len(g.rows)),
-			FileSize: int64(len(body)), ValueCounts: countsFor(res, g.rows, cols, false),
-			NullCounts: countsFor(res, g.rows, cols, true),
-		})
 	}
 
 	return files, stmtOK()
+}
+
+type filePiece struct {
+	body []byte
+	rows []int
+}
+
+// splitBySize encodes rows as one file, or as the fewest equal row slices that each stay near target bytes.
+func splitBySize(rows []int, target int64, encode func([]int) ([]byte, error)) ([]filePiece, error) {
+	body, err := encode(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if target <= 0 || int64(len(body)) <= target || len(rows) < 2 {
+		return []filePiece{{body: body, rows: rows}}, nil
+	}
+
+	n := min(int((int64(len(body))+target-1)/target), len(rows))
+	per := (len(rows) + n - 1) / n
+	out := make([]filePiece, 0, n)
+
+	for start := 0; start < len(rows); start += per {
+		chunk := rows[start:min(start+per, len(rows))]
+
+		b, cerr := encode(chunk)
+		if cerr != nil {
+			return nil, cerr
+		}
+
+		out = append(out, filePiece{body: b, rows: chunk})
+	}
+
+	return out, nil
 }
 
 type icebergGroup struct {
@@ -307,8 +358,11 @@ func (p *writePlan) commitIcebergChange(ctx context.Context, ch iceberg.Change, 
 		}
 	}
 
-	return stmtFail(athenaErrTypeSyntax,
+	out := stmtFail(athenaErrTypeSyntax,
 		"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s (concurrent modification)", p.display())
+	out.conflict = !retry
+
+	return out
 }
 
 // tryCommit makes one commit attempt; conflict=true means the catalog pointer moved.
@@ -361,6 +415,15 @@ func (p *writePlan) publishPlan(
 		return false, stmtFail(athenaErrTypeSyntax,
 			"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s: %s", p.display(), err)
 	}
+}
+
+// orcCodecFor maps a Parquet-style codec name onto ORC's (GZIP is ZLIB).
+func orcCodecFor(v string) string {
+	if strings.EqualFold(v, "gzip") {
+		return "ZLIB"
+	}
+
+	return v
 }
 
 func avroCodecFor(v string) string {

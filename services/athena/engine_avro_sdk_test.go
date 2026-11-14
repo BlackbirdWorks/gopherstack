@@ -230,9 +230,10 @@ func TestSDK_AvroWriteErrors(t *testing.T) {
 			"compression GZIP is not supported for AVRO",
 		},
 		{
-			"orc",
-			"CREATE TABLE shop.o WITH (format = 'ORC', external_location = 's3://lake/o/') AS SELECT id FROM events",
-			"format ORC is not supported",
+			"orc codec",
+			"CREATE TABLE shop.o WITH (format = 'ORC', write_compression = 'GZIP', external_location = 's3://lake/o/') " +
+				"AS SELECT id FROM events",
+			"compression GZIP is not supported for ORC",
 		},
 	}
 

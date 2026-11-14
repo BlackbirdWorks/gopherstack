@@ -17,7 +17,7 @@ var (
 	ErrColumnInUse     = errors.New("column is used by the partition spec")
 	ErrBadPromotion    = errors.New("unsupported column type change")
 	ErrLastColumn      = errors.New("cannot drop the last column")
-	errNestedAddColumn = errors.New("only primitive column types can be added")
+	errNestedAddColumn = errors.New("unsupported column type")
 )
 
 func (s Schema) index(name string) int {
@@ -30,13 +30,14 @@ func (m *TableMetadata) WithColumn(s Schema, name, hiveType, doc string) (Schema
 		return s, 0, fmt.Errorf("%w: %s", ErrColumnExists, name)
 	}
 
-	t, err := FromHive(hiveType)
+	id := m.LastColumnID + 1
+	next := id + 1
+
+	raw, err := columnType(hiveType, &next)
 	if err != nil {
 		return s, 0, fmt.Errorf("%w: %w", errNestedAddColumn, err)
 	}
 
-	raw, _ := json.Marshal(t, jsonx.V1())
-	id := m.LastColumnID + 1
 	out := s
 	out.Fields = append(slices.Clone(s.Fields), Field{ID: id, Name: name, Doc: doc, Type: raw})
 
@@ -137,9 +138,7 @@ func (m *TableMetadata) SetSchema(s Schema) {
 
 	s.SchemaID, s.Type = id, typeStruct
 
-	for _, f := range s.Fields {
-		m.LastColumnID = max(m.LastColumnID, f.ID)
-	}
+	m.LastColumnID = max(m.LastColumnID, s.MaxFieldID())
 
 	m.Schemas = append(m.Schemas, s)
 	m.CurrentSchemaID = id

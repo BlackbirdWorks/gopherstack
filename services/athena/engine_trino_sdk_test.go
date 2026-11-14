@@ -313,7 +313,7 @@ func TestSDK_TrinoComplexDisplay(t *testing.T) {
 		{
 			"row column",
 			"SELECT s FROM docs ORDER BY id",
-			[][]string{{"{age=30, name=ann}"}, {"{age=25, name=bob}"}},
+			[][]string{{"{name=ann, age=30}"}, {"{name=bob, age=25}"}},
 			[]string{"row"},
 		},
 		{"empty array", "SELECT tags FROM docs ORDER BY id", [][]string{{"[x, y]"}, {"[]"}}, []string{"array"}},

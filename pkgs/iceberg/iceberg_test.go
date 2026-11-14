@@ -245,3 +245,117 @@ func TestParseTransformWidthBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestManifestRoundTripsEqualityIDsAndBounds(t *testing.T) {
+	t.Parallel()
+
+	now := time.UnixMilli(1_700_000_000_000)
+	spec := iceberg.PartitionSpec{Fields: []iceberg.PartitionField{}}
+	meta := iceberg.NewTableMetadata(
+		iceberg.NewParams{Location: "s3://b/tbl", Schema: testSchema(t), Spec: spec, Now: now},
+	)
+
+	lo, err := iceberg.EncodeBound("long", int64(-7))
+	require.NoError(t, err)
+
+	hi, err := iceberg.EncodeBound("long", int64(99))
+	require.NoError(t, err)
+
+	entry := iceberg.ManifestEntry{
+		Status: iceberg.StatusAdded,
+		DataFile: iceberg.DataFile{
+			Path: "s3://b/tbl/data/eq.parquet", Format: "PARQUET", Content: iceberg.ContentEqualityDeletes,
+			Partition: map[string]any{}, RecordCount: 2, FileSize: 10, EqualityIDs: []int{1, 3},
+			LowerBounds: map[int][]byte{1: lo}, UpperBounds: map[int][]byte{1: hi},
+		},
+	}
+
+	body, err := iceberg.EncodeManifest(meta, spec, iceberg.ContentEqualityDeletes, []iceberg.ManifestEntry{entry})
+	require.NoError(t, err)
+
+	got, err := iceberg.ReadManifest(body)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, []int{1, 3}, got[0].DataFile.EqualityIDs)
+
+	lb, ok := iceberg.DecodeBound("long", got[0].DataFile.LowerBounds[1])
+	require.True(t, ok)
+	assert.Equal(t, int64(-7), lb)
+
+	ub, _ := iceberg.DecodeBound("long", got[0].DataFile.UpperBounds[1])
+	assert.Equal(t, int64(99), ub)
+}
+
+func TestBoundRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		v    iceberg.Bound
+		typ  string
+		size int
+	}{
+		{int64(-5), "int", 4},
+		{int64(19000), "date", 4},
+		{int64(1) << 40, "long", 8},
+		{int64(1_700_000_000_000_000), "timestamp", 8},
+		{1.5, "float", 4},
+		{-2.25, "double", 8},
+		{"héllo", "string", 6},
+		{true, "boolean", 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.typ, func(t *testing.T) {
+			t.Parallel()
+
+			b, err := iceberg.EncodeBound(tc.typ, tc.v)
+			require.NoError(t, err)
+			assert.Len(t, b, tc.size)
+
+			back, ok := iceberg.DecodeBound(tc.typ, b)
+			require.True(t, ok)
+			assert.Equal(t, tc.v, back)
+		})
+	}
+
+	_, err := iceberg.EncodeBound("int", int64(1)<<33)
+	require.ErrorIs(t, err, iceberg.ErrBadBound)
+}
+
+func TestNestedSchemaFromColumns(t *testing.T) {
+	t.Parallel()
+
+	schema, err := iceberg.SchemaFromColumns([]iceberg.ColumnSpec{
+		{Name: "id", Type: "bigint"},
+		{Name: "tags", Type: "array<string>"},
+		{Name: "attrs", Type: "map<string,double>"},
+		{Name: "owner", Type: "struct<first:string,addr:struct<zip:int>>"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 10, schema.MaxFieldID())
+
+	tags, err := iceberg.HiveType(schema.Fields[1].Type)
+	require.NoError(t, err)
+	assert.Equal(t, "array<string>", tags)
+
+	owner, err := iceberg.HiveType(schema.Fields[3].Type)
+	require.NoError(t, err)
+	assert.Equal(t, "struct<first:string,addr:struct<zip:int>>", owner)
+
+	assert.Equal(t, map[string]int{"tags.element": 5}, iceberg.NestedIDs(schema.Fields[1]))
+	assert.Equal(t, map[string]int{"attrs.key": 6, "attrs.value": 7}, iceberg.NestedIDs(schema.Fields[2]))
+	assert.Equal(t, map[string]int{
+		"owner.first": 8, "owner.addr": 9, "owner.addr.zip": 10,
+	}, iceberg.NestedIDs(schema.Fields[3]))
+
+	meta := iceberg.NewTableMetadata(iceberg.NewParams{
+		Location: "s3://b/t", Schema: schema, Spec: iceberg.PartitionSpec{Fields: []iceberg.PartitionField{}},
+		Now: time.UnixMilli(1),
+	})
+	assert.Equal(t, 10, meta.LastColumnID)
+
+	_, id, err := meta.WithColumn(schema, "more", "array<int>", "")
+	require.NoError(t, err)
+	assert.Equal(t, 11, id)
+}

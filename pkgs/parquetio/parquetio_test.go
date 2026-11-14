@@ -2,12 +2,14 @@ package parquetio_test
 
 import (
 	"bytes"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -208,4 +210,60 @@ func TestWriteKeepsColumnOrder(t *testing.T) {
 
 	rows := collect(t, buf.Bytes(), []string{"m", "z", "a"})
 	assert.Equal(t, [][]any{{2.5, int64(1), "x"}}, rows)
+}
+
+func TestWriteNestedColumns(t *testing.T) {
+	t.Parallel()
+
+	cols := []parquetio.Column{
+		{Name: "id", Type: "bigint", FieldID: 1},
+		{Name: "arr", Type: "array<int>"},
+		{Name: "mp", Type: "map<string,double>"},
+		{Name: "st", Type: "struct<a:int,b:array<string>>"},
+		{Name: "nest", Type: "array<struct<k:string,v:map<string,bigint>>>"},
+	}
+	rows := [][]any{
+		{
+			int64(1), []any{int64(1), nil, int64(3)}, map[string]any{"x": 1.5, "y": nil},
+			map[string]any{"a": int64(7), "b": []any{"p", "q"}},
+			[]any{map[string]any{"k": "n", "v": map[string]any{"z": int64(9)}}, map[string]any{"k": "m", "v": nil}},
+		},
+		{int64(2), []any{}, map[string]any{}, map[string]any{"a": nil, "b": nil}, nil},
+		{int64(3), nil, nil, nil, []any{}},
+		{int64(4), "\x01[5,6]", "\x01{\"k\":2.5}", "{\"a\":1,\"b\":[\"s\"]}", "[{\"k\":\"r\",\"v\":{\"w\":1}}]"},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, parquetio.Write(&buf, cols, rows, "SNAPPY"))
+
+	f, err := parquetio.Open(buf.Bytes())
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), f.NumRows())
+
+	var got [][]any
+
+	require.NoError(t, f.ForEach([]string{"id", "arr", "mp", "st", "nest"}, func(v []any) error {
+		got = append(got, v)
+
+		return nil
+	}))
+	require.Len(t, got, 4)
+
+	js := func(v any) string {
+		b, merr := json.Marshal(v, jsonx.V1())
+		require.NoError(t, merr)
+
+		return string(b)
+	}
+
+	assert.Equal(t, int64(1), got[0][0])
+	assert.JSONEq(t, `[1,null,3]`, js(got[0][1]))
+	assert.JSONEq(t, `{"a":7,"b":["p","q"]}`, js(got[0][3]))
+	assert.JSONEq(t, `[{"k":"n","v":{"z":9}},{"k":"m","v":null}]`, js(got[0][4]))
+	assert.JSONEq(t, `[]`, js(got[1][1]))
+	assert.Nil(t, got[2][1])
+	assert.Nil(t, got[2][3])
+	assert.JSONEq(t, `[]`, js(got[2][4]))
+	assert.JSONEq(t, `[5,6]`, js(got[3][1]))
+	assert.JSONEq(t, `{"a":1,"b":["s"]}`, js(got[3][3]))
 }

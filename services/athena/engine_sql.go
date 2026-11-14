@@ -209,7 +209,7 @@ func translateSQLFor(sql string, resolve func(parts []string) resolvedRef, embed
 	}
 	learnRowAliases(toks, x.structCols)
 
-	out := x.rewriteStructFields(x.rewriteUnnestRefs(x.translate(toks)))
+	out := x.rewriteRowOps(x.rewriteStructFields(x.rewriteUnnestRefs(x.translate(toks))))
 
 	if x.err != nil {
 		return "", nil, x.err
