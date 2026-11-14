@@ -247,7 +247,7 @@ async function execBatchGet() {
   if (!selectedTable || !batchGetKeys.trim()) return;
   try {
     const keys = JSON.parse(batchGetKeys);
-    if (!Array.isArray(keys)) throw new Error('Expected a JSON array of key objects');
+    if (!Array.isArray(keys)) throw new TypeError('Expected a JSON array of key objects');
     const res = await ddb().send(new BatchGetItemCommand({
       RequestItems: { [selectedTable]: { Keys: keys.map((k: unknown) => buildItemKey(k as Record<string, unknown>)) } }
     }));
@@ -1125,7 +1125,7 @@ async function loadStreamEvents() {
 		if (!selectedTable || !importJson.trim()) return;
 		try {
 			const items: unknown[] = JSON.parse(importJson);
-			if (!Array.isArray(items)) throw new Error('Expected a JSON array');
+			if (!Array.isArray(items)) throw new TypeError('Expected a JSON array');
 			for (const item of items) {
 				await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
 			}
