@@ -59,6 +59,8 @@ type InMemoryBackend struct {
 	policies    map[string]*SteeringPolicy
 	attachments map[string]*Attachment
 	retry       *ociretry.Store
+	events      chan xferEvent
+	attempts    map[string]time.Time
 	tagLookup   ocitags.Lookup
 	selfBase    string
 	seq         int64
@@ -66,7 +68,14 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("ocidns"), now: time.Now, Auth: ociauth.NewRegistry()}
+	b := &InMemoryBackend{
+		mu: lockmetrics.New(
+			"ocidns",
+		),
+		now:    time.Now,
+		Auth:   ociauth.NewRegistry(),
+		events: make(chan xferEvent, eventQueue),
+	}
 	b.initMaps()
 
 	return b
@@ -81,6 +90,7 @@ func (b *InMemoryBackend) initMaps() {
 	b.policies = map[string]*SteeringPolicy{}
 	b.attachments = map[string]*Attachment{}
 	b.retry = ociretry.New()
+	b.attempts = map[string]time.Time{}
 }
 
 // SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.

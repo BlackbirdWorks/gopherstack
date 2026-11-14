@@ -8,6 +8,9 @@ import (
 // ErrSnapshotNull is returned when a snapshot contains a null entry.
 var ErrSnapshotNull = errors.New("ocidns: null entry in snapshot")
 
+// errTransfer marks a transferred zone the service cannot represent.
+var errTransfer = errors.New("ocidns: unusable zone transfer")
+
 // APIError is an OCI error response: HTTP status plus the `code` and `message` body fields.
 type APIError struct {
 	Code    string

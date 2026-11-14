@@ -91,8 +91,11 @@ type RRSet struct {
 
 // Zone is a DNS zone with its records.
 type Zone struct {
-	Created time.Time         `json:"created"`
-	Records map[string]*RRSet `json:"records"`
+	Created      time.Time         `json:"created"`
+	LastTransfer time.Time         `json:"lastTransfer,omitzero"`
+	Records      map[string]*RRSet `json:"records"`
+	ApexSOA      *RRSet            `json:"apexSoa,omitempty"`
+	ApexNS       *RRSet            `json:"apexNs,omitempty"`
 	meta
 	Tags
 	ID                  string      `json:"id"`

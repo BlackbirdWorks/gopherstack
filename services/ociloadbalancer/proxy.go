@@ -568,7 +568,7 @@ func (d *dataPlane) handleTCP(ctx context.Context, s portSpec, c net.Conn) {
 
 	defer ch.release()
 
-	up, err := d.dialBackend(ctx, lb, bs, ch.be)
+	up, err := d.dialBackend(ctx, lb, bs, ch.be, proxyPreface(ctx, l.Connection, c))
 	if err != nil {
 		return
 	}
@@ -581,13 +581,23 @@ func (d *dataPlane) handleTCP(ctx context.Context, s portSpec, c net.Conn) {
 	pipe(c, up, time.Duration(idle)*time.Second)
 }
 
-func (d *dataPlane) dialBackend(ctx context.Context, lb *LoadBalancer, bs *BackendSet, be Backend) (net.Conn, error) {
+func (d *dataPlane) dialBackend(
+	ctx context.Context, lb *LoadBalancer, bs *BackendSet, be Backend, preface []byte,
+) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.dialTimeout())
 	defer cancel()
 
 	conn, err := d.dialer.DialContext(ctx, "tcp", net.JoinHostPort(be.IPAddress, itoa(be.Port)))
 	if err != nil {
 		return nil, fmt.Errorf("dial backend: %w", err)
+	}
+
+	if len(preface) > 0 {
+		if _, err = conn.Write(preface); err != nil {
+			_ = conn.Close()
+
+			return nil, fmt.Errorf("write proxy header: %w", err)
+		}
 	}
 
 	if bs.SSL == nil {

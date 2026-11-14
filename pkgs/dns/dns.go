@@ -61,6 +61,8 @@ var ErrIPv4Required = errors.New("resolve IP must be an IPv4 address")
 type Config struct {
 	// Logger is an optional structured logger.
 	Logger *slog.Logger
+	// TsigProvider, when set, verifies signed requests and signs their responses (RFC 8945).
+	TsigProvider dns.TsigProvider
 	// ListenAddr is the host:port to bind (default ":10053").
 	ListenAddr string
 	// ResolveIP is the IP address returned for every registered name (default "127.0.0.1").
@@ -234,6 +236,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Net:               "udp",
 		PacketConn:        udpPc,
 		Handler:           mux,
+		TsigProvider:      s.cfg.TsigProvider,
 		ReadTimeout:       DefaultReadTimeout,
 		WriteTimeout:      DefaultWriteTimeout,
 		NotifyStartedFunc: func() { close(udpReady) },
@@ -244,6 +247,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Net:               "tcp",
 		Listener:          tcpLn,
 		Handler:           mux,
+		TsigProvider:      s.cfg.TsigProvider,
 		ReadTimeout:       DefaultReadTimeout,
 		WriteTimeout:      DefaultWriteTimeout,
 		NotifyStartedFunc: func() { close(tcpReady) },
@@ -366,6 +370,14 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		fail.SetRcode(r, dns.RcodeServerFailure)
 		_ = w.WriteMsg(fail)
 	})
+
+	s.mu.RLock("handleQuery")
+	ic := s.interceptor
+	s.mu.RUnlock()
+
+	if si, ok := ic.(StreamInterceptor); ok && si.InterceptStream(w, r) {
+		return
+	}
 
 	msg := s.respond(w, r)
 

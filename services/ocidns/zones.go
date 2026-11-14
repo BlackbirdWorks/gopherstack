@@ -370,6 +370,7 @@ func (b *InMemoryBackend) newZone(in CreateZoneIn) *Zone {
 	}
 	z.touch(now)
 	b.zones[z.ID] = z
+	b.queueZoneChange(z)
 
 	return z
 }
@@ -598,6 +599,10 @@ func (b *InMemoryBackend) UpdateZone(r ZoneRef, c cond, in UpdateZoneIn) (ZoneWi
 
 	z.Tags.merge(in.Tags)
 	z.touch(b.nowUTC())
+
+	if in.ExternalMasters != nil || in.ExternalDownstreams != nil {
+		b.queueZoneChange(z)
+	}
 
 	return b.zoneWire(z), tagOf(z.ID, z.meta), nil
 }

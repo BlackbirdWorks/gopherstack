@@ -55,6 +55,7 @@ type Handler struct {
 	srvMu        *lockmetrics.RWMutex
 	srv          *http.Server
 	dnsSrv       *pkgdns.Server
+	stopXfer     context.CancelFunc
 	ops          map[string]opFunc
 	wg           sync.WaitGroup
 	Port         int
@@ -335,9 +336,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		Handler: e, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout,
 	}
 
+	xferCtx, cancel := context.WithCancel(workerCtx)
+
 	h.srvMu.Lock("StartWorker")
-	h.srv, h.dnsSrv = srv, dnsSrv
+	h.srv, h.dnsSrv, h.stopXfer = srv, dnsSrv, cancel
 	h.srvMu.Unlock()
+
+	h.wg.Go(func() { h.Backend.RunTransfers(xferCtx) })
 
 	log.InfoContext(workerCtx, "ocidns: starting dedicated listener", "port", h.Port, "dnsPort", h.DNSPort)
 
@@ -356,7 +361,10 @@ func (h *Handler) startDNS(ctx context.Context) (*pkgdns.Server, error) {
 		port = 0
 	}
 
-	srv, err := pkgdns.New(pkgdns.Config{ListenAddr: fmt.Sprintf(":%d", port), Logger: logger.Load(ctx)})
+	srv, err := pkgdns.New(pkgdns.Config{
+		ListenAddr: fmt.Sprintf(":%d", port), Logger: logger.Load(ctx),
+		TsigProvider: pkgdns.NewTSIGProvider(h.Backend.tsigLookup),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("ocidns: dns server: %w", err)
 	}
@@ -377,11 +385,15 @@ func (h *Handler) startDNS(ctx context.Context) (*pkgdns.Server, error) {
 // Shutdown stops both listeners.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv, dnsSrv := h.srv, h.dnsSrv
-	h.srv, h.dnsSrv = nil, nil
+	srv, dnsSrv, stopXfer := h.srv, h.dnsSrv, h.stopXfer
+	h.srv, h.dnsSrv, h.stopXfer = nil, nil, nil
 	h.srvMu.Unlock()
 
 	log := logger.Load(ctx)
+
+	if stopXfer != nil {
+		stopXfer()
+	}
 
 	if dnsSrv != nil {
 		if err := dnsSrv.Stop(); err != nil {

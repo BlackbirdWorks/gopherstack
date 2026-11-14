@@ -41,6 +41,7 @@ type portListener struct {
 	ln    net.Listener
 	srv   *http.Server
 	conns map[net.Conn]struct{}
+	held  map[net.Conn]string
 	stop  context.CancelFunc
 	addr  string
 	spec  portSpec
@@ -283,7 +284,14 @@ func (d *dataPlane) open(s portSpec) (*portListener, error) {
 	}
 
 	ctx, cancel := context.WithCancel(d.baseCtx)
-	p := &portListener{ln: ln, addr: ln.Addr().String(), spec: s, stop: cancel, conns: map[net.Conn]struct{}{}}
+	p := &portListener{
+		ln:    ln,
+		addr:  ln.Addr().String(),
+		spec:  s,
+		stop:  cancel,
+		conns: map[net.Conn]struct{}{},
+		held:  map[net.Conn]string{},
+	}
 
 	if s.kind == kindHTTP {
 		d.serveHTTPPort(p)
@@ -310,6 +318,7 @@ func (d *dataPlane) serveHTTPPort(p *portListener) {
 		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { d.serveHTTP(w, r, s) }),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ErrorLog:          nil,
+		ConnState:         func(c net.Conn, st http.ConnState) { d.connState(p, c, st) },
 	}
 	p.srv = srv
 

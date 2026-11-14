@@ -120,8 +120,12 @@ func TestDataPlaneAnswers(t *testing.T) {
 
 			assert.Equal(t, dns.RcodeRefused, e.query(t, network, "www.elsewhere.test.", dns.TypeA).Rcode)
 
-			// ALIAS has no wire form, so a query for it has nothing to return.
-			assert.Empty(t, e.query(t, network, "alias2.dp.example.", dns.TypeA).Answer)
+			assert.ElementsMatch(t,
+				[]string{"alias2.dp.example.\t60\tIN\tA\t192.0.2.1", "alias2.dp.example.\t60\tIN\tA\t192.0.2.2"},
+				answers(e.query(t, network, "alias2.dp.example.", dns.TypeA)))
+			assert.Equal(t, []string{"alias2.dp.example.\t60\tIN\tAAAA\t2001:db8::1"},
+				answers(e.query(t, network, "alias2.dp.example.", dns.TypeAAAA)))
+			assert.Empty(t, e.query(t, network, "alias2.dp.example.", dns.TypeMX).Answer)
 		})
 	}
 }
@@ -248,4 +252,36 @@ func TestDataPlaneUDPTruncation(t *testing.T) {
 	tcp := e.query(t, "tcp", "many.big.example.", dns.TypeTXT)
 	assert.False(t, tcp.Truncated)
 	assert.Len(t, tcp.Answer, 60)
+}
+
+func TestDataPlaneAliasAcrossZones(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	e.createZone(t, "target.example", nil)
+	e.createZone(t, "front.example", nil)
+	e.mustPatch(t, "target.example", add("lb.target.example", "A", "192.0.2.50", 120),
+		add("cn.target.example", "CNAME", "lb.target.example.", 30))
+	e.mustPatch(t, "front.example", add("front.example", "ALIAS", "lb.target.example.", 60),
+		add("two.front.example", "ALIAS", "cn.target.example.", 45),
+		add("gone.front.example", "ALIAS", "nowhere.invalid.example.", 60))
+
+	tests := []struct {
+		name  string
+		qname string
+		want  []string
+	}{
+		{name: "apex", qname: "front.example.", want: []string{"front.example.\t60\tIN\tA\t192.0.2.50"}},
+		{name: "viacname", qname: "two.front.example.", want: []string{"two.front.example.\t45\tIN\tA\t192.0.2.50"}},
+		{name: "unserved", qname: "gone.front.example.", want: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := answers(e.query(t, "udp", tt.qname, dns.TypeA))
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

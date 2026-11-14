@@ -264,6 +264,12 @@ func (a *zoneAnswer) answer(qtype uint16, qname string) {
 }
 
 func (a *zoneAnswer) fill(qtype uint16, owner string, node map[string]*RRSet, depth int) {
+	if al := node[rtypeALIAS]; al != nil && (qtype == dns.TypeA || qtype == dns.TypeAAAA) {
+		a.resolveAlias(qtype, owner, al, 0)
+
+		return
+	}
+
 	if cn := node[rtypeCNAME]; cn != nil && qtype != dns.TypeCNAME && qtype != dns.TypeANY {
 		a.chase(qtype, owner, cn, depth)
 

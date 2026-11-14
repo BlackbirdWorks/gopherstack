@@ -155,6 +155,10 @@ func soaRdata(z *Zone, ns []string) string {
 
 // managed lists the protected apex records the service owns: SOA and, for GLOBAL zones, the NS set.
 func (b *InMemoryBackend) managed(z *Zone) []recordWire {
+	if z.ApexSOA != nil {
+		return transferredApex(z)
+	}
+
 	ns := b.nameservers(z)
 	out := make([]recordWire, 0, 1+len(ns))
 	out = append(out, recordWire{
@@ -542,6 +546,7 @@ func (b *InMemoryBackend) commit(z *Zone, next map[string]*RRSet) {
 
 	z.Records = next
 	z.touch(b.nowUTC())
+	b.queue(xferEvent{kind: evNotify, zoneID: z.ID})
 }
 
 func (z *Zone) matchesOp(rec recordWire, in RecordIn, s recSpec) bool {

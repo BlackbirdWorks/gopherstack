@@ -326,11 +326,7 @@ func checkConnection(c *ConnectionConfig) *APIError {
 		return errParam("connectionConfiguration idleTimeout must be positive")
 	}
 
-	if c.BackendTCPProxyProtocolVersion != nil || len(c.BackendTCPProxyProtocolOptions) > 0 {
-		return errUnsupported("backend TCP proxy protocol")
-	}
-
-	return nil
+	return checkProxyProtocol(c)
 }
 
 func checkListenerSSL(s *SSLConfig) *APIError {
@@ -453,6 +449,9 @@ type ruleSetIn struct {
 	Items []Rule `json:"items"`
 }
 
+// maxRulesPerSet is the documented rule set size (OCI Load Balancer rule sets page).
+const maxRulesPerSet = 20
+
 func buildRuleSet(name string, in *ruleSetIn) (*RuleSet, *APIError) {
 	if err := checkName("rule set", name); err != nil {
 		return nil, err
@@ -460,6 +459,10 @@ func buildRuleSet(name string, in *ruleSetIn) (*RuleSet, *APIError) {
 
 	if len(in.Items) == 0 {
 		return nil, errMissing("items is required")
+	}
+
+	if len(in.Items) > maxRulesPerSet {
+		return nil, errParam("a rule set holds at most 20 rules")
 	}
 
 	items := make([]Rule, 0, len(in.Items))
