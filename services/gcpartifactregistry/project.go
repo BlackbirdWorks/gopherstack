@@ -99,7 +99,7 @@ func (b *InMemoryBackend) UpdateProjectSettings(
 	return cloneSettings(cur), nil
 }
 
-// GetVPCSCConfig returns a location's VPC-SC policy, ALLOW until it is changed.
+// GetVPCSCConfig returns a location's VPC-SC policy; DENY, the documented default, until it is changed.
 func (b *InMemoryBackend) GetVPCSCConfig(name string) (*artifactregistrypb.VPCSCConfig, error) {
 	if err := checkVPCSCName(name); err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) GetVPCSCConfig(name string) (*artifactregistrypb.VPCSC
 		return out, nil
 	}
 
-	return &artifactregistrypb.VPCSCConfig{Name: name, VpcscPolicy: artifactregistrypb.VPCSCConfig_ALLOW}, nil
+	return &artifactregistrypb.VPCSCConfig{Name: name, VpcscPolicy: artifactregistrypb.VPCSCConfig_DENY}, nil
 }
 
 // UpdateVPCSCConfig sets vpcsc_policy.

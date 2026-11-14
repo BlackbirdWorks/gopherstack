@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"sort"
 	"strconv"
+	"time"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -131,6 +132,42 @@ func (b *InMemoryBackend) describe(ctx context.Context, ref repoRef, image, dige
 	return manifestInfo{mediaType: info.MediaType, size: info.Size}
 }
 
+const maxConfigBytes = 1 << 20
+
+// buildTime is the "created" time of an image manifest's config blob; zero for an index or a config without one.
+func (b *InMemoryBackend) buildTime(ctx context.Context, ref repoRef, image, digest string) time.Time {
+	c := b.client()
+	repo := ref.dockerKey() + "/" + image
+
+	m, err := c.GetManifest(ctx, repo, digest)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var doc struct {
+		Config ociregistry.Descriptor `json:"config"`
+	}
+
+	if json.Unmarshal(m.Body, &doc, jsonx.V1()) != nil || doc.Config.Digest == "" {
+		return time.Time{}
+	}
+
+	raw, err := c.GetBlob(ctx, repo, doc.Config.Digest, maxConfigBytes)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var cfg struct {
+		Created time.Time `json:"created"`
+	}
+
+	if json.Unmarshal(raw, &cfg, jsonx.V1()) != nil {
+		return time.Time{}
+	}
+
+	return cfg.Created
+}
+
 // indexChildren returns the digests that a manifest list or OCI index of the image still references.
 func (b *InMemoryBackend) indexChildren(ctx context.Context, ref repoRef, s imageSnap) map[string]bool {
 	c := b.client()
@@ -227,11 +264,17 @@ func (b *InMemoryBackend) dockerImage(
 	m := s.manifests[digest]
 	info := b.describe(ctx, ref, s.image, digest)
 
-	return &artifactregistrypb.DockerImage{
+	img := &artifactregistrypb.DockerImage{
 		Name: dockerImageName(ref, s.image, digest), Uri: b.imageURI(ref, s.image, digest), Tags: s.tagsOf(digest),
 		ImageSizeBytes: info.size, MediaType: info.mediaType,
 		UploadTime: timestamppb.New(m.Created), UpdateTime: timestamppb.New(m.Updated),
 	}
+
+	if built := b.buildTime(ctx, ref, s.image, digest); !built.IsZero() {
+		img.BuildTime = timestamppb.New(built)
+	}
+
+	return img
 }
 
 func (b *InMemoryBackend) pkg(ref repoRef, s imageSnap) *artifactregistrypb.Package {
@@ -273,10 +316,16 @@ func (b *InMemoryBackend) version(
 
 	if full {
 		info := b.describe(ctx, p.repo, s.image, digest)
-		v.Metadata, _ = structpb.NewStruct(map[string]any{
+		meta := map[string]any{
 			"imageSizeBytes": strconv.FormatInt(info.size, 10), "mediaType": info.mediaType,
 			fieldName: dockerImageName(p.repo, s.image, digest),
-		})
+		}
+
+		if built := b.buildTime(ctx, p.repo, s.image, digest); !built.IsZero() {
+			meta["buildTime"] = built.UTC().Format(time.RFC3339Nano)
+		}
+
+		v.Metadata, _ = structpb.NewStruct(meta)
 	}
 
 	return v

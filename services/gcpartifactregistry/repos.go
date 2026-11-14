@@ -104,25 +104,69 @@ func (b *InMemoryBackend) CreateRepository(
 		cfg.DisableUpstreamValidation = false
 	}
 
-	b.mu.Lock("CreateRepository")
+	if err = b.checkOSUpstreams(pb); err != nil {
+		return nil, err
+	}
 
-	if _, taken := b.repos[parent.full()]; taken {
+	if err = b.checkRepoSlot(parent); err != nil {
+		return nil, err
+	}
+
+	return b.startOp(parent.parent(), metaOp(), false, func() (proto.Message, error) {
+		if slotErr := b.checkRepoSlot(parent); slotErr != nil {
+			return nil, slotErr
+		}
+
+		b.mu.Lock("CreateRepository")
+		b.repos[parent.full()] = &repoRec{pb: pb}
+		out := cloneRepo(pb)
 		b.mu.Unlock()
 
-		return nil, errExists("Repository %q already exists.", parent.full())
+		return out, nil
+	})
+}
+
+// checkOSUpstreams rejects a virtual apt or yum repository whose upstream is not a standard repository, as the
+// virtual-overview page requires ("Apt and Yum upstreams must be Artifact Registry standard repositories").
+func (b *InMemoryBackend) checkOSUpstreams(pb *artifactregistrypb.Repository) error {
+	format := pb.GetFormat()
+	if pb.GetMode() != artifactregistrypb.Repository_VIRTUAL_REPOSITORY ||
+		(format != artifactregistrypb.Repository_APT && format != artifactregistrypb.Repository_YUM) {
+		return nil
+	}
+
+	b.mu.RLock("checkOSUpstreams")
+	defer b.mu.RUnlock()
+
+	for _, p := range pb.GetVirtualRepositoryConfig().GetUpstreamPolicies() {
+		ref, err := parseRepo(p.GetRepository())
+		if err != nil {
+			continue
+		}
+
+		if up, ok := b.repos[ref.full()]; ok && up.pb.GetMode() != artifactregistrypb.Repository_STANDARD_REPOSITORY {
+			return errInvalid(
+				"Upstream %q must be a standard repository for %s virtual repositories.", ref.full(), format,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) checkRepoSlot(ref repoRef) error {
+	b.mu.RLock("checkRepoSlot")
+	defer b.mu.RUnlock()
+
+	if _, taken := b.repos[ref.full()]; taken {
+		return errExists("Repository %q already exists.", ref.full())
 	}
 
 	if len(b.repos) >= maxRepositories {
-		b.mu.Unlock()
-
-		return nil, errPrecondition("At most %d repositories can exist in the emulator.", maxRepositories)
+		return errPrecondition("At most %d repositories can exist in the emulator.", maxRepositories)
 	}
 
-	b.repos[parent.full()] = &repoRec{pb: pb}
-	out := cloneRepo(pb)
-	b.mu.Unlock()
-
-	return b.done(parent.parent(), out)
+	return nil
 }
 
 func (b *InMemoryBackend) buildRepository(
@@ -321,34 +365,44 @@ func copyField(d, s protoreflect.Message, name string, clearMissing bool) {
 
 // DeleteRepository removes a repository with every image in it.
 func (b *InMemoryBackend) DeleteRepository(
-	ctx context.Context, name string,
+	_ context.Context, name string,
 ) (*longrunningpb.Operation, error) {
 	ref, err := parseRepo(name)
 	if err != nil {
 		return nil, err
 	}
 
-	b.mu.Lock("DeleteRepository")
+	b.mu.RLock("DeleteRepository")
+	_, ok := b.repos[ref.full()]
+	b.mu.RUnlock()
 
-	rec, ok := b.repos[ref.full()]
 	if !ok {
-		b.mu.Unlock()
-
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	}
 
-	images := b.imagesLocked(ref)
-	docker := rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER
+	return b.startOp(ref.parent(), metaOp(), false, func() (proto.Message, error) {
+		b.mu.Lock("DeleteRepository")
 
-	delete(b.repos, ref.full())
-	b.dropRepoDataLocked(ref)
-	b.mu.Unlock()
+		rec, found := b.repos[ref.full()]
+		if !found {
+			b.mu.Unlock()
 
-	if docker {
-		b.purgeImages(ctx, ref, images)
-	}
+			return nil, errNotFound("Repository %q not found.", ref.full())
+		}
 
-	return b.done(ref.parent(), &emptypb.Empty{})
+		images := b.imagesLocked(ref)
+		docker := rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER
+
+		delete(b.repos, ref.full())
+		b.dropRepoDataLocked(ref)
+		b.mu.Unlock()
+
+		if docker {
+			b.purgeImages(b.ctxOrBackground(), ref, images)
+		}
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 // doneAny finishes an operation whose response is one of the media-upload responses the Go client library does

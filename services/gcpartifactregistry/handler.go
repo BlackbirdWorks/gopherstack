@@ -15,6 +15,7 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/labstack/echo/v5"
+	"google.golang.org/genproto/googleapis/cloud/location"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -69,6 +70,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTags", "GetTag", "CreateTag", "UpdateTag", "DeleteTag",
 		"ListDockerImages", "GetDockerImage",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
+		"GetLocation", "ListLocations",
 		"GetOperation", "ListOperations", "DeleteOperation", "CancelOperation", "WaitOperation",
 	}
 }
@@ -122,6 +124,7 @@ func logInterceptor(log debugLogger) grpc.UnaryServerInterceptor {
 
 func (h *Handler) registerServers(srv *grpc.Server) {
 	artifactregistrypb.RegisterArtifactRegistryServer(srv, &server{b: h.Backend})
+	location.RegisterLocationsServer(srv, locationsServer{})
 	longrunningpb.RegisterOperationsServer(srv, opsServer{Store: h.Backend.ops, b: h.Backend})
 }
 

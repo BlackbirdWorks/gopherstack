@@ -12,6 +12,8 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestVirtualAptMergesUpstreamIndices(t *testing.T) {
@@ -116,4 +118,39 @@ func padSizeOf(n int) string {
 	s := strconv.Itoa(n)
 
 	return strings.Repeat(" ", 16-len(s)) + s
+}
+
+func TestVirtualOSRepositoryRejectsRemoteUpstream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		remote *apb
+		name   string
+		format artifactregistrypb.Repository_Format
+		want   codes.Code
+	}{
+		{
+			aptUpstream("https://deb.example.invalid/debian"), "apt",
+			artifactregistrypb.Repository_APT, codes.InvalidArgument,
+		},
+		{mavenUpstream("https://maven.example.invalid"), "maven", artifactregistrypb.Repository_MAVEN, codes.OK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, "")
+			tt.remote.DisableUpstreamValidation = true
+			e.createRepo(t, "rem", &artifactregistrypb.Repository{
+				Format: tt.format, Mode: artifactregistrypb.Repository_REMOTE_REPOSITORY,
+				ModeConfig: &artifactregistrypb.Repository_RemoteRepositoryConfig{RemoteRepositoryConfig: tt.remote},
+			})
+
+			_, err := e.client.CreateRepository(t.Context(), &artifactregistrypb.CreateRepositoryRequest{
+				Parent: loc, RepositoryId: "virt", Repository: virtualRepo(tt.format, [2]any{"rem", 1}),
+			})
+			assert.Equal(t, tt.want, status.Code(err))
+		})
+	}
 }

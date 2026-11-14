@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -164,7 +165,7 @@ func (b *InMemoryBackend) GetPackage(name string) (*artifactregistrypb.Package, 
 }
 
 // DeletePackage deletes every version of an image.
-func (b *InMemoryBackend) DeletePackage(ctx context.Context, name string) (*longrunningpb.Operation, error) {
+func (b *InMemoryBackend) DeletePackage(_ context.Context, name string) (*longrunningpb.Operation, error) {
 	p, err := parsePackage(name)
 	if err != nil {
 		return nil, err
@@ -180,9 +181,11 @@ func (b *InMemoryBackend) DeletePackage(ctx context.Context, name string) (*long
 		return nil, err
 	}
 
-	b.purgeImages(ctx, p.repo, []string{p.image})
+	return b.startOp(p.repo.parent(), metaOp(), false, func() (proto.Message, error) {
+		b.purgeImages(b.ctxOrBackground(), p.repo, []string{p.image})
 
-	return b.done(p.repo.parent(), &emptypb.Empty{})
+		return &emptypb.Empty{}, nil
+	})
 }
 
 // ListVersions lists the manifests of an image as versions.
@@ -281,7 +284,7 @@ func (b *InMemoryBackend) GetVersion(
 	return b.version(ctx, l.pkg, s, l.leaf, in.GetView() == artifactregistrypb.VersionView_FULL), nil
 }
 
-func (b *InMemoryBackend) deleteVersion(ctx context.Context, l leafRef, force bool) error {
+func (b *InMemoryBackend) checkVersionDeletable(l leafRef, force bool) error {
 	s, err := b.snapOfPackage(l.pkg)
 	if err != nil {
 		return err
@@ -295,8 +298,16 @@ func (b *InMemoryBackend) deleteVersion(ctx context.Context, l leafRef, force bo
 		return errPrecondition("Version %q has tags %v; set force to delete it.", l.leaf, tags)
 	}
 
+	return nil
+}
+
+func (b *InMemoryBackend) deleteVersion(ctx context.Context, l leafRef, force bool) error {
+	if err := b.checkVersionDeletable(l, force); err != nil {
+		return err
+	}
+
 	repo := l.pkg.repo.dockerKey() + "/" + l.pkg.image
-	if err = b.client().DeleteManifest(ctx, repo, l.leaf); err != nil {
+	if err := b.client().DeleteManifest(ctx, repo, l.leaf); err != nil {
 		return errInternal(err)
 	}
 
@@ -309,7 +320,7 @@ func (b *InMemoryBackend) deleteVersion(ctx context.Context, l leafRef, force bo
 
 // DeleteVersion deletes one manifest; force is required when tags point at it.
 func (b *InMemoryBackend) DeleteVersion(
-	ctx context.Context, in *artifactregistrypb.DeleteVersionRequest,
+	_ context.Context, in *artifactregistrypb.DeleteVersionRequest,
 ) (*longrunningpb.Operation, error) {
 	l, err := parseLeaf(in.GetName(), "version")
 	if err != nil {
@@ -322,16 +333,22 @@ func (b *InMemoryBackend) DeleteVersion(
 		return b.genDeleteVersion(l)
 	}
 
-	if err = b.deleteVersion(ctx, l, in.GetForce()); err != nil {
+	if err = b.checkVersionDeletable(l, in.GetForce()); err != nil {
 		return nil, err
 	}
 
-	return b.done(l.pkg.repo.parent(), &emptypb.Empty{})
+	return b.startOp(l.pkg.repo.parent(), metaOp(), false, func() (proto.Message, error) {
+		if delErr := b.deleteVersion(b.ctxOrBackground(), l, in.GetForce()); delErr != nil {
+			return nil, delErr
+		}
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 // BatchDeleteVersions deletes several manifests of one package, force-deleting tagged ones.
 func (b *InMemoryBackend) BatchDeleteVersions(
-	ctx context.Context, in *artifactregistrypb.BatchDeleteVersionsRequest,
+	_ context.Context, in *artifactregistrypb.BatchDeleteVersionsRequest,
 ) (*longrunningpb.Operation, error) {
 	p, err := parsePackage(in.GetParent())
 	if err != nil {
@@ -370,15 +387,19 @@ func (b *InMemoryBackend) BatchDeleteVersions(
 		}
 	}
 
-	if !in.GetValidateOnly() {
-		for _, l := range leaves {
-			if err = b.deleteVersion(ctx, l, true); err != nil {
-				return nil, err
-			}
-		}
+	if in.GetValidateOnly() {
+		return b.done(p.repo.parent(), &emptypb.Empty{})
 	}
 
-	return b.done(p.repo.parent(), &emptypb.Empty{})
+	return b.startOp(p.repo.parent(), metaOp(), false, func() (proto.Message, error) {
+		for _, l := range leaves {
+			if delErr := b.deleteVersion(b.ctxOrBackground(), l, true); delErr != nil {
+				return nil, delErr
+			}
+		}
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 func (b *InMemoryBackend) tagPB(p pkgRef, tag, digest string) *artifactregistrypb.Tag {

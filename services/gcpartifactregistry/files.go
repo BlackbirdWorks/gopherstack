@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -310,19 +311,27 @@ func (b *InMemoryBackend) DeleteFile(_ context.Context, name string) (*longrunni
 
 	want := fr.repo.fileName(fr.id)
 
-	b.mu.Lock("DeleteFile")
+	b.mu.RLock("DeleteFile")
+	_, ok := b.genFiles[want]
+	b.mu.RUnlock()
 
-	if _, ok := b.genFiles[want]; !ok {
-		b.mu.Unlock()
-
+	if !ok {
 		return nil, errNotFound("File %q not found.", name)
 	}
 
-	delete(b.genFiles, want)
-	b.dropAttachmentFileLocked(want)
-	b.mu.Unlock()
+	return b.startOp(fr.repo.parent(), metaOp(), false, func() (proto.Message, error) {
+		b.mu.Lock("DeleteFile")
+		defer b.mu.Unlock()
 
-	return b.done(fr.repo.parent(), &emptypb.Empty{})
+		if _, found := b.genFiles[want]; !found {
+			return nil, errNotFound("File %q not found.", name)
+		}
+
+		delete(b.genFiles, want)
+		b.dropAttachmentFileLocked(want)
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 // UpdateFile replaces the annotations of a file.

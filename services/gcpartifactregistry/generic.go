@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -196,24 +197,32 @@ func (b *InMemoryBackend) dropGenericVersionLocked(name string) {
 }
 
 func (b *InMemoryBackend) genDeletePackage(parent repoRef, p pkgRef) (*longrunningpb.Operation, error) {
-	b.mu.Lock("genDeletePackage")
+	b.mu.RLock("genDeletePackage")
+	_, ok := b.genPkgs[p.full()]
+	b.mu.RUnlock()
 
-	if _, ok := b.genPkgs[p.full()]; !ok {
-		b.mu.Unlock()
-
+	if !ok {
 		return nil, errNotFound("Package %q not found.", p.full())
 	}
 
-	for _, v := range b.genVersionsOf(p) {
-		b.dropGenericVersionLocked(v)
-	}
+	return b.startOp(parent.parent(), metaOp(), false, func() (proto.Message, error) {
+		b.mu.Lock("genDeletePackage")
+		defer b.mu.Unlock()
 
-	delete(b.genPkgs, p.full())
-	delete(b.pkgTags, p.full())
-	b.dropAttachmentsOfTargetLocked(p.full())
-	b.mu.Unlock()
+		if _, found := b.genPkgs[p.full()]; !found {
+			return nil, errNotFound("Package %q not found.", p.full())
+		}
 
-	return b.done(parent.parent(), &emptypb.Empty{})
+		for _, v := range b.genVersionsOf(p) {
+			b.dropGenericVersionLocked(v)
+		}
+
+		delete(b.genPkgs, p.full())
+		delete(b.pkgTags, p.full())
+		b.dropAttachmentsOfTargetLocked(p.full())
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 func (b *InMemoryBackend) genDeleteVersions(names []string, validateOnly bool) error {
@@ -240,11 +249,27 @@ func (b *InMemoryBackend) genDeleteVersions(names []string, validateOnly bool) e
 func (b *InMemoryBackend) genDeleteVersion(l leafRef) (*longrunningpb.Operation, error) {
 	name := l.pkg.full() + "/versions/" + l.leaf
 
-	if err := b.genDeleteVersions([]string{name}, false); err != nil {
+	return b.genDeleteVersionsOp(l.pkg.repo.parent(), []string{name}, false)
+}
+
+func (b *InMemoryBackend) genDeleteVersionsOp(
+	parent string, names []string, validateOnly bool,
+) (*longrunningpb.Operation, error) {
+	if err := b.genDeleteVersions(names, true); err != nil {
 		return nil, err
 	}
 
-	return b.done(l.pkg.repo.parent(), &emptypb.Empty{})
+	if validateOnly {
+		return b.done(parent, &emptypb.Empty{})
+	}
+
+	return b.startOp(parent, metaOp(), false, func() (proto.Message, error) {
+		if err := b.genDeleteVersions(names, false); err != nil {
+			return nil, err
+		}
+
+		return &emptypb.Empty{}, nil
+	})
 }
 
 func genFileID(pkg, version, filename string) string { return pkg + ":" + version + ":" + filename }
@@ -416,9 +441,5 @@ func (b *InMemoryBackend) genBatchDelete(
 		names = append(names, p.full()+"/versions/"+l.leaf)
 	}
 
-	if err := b.genDeleteVersions(names, validateOnly); err != nil {
-		return nil, err
-	}
-
-	return b.done(p.repo.parent(), &emptypb.Empty{})
+	return b.genDeleteVersionsOp(p.repo.parent(), names, validateOnly)
 }
