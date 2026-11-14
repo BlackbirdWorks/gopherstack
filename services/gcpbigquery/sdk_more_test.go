@@ -2,9 +2,11 @@ package gcpbigquery_test
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/stretchr/testify/assert"
@@ -334,4 +336,130 @@ func TestInsertTemplateSuffix(t *testing.T) {
 	md, err := ds.Table("base").Metadata(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0), md.NumRows)
+}
+
+func TestTableExpiration(t *testing.T) {
+	t.Parallel()
+
+	env := newSDK(t)
+	ctx := t.Context()
+	ds := env.dataset(t, "expiry")
+	schema := bigquery.Schema{{Name: "id", Type: bigquery.IntegerFieldType}}
+
+	require.NoError(t, ds.Table("gone").Create(ctx, &bigquery.TableMetadata{
+		Schema: schema, ExpirationTime: time.Unix(1, 0),
+	}))
+	require.NoError(t, ds.Table("kept").Create(ctx, &bigquery.TableMetadata{Schema: schema}))
+
+	tests := []struct {
+		do   func() error
+		name string
+		want int
+	}{
+		{func() error {
+			_, err := ds.Table("gone").Metadata(ctx)
+
+			return err
+		}, "get", http.StatusNotFound},
+		{func() error {
+			_, err := env.client.Query("SELECT * FROM expiry.gone").Read(ctx)
+
+			return err
+		}, "query", http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		var gerr *googleapi.Error
+
+		require.ErrorAs(t, tt.do(), &gerr, tt.name)
+		assert.Equal(t, tt.want, gerr.Code, tt.name)
+	}
+
+	var ids []string
+
+	it := ds.Tables(ctx)
+
+	for {
+		tbl, err := it.Next()
+		if err != nil {
+			break
+		}
+
+		ids = append(ids, tbl.TableID)
+	}
+
+	assert.Equal(t, []string{"kept"}, ids)
+
+	require.NoError(t, ds.Table("gone").Create(ctx, &bigquery.TableMetadata{Schema: schema}))
+}
+
+func TestDefaultTableExpiration(t *testing.T) {
+	t.Parallel()
+
+	env := newSDK(t)
+	ctx := t.Context()
+	ds := env.client.Dataset("ttl")
+	require.NoError(t, ds.Create(ctx, &bigquery.DatasetMetadata{DefaultTableExpiration: time.Hour}))
+
+	schema := bigquery.Schema{{Name: "id", Type: bigquery.IntegerFieldType}}
+	require.NoError(t, ds.Table("t1").Create(ctx, &bigquery.TableMetadata{Schema: schema}))
+
+	md, err := ds.Table("t1").Metadata(ctx)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), md.ExpirationTime, time.Minute)
+}
+
+func TestQueryRequestID(t *testing.T) {
+	t.Parallel()
+
+	env := newSDK(t)
+
+	run := func(t *testing.T, reqID string) (int, string) {
+		t.Helper()
+
+		body := `{"query":"SELECT RAND() AS r","useLegacySql":false,"requestId":"` + reqID + `"}`
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, env.url+"/projects/p/queries",
+			strings.NewReader(body))
+		require.NoError(t, err)
+
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := testclient.New(t).Do(req)
+		require.NoError(t, err)
+
+		defer resp.Body.Close()
+
+		out, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		return resp.StatusCode, string(out)
+	}
+
+	tests := []struct {
+		name   string
+		reqID  string
+		same   bool
+		status int
+	}{
+		{"first", "req-1", false, http.StatusOK},
+		{"replay", "req-1", true, http.StatusOK},
+		{"other", "req-2", false, http.StatusOK},
+		{"too long", strings.Repeat("x", 37), false, http.StatusBadRequest},
+	}
+
+	var first string
+
+	for _, tt := range tests {
+		status, out := run(t, tt.reqID)
+		require.Equal(t, tt.status, status, tt.name)
+
+		switch {
+		case tt.name == "first":
+			first = out
+		case tt.same:
+			assert.Equal(t, first, out, tt.name)
+		case status == http.StatusOK:
+			assert.NotEqual(t, first, out, tt.name)
+		}
+	}
 }

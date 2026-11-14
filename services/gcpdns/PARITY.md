@@ -57,14 +57,15 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; requests go through telemetry. No dashboard page."}
 items_still_open:
-  - "dns/v1beta2 and dns/v2 are not served."
   - "Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only."
   - "Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items."
   - "Error message texts (validation, containerNotEmpty, quota) and a few conditions (rrsets.* calls appearing in the change history, change completion timing, project number, non-fixed quota values) were chosen without a production reference."
-  - "The rrsets list filter parameter, zone cloudLoggingConfig effects (no query logs), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration."
+  - "Zone cloudLoggingConfig effects (no query logs: the dns_queries log name and dns_query resource labels are not published), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration."
 leaks: {status: clean, note: "Background resources are the REST http.Server and the pkgs/dns UDP and TCP servers, both stopped and joined by Shutdown; tests run under testleak."}
 ---
 
 # GCPDNS parity notes
 
 Cloud DNS (`dns.googleapis.com/dns/v1`) is checked against `google.golang.org/api/dns/v1`: every request and response in the tests goes through that client, and the DNS data plane is checked with a real DNS client over UDP and TCP.
+
+Pass 2026-11-13: /dns/v1beta2/ is served by the v1 handlers (deprecated routing policy members geoPolicy and wrrPolicy are folded into geo and wrr, setting both is 400; https://docs.cloud.google.com/dns/docs/reference/rest/v1beta2/resourceRecordSets). /dns/v2/projects/{p}/locations/global/... is served by the same handlers with the locations segment stripped (the v2 discovery document has only location global as the example default; other locations are 404); v2 list responses carry no header.operationId. rrsets.list filter implements the documented AIP-160 forms name="d", name=has_suffix("d") and AND type="T" (the SDK Filter comment); name and type parameters with filter are 400.

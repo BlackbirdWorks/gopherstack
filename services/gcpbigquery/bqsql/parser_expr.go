@@ -527,7 +527,7 @@ func (p *parser) callExpr(parts []string, pos int) (*node, error) {
 	}
 
 	if p.acceptKw("OVER") {
-		w, err := p.windowSpec()
+		w, err := p.overSpec()
 		if err != nil {
 			return nil, err
 		}
@@ -577,6 +577,8 @@ func (p *parser) callSuffix(n *node) error {
 		if err := p.expectKw("NULLS"); err != nil {
 			return err
 		}
+
+		n.respect = true
 	}
 
 	if p.kw("ORDER") {
@@ -606,12 +608,138 @@ func (p *parser) callSuffix(n *node) error {
 	return p.expectPunct(")")
 }
 
+func (p *parser) overSpec() (*windowSpec, error) {
+	if p.peek().isPunct("(") {
+		return p.windowSpec()
+	}
+
+	name, err := p.identName()
+	if err != nil {
+		return nil, err
+	}
+
+	w := &windowSpec{base: name}
+	p.pending = append(p.pending, w)
+
+	return w, nil
+}
+
+func (p *parser) windowClause(s *selectStmt) error {
+	s.windows = map[string]*windowSpec{}
+
+	for {
+		name, err := p.identName()
+		if err != nil {
+			return err
+		}
+
+		if err = p.expectKw("AS"); err != nil {
+			return err
+		}
+
+		w, err := p.windowSpec()
+		if err != nil {
+			return err
+		}
+
+		if _, dup := s.windows[strings.ToLower(name)]; dup {
+			return invalid("Duplicate window name %s", name)
+		}
+
+		s.windows[strings.ToLower(name)] = w
+
+		if !p.acceptPunct(",") {
+			return nil
+		}
+	}
+}
+
+// resolveWindows merges each named window referenced since mark into its spec; a window may build on an earlier one.
+func (p *parser) resolveWindows(mark int, defs map[string]*windowSpec) error {
+	pending := p.pending[mark:]
+	p.pending = p.pending[:mark]
+
+	for _, w := range pending {
+		if err := resolveWindow(w, defs, 0); err != nil {
+			return err
+		}
+	}
+
+	for _, w := range defs {
+		if err := resolveWindow(w, defs, 0); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func resolveWindow(w *windowSpec, defs map[string]*windowSpec, depth int) error {
+	if w.base == "" {
+		return nil
+	}
+
+	base, ok := defs[strings.ToLower(w.base)]
+	if !ok || depth > len(defs) {
+		return invalid("Window %s is not defined", w.base)
+	}
+
+	if err := resolveWindow(base, defs, depth+1); err != nil {
+		return err
+	}
+
+	w.base = ""
+
+	if len(base.partition) > 0 {
+		if len(w.partition) > 0 {
+			return invalid("Window specification cannot override PARTITION BY of its named window")
+		}
+
+		w.partition = base.partition
+	}
+
+	if len(base.order) > 0 {
+		if len(w.order) > 0 {
+			return invalid("Window specification cannot override ORDER BY of its named window")
+		}
+
+		w.order = base.order
+	}
+
+	if base.frame != "" {
+		if w.frame != "" {
+			return invalid("Window specification cannot override the frame of its named window")
+		}
+
+		w.frame = base.frame
+	}
+
+	return nil
+}
+
+func (p *parser) windowBase(w *windowSpec) {
+	t := p.peek()
+	if t.kind != tkIdent && t.kind != tkQuoted {
+		return
+	}
+
+	if t.isKw("PARTITION") || t.isKw("ORDER") || t.isKw("ROWS") || t.isKw("RANGE") {
+		return
+	}
+
+	p.i++
+	w.base = t.text
+	p.pending = append(p.pending, w)
+}
+
 func (p *parser) windowSpec() (*windowSpec, error) {
 	if err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
 
 	w := &windowSpec{}
+
+	p.windowBase(w)
 
 	if p.kw("PARTITION") {
 		p.i++

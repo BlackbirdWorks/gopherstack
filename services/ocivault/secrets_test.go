@@ -684,3 +684,13 @@ func TestSecretOnPendingDeletionVault(t *testing.T) {
 	})
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 }
+
+func TestSecretContentReadsLatestVersion(t *testing.T) {
+	t.Parallel()
+
+	se, s := stagedSecret(t)
+
+	got, err := se.e.backend.SecretContent(*s.Id)
+	require.NoError(t, err)
+	assert.Equal(t, "v4", got, "the pending version is the latest one")
+}

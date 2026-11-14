@@ -300,7 +300,7 @@ func (b *InMemoryBackend) serveNPMPackument(w http.ResponseWriter, r *http.Reque
 
 	writeJSONBody(w, http.StatusOK, map[string]any{
 		"_id": pkg, "_rev": fmt.Sprintf("%d-%x", len(versions), rev.Sum(nil)[:8]), "name": pkg,
-		"dist-tags": b.npmTags(rc, pkg), "versions": docs, "time": times,
+		npmDistTags: b.npmTags(rc, pkg), "versions": docs, "time": times,
 	})
 }
 
@@ -431,7 +431,7 @@ func (b *InMemoryBackend) putNPMTag(
 	}
 
 	b.setNPMTags(rc, pkg, map[string]string{tag: version}, false)
-	writeJSONBody(w, http.StatusOK, map[string]any{"ok": true, "id": pkg, "dist-tags": b.npmTags(rc, pkg)})
+	writeJSONBody(w, http.StatusOK, map[string]any{"ok": true, "id": pkg, npmDistTags: b.npmTags(rc, pkg)})
 }
 
 func (b *InMemoryBackend) deleteNPMTag(w http.ResponseWriter, rc repoCtx, pkg, tag string) {

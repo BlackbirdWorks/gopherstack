@@ -188,7 +188,7 @@ func (b *InMemoryBackend) writeDestination(
 		return &jobError{Reason: litNotfound, Message: "Not found: Dataset " + ref.ProjectID + ":" + ref.DatasetID}
 	}
 
-	t, exists := d.Tables[ref.TableID]
+	t, exists := d.live(ref.TableID)
 	if !exists {
 		if create == createNever {
 			return &jobError{
@@ -307,7 +307,7 @@ func (b *InMemoryBackend) effectTable(e bqsql.Effect) (*Table, error) {
 		return nil, errNotFound("Not found: Dataset %s:%s", e.Ref.Project, e.Ref.Dataset)
 	}
 
-	t, ok := d.Tables[e.Ref.Table]
+	t, ok := d.live(e.Ref.Table)
 	if !ok {
 		return nil, errNotFound("Not found: Table %s", e.Ref)
 	}
@@ -349,7 +349,7 @@ func (b *InMemoryBackend) effectCreate(e bqsql.Effect) error {
 		t.Rows = [][]any{}
 	}
 
-	if old, exists := d.Tables[e.Ref.Table]; exists && e.OrReplace {
+	if old, exists := d.live(e.Ref.Table); exists && e.OrReplace {
 		t.Created = old.Created
 	}
 
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) effectDropSchema(e bqsql.Effect) error {
 		return errNotFound("Not found: Dataset %s:%s", e.Ref.Project, e.Ref.Dataset)
 	}
 
-	if len(d.Tables) > 0 && !e.Cascade {
+	if d.liveCount() > 0 && !e.Cascade {
 		return errInUse("Dataset %s:%s is still in use", e.Ref.Project, e.Ref.Dataset)
 	}
 

@@ -105,7 +105,7 @@ func (b *InMemoryBackend) instanceTableLocked(
 		return nil, errInvalid("Invalid table ID %q.", name)
 	}
 
-	if t, ok := d.Tables[name]; ok {
+	if t, ok := d.live(name); ok {
 		return t, nil
 	}
 

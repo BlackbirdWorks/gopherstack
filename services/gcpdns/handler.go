@@ -170,7 +170,67 @@ func readBody(c *echo.Context) ([]byte, error) {
 		return nil, newErr(http.StatusRequestEntityTooLarge, "invalid", "Request body is too large or unreadable.")
 	}
 
+	if strings.HasPrefix(c.Request().URL.Path, apiPrefixBeta2) {
+		return foldBeta2Aliases(data)
+	}
+
 	return data, nil
+}
+
+// foldBeta2Aliases rewrites the deprecated v1beta2 routing policy members geoPolicy and wrrPolicy to geo and wrr.
+func foldBeta2Aliases(data []byte) ([]byte, error) {
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return data, nil
+	}
+
+	var doc any
+	if err := json.Unmarshal(data, &doc, jsonx.V1()); err != nil {
+		return data, nil //nolint:nilerr // the handler reports the malformed body
+	}
+
+	if err := foldAliases(doc); err != nil {
+		return nil, err
+	}
+
+	out, err := json.Marshal(doc, jsonx.V1())
+	if err != nil {
+		return nil, errInvalid("Invalid JSON payload received. %v", err)
+	}
+
+	return out, nil
+}
+
+func foldAliases(v any) error {
+	switch t := v.(type) {
+	case map[string]any:
+		for alias, canonical := range map[string]string{"geoPolicy": "geo", "wrrPolicy": "wrr"} {
+			val, ok := t[alias]
+			if !ok {
+				continue
+			}
+
+			if _, dup := t[canonical]; dup {
+				return errInvalid("Only one of %s and %s may be set.", canonical, alias)
+			}
+
+			delete(t, alias)
+			t[canonical] = val
+		}
+
+		for _, child := range t {
+			if err := foldAliases(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if err := foldAliases(child); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // decode reads a JSON body into T and, when wantMap, the raw object for merge patches.
@@ -419,26 +479,7 @@ func (h *Handler) registerRRSetOps() {
 
 		return respond(c, rr)
 	}
-	h.ops["ResourceRecordSets.List"] = func(c *echo.Context, rt route) error {
-		if c.QueryParam("filter") != "" {
-			return errInvalidValue("filter", c.QueryParam("filter"))
-		}
-
-		limit, err := queryLimit(c)
-		if err != nil {
-			return err
-		}
-
-		pg, err := h.Backend.ListRRSets(
-			rt.project, rt.zone, c.QueryParam("name"), c.QueryParam("type"), c.QueryParam("pageToken"), limit)
-		if err != nil {
-			return err
-		}
-
-		return respond(c, &dnsapi.ResourceRecordSetsListResponse{
-			Kind: "dns#resourceRecordSetsListResponse", Rrsets: pg.Data, NextPageToken: pg.Next,
-		})
-	}
+	h.ops["ResourceRecordSets.List"] = h.listRRSets
 	h.ops["ResourceRecordSets.Patch"] = func(c *echo.Context, rt route) error {
 		_, raw, err := decode[dnsapi.ResourceRecordSet](c)
 		if err != nil {
@@ -561,4 +602,33 @@ func (h *Handler) Shutdown(ctx context.Context) {
 			log.ErrorContext(ctx, "gcpdns: forced close also failed", "error", closeErr)
 		}
 	}
+}
+
+func (h *Handler) listRRSets(c *echo.Context, rt route) error {
+	f := RRFilter{Name: c.QueryParam("name"), Type: c.QueryParam("type")}
+
+	if expr := c.QueryParam("filter"); expr != "" {
+		if f.Name != "" || f.Type != "" {
+			return errInvalid("The name and type parameters are not supported when filter is used.")
+		}
+
+		var perr error
+		if f, perr = ParseRRFilter(expr); perr != nil {
+			return perr
+		}
+	}
+
+	limit, err := queryLimit(c)
+	if err != nil {
+		return err
+	}
+
+	pg, err := h.Backend.ListRRSets(rt.project, rt.zone, f, c.QueryParam("pageToken"), limit)
+	if err != nil {
+		return err
+	}
+
+	return respond(c, &dnsapi.ResourceRecordSetsListResponse{
+		Kind: "dns#resourceRecordSetsListResponse", Rrsets: pg.Data, NextPageToken: pg.Next,
+	})
 }

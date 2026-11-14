@@ -172,7 +172,7 @@ func (b *InMemoryBackend) deleteDataset(project, id string, deleteContents bool)
 		return err
 	}
 
-	if len(d.Tables) > 0 && !deleteContents {
+	if d.liveCount() > 0 && !deleteContents {
 		return errInUse("Dataset %s:%s is still in use", project, id)
 	}
 

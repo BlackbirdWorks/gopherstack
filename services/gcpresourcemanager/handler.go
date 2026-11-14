@@ -129,6 +129,7 @@ func (h *Handler) registerServers(srv *grpc.Server) {
 	resourcemanagerpb.RegisterTagKeysServer(srv, tagKeysServer{iamMethods: iam})
 	resourcemanagerpb.RegisterTagValuesServer(srv, tagValuesServer{iamMethods: iam})
 	resourcemanagerpb.RegisterTagBindingsServer(srv, tagBindingsServer{b: h.Backend})
+	resourcemanagerpb.RegisterTagHoldsServer(srv, tagHoldsServer{b: h.Backend})
 	serviceusagepb.RegisterServiceUsageServer(srv, serviceUsageServer{b: h.Backend})
 	longrunningpb.RegisterOperationsServer(srv, h.Backend.lro)
 }

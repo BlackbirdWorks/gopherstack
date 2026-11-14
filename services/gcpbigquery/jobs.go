@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -23,6 +24,9 @@ const (
 	jobExtract  = "extract"
 	queryPageSz = 100000
 	maxIDLen    = 1024
+
+	maxRequestIDLen = 36
+	requestIDWindow = 15 * time.Minute
 )
 
 func jobIDPattern() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$`) }
@@ -415,8 +419,17 @@ func (b *InMemoryBackend) RunQuery(ctx context.Context, project string, req map[
 		cfg["dryRun"] = dr
 	}
 
+	reqID, _ := req["requestId"].(string)
+	if len(reqID) > maxRequestIDLen {
+		return nil, errInvalid("requestId must be at most %d characters long.", maxRequestIDLen)
+	}
+
 	b.mu.Lock("RunQuery")
 	defer b.mu.Unlock()
+
+	if prev := b.jobByRequestID(project, reqID); prev != nil {
+		return queryResponse(prev, req), nil
+	}
 
 	loc, _ := req[litLocation].(string)
 
@@ -426,6 +439,7 @@ func (b *InMemoryBackend) RunQuery(ctx context.Context, project string, req map[
 	}
 
 	job.DryRun, _ = req["dryRun"].(bool)
+	job.RequestID = reqID
 
 	out, err := b.execute(ctx, job, jobQuery, cfg, nil)
 	if err != nil {
@@ -442,6 +456,27 @@ func (b *InMemoryBackend) RunQuery(ctx context.Context, project string, req map[
 		b.storeJob(job)
 	}
 
+	return queryResponse(job, req), nil
+}
+
+// jobByRequestID returns the query job a requestId created within the idempotency window.
+func (b *InMemoryBackend) jobByRequestID(project, reqID string) *Job {
+	if reqID == "" {
+		return nil
+	}
+
+	cutoff := nowMs() - requestIDWindow.Milliseconds()
+
+	for _, j := range b.jobs {
+		if j.Project == project && j.RequestID == reqID && j.Created >= cutoff {
+			return j
+		}
+	}
+
+	return nil
+}
+
+func queryResponse(job *Job, req map[string]any) map[string]any {
 	limit := queryPageSz
 	if m, ok := intOf(req["maxResults"]); ok && m > 0 {
 		limit = m
@@ -454,7 +489,7 @@ func (b *InMemoryBackend) RunQuery(ctx context.Context, project string, req map[
 		delete(resp, "jobReference")
 	}
 
-	return resp, nil
+	return resp
 }
 
 // jobFailure maps a failed job's error to the HTTP error getQueryResults and jobs.query return.

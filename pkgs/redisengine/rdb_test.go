@@ -1,6 +1,8 @@
 package redisengine_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -130,7 +132,8 @@ func TestRDB_Errors(t *testing.T) {
 		{name: "not-rdb", data: []byte("hello world"), want: redisengine.ErrBadRDB},
 		{name: "future-version", data: []byte("REDIS0099\xff"), want: redisengine.ErrUnsupportedRDB},
 		{name: "truncated", data: valid[:len(valid)-12], want: redisengine.ErrBadRDB},
-		{name: "listpack-hash", data: []byte("REDIS0009\x00\x00\x00"), want: redisengine.ErrUnsupportedRDB},
+		{name: "stream", data: []byte("REDIS0009\x00\x00\x00"), want: redisengine.ErrUnsupportedRDB},
+		{name: "empty-listpack", data: []byte("REDIS0009\x10\x01k\x00"), want: redisengine.ErrBadRDB},
 		{name: "huge-count", data: []byte("REDIS0009\x01\x01k\x80\xff\xff\xff\xff"), want: redisengine.ErrBadRDB},
 	}
 
@@ -143,8 +146,8 @@ func TestRDB_Errors(t *testing.T) {
 			t.Cleanup(dst.Close)
 			require.NoError(t, dst.Mini.Set("keep", "me"))
 
-			if tt.name == "listpack-hash" {
-				tt.data = []byte("REDIS0009\x10\x01k\x00")
+			if tt.name == "stream" {
+				tt.data = []byte("REDIS0009\x15\x01k\x00")
 			}
 
 			require.ErrorIs(t, dst.ImportRDB(tt.data), tt.want)
@@ -165,4 +168,70 @@ func TestRDB_ExportStreamRejected(t *testing.T) {
 
 	_, err = e.ExportRDB()
 	require.ErrorIs(t, err, redisengine.ErrUnsupportedRDB)
+}
+
+func TestRDB_ImportRealServerFiles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		file string
+	}{
+		{"ziplist and intset", "redis-6.2.rdb"},
+		{"listpack and quicklist", "redis-7.0.rdb"},
+		{"listpack on 7.2", "redis-7.2.rdb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := os.ReadFile(filepath.Join("testdata", tt.file))
+			require.NoError(t, err)
+
+			mr := miniredis.NewMiniRedis()
+			require.NoError(t, redisengine.DecodeRDB(mr, data))
+
+			got, err := mr.Get("str")
+			require.NoError(t, err)
+			assert.Equal(t, "hello", got)
+
+			list, err := mr.List("list")
+			require.NoError(t, err)
+			assert.Equal(t, []string{"a", "b", "c", "1", "2"}, list)
+
+			ints, err := mr.List("ints")
+			require.NoError(t, err)
+			assert.Equal(t, []string{
+				"-100", "100", "-32768", "32767", "-8388608", "8388607", "-2147483648", "2147483647",
+				"9223372036854775807", "-9223372036854775808", "5", "13",
+			}, ints)
+
+			big, err := mr.List("biglist")
+			require.NoError(t, err)
+			require.Len(t, big, 200)
+			assert.Equal(t, "value-1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", big[0])
+			assert.Equal(t, "value-200-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", big[199])
+
+			members, err := mr.Members("intset")
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"1", "2", "3", "70000"}, members)
+
+			lpset, err := mr.Members("lpset")
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"a", "b", "c"}, lpset)
+
+			score, err := mr.ZScore("zs", "b")
+			require.NoError(t, err)
+			assert.InDelta(t, 2.5, score, 0)
+
+			assert.Equal(t, "v1", mr.HGet("hs", "f1"))
+			assert.Equal(t, "2", mr.HGet("hs", "f2"))
+			assert.Equal(t, "v3", mr.HGet("hs", "f3"))
+
+			neg, err := mr.Get("neg")
+			require.NoError(t, err)
+			assert.Equal(t, "-5", neg)
+		})
+	}
 }

@@ -123,7 +123,7 @@ func (c catalog) Table(ref bqsql.TableRef) (*bqsql.TableData, bool) {
 		return nil, false
 	}
 
-	t, ok := ds.Tables[ref.Table]
+	t, ok := ds.live(ref.Table)
 	if !ok {
 		return nil, false
 	}

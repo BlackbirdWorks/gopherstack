@@ -163,6 +163,67 @@ func TestSelectQueries(t *testing.T) {
 			"SELECT ARRAY_AGG(name IGNORE NULLS ORDER BY name) AS names FROM people",
 			`[[[{"v":"ann"},{"v":"bob"}]]]`,
 		},
+		{
+			"array agg limit",
+			"SELECT ARRAY_AGG(name IGNORE NULLS ORDER BY name LIMIT 1) AS names FROM people",
+			`[[[{"v":"ann"}]]]`,
+		},
+		{
+			"approx quantiles",
+			"SELECT APPROX_QUANTILES(x, 2) FROM UNNEST([1, 1, 1, 4, 5, 6, 7, 8, 9, 10]) AS x",
+			`[[[{"v":"1"},{"v":"5"},{"v":"10"}]]]`,
+		},
+		{
+			"approx quantiles offset",
+			"SELECT APPROX_QUANTILES(x, 100)[OFFSET(90)] FROM UNNEST([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) AS x",
+			`[["9"]]`,
+		},
+		{
+			"approx quantiles distinct",
+			"SELECT APPROX_QUANTILES(DISTINCT x, 2) FROM UNNEST([1, 1, 1, 4, 5, 6, 7, 8, 9, 10]) AS x",
+			`[[[{"v":"1"},{"v":"6"},{"v":"10"}]]]`,
+		},
+		{
+			"approx quantiles respect nulls",
+			"SELECT APPROX_QUANTILES(x, 2 RESPECT NULLS) FROM UNNEST([NULL, NULL, 1, 1, 1, 4, 5, 6, 7, 8, 9, 10]) AS x",
+			`[[[{"v":null},{"v":"4"},{"v":"10"}]]]`,
+		},
+		{
+			"approx top count",
+			"SELECT APPROX_TOP_COUNT(x, 2) FROM UNNEST(['apple', 'apple', 'pear', 'pear', 'pear', 'banana']) AS x",
+			`[[[{"v":{"f":[{"v":"pear"},{"v":"3"}]}},{"v":{"f":[{"v":"apple"},{"v":"2"}]}}]]]`,
+		},
+		{
+			"approx top count null",
+			"SELECT APPROX_TOP_COUNT(x, 2) FROM UNNEST([NULL, 'pear', 'pear', 'pear', 'apple', NULL]) AS x",
+			`[[[{"v":{"f":[{"v":"pear"},{"v":"3"}]}},{"v":{"f":[{"v":null},{"v":"2"}]}}]]]`,
+		},
+		{
+			"named window",
+			"SELECT id, ROW_NUMBER() OVER w rn FROM people WINDOW w AS (ORDER BY id DESC) ORDER BY id",
+			`[["1","3"],["2","2"],["3","1"]]`,
+		},
+		{
+			"named window extended",
+			"SELECT id, SUM(id) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) s " +
+				"FROM people WINDOW w AS (ORDER BY id) ORDER BY id",
+			`[["1","1"],["2","3"],["3","6"]]`,
+		},
+		{
+			"named window chain",
+			"SELECT id, ROW_NUMBER() OVER b rn FROM people WINDOW a AS (PARTITION BY active), b AS (a ORDER BY id) ORDER BY id",
+			`[["1","1"],["2","1"],["3","1"]]`,
+		},
+		{
+			"intersect all",
+			"SELECT x FROM UNNEST([1, 1, 1, 2, NULL, NULL]) x INTERSECT ALL SELECT y FROM UNNEST([1, 1, 3, NULL]) y ORDER BY x",
+			`[[null],["1"],["1"]]`,
+		},
+		{
+			"except all",
+			"SELECT x FROM UNNEST([1, 1, 1, 2, NULL, NULL]) x EXCEPT ALL SELECT y FROM UNNEST([1, 1, 3, NULL]) y ORDER BY x",
+			`[[null],["1"],["2"]]`,
+		},
 		{"struct literal", "SELECT STRUCT(1 AS a, 'x' AS b) AS s", `[[{"f":[{"v":"1"},{"v":"x"}]}]]`},
 		{"array literal", "SELECT [1, 2, 3] AS a, ARRAY_LENGTH([1,2,3])", `[[[{"v":"1"},{"v":"2"},{"v":"3"}],"3"]]`},
 		{
@@ -241,6 +302,7 @@ func TestQueryErrors(t *testing.T) {
 	}{
 		{"missing table", "SELECT * FROM nope", "Not found: Table p:ds.nope", bqsql.ErrNotFound},
 		{"unknown column", "SELECT zzz FROM people", "Unrecognized name: zzz", bqsql.ErrInvalid},
+		{"undefined window", "SELECT ROW_NUMBER() OVER w FROM people", "Window w is not defined", bqsql.ErrInvalid},
 		{"division by zero", "SELECT 1 / 0", "division by zero", bqsql.ErrRuntime},
 		{"syntax", "SELEC 1", "Syntax error", bqsql.ErrInvalid},
 		{"add overflow", "SELECT 9223372036854775807 + 1", "int64 overflow: 9223372036854775807 + 1", bqsql.ErrRuntime},

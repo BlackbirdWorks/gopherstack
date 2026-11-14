@@ -91,7 +91,8 @@ func (b *InMemoryBackend) upstreamsOf(rc repoCtx) []repoCtx {
 	return out
 }
 
-// serveVirtual answers a read with the first upstream, by descending priority, that has the artifact.
+// serveVirtual answers a read with the first upstream, by descending priority, that has the artifact; npm,
+// Python and Maven package indices combine the entries of every upstream that has the package.
 func (b *InMemoryBackend) serveVirtual(w http.ResponseWriter, r *http.Request, rc repoCtx, path string) {
 	if !isRead(r) {
 		writePlain(w, http.StatusMethodNotAllowed, "Virtual repositories are read-only; upload to an upstream.")
@@ -99,16 +100,45 @@ func (b *InMemoryBackend) serveVirtual(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 
+	merge := r.Method == http.MethodGet && mergeableIndex(rc.pb.GetFormat(), path)
+
+	var hits []*bufResponse
+
 	for _, up := range b.upstreamsOf(rc) {
 		rec := newBufResponse()
 		b.dispatchRepo(rec, r, up, path)
 
-		if st := rec.status(); st < http.StatusBadRequest || st == http.StatusForbidden {
-			rec.replay(w)
+		st := rec.status()
+		if st >= http.StatusBadRequest && st != http.StatusForbidden {
+			continue
+		}
+
+		if !merge || st != http.StatusOK {
+			if len(hits) == 0 {
+				rec.replay(w)
+
+				return
+			}
+
+			continue
+		}
+
+		hits = append(hits, rec)
+	}
+
+	if len(hits) == 0 {
+		writePlain(w, http.StatusNotFound, "Not found in any upstream of "+rc.ref.id+": "+path)
+
+		return
+	}
+
+	if len(hits) > 1 {
+		if body, ok := mergeIndex(rc.pb.GetFormat(), hits); ok {
+			writeMerged(w, hits[0], body)
 
 			return
 		}
 	}
 
-	writePlain(w, http.StatusNotFound, "Not found in any upstream of "+rc.ref.id+": "+path)
+	hits[0].replay(w)
 }

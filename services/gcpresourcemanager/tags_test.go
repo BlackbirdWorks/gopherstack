@@ -3,6 +3,7 @@ package gcpresourcemanager_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/stretchr/testify/assert"
@@ -226,5 +227,129 @@ func TestTagKeyUpdateAndEtag(t *testing.T) {
 			&resourcemanagerpb.DeleteTagKeyRequest{Name: key.GetName(), Etag: key.GetEtag()},
 		)
 		assert.Equal(t, codes.Aborted, codeOf(err), "the etag changed with the update")
+	})
+}
+
+func TestPurgedProjectTagsAreRemoved(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, withRetention(24*time.Hour))
+	c := e.grpc
+	ctx := t.Context()
+
+	proj := c.createProject(t, "tag-owner", "")
+
+	kop, err := c.tagKeys.CreateTagKey(ctx, &resourcemanagerpb.CreateTagKeyRequest{
+		TagKey: &resourcemanagerpb.TagKey{Parent: proj.GetName(), ShortName: "tier"},
+	})
+	require.NoError(t, err)
+
+	key, err := kop.Wait(ctx)
+	require.NoError(t, err)
+
+	val := mustTagValue(t, c, key.GetName(), "gold")
+	target := c.createProject(t, "tag-target", "")
+	resource := "//cloudresourcemanager.googleapis.com/" + target.GetName()
+
+	bop, err := c.bindings.CreateTagBinding(ctx, &resourcemanagerpb.CreateTagBindingRequest{
+		TagBinding: &resourcemanagerpb.TagBinding{Parent: resource, TagValue: val.GetName()},
+	})
+	require.NoError(t, err)
+
+	_, err = bop.Wait(ctx)
+	require.NoError(t, err)
+
+	for _, name := range []string{proj.GetName(), target.GetName()} {
+		del, derr := c.projects.DeleteProject(ctx, &resourcemanagerpb.DeleteProjectRequest{Name: name})
+		require.NoError(t, derr)
+
+		_, derr = del.Wait(ctx)
+		require.NoError(t, derr)
+	}
+
+	_, err = c.tagKeys.GetTagKey(ctx, &resourcemanagerpb.GetTagKeyRequest{Name: key.GetName()})
+	require.NoError(t, err, "tags survive while the project is only DELETE_REQUESTED")
+
+	e.clock.Advance(25 * time.Hour)
+
+	_, err = c.tagKeys.GetTagKey(ctx, &resourcemanagerpb.GetTagKeyRequest{Name: key.GetName()})
+	assert.Equal(t, codes.PermissionDenied, codeOf(err))
+
+	_, err = c.tagVals.GetTagValue(ctx, &resourcemanagerpb.GetTagValueRequest{Name: val.GetName()})
+	assert.Equal(t, codes.PermissionDenied, codeOf(err))
+}
+
+func TestTagHolds(t *testing.T) {
+	t.Parallel()
+
+	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
+		ctx := t.Context()
+		key := mustTagKey(t, c, "holdkey")
+		val := mustTagValue(t, c, key.GetName(), "held")
+
+		create := func(holder, origin string) (*resourcemanagerpb.TagHold, error) {
+			op, err := c.holds.CreateTagHold(ctx, &resourcemanagerpb.CreateTagHoldRequest{
+				Parent: val.GetName(),
+				TagHold: &resourcemanagerpb.TagHold{
+					Holder:   holder,
+					Origin:   origin,
+					HelpLink: "https://example.com/help",
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return op.Wait(ctx)
+		}
+
+		_, err := create("", "o")
+		assert.Equal(t, codes.InvalidArgument, codeOf(err), "holder is required")
+
+		first, err := create("//compute.googleapis.com/projects/p/migs/a", "mig-1")
+		require.NoError(t, err)
+		assert.Regexp(t, `^tagValues/\d+/tagHolds/\d+$`, first.GetName())
+		assert.Equal(t, "mig-1", first.GetOrigin())
+
+		_, err = create("//compute.googleapis.com/projects/p/migs/a", "mig-1")
+		assert.Equal(t, codes.AlreadyExists, codeOf(err))
+
+		_, err = create("//compute.googleapis.com/projects/p/migs/a", "mig-2")
+		require.NoError(t, err)
+
+		_, err = c.tagVals.DeleteTagValue(ctx, &resourcemanagerpb.DeleteTagValueRequest{Name: val.GetName()})
+		assert.Equal(t, codes.FailedPrecondition, codeOf(err), "holds block deleting the value")
+
+		count := func(filter string) int {
+			n := 0
+			it := c.holds.ListTagHolds(
+				ctx,
+				&resourcemanagerpb.ListTagHoldsRequest{Parent: val.GetName(), Filter: filter},
+			)
+
+			for {
+				_, nerr := it.Next()
+				if nerr != nil {
+					return n
+				}
+
+				n++
+			}
+		}
+
+		assert.Equal(t, 2, count(""))
+		assert.Equal(t, 1, count("origin = mig-2"))
+		assert.Equal(t, 2, count("holder = //compute.googleapis.com/projects/p/migs/a"))
+		assert.Equal(t, 1, count("holder = //compute.googleapis.com/projects/p/migs/a AND origin = mig-1"))
+
+		del, err := c.holds.DeleteTagHold(ctx, &resourcemanagerpb.DeleteTagHoldRequest{Name: first.GetName()})
+		require.NoError(t, err)
+		require.NoError(t, del.Wait(ctx))
+		assert.Equal(t, 1, count(""))
+
+		_, err = c.holds.DeleteTagHold(ctx, &resourcemanagerpb.DeleteTagHoldRequest{Name: first.GetName()})
+		assert.Equal(t, codes.PermissionDenied, codeOf(err))
 	})
 }

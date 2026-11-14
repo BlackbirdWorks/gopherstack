@@ -291,7 +291,7 @@ func (b *InMemoryBackend) loadSchema(lc loadConfig, in []loadInput) ([]bqsql.Fie
 	}
 
 	if d := b.datasets[dsKey(lc.Dest.ProjectID, lc.Dest.DatasetID)]; d != nil {
-		if t, ok := d.Tables[lc.Dest.TableID]; ok && len(t.Schema) > 0 {
+		if t, ok := d.live(lc.Dest.TableID); ok && len(t.Schema) > 0 {
 			return t.Schema, false, nil
 		}
 	}

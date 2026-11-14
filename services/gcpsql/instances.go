@@ -97,6 +97,7 @@ func (b *InMemoryBackend) newInstance(project string, in *InstanceInput) (*instR
 			), SQLNetworkArchitecture: "NEW_NETWORK_ARCHITECTURE",
 		},
 	}
+	syncZones(rec)
 	seedAccounts(rec)
 	rec.Inst.Etag = etagOf(rec.Inst)
 
@@ -222,6 +223,7 @@ func (b *InMemoryBackend) UpdateInstance(project, name string, in InstanceInput,
 	}
 
 	rec.Inst.Settings = next
+	syncZones(rec)
 	b.touchLocked(rec)
 
 	task := b.settingsTask(rec, old, next)

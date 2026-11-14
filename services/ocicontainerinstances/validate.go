@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	maxContainers = 32
+	maxContainers = 60
 	maxVolumes    = 32
 	maxPort       = 65535
 	defInterval   = 10

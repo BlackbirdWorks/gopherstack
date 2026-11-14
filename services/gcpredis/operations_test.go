@@ -1,6 +1,8 @@
 package gcpredis_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -491,4 +493,39 @@ func TestOperationsAPI(t *testing.T) {
 
 	_, err = lro.GetOperation(t.Context(), &longrunningpb.GetOperationRequest{Name: loc + "/operations/none"})
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestImportRealServerFiles(t *testing.T) {
+	t.Parallel()
+
+	for _, file := range []string{"redis-6.2.rdb", "redis-7.0.rdb", "redis-7.2.rdb"} {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := os.ReadFile(filepath.Join("..", "..", "pkgs", "redisengine", "testdata", file))
+			require.NoError(t, err)
+
+			e := newEnv(t)
+			inst := e.create(t, "real", basic())
+			e.store.objs["bkt/real.rdb"] = data
+
+			imp, err := e.client.ImportInstance(t.Context(), &redispb.ImportInstanceRequest{
+				Name: inst.GetName(),
+				InputConfig: &redispb.InputConfig{Source: &redispb.InputConfig_GcsSource{
+					GcsSource: &redispb.GcsSource{Uri: "gs://bkt/real.rdb"},
+				}},
+			})
+			require.NoError(t, err)
+
+			_, err = await(t, imp)
+			require.NoError(t, err)
+
+			c := e.dial(t, inst, "")
+			assert.Equal(t, []string{"a", "b", "c", "1", "2"}, c.LRange(t.Context(), "list", 0, -1).Val())
+			assert.Equal(t, int64(200), c.LLen(t.Context(), "biglist").Val())
+			assert.Equal(t, "v3", c.HGet(t.Context(), "hs", "f3").Val())
+			assert.ElementsMatch(t, []string{"1", "2", "3", "70000"}, c.SMembers(t.Context(), "intset").Val())
+			assert.InDelta(t, 2.5, c.ZScore(t.Context(), "zs", "b").Val(), 0)
+		})
+	}
 }

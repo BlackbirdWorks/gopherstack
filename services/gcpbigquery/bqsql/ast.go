@@ -54,12 +54,14 @@ type node struct {
 	distinct bool
 	safe     bool
 	nulls    bool
+	respect  bool
 	hasElse  bool
 	operand  bool
 	index    int
 }
 
 type windowSpec struct {
+	base      string
 	frame     string
 	partition []*node
 	order     []orderItem
@@ -112,6 +114,7 @@ type selectStmt struct {
 	where    *node
 	having   *node
 	qualify  *node
+	windows  map[string]*windowSpec
 	items    []selectItem
 	groupBy  []*node
 	distinct bool

@@ -961,10 +961,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 7 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 7 gaps |
 | [Cloud Build](services/gcpcloudbuild/README.md) | B | 21 | 9 gaps |
-| [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 5 gaps |
+| [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 4 gaps |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 9 gaps |
-| [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
+| [Cloud IAM](services/gcpiam/README.md) | B | 31 | 4 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 43 | 6 gaps |
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 54 | 8 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 4 gaps |
@@ -974,11 +974,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 2 gaps |
 | [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 9 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 47 | 9 gaps |
-| [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 9 gaps |
+| [Google Cloud Batch](services/gcpbatch/README.md) | B | 14 | 8 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
-| [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 9 gaps |
+| [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 6 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 39 | 9 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 4 gaps |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 6 gaps |
@@ -994,7 +994,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Artifacts and Container Registry](services/ociartifacts/README.md) | B | 37 | 7 gaps |
 | [OCI Autonomous Database](services/ocidatabase/README.md) | B | 21 | 7 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 49 | 11 gaps |
-| [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 7 gaps |
+| [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 6 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 227 | 11 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 5 gaps |

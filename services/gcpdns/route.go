@@ -6,7 +6,12 @@ import (
 	"strings"
 )
 
-const apiPrefix = "/dns/v1/"
+const (
+	apiPrefix      = "/dns/v1/"
+	apiPrefixBeta2 = "/dns/v1beta2/"
+	apiPrefixV2    = "/dns/v2/"
+	globalLocation = "global"
+)
 
 const (
 	ruleCollectionLen = 2
@@ -23,23 +28,51 @@ type route struct {
 	rrType  string
 }
 
-func parseRoute(r *http.Request) route {
-	raw := strings.TrimPrefix(r.URL.EscapedPath(), apiPrefix)
-	if raw == r.URL.EscapedPath() {
-		return route{}
+// splitPath returns the unescaped path segments below the API prefix, with the v2 locations segment removed.
+func splitPath(path string) ([]string, bool) {
+	var raw string
+
+	v2 := false
+
+	switch {
+	case strings.HasPrefix(path, apiPrefix):
+		raw = strings.TrimPrefix(path, apiPrefix)
+	case strings.HasPrefix(path, apiPrefixBeta2):
+		raw = strings.TrimPrefix(path, apiPrefixBeta2)
+	case strings.HasPrefix(path, apiPrefixV2):
+		raw, v2 = strings.TrimPrefix(path, apiPrefixV2), true
+	default:
+		return nil, false
 	}
 
 	parts := strings.Split(strings.Trim(raw, "/"), "/")
 	for i, p := range parts {
 		u, err := url.PathUnescape(p)
 		if err != nil {
-			return route{}
+			return nil, false
 		}
 
 		parts[i] = u
 	}
 
 	if len(parts) < 2 || parts[0] != "projects" || parts[1] == "" {
+		return nil, false
+	}
+
+	if v2 {
+		if len(parts) < 4 || parts[2] != "locations" || parts[3] != globalLocation {
+			return nil, false
+		}
+
+		parts = append(parts[:2:2], parts[4:]...)
+	}
+
+	return parts, true
+}
+
+func parseRoute(r *http.Request) route {
+	parts, ok := splitPath(r.URL.EscapedPath())
+	if !ok {
 		return route{}
 	}
 

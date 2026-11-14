@@ -28,7 +28,7 @@ ops:
   GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Per service account; empty policy carries the initial etag."}
   SetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "Etag optimistic concurrency: a stale non-empty etag is ABORTED. Member syntax and role format validated; custom role references must exist and not be deleted. update_mask is ignored (whole policy replaced). Policies are stored, never enforced."}
   TestIamPermissions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Every requested permission is reported granted: the emulator authenticates no caller."}
-  CreateRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "Project and organization parents; role_id 3-64 of [A-Za-z0-9_.]; permissions deduplicated, sorted and format-checked (service.resource.verb) but not checked against a permission universe; etag per change; reusing a deleted id is ALREADY_EXISTS until purged (37 days)."}
+  CreateRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "Project and organization parents; role_id 3-64 of [A-Za-z0-9_.]; permissions deduplicated, sorted and format-checked (service.resource.verb) but not checked against a permission universe; etag per change; reusing a deleted id is ALREADY_EXISTS until permanently deleted (7 days)."}
   GetRole: {wire: ok, errors: ok, state: ok, persist: n/a, note: "roles/* from the built-in catalog (always FULL), custom roles including deleted ones (deleted=true)."}
   ListRoles: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Empty parent lists predefined roles; view BASIC omits permissions; show_deleted for custom roles; paged (default 300, max 1000)."}
   UpdateRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask: title, description, included_permissions, stage; empty mask replaces all four. Stale etag is ABORTED; deleted role is FAILED_PRECONDITION."}
@@ -48,12 +48,13 @@ families:
 items_still_open:
   - "Predefined role permission lists are representative, not Google's complete lists."
   - "System-managed signing keys are not rotated."
-  - "SetIamPolicy ignores update_mask; TestIamPermissions grants everything requested."
-  - "Condition lint is syntactic only (no CEL parsing, no policy-level lint)."
-  - "Deleted-service-account and deleted-role retention windows (30 and 7/37 days) are the documented figures, not verified against the live service."
+  - "TestIamPermissions grants everything requested (requests carry no authenticated principal to evaluate the policy for)."
+  - "Condition lint parses CEL but does not type-check against the IAM condition attributes and has no policy-level lint."
 leaks: {status: clean, note: "The only background resource is the grpc.Server and its Serve goroutine; Shutdown stops and joins them (goleak in TestMain)."}
 ---
 
 # gcpiam parity notes
 
 Dated history lives in git and bd; the front matter is authoritative.
+
+Pass 2026-11-13: SetIamPolicy honours update_mask (default paths bindings and etag; unknown paths are INVALID_ARGUMENT; iam_policy.proto SetIamPolicyRequest.update_mask). LintPolicy parses conditions with cel-go instead of bracket matching. Retention verified: a deleted service account can be undeleted for 30 days (adminpb DeleteServiceAccount comment, https://docs.cloud.google.com/iam/docs/service-accounts-delete-undelete); a deleted custom role can be undeleted for 7 days and is permanently deleted after that (adminpb DeleteRole comment, https://docs.cloud.google.com/iam/docs/reference/rest/v1/projects.roles/delete), so the earlier 37 day purge was shortened to 7 days.

@@ -29,7 +29,7 @@ families:
 items_still_open:
   - "redis_configs are validated against the supported key set and Redis version and reported back, but miniredis has no CONFIG command so they never change engine behaviour (eviction, keyspace notifications, defrag)."
   - "memory_size_gb is not enforced as a maxmemory limit."
-  - "Import supports RDB files that use plain encodings (strings, lists, sets, sorted sets, hashes, LZF and integer strings); files written by a real Redis server with ziplist, listpack, intset or stream encodings fail with INVALID_ARGUMENT. Export fails on instances holding streams and drops hash field TTLs."
+  - "Import reads strings, lists, sets, sorted sets and hashes in every encoding Redis 6.2, 7.0 and 7.2 write (ziplist, intset, quicklist, listpack, LZF); files holding streams or hash field TTLs fail with INVALID_ARGUMENT. Export fails on instances holding streams and drops hash field TTLs."
   - "STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels."
   - "RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts)."
   - "After a restore every instance starts on a new port and, for TLS, a new CA."
@@ -38,3 +38,5 @@ leaks: {status: clean, note: "Background resources are the grpc.Server, per-inst
 ---
 
 Initial implementation (2026-10-21): CloudRedis gRPC and REST verified against cloud.google.com/go/redis v1.26.0 through the official client in the unit and integration tests, and against the hashicorp/google provider (google_redis_instance) in test/terraform/gcp.
+
+Pass 2026-11-13: ImportInstance decodes the packed RDB encodings through pkgs/redisengine (ziplist, intset, quicklist and quicklist2, listpack hashes, sets and sorted sets), verified against RDB files written by redis 6.2, 7.0 and 7.2 servers (pkgs/redisengine/testdata).
