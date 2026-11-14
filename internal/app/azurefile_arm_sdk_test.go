@@ -108,14 +108,15 @@ func TestAzureFileARMShareSoftDelete(t *testing.T) {
 		check func(t *testing.T, s *afStack)
 		name  string
 	}{
-		{name: "defaults off", check: func(t *testing.T, s *afStack) {
+		{name: "defaults on for seven days", check: func(t *testing.T, s *afStack) {
 			t.Helper()
 
 			got, err := s.fileServices.GetServiceProperties(t.Context(), afRG, afAccount, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "default", *got.Name)
 			assert.Equal(t, "Microsoft.Storage/storageAccounts/fileServices", *got.Type)
-			assert.False(t, *got.FileServiceProperties.FileServiceProperties.ShareDeleteRetentionPolicy.Enabled)
+			assert.True(t, *got.FileServiceProperties.FileServiceProperties.ShareDeleteRetentionPolicy.Enabled)
+			assert.Equal(t, int32(7), *got.FileServiceProperties.FileServiceProperties.ShareDeleteRetentionPolicy.Days)
 		}},
 		{name: "set get list", check: func(t *testing.T, s *afStack) {
 			t.Helper()

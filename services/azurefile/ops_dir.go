@@ -329,7 +329,7 @@ func dirEntry(c *node, include map[string]bool) listEntryXML {
 			e.Properties = &listPropsXML{}
 		}
 
-		e.Properties.CreationTime, e.Properties.LastAccessTime = fmtISO(c.Created), fmtISO(c.LastWrite)
+		e.Properties.CreationTime, e.Properties.LastAccessTime = fmtISO(c.Created), fmtISO(c.Created)
 		e.Properties.LastWriteTime, e.Properties.ChangeTime = fmtISO(c.LastWrite), fmtISO(c.Changed)
 		e.Properties.LastModified = fmtHTTP(c.LastModified)
 	}
@@ -450,6 +450,10 @@ func (h *Handler) rename(rc *reqCtx, dir bool) (*resp, *apiError) {
 	sh, aerr := b.renameShare(rc)
 	if aerr != nil {
 		return nil, aerr
+	}
+
+	if !strings.EqualFold(rc.hdr("x-ms-source-allow-trailing-dot"), "true") {
+		srcPath = trimDots(srcPath)
 	}
 
 	srcParent, srcLeaf, aerr := sh.parentOf(srcPath)

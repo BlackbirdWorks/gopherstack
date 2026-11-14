@@ -506,6 +506,10 @@ func (h *Handler) putRange(rc *reqCtx) (*resp, *apiError) {
 			"The size of the request body exceeds the maximum permissible limit.")
 	}
 
+	if clearOp && rc.hdr("Content-MD5") != "" {
+		return nil, errInvalidHeader("Content-MD5")
+	}
+
 	var data []byte
 
 	if !clearOp {
@@ -581,6 +585,7 @@ func (h *Handler) writeRange(rc *reqCtx, start, length int64, data []byte, clear
 
 	if !clearOp {
 		rs.hdr.Set("Content-MD5", base64.StdEncoding.EncodeToString(md5Of(data)))
+		rs.hdr.Set("X-Ms-Content-Crc64", crc64Header(data))
 	}
 
 	return rs, nil

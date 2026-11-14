@@ -161,6 +161,165 @@ const (
 	maxProvMiBps = 10340
 )
 
+// Create Share: HDD allows 500-50,000 IOPS and 60-5,120 MiB/s; SSD 3,000-102,400 IOPS and 100-10,340 MiB/s.
+type mediaRange struct{ minIops, maxIops, minMiBps, maxMiBps int64 }
+
+const (
+	mediaHDD         = "HDD"
+	mediaSSD         = "SSD"
+	guardrailFactor  = 5
+	burstCreditSecs  = 3600
+	burstFactor      = 3
+	ssdBurstFloor    = 10000
+	hddBurstFloor    = 5000
+	hddMaxBurst      = 50000
+	ssdMaxBurst      = 102400
+	ssdRecIopsBase   = 3000
+	hddRecIopsBase   = 1000
+	ssdRecMiBpsBase  = 100
+	hddRecMiBpsBase  = 60
+	ssdMiBpsPerTenGi = 10
+	hddMiBpsPerFifty = 50
+	hddIopsPerFive   = 5
+)
+
+var (
+	hddRange = mediaRange{500, 50000, 60, 5120}     //nolint:gochecknoglobals // immutable
+	ssdRange = mediaRange{3000, 102400, 100, 10340} //nolint:gochecknoglobals // immutable
+)
+
+// skuKind is what a storage account SKU implies for share provisioning: the V2 SKUs (StandardV2_*, PremiumV2_*)
+// are the provisioned v2 model; Premium_* is provisioned v1 (paid bursting); Standard_* is pay-as-you-go.
+type skuKind struct {
+	media     string
+	known     bool
+	v2        bool
+	premiumV1 bool
+}
+
+func (b *InMemoryBackend) skuKindOf(account string) skuKind {
+	if b.AccountSKU == nil {
+		return skuKind{}
+	}
+
+	name, ok := b.AccountSKU(account)
+	if !ok {
+		return skuKind{}
+	}
+
+	n := strs.Fold(name)
+	k := skuKind{known: true, media: mediaHDD}
+
+	if strings.HasPrefix(n, "premium") {
+		k.media = mediaSSD
+	}
+
+	k.v2 = strings.HasPrefix(n, "premiumv2") || strings.HasPrefix(n, "standardv2")
+	k.premiumV1 = strings.HasPrefix(n, "premium") && !k.v2
+
+	return k
+}
+
+// checkProvisioned gates the provisioning headers on the account's SKU and narrows the union range to its media.
+func (b *InMemoryBackend) checkProvisioned(account string, e shareExtra) (skuKind, *apiError) {
+	k := b.skuKindOf(account)
+	if !k.known {
+		return k, nil
+	}
+
+	if aerr := k.gate(e); aerr != nil {
+		return k, aerr
+	}
+
+	return k, k.checkRange(e)
+}
+
+func (k skuKind) gate(e shareExtra) *apiError {
+	if !k.v2 {
+		switch {
+		case e.Iops != nil:
+			return errInvalidHeader("x-ms-share-provisioned-iops")
+		case e.Bandwidth != nil:
+			return errInvalidHeader("x-ms-share-provisioned-bandwidth-mibps")
+		}
+	}
+
+	bursting := e.PaidBursting != nil && *e.PaidBursting || e.BurstIops != nil || e.BurstBandwidth != nil
+	if !k.premiumV1 && bursting {
+		return errInvalidHeader("x-ms-share-paid-bursting-enabled")
+	}
+
+	return nil
+}
+
+func (k skuKind) checkRange(e shareExtra) *apiError {
+	r := hddRange
+	if k.media == mediaSSD {
+		r = ssdRange
+	}
+
+	if e.Iops != nil && (*e.Iops < r.minIops || *e.Iops > r.maxIops) {
+		return errInvalidHeader("x-ms-share-provisioned-iops")
+	}
+
+	if e.Bandwidth != nil && (*e.Bandwidth < r.minMiBps || *e.Bandwidth > r.maxMiBps) {
+		return errInvalidHeader("x-ms-share-provisioned-bandwidth-mibps")
+	}
+
+	return nil
+}
+
+// recommended applies the provisioned v2 recommendation formulas (Understand Azure Files billing).
+func recommended(media string, gib int64) (int64, int64) {
+	if media == mediaSSD {
+		return min(max(ssdRecIopsBase+gib, ssdRecIopsBase), ssdRange.maxIops),
+			min(max(ssdRecMiBpsBase+ceilDiv(gib, ssdMiBpsPerTenGi), ssdRecMiBpsBase), ssdRange.maxMiBps)
+	}
+
+	return min(max(hddRecIopsBase+ceilDiv(gib, hddIopsPerFive), hddRange.minIops), hddRange.maxIops),
+		min(max(hddRecMiBpsBase+ceilDiv(gib, hddMiBpsPerFifty), hddRange.minMiBps), hddRange.maxMiBps)
+}
+
+func ceilDiv(a, b int64) int64 { return (a + b - 1) / b }
+
+// applyProvisioned fills the recommended IOPS and bandwidth of a provisioned v2 share and enforces the 5x guardrails.
+func applyProvisioned(sh *share, k skuKind) *apiError {
+	if !k.v2 {
+		return nil
+	}
+
+	sh.Extra.Media = k.media
+
+	if sh.Quota <= 0 {
+		return nil
+	}
+
+	recIops, recMiBps := recommended(k.media, int64(sh.Quota))
+
+	if sh.Extra.Iops == nil {
+		sh.Extra.Iops = &recIops
+	} else if *sh.Extra.Iops > guardrailFactor*recIops {
+		return errInvalidHeader("x-ms-share-provisioned-iops")
+	}
+
+	if sh.Extra.Bandwidth == nil {
+		sh.Extra.Bandwidth = &recMiBps
+	} else if *sh.Extra.Bandwidth > guardrailFactor*recMiBps {
+		return errInvalidHeader("x-ms-share-provisioned-bandwidth-mibps")
+	}
+
+	return nil
+}
+
+// burstLimit is the included burst IOPS of a provisioned v2 share.
+func burstLimit(media string, iops int64) int64 {
+	if media == mediaSSD {
+		return min(max(burstFactor*iops, ssdBurstFloor), ssdMaxBurst)
+	}
+
+	return min(max(burstFactor*iops, hddBurstFloor), hddMaxBurst)
+}
+
 func optIntRange(h http.Header, name string, lo, hi int64) (*int64, *apiError) {
 	n, err := optInt(h, name)
 	if err != nil || n == nil {
@@ -245,6 +404,12 @@ func (h *Handler) createShare(rc *reqCtx) (*resp, *apiError) {
 	}
 
 	opts, aerr := parseShareOptions(rc.r.Header)
+
+	var kind skuKind
+	if aerr == nil {
+		kind, aerr = h.Backend.checkProvisioned(rc.acct, opts.Extra)
+	}
+
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -274,6 +439,10 @@ func (h *Handler) createShare(rc *reqCtx) (*resp, *apiError) {
 		return nil, err
 	}
 
+	if err := applyProvisioned(sh, kind); err != nil {
+		return nil, err
+	}
+
 	if aerr = sh.initNFS(sh.Root, nfsIn{}, true); aerr != nil {
 		return nil, aerr
 	}
@@ -300,6 +469,13 @@ func setShareHeaders(hdr http.Header, sh *share, now time.Time) {
 	}
 
 	setExtraHeaders(hdr, sh.Extra)
+
+	if sh.Extra.Media != "" && sh.Extra.Iops != nil {
+		limit := burstLimit(sh.Extra.Media, *sh.Extra.Iops)
+		hdr.Set("X-Ms-Share-Included-Burst-Iops", strconv.FormatInt(limit, 10))
+		hdr.Set("X-Ms-Share-Max-Burst-Credits-For-Iops", strconv.FormatInt((limit-*sh.Extra.Iops)*burstCreditSecs, 10))
+	}
+
 	setMetadataHeaders(hdr, sh.Metadata)
 	sh.Lease.setHeaders(hdr, now)
 }
@@ -359,6 +535,12 @@ func (h *Handler) getShareProps(rc *reqCtx) (*resp, *apiError) {
 
 func (h *Handler) setShareProps(rc *reqCtx) (*resp, *apiError) {
 	opts, aerr := parseShareOptions(rc.r.Header)
+
+	var kind skuKind
+	if aerr == nil {
+		kind, aerr = h.Backend.checkProvisioned(rc.acct, opts.Extra)
+	}
+
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -377,6 +559,10 @@ func (h *Handler) setShareProps(rc *reqCtx) (*resp, *apiError) {
 	}
 
 	if aerr = opts.applyTo(sh, rc.now); aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = applyProvisioned(sh, kind); aerr != nil {
 		return nil, aerr
 	}
 

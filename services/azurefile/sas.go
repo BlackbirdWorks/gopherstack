@@ -109,10 +109,8 @@ func (h *Handler) verifySAS(rc *reqCtx, op string) *apiError {
 		return aerr
 	}
 
-	if strings.EqualFold(rc.acct, azureauth.DefaultAccountName) {
-		if aerr = verifySASSignature(rc, account); aerr != nil {
-			return aerr
-		}
+	if aerr = verifySASSignature(rc, account); aerr != nil {
+		return aerr
 	}
 
 	if aerr = checkSASOrigin(rc); aerr != nil {
@@ -299,6 +297,10 @@ func needAnyPerm(have, want string) *apiError {
 }
 
 func verifySASSignature(rc *reqCtx, account bool) *apiError {
+	if !account && rc.q.Get("skoid") != "" {
+		return verifyUserDelegationSAS(rc)
+	}
+
 	key, err := base64.StdEncoding.DecodeString(azureauth.DefaultAccountKey)
 	if err != nil {
 		return authFailed("The development account key is unusable.")

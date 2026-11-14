@@ -150,6 +150,7 @@ type shareExtra struct {
 	BurstIops          *int64 `json:"burstIops,omitempty"`
 	Iops               *int64 `json:"iops,omitempty"`
 	Bandwidth          *int64 `json:"bandwidth,omitempty"`
+	Media              string `json:"media,omitempty"`
 }
 
 type account struct {
@@ -163,6 +164,18 @@ type account struct {
 type shareRetention struct {
 	Days    int32 `json:"days"`
 	Enabled bool  `json:"enabled"`
+	Set     bool  `json:"set,omitempty"`
+}
+
+const defaultShareRetentionDays = 7
+
+// policy is the effective policy: new accounts have share soft delete on with 7 days until configured.
+func (r shareRetention) policy() (bool, int32) {
+	if !r.Set && !r.Enabled {
+		return true, defaultShareRetentionDays
+	}
+
+	return r.Enabled, r.Days
 }
 
 // --- service properties (XML wire shape; also the persisted form) ---

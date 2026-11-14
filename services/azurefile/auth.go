@@ -20,6 +20,14 @@ func (h *Handler) authenticate(rc *reqCtx, op string) *apiError {
 
 	switch {
 	case strings.HasPrefix(authz, "Bearer "):
+		if aerr := h.checkToken(authz); aerr != nil {
+			return aerr
+		}
+
+		if op == opGetUserDelegationKey {
+			return nil
+		}
+
 		return checkBearerIntent(rc)
 	case authz != "":
 		return verifySharedKey(rc)
@@ -43,13 +51,9 @@ func checkBearerIntent(rc *reqCtx) *apiError {
 }
 
 func verifySharedKey(rc *reqCtx) *apiError {
-	auth, ok := azureauth.ParseAuthorizationHeader(rc.r.Header.Get("Authorization"))
+	_, ok := azureauth.ParseAuthorizationHeader(rc.r.Header.Get("Authorization"))
 	if !ok {
 		return authFailed("The Authorization header is malformed.")
-	}
-
-	if !strings.EqualFold(auth.Account, azureauth.DefaultAccountName) {
-		return nil
 	}
 
 	valid, err := azureauth.VerifySharedKey(azureauth.DefaultAccountKey, signedView(rc))
@@ -88,4 +92,16 @@ func signedView(rc *reqCtx) *http.Request {
 	r.URL = &u
 
 	return r
+}
+
+func (h *Handler) checkToken(authz string) *apiError {
+	if h.ValidateToken == nil {
+		return nil
+	}
+
+	if _, _, err := h.ValidateToken(strings.TrimPrefix(authz, bearerPrefix)); err != nil {
+		return authFailed("Server failed to authenticate the request. The access token is invalid.")
+	}
+
+	return nil
 }

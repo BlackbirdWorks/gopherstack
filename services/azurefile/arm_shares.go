@@ -61,6 +61,8 @@ type ShareView struct {
 	Bandwidth      *int64
 	BurstIops      *int64
 	BurstBandwidth *int64
+	IncludedBurst  *int64
+	BurstCredits   *int64
 	PaidBursting   *bool
 	SnapshotVDir   *bool
 	Name           string
@@ -158,6 +160,7 @@ func viewOf(sh *share, now time.Time, days int32) ShareView {
 		Metadata: sh.Metadata, Iops: sh.Extra.Iops, Bandwidth: sh.Extra.Bandwidth, BurstIops: sh.Extra.BurstIops,
 		BurstBandwidth: sh.Extra.BurstBandwidth, PaidBursting: sh.Extra.PaidBursting,
 		SnapshotVDir: sh.Extra.SnapshotVDirAccess, Snapshot: sh.SnapshotID, Usage: sh.Root.usage(),
+		IncludedBurst: includedBurst(sh), BurstCredits: burstCredits(sh),
 		LeaseStatus:   capitalize(lease.Get("X-Ms-Lease-Status")),
 		LeaseState:    capitalize(sh.Lease.effective(now)),
 		LeaseDuration: capitalize(lease.Get("X-Ms-Lease-Duration")),
@@ -186,7 +189,7 @@ func (b *InMemoryBackend) PutShare(account, name string, in ShareInput, create b
 		return ShareView{}, false, shareErr(errInvalidName())
 	}
 
-	opts, aerr := parseShareOptions(in.headers())
+	opts, kind, aerr := b.parseProvisionedOptions(account, in)
 	if aerr != nil {
 		return ShareView{}, false, shareErr(aerr)
 	}
@@ -223,7 +226,11 @@ func (b *InMemoryBackend) PutShare(account, name string, in ShareInput, create b
 
 	opts.Protocols = ""
 
-	if aerr = opts.applyTo(sh, now); aerr != nil {
+	if aerr = opts.applyTo(sh, now); aerr == nil {
+		aerr = applyProvisioned(sh, kind)
+	}
+
+	if aerr != nil {
 		return ShareView{}, false, shareErr(aerr)
 	}
 
@@ -345,4 +352,36 @@ func (b *InMemoryBackend) RestoreShare(account, target, deletedName, deletedVers
 	}
 
 	return viewOf(d, now, retentionDays(b.peek(account))), nil
+}
+
+func includedBurst(sh *share) *int64 {
+	if sh.Extra.Media == "" || sh.Extra.Iops == nil {
+		return nil
+	}
+
+	v := burstLimit(sh.Extra.Media, *sh.Extra.Iops)
+
+	return &v
+}
+
+func burstCredits(sh *share) *int64 {
+	limit := includedBurst(sh)
+	if limit == nil {
+		return nil
+	}
+
+	v := (*limit - *sh.Extra.Iops) * burstCreditSecs
+
+	return &v
+}
+
+func (b *InMemoryBackend) parseProvisionedOptions(account string, in ShareInput) (shareOptions, skuKind, *apiError) {
+	opts, aerr := parseShareOptions(in.headers())
+	if aerr != nil {
+		return opts, skuKind{}, aerr
+	}
+
+	kind, aerr := b.checkProvisioned(account, opts.Extra)
+
+	return opts, kind, aerr
 }

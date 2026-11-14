@@ -49,10 +49,16 @@ type Handler struct {
 	Backend *InMemoryBackend
 	// Blobs resolves blob copy sources; nil rejects them.
 	Blobs BlobReader
+	// ValidateToken checks Bearer tokens when VerifyAuth is on and returns their oid and tid; nil accepts any token.
+	ValidateToken func(token string) (oid, tid string, err error)
+	// Metrics receives Storage Analytics rows for enabled hour/minute metrics; nil disables them.
+	Metrics MetricsSink
 	// Now is the clock; nil means time.Now.
-	Now   func() time.Time
-	srvMu *lockmetrics.RWMutex
-	srv   *http.Server
+	Now        func() time.Time
+	srvMu      *lockmetrics.RWMutex
+	metricsMu  *lockmetrics.RWMutex
+	metricAggs map[metricKey]*metricAgg
+	srv        *http.Server
 	// Port is the fixed TCP port StartWorker binds.
 	Port int
 	// BlobPort is the Blob listener port, used to recognise blob source URLs.
@@ -70,7 +76,12 @@ var (
 
 // NewHandler creates a Handler on DefaultPort.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend, Port: DefaultPort, srvMu: lockmetrics.New("azurefile.server")}
+	return &Handler{
+		Backend:   backend,
+		Port:      DefaultPort,
+		srvMu:     lockmetrics.New("azurefile.server"),
+		metricsMu: lockmetrics.New("azurefile.metrics"),
+	}
 }
 
 // Name returns the service name.
@@ -83,7 +94,12 @@ func (h *Handler) RouteMatcher() service.Matcher { return func(*echo.Context) bo
 func (h *Handler) MatchPriority() int { return 0 }
 
 // Reset clears all state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.metricsMu.Lock("Reset")
+	h.metricAggs = nil
+	h.metricsMu.Unlock()
+}
 
 func (h *Handler) now() time.Time {
 	if h.Now != nil {
@@ -247,7 +263,12 @@ func (h *Handler) trimTrailingDots(rc *reqCtx) {
 		return
 	}
 
-	segs := strings.Split(rc.path, "/")
+	rc.path = trimDots(rc.path)
+}
+
+// trimDots drops trailing dots from every path component, keeping components that are only dots.
+func trimDots(path string) string {
+	segs := strings.Split(path, "/")
 
 	for i, s := range segs {
 		if t := strings.TrimRight(s, "."); t != "" {
@@ -255,7 +276,7 @@ func (h *Handler) trimTrailingDots(rc *reqCtx) {
 		}
 	}
 
-	rc.path = strings.Join(segs, "/")
+	return strings.Join(segs, "/")
 }
 
 type opFn func(*reqCtx) (*resp, *apiError)
@@ -295,12 +316,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		h.trimTrailingDots(rc)
 
+		started := h.now()
 		rs, aerr := fn(rc)
 		if aerr != nil {
 			rs = errResp(aerr)
 		}
 
-		return h.write(c, rs)
+		err := h.write(c, rs)
+		h.recordMetrics(r.Context(), requestTxn(rc, name, rs, h.now().Sub(started)), rc.now)
+
+		return err
 	}
 }
 
