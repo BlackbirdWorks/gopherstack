@@ -91,3 +91,46 @@ func TestServiceNic(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceNicAddresses(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	f := e.v6Fixture(t)
+	ctx := t.Context()
+
+	res, err := e.client.CreatePublicIp(
+		ctx,
+		core.CreatePublicIpRequest{
+			CompartmentId: new(testComp), Lifetime: core.CreatePublicIpDetailsLifetimeReserved,
+		},
+	)
+	require.NoError(t, err)
+
+	nic, err := e.backend.CreateServiceNic(oci.ServiceNicIn{
+		CompartmentID: testComp, SubnetID: *f.subnet.Id, ReservedPublicIPIDs: []string{*res.Id}, AssignIPv6: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{*res.IpAddress}, nic.PublicIPs)
+	require.Len(t, nic.Ipv6Addresses, 1)
+
+	got, err := e.client.GetPublicIp(ctx, core.GetPublicIpRequest{PublicIpId: res.Id})
+	require.NoError(t, err)
+	assert.Equal(t, nic.PrivateIPID, *got.PrivateIpId)
+
+	_, err = e.backend.CreateServiceNic(oci.ServiceNicIn{
+		CompartmentID: testComp, SubnetID: *f.subnet.Id, ReservedPublicIPIDs: []string{*res.Id},
+	})
+	require.Error(t, err, "an assigned reserved IP cannot be reused")
+
+	_, err = e.backend.CreateServiceNic(
+		oci.ServiceNicIn{CompartmentID: testComp, SubnetID: *f.plain.Id, AssignIPv6: true},
+	)
+	require.Error(t, err, "a subnet without an IPv6 prefix refuses IPv6")
+
+	e.backend.DeleteServiceNic(nic.VnicID)
+
+	got, err = e.client.GetPublicIp(ctx, core.GetPublicIpRequest{PublicIpId: res.Id})
+	require.NoError(t, err)
+	assert.Nil(t, got.PrivateIpId, "the reserved IP returns to the pool")
+}

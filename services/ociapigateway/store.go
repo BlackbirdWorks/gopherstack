@@ -48,6 +48,7 @@ type InMemoryBackend struct {
 	Auth          *ociauth.Registry
 	compartment   func(string) bool
 	subnet        func(string) bool
+	network       *Network
 	functions     FunctionInvoker
 	limiter       *rateLimiter
 	usage         *usageTracker

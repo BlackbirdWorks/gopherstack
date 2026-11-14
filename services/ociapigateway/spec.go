@@ -366,9 +366,15 @@ func validateCors(c *corsDoc, where string) *APIError {
 	return nil
 }
 
+func emptyStr(p *string) bool { return p == nil || *p == "" }
+
 func validateAuth(a *authDoc) *APIError {
 	if a == nil {
 		return nil
+	}
+
+	if emptyStr(a.TokenHeader) && emptyStr(a.TokenQueryParam) {
+		return errMissing("authentication needs tokenHeader or tokenQueryParam")
 	}
 
 	if a.TokenHeader != nil && *a.TokenHeader != "" && (a.TokenAuthScheme == nil || *a.TokenAuthScheme == "") &&

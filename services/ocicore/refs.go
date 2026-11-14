@@ -14,6 +14,8 @@ type SubnetRef struct {
 	AvailabilityDomain string
 	CidrBlock          string
 	State              string
+	// ProhibitPublicIP is true for a private subnet.
+	ProhibitPublicIP bool
 }
 
 // ShapeRef is the read-only view of a compute shape.
@@ -49,6 +51,7 @@ func (b *InMemoryBackend) LookupSubnet(id string) (SubnetRef, bool) {
 
 	ref := SubnetRef{
 		ID: s.ID, VcnID: s.VcnID, CompartmentID: s.CompartmentID, CidrBlock: s.CidrBlock, State: s.LifecycleState,
+		ProhibitPublicIP: s.ProhibitPublicIPOnVnic,
 	}
 	if s.AvailabilityDomain != nil {
 		ref.AvailabilityDomain = *s.AvailabilityDomain

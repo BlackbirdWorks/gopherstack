@@ -246,21 +246,10 @@ func (b *InMemoryBackend) ChangeRepositoryCompartment(id, ifMatch string, in cha
 	defer b.mu.Unlock()
 
 	r, err := b.genericRepo(id)
-	if err != nil {
-		return err
-	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
-		return err
-	}
-
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
-		return err
-	}
-
-	r.CompartmentID, r.Etag = in.CompartmentID, newEtag()
-
-	return nil
+	return b.moveCompartment("ChangeRepositoryCompartment/"+id, ifMatch, in, err, func() (*string, *string) {
+		return &r.CompartmentID, &r.Etag
+	})
 }
 
 func (b *InMemoryBackend) artifact(id string) (*GenericArtifact, *GenericRepo, *APIError) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -561,4 +562,44 @@ func (b *InMemoryBackend) DetachVolume(id, ifMatch string) *APIError {
 	b.moveTo(a, statDetaching, statDetached)
 
 	return nil
+}
+
+// UpdateVolumeAttachmentIn is the UpdateVolumeAttachment request body.
+type UpdateVolumeAttachmentIn struct {
+	UpdateIn
+	IscsiLoginState string `json:"iscsiLoginState"`
+}
+
+func iscsiLoginStates() []string {
+	return []string{
+		"UNKNOWN", "LOGGING_IN", "LOGIN_SUCCEEDED", "LOGIN_FAILED", "LOGGING_OUT", "LOGOUT_SUCCEEDED",
+		"LOGOUT_FAILED",
+	}
+}
+
+// UpdateVolumeAttachment sets the iSCSI login state of an attached iSCSI volume attachment.
+func (b *InMemoryBackend) UpdateVolumeAttachment(
+	id, ifMatch string, in UpdateVolumeAttachmentIn,
+) (resource, string, *APIError) {
+	return updateWith(b, id, ifMatch, in.UpdateIn, func(a *VolumeAttachment) *APIError {
+		if in.IscsiLoginState == "" {
+			return nil
+		}
+
+		if !slices.Contains(iscsiLoginStates(), in.IscsiLoginState) {
+			return errParam("iscsiLoginState must be one of " + strings.Join(iscsiLoginStates(), ", "))
+		}
+
+		if a.AttachmentType != attachISCSI {
+			return errParam("iscsiLoginState applies to iscsi volume attachments only")
+		}
+
+		if a.LifecycleState != statAttached {
+			return errState("The volume attachment " + a.ID + " is " + a.LifecycleState)
+		}
+
+		a.IscsiLoginState = in.IscsiLoginState
+
+		return nil
+	})
 }

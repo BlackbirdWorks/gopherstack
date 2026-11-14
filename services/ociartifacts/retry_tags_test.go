@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 )
 
@@ -206,6 +207,100 @@ func TestTagValidation(t *testing.T) {
 				},
 			})
 			check(err)
+		})
+	}
+}
+
+func TestMutationRetryToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, e *env, imageID *string, repoID, genericID *string) error
+		name string
+	}{
+		{
+			name: "remove version",
+			run: func(t *testing.T, e *env, imageID, _, _ *string) error {
+				t.Helper()
+
+				_, err := e.client.RemoveContainerVersion(t.Context(), artifacts.RemoveContainerVersionRequest{
+					ImageId: imageID, Version: new("extra"), OpcRetryToken: new("tok"),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "restore image",
+			run: func(t *testing.T, e *env, imageID, _, _ *string) error {
+				t.Helper()
+
+				_, err := e.client.RestoreContainerImage(t.Context(), artifacts.RestoreContainerImageRequest{
+					ImageId: imageID, OpcRetryToken: new("tok"),
+				})
+
+				return err
+			},
+		},
+		{
+			name: "move container repository",
+			run: func(t *testing.T, e *env, _, repoID, _ *string) error {
+				t.Helper()
+
+				_, err := e.client.ChangeContainerRepositoryCompartment(
+					t.Context(), artifacts.ChangeContainerRepositoryCompartmentRequest{
+						RepositoryId: repoID, CompartmentId: new(otherCompart), OpcRetryToken: new("tok"),
+					})
+
+				return err
+			},
+		},
+		{
+			name: "move generic repository",
+			run: func(t *testing.T, e *env, _, _, genericID *string) error {
+				t.Helper()
+
+				_, err := e.client.ChangeRepositoryCompartment(
+					t.Context(),
+					artifacts.ChangeRepositoryCompartmentRequest{
+						RepositoryId:  genericID,
+						CompartmentId: new(otherCompart), OpcRetryToken: new("tok"),
+					},
+				)
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			repo := e.createRepo(t, "retry-mut", nil)
+			gen := e.createGenericRepo(t, false)
+
+			c := e.registry(t)
+			name := testNamespace + "/retry-mut"
+			c.PushImage(name, "v1")
+
+			body := c.Do(http.MethodGet, "/v2/"+name+"/manifests/v1", nil, nil).Body
+			c.Do(http.MethodPut, "/v2/"+name+"/manifests/extra", body,
+				map[string]string{"Content-Type": ocitest.ManifestMediaType})
+
+			imageID := e.listImages(t, nil)[0].Id
+
+			if tt.name == "restore image" {
+				_, err := e.client.DeleteContainerImage(
+					t.Context(),
+					artifacts.DeleteContainerImageRequest{ImageId: imageID},
+				)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, tt.run(t, e, imageID, repo.Id, gen.Id))
+			require.NoError(t, tt.run(t, e, imageID, repo.Id, gen.Id), "the same token replays the first answer")
 		})
 	}
 }

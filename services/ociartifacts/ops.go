@@ -131,6 +131,8 @@ func (h *Handler) deleteContainerRepo(q *req) error {
 
 func (h *Handler) changeContainerRepoCompartment(q *req) error {
 	return withBody(q, func(in changeCompartmentIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		return okEmpty(q, h.Backend.ChangeContainerRepositoryCompartment(q.param("repositoryId"), q.ifMatch(), in))
 	})
 }
@@ -179,6 +181,8 @@ func (h *Handler) restoreImage(q *req) error {
 		}
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	w, etag, err := h.Backend.RestoreContainerImage(q.param("imageId"), q.ifMatch(), in)
 
 	return respond(q, w, etag, err)
@@ -186,6 +190,8 @@ func (h *Handler) restoreImage(q *req) error {
 
 func (h *Handler) removeVersion(q *req) error {
 	return withBody(q, func(in removeVersionIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		w, etag, err := h.Backend.RemoveContainerVersion(q.param("imageId"), q.ifMatch(), in)
 
 		return respond(q, w, etag, err)
@@ -305,6 +311,8 @@ func (h *Handler) deleteGenericRepo(q *req) error {
 
 func (h *Handler) changeGenericRepoCompartment(q *req) error {
 	return withBody(q, func(in changeCompartmentIn) error {
+		in.RetryToken = q.r.Header.Get(headerRetry)
+
 		return okEmpty(q, h.Backend.ChangeRepositoryCompartment(q.param("repositoryId"), q.ifMatch(), in))
 	})
 }

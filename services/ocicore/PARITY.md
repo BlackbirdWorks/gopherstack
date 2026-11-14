@@ -2,7 +2,7 @@
 service: ocicore
 sdk_module: github.com/oracle/oci-go-sdk/v65@v65.126.2   # go.mod dependency (test-only): drives every operation in the service tests
 last_audit_commit: c620a3b53
-last_audit_date: 2026-11-05
+last_audit_date: 2026-11-13
 overall: B
 ops:
   CreateVcn: {wire: ok, errors: partial, state: ok, persist: ok, note: "Default route table, security list and DHCP options are created with it and cannot be deleted; cidrBlocks /16 to /30 (up to 16, no overlap, no 169.254/16 or multicast/reserved space); dnsLabel gives vcnDomainName <label>.oraclevcn.com; isIpv6Enabled allocates a /56 and adds the documented IPv6 default rules; 50 VCNs per region. Lifecycle PROVISIONING to AVAILABLE after two seconds on the injectable clock."}
@@ -193,6 +193,15 @@ ops:
   GetIpv6: {wire: ok, errors: ok, state: ok, persist: n/a, note: "etag header."}
   ListIpv6s: {wire: ok, errors: ok, state: ok, persist: n/a, note: "subnetId or vnicId required; ipAddress, ipState, lifetime filters."}
   UpdateIpv6: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostname, routeTableId, lifetime and moving a reserved IPv6 to another VNIC of the same subnet."}
+  UpdateVolumeAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Sets iscsiLoginState (the seven SDK enum values) on an ATTACHED iscsi attachment; paravirtualized attachments answer 400 and others 409 IncorrectState; if-match honoured."}
+  BulkCreatePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "1-32 items, all or none, on a vnicId (EPHEMERAL default) or a subnetId (RESERVED); 200 with opc-work-request-id (operationType BULK_CREATE_PRIVATE_IPS, unverified); opc-retry-token replays the first work request."}
+  BulkDeletePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "All or none; items must belong to the given vnicId or subnetId; primary IPs and route targets answer 409."}
+  BulkDetachPrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "Unassigns RESERVED secondary IPs from the vnicId, all or none."}
+  BulkUpdatePrivateIps: {wire: ok, errors: partial, state: ok, persist: ok, note: "displayName, tags, hostnameLabel, lifetime and, with vnicId, moving IPs of the same subnet onto that VNIC; all or none."}
+  BulkCreateIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "1-32 items on a vnicId or subnetId with the CreateIpv6 rules, all or none; work request and retry token as BulkCreatePrivateIps."}
+  BulkDeleteIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "All or none; items must belong to the given vnicId or subnetId."}
+  BulkDetachIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "Unassigns RESERVED IPv6s from the vnicId, all or none."}
+  BulkUpdateIpv6s: {wire: ok, errors: partial, state: ok, persist: ok, note: "UpdateIpv6 fields per item, all or none; with vnicId, moves the IPv6s to that VNIC."}
   DeleteIpv6: {wire: ok, errors: partial, state: ok, persist: ok, note: "TERMINATING then TERMINATED."}
   Ipv6VnicDetach: {wire: ok, errors: partial, state: ok, persist: ok, note: "Unassigns a reserved IPv6; an ephemeral one cannot be detached (unverified)."}
   CreateBootVolumeBackup: {wire: ok, errors: partial, state: ok, persist: ok, note: "First backup FULL (unverified); retentionPeriod, isPreventDeletionEnabled, isRetentionLockEnabled, isIndefiniteRetentionEnabled; kmsKeyId checked against OCI Vault. CREATING to AVAILABLE."}
@@ -242,11 +251,11 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
   - "Compute is control plane only: no VM executes, so serial console (console history and connections), instance agent, run command, metadata service, boot/launch options enforcement, live migration and maintenance reboot do not exist. launchVolumeAttachments, instance configurations and pools, capacity reservations, dedicated VM hosts, compute clusters, cluster placement groups, platformConfig, preemptible instances, instance credentials and vnic VLAN attachments are not implemented."
-  - "Block storage gaps: boot volume replicas, volume group replicas, autotune policies, volume attachment updates, attaching a standalone boot volume to an instance, and executed backup policy schedules. Backups hold no data (unique sizes are 0). The emulator has one namespace, so a cross-region backup copy is listed next to its source and a replica in another region cannot be activated except by creating a volume in its AD from the same endpoint."
+  - "Block storage gaps: boot volume replicas, volume group replicas, autotune policies, attaching a standalone boot volume to an instance, and executed backup policy schedules. Backups hold no data (unique sizes are 0). The emulator has one namespace, so a cross-region backup copy is listed next to its source and a replica in another region cannot be activated except by creating a volume in its AD from the same endpoint."
   - "Platform image and shape catalogues are static and representative: image build dates, sizes and the shape list (four flex families, four fixed VM shapes, one bare metal) are not the live per-region values; fixed shape memory/vNIC limits follow the compute shapes documentation, flex VNIC limits are approximated."
   - "Unverified against the live service: error codes for duplicate hostnameLabel (409 Conflict), first backup forced FULL, RESET staying RUNNING, merge semantics of UpdateInstance metadata, and whether terminating an instance whose private IP is a route target is refused."
-  - "BYOIP and BYOIPv6 ranges, the bulk IPv6 operations (BulkCreateIpv6s and siblings), VCN and subnet IPv6 ULA allocation beyond the supplied prefixes, are not implemented. Unverified against the live service: the Oracle-allocated IPv6 /56 range, the 6 IPv4 blocks per subnet and 32 IPv6 per VNIC limits, 409 for adding a second Oracle-allocated prefix, and the work request operationType names."
-  - "Not implemented: DRG NAT policies and rules, public IP pools, flow logs, VTAPs, private endpoints, cross-tenancy local peering and DRG attachments, route and security policy analysis, bulk private IP operations, and DRG upgrade of legacy DRGs (every DRG here is already upgraded). Non-VCN DRG attachments are created in-process with AttachDrgNetwork because IPSec, FastConnect and remote peering are not emulated. Unverified: the names of the default DRG route tables and distributions, 5 DRGs per tenancy, 409 for a second attachment of a VCN, the redundancy status mapping, the entity object shape of the topology responses, and the utilization unit of the IP inventory."
+  - "BYOIP and BYOIPv6 ranges, VCN and subnet IPv6 ULA allocation beyond the supplied prefixes, are not implemented. Unverified against the live service: the 6 IPv4 blocks per subnet limit, 409 for adding a second Oracle-allocated prefix, and the work request operationType names."
+  - "Not implemented: DRG NAT policies and rules, public IP pools, flow logs, VTAPs, private endpoints, cross-tenancy local peering and DRG attachments, route and security policy analysis, per-IP routeTableId (rejected with 400 by CreatePrivateIp and the bulk private IP operations), secondary IPv4 CIDR allocation by BulkCreatePrivateIps (cidrPrefixLength, ipv4SubnetCidrAtCreation are rejected with 400), and DRG upgrade of legacy DRGs (every DRG here is already upgraded). Non-VCN DRG attachments are created in-process with AttachDrgNetwork because IPSec, FastConnect and remote peering are not emulated. Unverified: the names of the default DRG route tables and distributions, 5 DRGs per tenancy, 409 for a second attachment of a VCN, the redundancy status mapping, the entity object shape of the topology responses, and the utilization unit of the IP inventory."
   - "The service catalogue holds two entries (all IAD services, OCI IAD Object Storage) for the single emulated region us-ashburn-1."
   - "Security rules are validated structurally and CanReach evaluates security lists and NSGs (stateful and stateless rules, the reply path, a stateful rule winning over a stateless one) for a flow inside one VCN, but no emulated service calls it and nothing enforces traffic; overlapping or duplicate rules are accepted because the documentation does not say they are refused (unverified)."
   - "Availability domain names are checked for shape (<4 letters>:US-ASHBURN-AD-<1-3>) rather than against the OCI Identity list: the list carries a fixed prefix, so checking it would reject availability domain names copied from a real tenancy in existing fixtures."
@@ -280,3 +289,7 @@ History only; the open list is `items_still_open` above.
 ## 2026-11-13 VCN DNS resolver association
 
 GetVcnDnsResolverAssociation (core VirtualNetwork, GET /vcns/{vcnId}/dnsResolverAssociation; oci-go-sdk v65.126.2 VcnDnsResolverAssociation) returns vcnId, the VCN lifecycle state (PROVISIONING, AVAILABLE, TERMINATING, TERMINATED) and, when OCI DNS is wired, dnsResolverId of the VCN private resolver.
+
+## 2026-11-13 verification
+
+docs.oracle.com Network/Concepts/ipv6.htm: Oracle-allocated VCN IPv6 prefixes are /56 GUA and a VNIC takes up to 32 secondary IPv6 objects, matching `ipv6.go`. SDK `core` v65.126.2 `UpdateVolumeAttachmentDetails` carries only `iscsiLoginState` (seven enum values). The Bulk*PrivateIps and Bulk*Ipv6s requests carry `opc-retry-token` and answer `opc-work-request-id`.

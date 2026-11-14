@@ -171,7 +171,7 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 
 	if b.certNameTaken(in.CompartmentID, name, "") {
-		return CertificateWire{}, "", "", errConflict(
+		return CertificateWire{}, "", "", errExists(
 			"a certificate named " + name + " already exists in this compartment",
 		)
 	}

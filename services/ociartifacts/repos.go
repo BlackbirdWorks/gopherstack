@@ -39,6 +39,7 @@ type updateRepoIn struct {
 
 type changeCompartmentIn struct {
 	CompartmentID string `json:"compartmentId"`
+	RetryToken    string `json:"-"`
 }
 
 func validRepoName(name string) *APIError {
@@ -378,19 +379,39 @@ func (b *InMemoryBackend) ChangeContainerRepositoryCompartment(id, ifMatch strin
 	defer b.mu.Unlock()
 
 	r, err := b.repo(id)
-	if err != nil {
+
+	return b.moveCompartment("ChangeContainerRepositoryCompartment/"+id, ifMatch, in, err, func() (*string, *string) {
+		return &r.CompartmentID, &r.Etag
+	})
+}
+
+// moveCompartment moves a resource once per retry token; ref is only called when the lookup succeeded.
+func (b *InMemoryBackend) moveCompartment(
+	scope, ifMatch string, in changeCompartmentIn, lookup *APIError, ref func() (*string, *string),
+) error {
+	_, replay := b.retry.Lookup(scope, in.RetryToken, b.nowUTC())
+
+	switch {
+	case lookup != nil && replay:
+		return errInvalidatedToken()
+	case lookup != nil:
+		return lookup
+	case replay:
+		return nil
+	}
+
+	compartment, etag := ref()
+
+	if err := checkEtag(*etag, ifMatch); err != nil {
 		return err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return err
 	}
 
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
-		return err
-	}
-
-	r.CompartmentID, r.Etag = in.CompartmentID, newEtag()
+	*compartment, *etag = in.CompartmentID, newEtag()
+	b.retry.Remember(scope, in.RetryToken, scope, b.nowUTC())
 
 	return nil
 }

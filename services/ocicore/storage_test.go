@@ -919,3 +919,75 @@ func TestStorageSnapshotRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, l.Items, "work requests persist")
 }
+
+func TestUpdateVolumeAttachment(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	f := e.fixture(t)
+	i := e.mustLaunch(t, f.pub)
+	v1, v2 := e.mkVol(t, testAD, 50), e.mkVol(t, testAD, 50)
+	e.settle()
+
+	iscsi, err := e.compute.AttachVolume(ctx, core.AttachVolumeRequest{
+		AttachVolumeDetails: core.AttachIScsiVolumeDetails{InstanceId: i.Id, VolumeId: v1.Id},
+	})
+	require.NoError(t, err)
+
+	para, err := e.compute.AttachVolume(ctx, core.AttachVolumeRequest{
+		AttachVolumeDetails: core.AttachParavirtualizedVolumeDetails{InstanceId: i.Id, VolumeId: v2.Id},
+	})
+	require.NoError(t, err)
+
+	iscsiID, paraID := iscsi.VolumeAttachment.GetId(), para.VolumeAttachment.GetId()
+
+	_, err = e.compute.UpdateVolumeAttachment(ctx, core.UpdateVolumeAttachmentRequest{
+		VolumeAttachmentId: iscsiID,
+		IscsiLoginState:    core.UpdateVolumeAttachmentDetailsIscsiLoginStateLoginSucceeded,
+	})
+	require.Error(t, err, "an attaching volume cannot change its login state")
+
+	e.settle()
+
+	tests := []struct {
+		name   string
+		id     *string
+		state  core.UpdateVolumeAttachmentDetailsIscsiLoginStateEnum
+		status int
+	}{
+		{"login", iscsiID, core.UpdateVolumeAttachmentDetailsIscsiLoginStateLoginSucceeded, http.StatusOK},
+		{"logout", iscsiID, core.UpdateVolumeAttachmentDetailsIscsiLoginStateLogoutSucceeded, http.StatusOK},
+		{
+			"paravirtualized",
+			paraID,
+			core.UpdateVolumeAttachmentDetailsIscsiLoginStateLoginSucceeded,
+			http.StatusBadRequest,
+		},
+		{"unknown id", new("ocid1.volumeattachment.oc1.iad.nope"), "LOGIN_SUCCEEDED", http.StatusNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp, uerr := e.compute.UpdateVolumeAttachment(ctx, core.UpdateVolumeAttachmentRequest{
+				VolumeAttachmentId: tc.id,
+				IscsiLoginState:    tc.state,
+			})
+			if tc.status != http.StatusOK {
+				require.Error(t, uerr)
+				assert.Equal(t, tc.status, svcErr(t, uerr).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, uerr)
+			assert.Equal(
+				t,
+				string(tc.state),
+				string(resp.VolumeAttachment.(core.IScsiVolumeAttachment).IscsiLoginState),
+			)
+		})
+	}
+}

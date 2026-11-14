@@ -49,6 +49,10 @@ func errInvalidatedToken() *APIError {
 
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
+func errExists(msg string) *APIError {
+	return newErr(http.StatusConflict, "NotAuthorizedOrResourceAlreadyExists", msg)
+}
+
 func errConflict(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
 
 func errUnsupported(what string) *APIError {

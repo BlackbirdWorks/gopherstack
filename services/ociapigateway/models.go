@@ -53,6 +53,9 @@ type Gateway struct {
 	Hostname      string         `json:"hostname"`
 	CertificateID string         `json:"certificateId,omitempty"`
 	IPMode        string         `json:"ipMode,omitempty"`
+	VnicID        string         `json:"vnicId,omitempty"`
+	IPv4Config    *ipv4Config    `json:"ipv4AddressConfiguration,omitempty"`
+	IPv6Config    *ipv6Config    `json:"ipv6AddressConfiguration,omitempty"`
 	State         string         `json:"state"`
 	Etag          string         `json:"etag"`
 	NSGs          []string       `json:"networkSecurityGroupIds,omitempty"`

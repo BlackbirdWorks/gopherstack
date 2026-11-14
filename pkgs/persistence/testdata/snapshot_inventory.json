@@ -25870,6 +25870,8 @@
       "Gateway.ID string `json:\"id\"`",
       "Gateway.IPMode string `json:\"ipMode,omitempty\"`",
       "Gateway.IPs []string `json:\"ipAddresses,omitempty\"`",
+      "Gateway.IPv4Config *ipv4Config `json:\"ipv4AddressConfiguration,omitempty\"`",
+      "Gateway.IPv6Config *ipv6Config `json:\"ipv6AddressConfiguration,omitempty\"`",
       "Gateway.Locks []Lock `json:\"locks,omitempty\"`",
       "Gateway.NSGs []string `json:\"networkSecurityGroupIds,omitempty\"`",
       "Gateway.ResponseCache jsontext.Value `json:\"responseCache,omitempty\"`",
@@ -25879,6 +25881,7 @@
       "Gateway.TimeCreated time.Time `json:\"timeCreated\"`",
       "Gateway.TimeUpdated time.Time `json:\"timeUpdated\"`",
       "Gateway.TransitionAt *time.Time `json:\"transitionAt,omitempty\"`",
+      "Gateway.VnicID string `json:\"vnicId,omitempty\"`",
       "Lock.Message string `json:\"message,omitempty\"`",
       "Lock.RelatedResourceID string `json:\"relatedResourceId,omitempty\"`",
       "Lock.TimeCreated time.Time `json:\"timeCreated\"`",
@@ -25948,7 +25951,10 @@
       "backendSnapshot.Seq int64 `json:\"seq\"`",
       "backendSnapshot.Subscribers map[string]*Subscriber `json:\"subscribers\"`",
       "backendSnapshot.UsagePlans map[string]*UsagePlan `json:\"usagePlans\"`",
-      "backendSnapshot.WorkReqs map[string]*WorkRequest `json:\"workRequests\"`"
+      "backendSnapshot.WorkReqs map[string]*WorkRequest `json:\"workRequests\"`",
+      "ipv4Config.ReservedIPIDs []string `json:\"reservedIpIds,omitempty\"`",
+      "ipv6Config.Addresses []string `json:\"addresses,omitempty\"`",
+      "ipv6Config.SubnetCidrs []string `json:\"subnetCidrs,omitempty\"`"
     ],
     "version": 1
   },

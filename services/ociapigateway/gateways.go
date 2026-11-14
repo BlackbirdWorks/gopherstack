@@ -1,9 +1,7 @@
 package ociapigateway
 
 import (
-	"encoding/binary"
 	"encoding/json/jsontext"
-	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -15,11 +13,6 @@ import (
 )
 
 func (i *createGatewayIn) setRetryToken(t string) { i.RetryToken = t }
-
-const (
-	gatewayPoolBase  = "198.18.0.0"
-	gatewayPoolFirst = 4
-)
 
 type createGatewayIn struct {
 	Tags
@@ -33,6 +26,8 @@ type createGatewayIn struct {
 	SubnetID      string         `json:"subnetId"`
 	CertificateID string         `json:"certificateId"`
 	IPMode        string         `json:"ipMode"`
+	IPv4Config    *ipv4Config    `json:"ipv4AddressConfiguration"`
+	IPv6Config    *ipv6Config    `json:"ipv6AddressConfiguration"`
 	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
@@ -54,6 +49,8 @@ func (i *changeCompartmentIn) setRetryToken(t string) { i.RetryToken = t }
 
 // GatewayWire is the wire form of a gateway.
 type GatewayWire struct {
+	IPv4Config     *ipv4Config               `json:"ipv4AddressConfiguration,omitempty"`
+	IPv6Config     *ipv6Config               `json:"ipv6AddressConfiguration,omitempty"`
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
@@ -84,7 +81,8 @@ func gatewayView(g *Gateway) GatewayWire {
 		FreeformTags: g.Tags.FreeformTags, Locks: g.Locks, CaBundles: g.CaBundles, ResponseCache: g.ResponseCache,
 		ID: g.ID, CompartmentID: g.CompartmentID, EndpointType: g.EndpointType, DisplayName: g.DisplayName,
 		SubnetID: g.SubnetID, Hostname: g.Hostname, CertificateID: g.CertificateID, IPMode: g.IPMode,
-		LifecycleState: g.State, NSGs: g.NSGs, IPAddresses: ipWires(g.IPs),
+		LifecycleState: g.State, NSGs: g.NSGs, IPAddresses: ipWires(g.IPs), IPv4Config: g.IPv4Config,
+		IPv6Config: g.IPv6Config,
 	}
 }
 
@@ -95,29 +93,6 @@ func ipWires(ips []string) []ipAddressWire {
 	}
 
 	return out
-}
-
-// allocateIP returns the lowest free host address of the emulator pool 198.18.0.0/15.
-func (b *InMemoryBackend) allocateIP() string {
-	used := map[string]bool{}
-
-	for _, g := range b.gateways {
-		for _, ip := range g.IPs {
-			used[ip] = true
-		}
-	}
-
-	base := netip.MustParseAddr(gatewayPoolBase).As4()
-	start := binary.BigEndian.Uint32(base[:])
-
-	for off := uint32(gatewayPoolFirst); ; off++ {
-		var raw [4]byte
-		binary.BigEndian.PutUint32(raw[:], start+off)
-
-		if ip := netip.AddrFrom4(raw).String(); !used[ip] {
-			return ip
-		}
-	}
 }
 
 func (b *InMemoryBackend) liveGateway(id string) (*Gateway, *APIError) {
@@ -154,12 +129,16 @@ func (b *InMemoryBackend) validateGateway(in *createGatewayIn) *APIError {
 		return errMissing("subnetId is required")
 	}
 
-	if b.subnet != nil && !b.subnet(in.SubnetID) {
-		return errNotFound(in.SubnetID)
+	if err := b.checkSubnet(in); err != nil {
+		return err
 	}
 
-	if in.IPMode != "" && !slices.Contains([]string{"IPV4", "IPV6", "DUAL_STACK"}, in.IPMode) {
+	if in.IPMode != "" && !slices.Contains([]string{ipModeV4, ipModeV6, ipModeDual}, in.IPMode) {
 		return errParam("ipMode must be IPV4, IPV6 or DUAL_STACK")
+	}
+
+	if err := b.checkAddressConfig(in); err != nil {
+		return err
 	}
 
 	if err := validateResponseCache(in.ResponseCache); err != nil {
@@ -217,15 +196,21 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	}
 
 	if b.gatewayNameTaken(in.CompartmentID, name, "") {
-		return GatewayWire{}, "", "", errConflict("a gateway named " + name + " already exists in this compartment")
+		return GatewayWire{}, "", "", errExists("a gateway named " + name + " already exists in this compartment")
+	}
+
+	alloc, ips, aerr := b.allocateAddresses(&in, name)
+	if aerr != nil {
+		return GatewayWire{}, "", "", aerr
 	}
 
 	g := &Gateway{
+		VnicID: alloc.VnicID, IPv4Config: in.IPv4Config, IPv6Config: in.IPv6Config,
 		ID: newOCID("apigateway"), CompartmentID: in.CompartmentID, EndpointType: in.EndpointType,
 		DisplayName: name, SubnetID: in.SubnetID, Hostname: newHostname(), CertificateID: in.CertificateID,
 		IPMode: in.IPMode, NSGs: in.NSGs, Locks: locks, CaBundles: nullRaw(in.CaBundles),
 		ResponseCache: nullRaw(in.ResponseCache), State: stateCreating, TransitionAt: b.transitionAt(),
-		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags, IPs: []string{b.allocateIP()},
+		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags, IPs: ips,
 	}
 	b.gateways[g.ID] = g
 	wr := b.newWR(wrCreateGateway, g.CompartmentID, entityGateway, g.ID, actionCreated, *g.TransitionAt)
@@ -395,6 +380,8 @@ func (b *InMemoryBackend) DeleteGateway(id, ifMatch string) (string, error) {
 			return "", errConflict("gateway " + id + " still has API deployments")
 		}
 	}
+
+	b.releaseAddresses(g)
 
 	g.State, g.TransitionAt = stateDeleting, b.transitionAt()
 	g.TimeUpdated = b.nowUTC()

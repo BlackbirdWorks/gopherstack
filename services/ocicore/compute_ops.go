@@ -179,6 +179,8 @@ func computeEntries() []entry {
 		drgEntries(),
 		workRequestEntries(),
 		cidrEntries(),
+		bulkEntries(),
+		bulkIpv6Entries(),
 		ipv6Entries(),
 		kmsEntries(),
 		copyEntries(),
@@ -265,6 +267,12 @@ func storageEntries() []entry {
 			http.MethodGet,
 			idPath("/volumeAttachments", "volumeAttachmentId"),
 			"GetVolumeAttachment",
+		},
+		{
+			updateOp("volumeAttachmentId", (*InMemoryBackend).UpdateVolumeAttachment),
+			http.MethodPut,
+			idPath("/volumeAttachments", "volumeAttachmentId"),
+			"UpdateVolumeAttachment",
 		},
 		{detachVolumeOp, http.MethodDelete, idPath("/volumeAttachments", "volumeAttachmentId"), "DetachVolume"},
 		{

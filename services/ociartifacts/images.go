@@ -15,11 +15,13 @@ type updateTagsIn struct {
 }
 
 type removeVersionIn struct {
-	Version string `json:"version"`
+	Version    string `json:"version"`
+	RetryToken string `json:"-"`
 }
 
 type restoreImageIn struct {
-	Version *string `json:"version"`
+	Version    *string `json:"version"`
+	RetryToken string  `json:"-"`
 }
 
 type lookupIn struct {
@@ -276,6 +278,11 @@ func (b *InMemoryBackend) RestoreContainerImage(id, ifMatch string, in restoreIm
 	b.mu.Lock("RestoreContainerImage")
 	defer b.mu.Unlock()
 
+	scope := "RestoreContainerImage/" + id
+	if _, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
+		return b.replayImage(id)
+	}
+
 	im, repo, err := b.image(id)
 	if err != nil {
 		return imageWire{}, "", err
@@ -314,6 +321,8 @@ func (b *InMemoryBackend) RestoreContainerImage(id, ifMatch string, in restoreIm
 		b.restoreTag(repo, im, version)
 	}
 
+	b.retry.Remember(scope, in.RetryToken, id, b.nowUTC())
+
 	return b.imageView(im, repo), im.Etag, nil
 }
 
@@ -340,6 +349,11 @@ func (b *InMemoryBackend) RemoveContainerVersion(id, ifMatch string, in removeVe
 	b.mu.Lock("RemoveContainerVersion")
 	defer b.mu.Unlock()
 
+	scope := "RemoveContainerVersion/" + id
+	if _, ok := b.retry.Lookup(scope, in.RetryToken, b.nowUTC()); ok {
+		return b.replayImage(id)
+	}
+
 	im, repo, err := b.availableImage(id)
 	if err != nil {
 		return imageWire{}, "", err
@@ -357,6 +371,16 @@ func (b *InMemoryBackend) RemoveContainerVersion(id, ifMatch string, in removeVe
 	im.Etag = newEtag()
 
 	_ = ociregistry.NewClient(b.registryLocked()).DeleteManifest(b.ctx, b.regName(repo), in.Version)
+	b.retry.Remember(scope, in.RetryToken, id, b.nowUTC())
+
+	return b.imageView(im, repo), im.Etag, nil
+}
+
+func (b *InMemoryBackend) replayImage(id string) (imageWire, string, error) {
+	im, repo, err := b.image(id)
+	if err != nil {
+		return imageWire{}, "", errInvalidatedToken()
+	}
 
 	return b.imageView(im, repo), im.Etag, nil
 }
