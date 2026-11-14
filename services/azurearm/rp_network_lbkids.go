@@ -219,7 +219,7 @@ func (p *NetworkProvider) bindLBSubnet(
 
 	c.taken[key][addr] = self
 	out[netFieldSubnet] = idRef(sid)
-	out[propPrivateIP], out["privateIPAllocationMethod"], out["privateIPAddressVersion"] = addr, method, version
+	out[propPrivateIP], out[netPropIPMethod], out[netPropIPVersion] = addr, method, version
 
 	return nil
 }

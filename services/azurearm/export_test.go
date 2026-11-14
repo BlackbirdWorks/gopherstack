@@ -227,3 +227,16 @@ func NewTestHandlerWithEventHubs(dataPlane EventHubs) *Handler {
 
 // EventHubProviderOf returns the handler's Microsoft.EventHub provider.
 func EventHubProviderOf(h *Handler) (*EventHubProvider, bool) { return h.eventHubProvider() }
+
+// PutLegacyGeneric stores body in the generic resource store, as a snapshot taken before a type became typed would
+// hold it.
+func (h *Handler) PutLegacyGeneric(path string, body map[string]any) error {
+	id, err := ParseGenericResourcePath(path)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = h.Backend.putGenericResource(id, body)
+
+	return err
+}

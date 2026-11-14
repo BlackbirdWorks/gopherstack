@@ -749,6 +749,8 @@ func (p *ComputeProvider) putPlacement(typ string, id ResourceID, body map[strin
 		return p.putDiskEncSet(id, body)
 	case cmpDiskAccess:
 		return p.putDiskAccess(id, body)
+	case cmpRPCs:
+		return p.putRPC(id, body)
 	}
 
 	return p.putVMSS(id, body)

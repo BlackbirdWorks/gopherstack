@@ -362,6 +362,10 @@ func (p *NetworkProvider) subnetRefs(props map[string]any) error {
 		props[propNATGateway] = map[string]any{netFieldID: id}
 	}
 
+	if err := p.checkSubnetSEPs(props); err != nil {
+		return err
+	}
+
 	if id := subID(props, propSubnetRT); id != "" {
 		if _, ok := p.netRef(id, netRTs); !ok {
 			return refMissing(id)

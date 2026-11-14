@@ -160,6 +160,10 @@ func (p *ComputeProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: cmpHostGroups + "/" + kidHosts, APIVersions: v},
 		{Type: cmpDiskEncSets, APIVersions: v},
 		{Type: cmpDiskAccess, APIVersions: v},
+		{Type: cmpGalleries + "/" + kidApps, APIVersions: v, HasChildren: true},
+		{Type: cmpGalleries + "/" + kidAppVersions, APIVersions: v},
+		{Type: cmpRPCs, APIVersions: v, HasChildren: true},
+		{Type: cmpRPCs + "/" + kidRestorePoints, APIVersions: v},
 	}
 }
 
@@ -240,7 +244,7 @@ func isVMSSInstanceID(id ResourceID) bool {
 
 func canonicalCmpType(typ string) string {
 	for _, t := range []string{cmpVMs, cmpDisks, cmpSnaps, cmpAvSets, cmpVMSS, cmpImages, cmpGalleries,
-		cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpDiskEncSets, cmpDiskAccess} {
+		cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpDiskEncSets, cmpDiskAccess, cmpRPCs} {
 		if strings.EqualFold(t, typ) {
 			return t
 		}
@@ -314,6 +318,8 @@ func (p *ComputeProvider) render(r *cmpRes, expand bool) map[string]any {
 		props = p.imageProps(r)
 	case cmpGalleries:
 		props = p.galleryProps(r)
+	case cmpRPCs:
+		props = p.rpcProps(r, expand)
 	default:
 		props = p.placementProps(r)
 	}

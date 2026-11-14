@@ -107,12 +107,12 @@ func configDefaultProps(name string, s *storedWebSite) map[string]any {
 		return map[string]any{
 			acrWebhookEnabled:             false,
 			"runtimeVersion":              "~1",
-			"unauthenticatedClientAction": "RedirectToLoginPage",
+			"unauthenticatedClientAction": acaActionRedirect,
 		}
 	case "authsettingsV2":
 		return map[string]any{
 			"platform":         map[string]any{acrWebhookEnabled: false, "runtimeVersion": "~1"},
-			"globalValidation": map[string]any{"unauthenticatedClientAction": "RedirectToLoginPage"},
+			"globalValidation": map[string]any{"unauthenticatedClientAction": acaActionRedirect},
 		}
 	case "logs":
 		return map[string]any{

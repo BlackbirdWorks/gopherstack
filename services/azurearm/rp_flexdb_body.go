@@ -250,6 +250,10 @@ func (p *FlexDBProvider) ListChildren(id ResourceID, collection string) ([]map[s
 		for _, db := range rec.Databases {
 			out = append(out, p.databaseBody(id, db))
 		}
+	case strings.ToLower(flexAdminType):
+		for _, a := range rec.Admins {
+			out = append(out, p.adminBody(id, a))
+		}
 	case strings.ToLower(flexConfigsType):
 		for _, c := range p.flavor.configs {
 			cid := id

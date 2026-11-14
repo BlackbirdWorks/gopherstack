@@ -8,9 +8,10 @@ import (
 )
 
 type containerAppsSnapshot struct {
-	Envs map[string]*storedACAEnv `json:"envs"`
-	Apps map[string]*storedACAApp `json:"apps"`
-	Jobs map[string]*storedACAJob `json:"jobs"`
+	Envs  map[string]*storedACAEnv  `json:"envs"`
+	Apps  map[string]*storedACAApp  `json:"apps"`
+	Jobs  map[string]*storedACAJob  `json:"jobs"`
+	Pools map[string]*storedACAPool `json:"pools,omitempty"`
 }
 
 // snapshot deep-copies the stored state; execution results are settled first so they survive without their replicas.
@@ -28,7 +29,7 @@ func (p *ContainerAppsProvider) snapshot() *containerAppsSnapshot {
 		}
 	}
 
-	snap := &containerAppsSnapshot{Envs: p.envs, Apps: p.apps, Jobs: p.jobs}
+	snap := &containerAppsSnapshot{Envs: p.envs, Apps: p.apps, Jobs: p.jobs, Pools: p.pools}
 
 	buf, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
@@ -103,8 +104,11 @@ func (p *ContainerAppsProvider) replaceState(snap *containerAppsSnapshot) {
 	defer p.mu.Unlock()
 
 	p.envs, p.apps, p.jobs = map[string]*storedACAEnv{}, map[string]*storedACAApp{}, map[string]*storedACAJob{}
+	p.pools = map[string]*storedACAPool{}
 
 	if snap != nil {
+		restorePools(p.pools, snap.Pools)
+
 		for k, e := range snap.Envs {
 			if e != nil {
 				p.envs[k] = e
@@ -125,4 +129,12 @@ func (p *ContainerAppsProvider) replaceState(snap *containerAppsSnapshot) {
 	}
 
 	p.rebuildHostsLocked()
+}
+
+func restorePools(dst, src map[string]*storedACAPool) {
+	for k, s := range src {
+		if s != nil {
+			dst[k] = s
+		}
+	}
 }

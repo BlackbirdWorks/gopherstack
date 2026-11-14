@@ -78,7 +78,7 @@ func putSQLAdmin(srv *sqlServer, id ResourceID, body map[string]any) (map[string
 	}
 
 	props, _ := body[fieldProperties].(map[string]any)
-	login, _ := props["login"].(string)
+	login, _ := props[fieldLogin].(string)
 	sid, _ := props["sid"].(string)
 	tenant, _ := props["tenantId"].(string)
 
@@ -102,7 +102,7 @@ func validGUID(s string) error {
 }
 
 func adminSQLBody(id ResourceID, a *sqlAdmin) map[string]any {
-	props := map[string]any{"administratorType": sqlAdminName, "login": a.Login, "sid": a.SID}
+	props := map[string]any{"administratorType": sqlAdminName, fieldLogin: a.Login, "sid": a.SID}
 	if a.TenantID != "" {
 		props["tenantId"] = a.TenantID
 	}

@@ -42,6 +42,8 @@ func (p *NetworkProvider) checkNewTopDelete(it *netParent) error {
 			return netErr(http.StatusBadRequest, "InUseIpGroupCannotBeDeleted",
 				"IP group %s is referenced by %s and cannot be deleted.", it.armID(), users[0])
 		}
+	case netSEPs, netTaps, netLBs:
+		return p.checkLinkTopDelete(it)
 	case netASGs:
 		if users := p.asgUsers(it.armID()); len(users) > 0 {
 			return netErr(http.StatusBadRequest, "InUseApplicationSecurityGroupCannotBeDeleted",
@@ -154,6 +156,13 @@ func (p *NetworkProvider) pruneNewTypesLocked() {
 	}
 
 	p.pruneGatewayRefs()
+	p.pruneFlowLogsLocked()
+
+	for _, v := range p.ofType(netVNets) {
+		for _, s := range v.Kids[netSubnets] {
+			p.keepRefs(s.Props, propSubnetSE, netSEPs)
+		}
+	}
 
 	for _, n := range p.ofType(netNATs) {
 		for _, key := range []string{natPropPIPs, natPropPIPsV6} {

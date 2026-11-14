@@ -595,13 +595,13 @@ func (p *NetworkProvider) normalizeIPConfigs(
 }
 
 func parseIPConfigMode(cfgID string, cp map[string]any) (string, string, error) {
-	version, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAddressVersion"), versionV4),
+	version, ok := canonEnum(firstNonEmpty(strOf(cp, netPropIPVersion), versionV4),
 		[]string{versionV4, versionV6})
 	if !ok || version == versionV6 {
 		return "", "", netBad("IP configuration %s: only IPv4 private addresses are supported.", cfgID)
 	}
 
-	method, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAllocationMethod"), methodDynamic),
+	method, ok := canonEnum(firstNonEmpty(strOf(cp, netPropIPMethod), methodDynamic),
 		[]string{methodStatic, methodDynamic})
 	if !ok {
 		return "", "", netBad("privateIPAllocationMethod must be Static or Dynamic.")
@@ -654,7 +654,7 @@ func (p *NetworkProvider) normalizeIPConfig(
 	delete(out, fieldProvisioningState)
 
 	out[netFieldSubnet] = map[string]any{netFieldID: sid}
-	out["privateIPAddress"], out["privateIPAllocationMethod"], out["privateIPAddressVersion"] = addr, method, version
+	out["privateIPAddress"], out[netPropIPMethod], out[netPropIPVersion] = addr, method, version
 
 	if err = p.bindPublicIP(cfgID, cp, out); err != nil {
 		return nil, err
@@ -715,7 +715,7 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 	props["macAddress"] = it.Obj.Aux["mac"]
 	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
-	props["tapConfigurations"] = []any{}
+	props[nicTapCfgs] = p.nicTapList(it)
 	props["hostedWorkloads"] = []any{}
 	props["nicType"] = skuTierStandard
 	props["vnetEncryptionSupported"] = false
@@ -906,8 +906,11 @@ func (p *NetworkProvider) afterKidRemoved(parent *netParent, kt string, removed 
 }
 
 func (p *NetworkProvider) afterTopRemoved(it *netParent, _ ResourceID) {
-	if it.Type == netPEs {
+	switch it.Type {
+	case netPEs:
 		p.afterPERemoved(it)
+	case netPLS:
+		p.afterPLSRemoved(it)
 	}
 }
 

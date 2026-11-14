@@ -30,21 +30,22 @@ type storedACARevision struct {
 }
 
 type storedACAApp struct {
-	Created         time.Time            `json:"created"`
-	Modified        time.Time            `json:"modified"`
-	Tags            map[string]string    `json:"tags,omitempty"`
-	Config          map[string]any       `json:"config"`
-	Sub             string               `json:"sub"`
-	Name            string               `json:"name"`
-	ResourceGroup   string               `json:"resourceGroup"`
-	Location        string               `json:"location"`
-	Kind            string               `json:"kind,omitempty"`
-	ManagedBy       string               `json:"managedBy,omitempty"`
-	EnvironmentID   string               `json:"environmentId"`
-	WorkloadProfile string               `json:"workloadProfile,omitempty"`
-	Identity        resourceIdentity     `json:"identity"`
-	Revisions       []*storedACARevision `json:"revisions"`
-	Stopped         bool                 `json:"stopped,omitempty"`
+	Created         time.Time                `json:"created"`
+	Modified        time.Time                `json:"modified"`
+	Tags            map[string]string        `json:"tags,omitempty"`
+	Config          map[string]any           `json:"config"`
+	Subs            map[string]*storedACASub `json:"subs,omitempty"`
+	Sub             string                   `json:"sub"`
+	Name            string                   `json:"name"`
+	ResourceGroup   string                   `json:"resourceGroup"`
+	Location        string                   `json:"location"`
+	Kind            string                   `json:"kind,omitempty"`
+	ManagedBy       string                   `json:"managedBy,omitempty"`
+	EnvironmentID   string                   `json:"environmentId"`
+	WorkloadProfile string                   `json:"workloadProfile,omitempty"`
+	Identity        resourceIdentity         `json:"identity"`
+	Revisions       []*storedACARevision     `json:"revisions"`
+	Stopped         bool                     `json:"stopped,omitempty"`
 }
 
 func (a *storedACAApp) latest() *storedACARevision {

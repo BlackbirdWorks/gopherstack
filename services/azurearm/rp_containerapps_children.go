@@ -49,7 +49,7 @@ func acaSubType(k acaKind) string {
 	case acaKindJava:
 		return acaJavaType
 	case acaKindOther, acaKindEnv, acaKindStorage, acaKindApp, acaKindRevision, acaKindReplica, acaKindJob,
-		acaKindExecution:
+		acaKindExecution, acaKindAuth, acaKindSource, acaKindPool:
 	}
 
 	return ""
@@ -96,7 +96,7 @@ func (p *ContainerAppsProvider) putSub(id ResourceID, body map[string]any) (map[
 	case acaKindJava:
 		err = acaCheckJava(env, name, props)
 	case acaKindOther, acaKindEnv, acaKindStorage, acaKindApp, acaKindRevision, acaKindReplica, acaKindJob,
-		acaKindExecution:
+		acaKindExecution, acaKindAuth, acaKindSource, acaKindPool:
 	}
 
 	if err != nil {

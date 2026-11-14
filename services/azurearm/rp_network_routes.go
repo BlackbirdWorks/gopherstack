@@ -57,6 +57,10 @@ func isNamespaceOperation(segs []string, ns string) bool {
 //nolint:gochecknoglobals // static route table, read-only after init
 var networkRoutes = []armRoute{
 	{
+		match:  isPLSAction,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handlePLSAction(c, segs) },
+	},
+	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && isNamespaceScope(segs, namespaceMicrosoftNetwork) &&
 				len(segs) == agwActionSegs && segAt(segs, agwTypeIdx, netAGWs) &&
@@ -413,7 +417,7 @@ func (h *Handler) handleCheckIP(c *echo.Context, segs []string) error {
 // isSyncType reports whether writes to id complete without a long-running operation.
 //
 //nolint:gochecknoglobals // static read-only list
-var computeSyncTypes = []string{cmpAvSets, cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups}
+var computeSyncTypes = []string{cmpAvSets, cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpRPCs}
 
 func isSyncType(id ResourceID) bool {
 	if id.Namespace == namespaceMicrosoftManagedIdentity ||
@@ -427,7 +431,7 @@ func isSyncType(id ResourceID) bool {
 	}
 
 	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) &&
-		slices.Contains([]acaKind{acaKindStorage, acaKindDapr, acaKindCert}, acaTargetOf(id).kind) {
+		slices.Contains([]acaKind{acaKindStorage, acaKindDapr, acaKindCert, acaKindAuth}, acaTargetOf(id).kind) {
 		return true
 	}
 
@@ -628,7 +632,7 @@ func (h *Handler) managedIdentityProvider() (*ManagedIdentityProvider, bool) {
 // createAnswers201 is false for the Compute types whose SDK operations accept only 200 or 202 on PUT.
 func createAnswers201(id ResourceID) bool {
 	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) {
-		return !slices.Contains([]acaKind{acaKindDapr, acaKindCert}, acaTargetOf(id).kind)
+		return !slices.Contains([]acaKind{acaKindDapr, acaKindCert, acaKindAuth}, acaTargetOf(id).kind)
 	}
 
 	if !strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) {

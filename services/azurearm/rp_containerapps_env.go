@@ -380,7 +380,10 @@ func (p *ContainerAppsProvider) PatchResource(id ResourceID, body map[string]any
 		return p.patchJob(id, body)
 	case acaKindCert, acaKindJava:
 		return p.patchSub(id, t, body)
-	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution, acaKindDapr:
+	case acaKindPool:
+		return p.patchPool(id, body)
+	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution, acaKindDapr, acaKindAuth,
+		acaKindSource:
 	}
 
 	return nil, acaBad("%s does not support PATCH.", id.LeafType())

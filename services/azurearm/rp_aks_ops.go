@@ -280,3 +280,37 @@ func (p *ContainerServiceProvider) resetServicePrincipalProfile(id ResourceID, b
 
 // SetClock replaces the provider's time source; call it before the provider serves requests.
 func (p *ContainerServiceProvider) SetClock(now func() time.Time) { p.now = now }
+
+// abortPoolOperation cancels the operation running on the cluster that owns the agent pool. Pool changes complete
+// within their request, so only a running cluster operation can be aborted; otherwise the documented 409 applies.
+func (p *ContainerServiceProvider) abortPoolOperation(ctx context.Context, id ResourceID) error {
+	p.mu.RLock("abortPoolOperation")
+	c, ok := p.clusters[aksKey(id.ResourceGroup, id.Names[0])]
+
+	var (
+		found bool
+		busy  bool
+	)
+
+	if ok {
+		_, found = c.Pools[strings.ToLower(id.Names[1])]
+		busy = p.ops[aksKey(id.ResourceGroup, id.Names[0])] != nil
+	}
+	p.mu.RUnlock()
+
+	switch {
+	case !ok:
+		return aksNotFound(id.ResourceGroup, id.Names[0])
+	case !found:
+		return netErr(http.StatusNotFound, aksCodeNotFound, "The agent pool '%s' was not found.", id.Names[1])
+	case !busy:
+		return netErr(http.StatusConflict, aksCodeNoOp,
+			"There is no running operation to abort on agent pool '%s': it completed before it could be canceled.",
+			id.Names[1])
+	}
+
+	return p.abortLatest(ctx, ResourceID{
+		SubscriptionID: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Namespace: id.Namespace,
+		Types: id.Types[:1], Names: id.Names[:1],
+	})
+}

@@ -50,6 +50,9 @@ func kidSpecs() []kidSpec {
 		{parent: cmpHostGroups, rel: kidHosts, put: putHost, render: renderHost, delete: deleteHost},
 		{parent: cmpGalleries, rel: kidVersions, put: putGalleryVersion, render: renderGalleryVersion,
 			delete: deleteGalleryVersion},
+		{parent: cmpGalleries, rel: kidApps, put: putGalleryApp, render: renderGalleryApp, delete: deleteGalleryApp},
+		{parent: cmpGalleries, rel: kidAppVersions, put: putGalleryAppVersion, render: renderGalleryVersion},
+		{parent: cmpRPCs, rel: kidRestorePoints, put: putRestorePoint, render: renderRestorePoint, proxy: true},
 	}
 }
 

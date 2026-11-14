@@ -1146,3 +1146,47 @@ func aksWantNotStarted(id string) string {
 		" in aks-command namespace did not start within 30s on your cluster, retry may helps. If issue persist, " +
 		"you may need to tune your cluster with better performance (larger node/paid tier)."
 }
+
+func TestAKSAgentPoolAbort(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nothing running", func(t *testing.T) {
+		t.Parallel()
+
+		s := newAKSStack(t)
+		s.mustPut(t, "idle", nil)
+
+		pools := s.factory.NewAgentPoolsClient()
+
+		_, err := pools.BeginAbortLatestOperation(t.Context(), aksRG, "idle", "sys", nil)
+		assert.Equal(t, "OperationNotAllowed", sdkErrCode(err))
+
+		_, err = pools.BeginAbortLatestOperation(t.Context(), aksRG, "idle", "ghost", nil)
+		assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
+
+		_, err = pools.BeginAbortLatestOperation(t.Context(), aksRG, "absent", "sys", nil)
+		assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
+	})
+
+	t.Run("cancels a starting cluster", func(t *testing.T) {
+		t.Parallel()
+
+		s, rt := newAKSEngineStack(t)
+		entered := rt.blockStart()
+		done := make(chan error, 1)
+
+		go func() {
+			_, err := s.put(t, "ab", nil)
+			done <- err
+		}()
+
+		<-entered
+
+		poller, err := s.factory.NewAgentPoolsClient().BeginAbortLatestOperation(t.Context(), aksRG, "ab", "sys", nil)
+		require.NoError(t, err)
+
+		_, err = poller.PollUntilDone(t.Context(), pollFast())
+		require.NoError(t, err)
+		require.ErrorContains(t, <-done, "Canceled")
+	})
+}

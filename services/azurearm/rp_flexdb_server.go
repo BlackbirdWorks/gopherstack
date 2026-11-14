@@ -13,20 +13,21 @@ import (
 )
 
 const (
-	flexMinRetentionMax = 35
-	flexMinPassword     = 8
-	flexMaxPassword     = 128
-	flexMinPasswordCats = 3
-	flexMaxZone         = 3
-	flexModeDefault     = "Default"
-	flexModeReplica     = "Replica"
-	flexModePITR        = "PointInTimeRestore"
-	flexModeGeo         = "GeoRestore"
-	flexHADisabled      = "Disabled"
-	flexHAZoneRedundant = "ZoneRedundant"
-	flexHASameZone      = "SameZone"
-	flexRoleNone        = "None"
-	flexClockSkew       = time.Minute
+	flexMinRetentionMax    = 35
+	flexMinPassword        = 8
+	flexMaxPassword        = 128
+	flexMinPasswordCats    = 3
+	flexMaxZone            = 3
+	flexModeDefault        = "Default"
+	flexModeReplica        = "Replica"
+	flexModePITR           = "PointInTimeRestore"
+	flexModeGeo            = "GeoRestore"
+	flexHADisabled         = "Disabled"
+	flexTransitionUpdating = "Updating"
+	flexHAZoneRedundant    = "ZoneRedundant"
+	flexHASameZone         = "SameZone"
+	flexRoleNone           = "None"
+	flexClockSkew          = time.Minute
 )
 
 var flexNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])$`)
@@ -157,7 +158,7 @@ func (p *FlexDBProvider) writeServer(id ResourceID, body map[string]any, patch b
 
 	rec.Transition, rec.State = "Starting", flexStateReady
 	if exists {
-		rec.Transition = "Updating"
+		rec.Transition = flexTransitionUpdating
 	}
 
 	rec.OpID = p.newOp(flexServerID(p.flavor.ns, id).ARMID(), true, key, run)
@@ -832,13 +833,9 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 	p.mu.Lock("Action")
 	defer p.mu.Unlock()
 
-	rec, err := p.server(id)
+	rec, err := p.idleServer(id, action)
 	if err != nil {
 		return "", err
-	}
-
-	if p.opPending(rec.OpID) {
-		return "", p.busy(rec.Name, flexActionName(action))
 	}
 
 	state := p.stateOf(rec)
@@ -875,12 +872,20 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 		if eng != nil {
 			run = func(ctx context.Context) error { return eng.Start(ctx, key) }
 		}
+	case flexAdminFailover:
+		if err = p.failover(rec, &next); err != nil {
+			return "", err
+		}
+
+		if eng != nil {
+			run = func(ctx context.Context) error { return eng.Restart(ctx, key) }
+		}
 	default:
 		if state != flexStateReady {
 			return "", p.notReady(rec, "Restart or Stop")
 		}
 
-		next.Transition = "Updating"
+		next.Transition = flexTransitionUpdating
 		next.Pending = nil
 
 		if eng != nil {
@@ -892,6 +897,39 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 	*rec = next
 
 	return next.OpID, nil
+}
+
+func (p *FlexDBProvider) idleServer(id ResourceID, action string) (*flexServer, error) {
+	rec, err := p.server(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.opPending(rec.OpID) {
+		return nil, p.busy(rec.Name, flexActionName(action))
+	}
+
+	return rec, nil
+}
+
+// failover swaps the primary and standby zones of a zone-redundant server; same-zone HA keeps its zone.
+func (p *FlexDBProvider) failover(rec, next *flexServer) error {
+	if p.stateOf(rec) != flexStateReady {
+		return p.notReady(rec, "Failover")
+	}
+
+	if rec.HAMode == flexHADisabled {
+		return flexInvalid("Forced failover requires high availability to be enabled on server '%s'.", rec.Name)
+	}
+
+	if rec.HAMode == flexHAZoneRedundant && rec.StandbyZone != "" {
+		next.Zone, next.StandbyZone = rec.StandbyZone, rec.Zone
+	}
+
+	next.Transition = flexTransitionUpdating
+	next.Pending = nil
+
+	return nil
 }
 
 func (p *FlexDBProvider) checkStop(rec *flexServer, key string) error {

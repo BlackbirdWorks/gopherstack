@@ -294,6 +294,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	h.restoreInfra(snap)
+	h.migrateGenericStore()
 
 	return nil
 }

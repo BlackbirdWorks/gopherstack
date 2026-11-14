@@ -429,7 +429,7 @@ func (p *NetworkProvider) normAGWFrontend(
 
 		c.pips[strings.ToLower(pipID)] = self
 		out["publicIPAddress"] = idRef(pipID)
-		out["privateIPAllocationMethod"] = methodDynamic
+		out[netPropIPMethod] = methodDynamic
 		delete(out, propPrivateIP)
 		delete(out, netFieldSubnet)
 
@@ -469,9 +469,9 @@ func (p *NetworkProvider) bindAGWPrivate(c *agwCtx, self string, out, prev map[s
 
 	c.taken[key][addr] = self
 	out[netFieldSubnet] = idRef(sid)
-	out[propPrivateIP], out["privateIPAllocationMethod"] = addr, method
+	out[propPrivateIP], out[netPropIPMethod] = addr, method
 
-	delete(out, "privateIPAddressVersion")
+	delete(out, netPropIPVersion)
 
 	return out, nil
 }

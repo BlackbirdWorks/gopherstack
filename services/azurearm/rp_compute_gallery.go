@@ -51,7 +51,7 @@ var (
 	cmpOSTypes     = []string{osLinux, osWindows}
 	cmpOSStates    = []string{osStateGen, osStateSpec}
 	cmpHyperV      = []string{"V1", "V2"}
-	gallerySharing = []string{"Private", "Groups", "Community"}
+	gallerySharing = []string{sharePrivate, "Groups", "Community"}
 	cmpCaching     = []string{cmpCachingNone, cmpCachingRO, cmpCachingRW}
 	verSAs         = []string{verSALRS, "Standard_ZRS", cmpSKUPremium}
 	verRepModes    = []string{verRepFull, "Shallow"}
@@ -90,7 +90,7 @@ func enumField(m map[string]any, key, path string, allowed []string, def string)
 	return canon, nil
 }
 
-func futureDate(v any, field string) error {
+func futureDate(v any) error {
 	s, _ := v.(string)
 	if s == "" {
 		return nil
@@ -102,7 +102,7 @@ func futureDate(v any, field string) error {
 	}
 
 	if err != nil {
-		return cmpInvalid("Could not convert string to DateTimeOffset: %s. Path 'properties.%s'", s, field)
+		return cmpInvalid("Could not convert string to DateTimeOffset: %s. Path 'properties.%s'", s, gVerEOL)
 	}
 
 	if !t.After(time.Now()) {
@@ -425,7 +425,7 @@ func putGalleryImage(_ *ComputeProvider, parent *cmpRes, k, old *cmpKid, body ma
 		}
 	}
 
-	if err = futureDate(props[gVerEOL], gVerEOL); err != nil {
+	if err = futureDate(props[gVerEOL]); err != nil {
 		return err
 	}
 
@@ -814,7 +814,7 @@ func putGalleryVersion(p *ComputeProvider, parent *cmpRes, k, old *cmpKid, body 
 		return err
 	}
 
-	if err = futureDate(pub[gVerEOL], gVerEOL); err != nil {
+	if err = futureDate(pub[gVerEOL]); err != nil {
 		return err
 	}
 
