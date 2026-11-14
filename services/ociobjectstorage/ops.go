@@ -12,34 +12,62 @@ import (
 
 func buildOps() map[string]opFunc {
 	return map[string]opFunc{
-		opGetNamespace: (*Handler).getNamespace, opGetNamespaceMetadata: (*Handler).getNamespaceMeta,
-		opUpdateNamespaceMeta: (*Handler).updateNamespaceMeta,
-		opListBuckets:         (*Handler).listBuckets, opCreateBucket: (*Handler).createBucket,
-		opGetBucket: (*Handler).getBucket, opHeadBucket: (*Handler).getBucket,
-		opUpdateBucket: (*Handler).updateBucket, opDeleteBucket: (*Handler).deleteBucket,
-		opMakeBucketWritable: (*Handler).makeBucketWritable,
-		opCreateReplication:  (*Handler).createReplication, opGetReplication: (*Handler).getReplication,
-		opListReplications: (*Handler).listReplications, opDeleteReplication: (*Handler).deleteReplication,
+		opGetNamespace:           (*Handler).getNamespace,
+		opGetNamespaceMetadata:   (*Handler).getNamespaceMeta,
+		opUpdateNamespaceMeta:    (*Handler).updateNamespaceMeta,
+		opListBuckets:            (*Handler).listBuckets,
+		opCreateBucket:           (*Handler).createBucket,
+		opGetBucket:              (*Handler).getBucket,
+		opHeadBucket:             (*Handler).getBucket,
+		opUpdateBucket:           (*Handler).updateBucket,
+		opDeleteBucket:           (*Handler).deleteBucket,
+		opMakeBucketWritable:     (*Handler).makeBucketWritable,
+		opCreateReplication:      (*Handler).createReplication,
+		opGetReplication:         (*Handler).getReplication,
+		opListReplications:       (*Handler).listReplications,
+		opDeleteReplication:      (*Handler).deleteReplication,
 		opListReplicationSources: (*Handler).listReplicationSources,
-		opReencryptObject:        (*Handler).reencryptObject, opReencryptBucket: (*Handler).reencryptBucket,
-		opListObjects: (*Handler).listObjects, opListObjectVersions: (*Handler).listObjectVersions,
-		opPutObject: (*Handler).putObject, opGetObject: (*Handler).getObject, opHeadObject: (*Handler).getObject,
-		opDeleteObject: (*Handler).deleteObject, opCopyObject: (*Handler).copyObject,
-		opRenameObject: (*Handler).renameObject, opRestoreObjects: (*Handler).restoreObjects,
-		opUpdateStorageTier: (*Handler).updateStorageTier, opBatchDeleteObjects: (*Handler).batchDelete,
-		opCreateMultipart: (*Handler).createUpload, opUploadPart: (*Handler).uploadPart,
-		opCommitMultipart: (*Handler).commitUpload, opAbortMultipart: (*Handler).abortUpload,
-		opListMultipartUploads: (*Handler).listUploads, opListMultipartParts: (*Handler).listParts,
-		opCreatePAR: (*Handler).createPAR, opListPARs: (*Handler).listPARs,
-		opGetPAR: (*Handler).getPAR, opDeletePAR: (*Handler).deletePAR,
-		opPutLifecycle: (*Handler).putLifecycle, opGetLifecycle: (*Handler).getLifecycle,
-		opDeleteLifecycle: (*Handler).deleteLifecycle,
-		opCreateRetention: (*Handler).createRetention, opGetRetention: (*Handler).getRetention,
-		opListRetention: (*Handler).listRetention, opUpdateRetention: (*Handler).updateRetention,
-		opDeleteRetention: (*Handler).deleteRetention,
-		opGetWorkRequest:  (*Handler).getWorkRequest, opListWorkRequests: (*Handler).listWorkRequests,
-		opDeleteWorkRequest: (*Handler).cancelWorkRequest,
-		opListWRErrors:      (*Handler).listWRErrors, opListWRLogs: (*Handler).listWRLogs,
+		opReencryptObject:        (*Handler).reencryptObject,
+		opReencryptBucket:        (*Handler).reencryptBucket,
+		opListObjects:            (*Handler).listObjects,
+		opListObjectVersions:     (*Handler).listObjectVersions,
+		opPutObject:              (*Handler).putObject,
+		opGetObject:              (*Handler).getObject,
+		opHeadObject:             (*Handler).getObject,
+		opDeleteObject:           (*Handler).deleteObject,
+		opCopyObject:             (*Handler).copyObject,
+		opRenameObject:           (*Handler).renameObject,
+		opRestoreObjects:         (*Handler).restoreObjects,
+		opUpdateStorageTier:      (*Handler).updateStorageTier,
+		opBatchDeleteObjects:     (*Handler).batchDelete,
+		opCreateMultipart:        (*Handler).createUpload,
+		opUploadPart:             (*Handler).uploadPart,
+		opCommitMultipart:        (*Handler).commitUpload,
+		opAbortMultipart:         (*Handler).abortUpload,
+		opListMultipartUploads:   (*Handler).listUploads,
+		opListMultipartParts:     (*Handler).listParts,
+		opCreatePAR:              (*Handler).createPAR,
+		opListPARs:               (*Handler).listPARs,
+		opGetPAR:                 (*Handler).getPAR,
+		opDeletePAR:              (*Handler).deletePAR,
+		opPutLifecycle:           (*Handler).putLifecycle,
+		opGetLifecycle:           (*Handler).getLifecycle,
+		opDeleteLifecycle:        (*Handler).deleteLifecycle,
+		opCreateRetention:        (*Handler).createRetention,
+		opGetRetention:           (*Handler).getRetention,
+		opListRetention:          (*Handler).listRetention,
+		opUpdateRetention:        (*Handler).updateRetention,
+		opDeleteRetention:        (*Handler).deleteRetention,
+		opGetWorkRequest:         (*Handler).getWorkRequest,
+		opListWorkRequests:       (*Handler).listWorkRequests,
+		opDeleteWorkRequest:      (*Handler).cancelWorkRequest,
+		opListWRErrors:           (*Handler).listWRErrors,
+		opListWRLogs:             (*Handler).listWRLogs,
+		opCreatePrivateEndpoint:  (*Handler).createPrivateEndpoint,
+		opGetPrivateEndpoint:     (*Handler).getPrivateEndpoint,
+		opListPrivateEndpoints:   (*Handler).listPrivateEndpoints,
+		opUpdatePrivateEndpoint:  (*Handler).updatePrivateEndpoint,
+		opDeletePrivateEndpoint:  (*Handler).deletePrivateEndpoint,
 	}
 }
 
@@ -878,13 +906,24 @@ func (h *Handler) listWRErrors(q *req) error {
 	return q.json(http.StatusOK, []any{})
 }
 
+func wrLogMessage(op string) string {
+	if strings.HasPrefix(op, "PRIVATE_ENDPOINT_") {
+		return "Private endpoint operation completed"
+	}
+
+	return "Copy completed"
+}
+
 func (h *Handler) listWRLogs(q *req) error {
 	w, err := h.Backend.GetWorkRequest(q.rt.id)
 	if err != nil {
 		return err
 	}
 
-	return q.json(http.StatusOK, []map[string]any{{"message": "Copy completed", "timestamp": w.TimeFinished}})
+	return q.json(
+		http.StatusOK,
+		[]map[string]any{{"message": wrLogMessage(w.OperationType), "timestamp": w.TimeFinished}},
+	)
 }
 
 func (h *Handler) createReplication(q *req) error {
@@ -962,4 +1001,71 @@ func (h *Handler) reencryptBucket(q *req) error {
 	q.header("opc-work-request-id", id)
 
 	return q.status(http.StatusAccepted)
+}
+
+func (q *req) acceptWorkRequest(id string) error {
+	q.header("opc-work-request-id", id)
+
+	return q.status(http.StatusAccepted)
+}
+
+func (h *Handler) createPrivateEndpoint(q *req) error {
+	var in CreatePrivateEndpointInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	id, err := h.Backend.CreatePrivateEndpoint(q.rt.ns, in, q.user())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
+}
+
+func (h *Handler) getPrivateEndpoint(q *req) error {
+	w, err := h.Backend.GetPrivateEndpoint(q.rt.ns, q.rt.id, q.pre())
+	if err != nil {
+		return err
+	}
+
+	q.header("ETag", w.Etag)
+
+	return q.json(http.StatusOK, w)
+}
+
+func (h *Handler) listPrivateEndpoints(q *req) error {
+	p, err := h.Backend.ListPrivateEndpoints(
+		q.rt.ns, q.query("compartmentId"), q.query("lifecycleState"), q.query("page"), q.limit(),
+	)
+	if err != nil {
+		return err
+	}
+
+	q.nextPage(p.Next)
+
+	return q.json(http.StatusOK, p.Data)
+}
+
+func (h *Handler) updatePrivateEndpoint(q *req) error {
+	var in UpdatePrivateEndpointInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	id, err := h.Backend.UpdatePrivateEndpoint(q.rt.ns, q.rt.id, in, q.pre())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
+}
+
+func (h *Handler) deletePrivateEndpoint(q *req) error {
+	id, err := h.Backend.DeletePrivateEndpoint(q.rt.ns, q.rt.id, q.pre())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
 }

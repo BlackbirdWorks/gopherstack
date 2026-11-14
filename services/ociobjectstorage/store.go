@@ -38,6 +38,8 @@ type InMemoryBackend struct {
 	now          func() time.Time
 	buckets      map[string]*Bucket
 	workRequests map[string]*WorkRequest
+	privateEnds  map[string]*PrivateEndpoint
+	net          *Network
 	Auth         *ociauth.Registry
 	sink         func(ObjectEvent)
 	keyState     func(string) (string, bool)
@@ -57,6 +59,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		now:          time.Now,
 		buckets:      map[string]*Bucket{},
 		workRequests: map[string]*WorkRequest{},
+		privateEnds:  map[string]*PrivateEndpoint{},
 		Auth:         ociauth.NewRegistry(),
 		namespace:    DefaultNamespace,
 		minPartSize:  DefaultMinPartSize,
@@ -97,6 +100,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.buckets = map[string]*Bucket{}
 	b.workRequests = map[string]*WorkRequest{}
+	b.privateEnds = map[string]*PrivateEndpoint{}
 	b.mu.Unlock()
 	b.Auth.Reset()
 }
@@ -211,7 +215,7 @@ func (in *CreateBucketInput) normalize() error {
 	case !validAccess(in.PublicAccessType):
 		return errParam("Invalid publicAccessType")
 	case in.StorageTier != tierStandard && in.StorageTier != tierArchive:
-		return errParam("storageTier must be Standard or Archive")
+		return errInvalidTier("storageTier must be Standard or Archive")
 	case in.Versioning != versioningDisabled && in.Versioning != versioningEnabled:
 		return errParam("versioning must be Enabled or Disabled on create")
 	}

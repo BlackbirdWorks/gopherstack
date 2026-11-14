@@ -3878,6 +3878,7 @@ func wireCrossServiceDependencies(
 	wireOCIDNS(byName)
 	wireOCIDatabase(byName)
 	wireOCIFileStorage(byName)
+	wireOCIObjectStoragePrivateEndpoints(byName)
 	wireOCICoreVault(byName)
 }
 

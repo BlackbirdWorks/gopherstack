@@ -533,6 +533,17 @@ type WorkRequestResource struct {
 	EntityType string `json:"entityType"`
 	ActionType string `json:"actionType"`
 	EntityURI  string `json:"entityUri"`
+	Identifier string `json:"identifier,omitempty"`
+}
+
+func (w *WorkRequest) resource() WorkRequestResource {
+	if w.EntityType == "" {
+		return WorkRequestResource{EntityType: "object", ActionType: "WRITTEN", EntityURI: w.EntityURI}
+	}
+
+	return WorkRequestResource{
+		EntityType: w.EntityType, ActionType: w.ActionType, EntityURI: w.EntityURI, Identifier: w.EntityID,
+	}
 }
 
 func wrWire(w *WorkRequest, now time.Time) WorkRequestWire {
@@ -550,7 +561,7 @@ func wrWire(w *WorkRequest, now time.Time) WorkRequestWire {
 		TimeStarted:     w.TimeAccepted,
 		TimeFinished:    w.TimeFinished,
 		PercentComplete: pct,
-		Resources:       []WorkRequestResource{{EntityType: "object", ActionType: "WRITTEN", EntityURI: w.EntityURI}},
+		Resources:       []WorkRequestResource{w.resource()},
 	}
 }
 

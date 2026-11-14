@@ -194,7 +194,7 @@ func (b *InMemoryBackend) storeLocked(
 		meta.StorageTier = bk.StorageTier
 	case tierStandard, tierIA, tierArchive:
 	default:
-		return nil, errParam("Invalid storage-tier")
+		return nil, errInvalidTier("Invalid storage-tier")
 	}
 
 	if meta.ContentType == "" {
@@ -607,7 +607,7 @@ func (b *InMemoryBackend) RestoreObjects(ns, bucket, name, versionID string, hou
 // UpdateStorageTier changes an object's tier.
 func (b *InMemoryBackend) UpdateStorageTier(ns, bucket, name, versionID, tier string) error {
 	if tier != tierStandard && tier != tierIA && tier != tierArchive {
-		return errParam("storageTier must be Standard, InfrequentAccess or Archive")
+		return errInvalidTier("storageTier must be Standard, InfrequentAccess or Archive")
 	}
 
 	b.mu.Lock("UpdateStorageTier")

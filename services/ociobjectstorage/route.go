@@ -59,6 +59,11 @@ const (
 	opListReplicationSources = "ListReplicationSources"
 	opReencryptObject        = "ReencryptObject"
 	opReencryptBucket        = "ReencryptBucket"
+	opCreatePrivateEndpoint  = "CreatePrivateEndpoint"
+	opGetPrivateEndpoint     = "GetPrivateEndpoint"
+	opListPrivateEndpoints   = "ListPrivateEndpoints"
+	opUpdatePrivateEndpoint  = "UpdatePrivateEndpoint"
+	opDeletePrivateEndpoint  = "DeletePrivateEndpoint"
 	opAdminKeys              = "ManageAPIKeys"
 	opUnknown                = "Unknown"
 )
@@ -183,6 +188,8 @@ func parseNamespace(m string, segs []string) route {
 		}
 
 		return rt
+	case segs[bucketsAt] == "pe":
+		return parsePrivateEndpoint(m, segs)
 	case segs[bucketsAt] != "b":
 		return route{op: opUnknown}
 	}
@@ -207,6 +214,28 @@ func parseNamespace(m string, segs []string) route {
 	}
 
 	return parseBucketSub(rt, m, segs[subIdx:])
+}
+
+func parsePrivateEndpoint(m string, segs []string) route {
+	const (
+		listLen = 3
+		itemLen = 4
+	)
+
+	rt := route{ns: unesc(segs[1])}
+
+	switch len(segs) {
+	case listLen:
+		rt.op = map[string]string{http.MethodPost: opCreatePrivateEndpoint, http.MethodGet: opListPrivateEndpoints}[m]
+	case itemLen:
+		rt.id = unesc(segs[3])
+		rt.op = map[string]string{
+			http.MethodGet: opGetPrivateEndpoint, http.MethodPost: opUpdatePrivateEndpoint,
+			http.MethodDelete: opDeletePrivateEndpoint,
+		}[m]
+	}
+
+	return orUnknown(rt)
 }
 
 func orUnknown(rt route) route {

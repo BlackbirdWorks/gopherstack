@@ -183,5 +183,8 @@ type WorkRequest struct {
 	Status        string       `json:"status"`
 	CompartmentID string       `json:"compartmentId"`
 	EntityURI     string       `json:"entityUri"`
+	EntityType    string       `json:"entityType,omitempty"`
+	ActionType    string       `json:"actionType,omitempty"`
+	EntityID      string       `json:"entityId,omitempty"`
 	Message       string       `json:"message,omitempty"`
 }
