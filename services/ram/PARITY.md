@@ -108,9 +108,7 @@ families:
 gaps: []
 structural_gaps:
   - "CreateResourceShare/AssociateResourceShare Sources are stored and echoed only: they constrain which source accounts a service principal may access shared resources from, and no service evaluates a share at request time (see the gopherstack-q91e section)."
-items_still_open:
-  - "gopherstack-kvyy: Glue PutResourcePolicy(EnableHybrid=TRUE) with a cross-account Principal.AWS creates the CREATED_FROM_POLICY share. UNVERIFIABLE: glue@v1.157.0 api_op_PutResourcePolicy.go and ram@v1.39.4 document no trigger beyond EnableHybrid, and services/lakeformation has no RAM seam to narrow it."
-  - "ListSourceAssociations/AssociatedSource.SourceType is a bare *string with no documented value set in ram@v1.39.4, so it is not populated or filtered (UNVERIFIABLE)."
+items_still_open: []
 deferred:
   - "DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule."
   - "ResourceShareStatus never reaches PENDING/FAILED/DELETING and ResourceShareAssociationStatus never reaches ASSOCIATING/FAILED/DISASSOCIATING/SUSPENDED/SUSPENDING/RESTORING: each needs async backend processing or Organizations SCP state this backend cannot represent, and invalid ARNs surface synchronously as MalformedArnException."
@@ -947,3 +945,8 @@ ListResourceTypes now honours maxResults/nextToken over the static catalogue (a 
 - aws_ram_resource_share_accepter destroy logs "unexpected state ACTIVE" after DisassociateResourceShare: provider waitResourceShareOwnedBySelfDisassociated waits on ASSOCIATED but reads the share's own Status enum; identical against real AWS.
 - EnableSharingWithAwsOrganization also enables ram.amazonaws.com service access (cross_service_test.go); the terraform fixture cannot create its own organization because Organization is a per-backend singleton shared by parallel fixture tests.
 - ramMaxResults is 500 and permission summary/detail no longer emit resourceRegionScope (TestPermissionResponses_NoResourceRegionScopeField).
+
+## Emulator choices where the vendor is silent
+
+- gopherstack-kvyy: Glue PutResourcePolicy(EnableHybrid=TRUE) with a cross-account Principal.AWS creates the CREATED_FROM_POLICY share. UNVERIFIABLE: glue@v1.157.0 api_op_PutResourcePolicy.go and ram@v1.39.4 document no trigger beyond EnableHybrid, and services/lakeformation has no RAM seam to narrow it.
+- ListSourceAssociations/AssociatedSource.SourceType is a bare *string with no documented value set in ram@v1.39.4, so it is not populated or filtered (UNVERIFIABLE).

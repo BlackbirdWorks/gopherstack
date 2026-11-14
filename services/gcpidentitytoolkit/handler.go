@@ -342,10 +342,10 @@ func (h *Handler) accountOp(c *echo.Context, rt route, cl call) (any, error) {
 		return nil, err
 	}
 
-	return h.authOp(rt.op, cl, req)
+	return h.authOp(c.Request().Context(), rt.op, cl, req)
 }
 
-func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
+func (h *Handler) authOp(ctx context.Context, op string, cl call, req *authRequest) (any, error) {
 	b := h.Backend
 
 	switch op {
@@ -370,7 +370,7 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 
 		return map[string]any{keyKind: "identitytoolkit#DeleteAccountResponse"}, nil
 	case "sendOobCode":
-		return b.SendOobCode(cl, req)
+		return b.SendOobCode(ctx, cl, req)
 	case opResetPassword:
 		return b.ResetPassword(cl, req)
 	case "createAuthUri":
@@ -379,13 +379,13 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 		return b.CreateSessionCookie(cl, req)
 	}
 
-	return h.phoneOp(op, cl, req)
+	return h.phoneOp(ctx, op, cl, req)
 }
 
-func (h *Handler) phoneOp(op string, cl call, req *authRequest) (any, error) {
+func (h *Handler) phoneOp(ctx context.Context, op string, cl call, req *authRequest) (any, error) {
 	switch op {
 	case "sendVerificationCode":
-		return h.Backend.SendVerificationCode(cl, req)
+		return h.Backend.SendVerificationCode(ctx, cl, req)
 	case "signInWithPhoneNumber":
 		return h.Backend.SignInWithPhoneNumber(cl, req)
 	}

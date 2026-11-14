@@ -1,8 +1,10 @@
 package gcpmonitoring_test
 
 import (
+	"bytes"
 	"errors"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,8 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 type hookRequest struct {
@@ -434,7 +438,14 @@ func TestNoEgressChannelsRecordToOutbox(t *testing.T) {
 				e.writeAt(t, epoch().Add(time.Duration(m)*time.Minute), "gold", map[string]float64{"inst-1": 9})
 			}
 
-			e.handler.Backend.Tick(t.Context())
+			var logBuf bytes.Buffer
+
+			ctx := logger.Save(t.Context(), slog.New(slog.NewTextHandler(&logBuf, nil)))
+			e.handler.Backend.Tick(ctx)
+
+			assert.Contains(t, logBuf.String(), "would send notification")
+			assert.Contains(t, logBuf.String(), "type="+tt.typ)
+			assert.NotContains(t, logBuf.String(), "s3cret")
 
 			box := e.handler.Backend.Outbox()
 			require.Len(t, box, 1)

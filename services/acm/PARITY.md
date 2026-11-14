@@ -182,8 +182,7 @@ ops:
   UpdateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PrevalidationOptions is updatable on the real wire; regenerates the DNS ResourceRecord when supplied. 2026-10-07: an update restarts validation (VALIDATING, new ValidAt)."}
   DeleteAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps: []
-items_still_open:
-  - "ValidationMethod=HTTP on a direct RequestCertificate is accepted with a placeholder HttpRedirect: the pinned SDK says HttpRedirect exists for CloudFront-requested certificates but never says direct requests are rejected."
+items_still_open: []
 structural_gaps:
   - "TagPolicyException is unwired: no Organizations tag-policy engine exists to trigger it."
   - "ACME accounts, AcmeAccountId/AcmeEndpointArn on certificates, and the matching SearchCertificates filter/sort members are never populated: no RFC 8555 ACME server exists."
@@ -1105,3 +1104,7 @@ ImportCertificate and re-import now fill SubjectAlternativeNames from the certif
 ## Notes (2026-10-10 realism pass)
 
 Probed with the AWS CLI. RequestCertificate now rejects invalid DNS characters, a second wildcard, hyphen-edged labels and a primary name over 64 characters, unknown ValidationMethod, KeyAlgorithm and CertificateTransparencyLoggingPreference values and bad IdempotencyToken (InvalidParameterException; hyphens in tokens stay allowed because in-repo fixtures use them). The DNS validation record for a wildcard name no longer embeds `*.`. ListCertificates and ListCertificateDomainValidations reject MaxItems over 1000. Error messages no longer repeat the exception code and not-found reads "Could not find certificate <arn>.". Tests: request_certificate_realism_test.go.
+
+## Emulator choices where the vendor is silent
+
+- ValidationMethod=HTTP on a direct RequestCertificate is accepted with a placeholder HttpRedirect: the pinned SDK says HttpRedirect exists for CloudFront-requested certificates but never says direct requests are rejected.

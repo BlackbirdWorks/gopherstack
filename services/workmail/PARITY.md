@@ -131,9 +131,7 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore already delegate to backend (fixed in an earlier phase per persistence.go's doc comments) so internal/app/cli.go's setupPersistence picks WorkMail up. Verified all 15 org-nested/composite-keyed tables + 3 registry tables + raw maps (including tags -- see TagResource note above) round-trip through backendSnapshot; version-mismatch discard-and-reset path present. Additive struct fields (User/MailDomain/AccessControlRule/Organization) don't require a snapshot-version bump: old snapshots decode the new fields as zero values, which is the correct behavior (a pre-upgrade org genuinely never had DKIM records, migration admin, etc.)."}
   error-mapping: {status: ok, note: "every backend error path wraps one of ErrNotFound/ErrConflict/ErrValidation/ErrLimitExceeded/ErrMailDomainState/ErrEntityState; handleError's switch covers all six plus isUnknownOp -- no bare fmt.Errorf that would fall through to InternalServiceError found."}
 gaps: []
-items_still_open:
-  - "LimitExceededException (gopherstack-gmny): only CreateAlias (100 per user) and RegisterMailDomain (1000 per org) have published, non-adjustable quotas (docs-sourced, enforced). CreateOrganization's quota is adjustable; CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob and UpdateImpersonationRole publish no number anywhere, so they are not enforced."
-  - "DeleteOrganization.ForceDelete is not applied: the SDK says only \"even if the organization has enabled users\" and does not name the error a non-forced delete raises (OrganizationStateException is a guess), so that precondition is not enforced."
+items_still_open: []
 structural_gaps:
   - "Organization deletion is immediate: the SDK documents no Deleting state to model."
   - "DeleteOrganization.DeleteIdentityCenterApplication has no effect: no IAM Identity Center application is modeled."
@@ -716,3 +714,8 @@ Create->Describe->Update round trips audited, no change. CreateUser already defa
 ## 2026-10-05 (undeclared response members)
 
 GetMailDomain drops DomainName and DescribeMailboxExportJob drops JobId; neither is on the SDK output.
+
+## Emulator choices where the vendor is silent
+
+- LimitExceededException (gopherstack-gmny): only CreateAlias (100 per user) and RegisterMailDomain (1000 per org) have published, non-adjustable quotas (docs-sourced, enforced). CreateOrganization's quota is adjustable; CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob and UpdateImpersonationRole publish no number anywhere, so they are not enforced.
+- DeleteOrganization.ForceDelete is not applied: the SDK says only "even if the organization has enabled users" and does not name the error a non-forced delete raises (OrganizationStateException is a guess), so that precondition is not enforced.

@@ -50,8 +50,7 @@ families:
   translation: {status: ok, note: "TranslateText/TranslateDocument verified against TranslateTextOutput/TranslateDocumentOutput/AppliedTerminology/TranslationSettings shapes and Amazon Translate's guidelines/quotas page; missing terminology-reference validation, size limits, language-pair validation, ContentType, and Settings enum validation all fixed"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against Tag{Key,Value} shape; error-code-per-op and 50-tag limit fixed"}
 gaps: []
-items_still_open:
-  - "Terminology import does not report Message and treats only empty source/target texts and blank lines as skipped (SDK doc: 'skipped'); other skip reasons AWS may apply are not specified in the pinned SDK."
+items_still_open: []
 structural_gaps:
   - "No real ML/Comprehend: SourceLanguageCode echoes 'auto' when omitted; DetectedLanguageLowConfidence/TooManyRequests/InternalServer/ServiceUnavailable/ConcurrentModification have no backend trigger (injectable via chaos, see test/integration)."
   - "ListLanguages LanguageName ignores DisplayLanguageCode (no i18n name table); GetTerminology/GetParallelData data locations are synthetic, not pre-signed S3 URLs."
@@ -421,3 +420,7 @@ translate is region-isolated: terminologies and text translation jobs live per r
 - Added `SetLifecycleDelay` (default 0): text translation jobs go SUBMITTED, IN_PROGRESS, terminal and parallel data CREATING/UPDATING to ACTIVE by elapsed time, visible through the List ops (they previously never advanced). Default keeps advance-per-poll.
 - Terminology and parallel data names, JobName, S3 URIs (input, output, parallel data) and InputDataConfig.ContentType are validated; MaxResults outside 1-500 on the four List ops is InvalidParameterValueException (limits confirmed against the Translate API reference). `[fail]` stays allowed in job names.
 - Unresolvable NextToken still yields an empty final page (deliberate, see the 2026-08-30 sweep). Error messages no longer repeat the exception code.
+
+## Emulator choices where the vendor is silent
+
+- Terminology import does not report Message and treats only empty source/target texts and blank lines as skipped (SDK doc: 'skipped'); other skip reasons AWS may apply are not specified in the pinned SDK.

@@ -146,8 +146,7 @@ ops:
 families:
   routing: {status: ok, note: "RouteMatcher/ExtractOperation verified against X-Amz-Target: Comprehend_20171127.<Op> prefix; sdk_completeness_test.go confirms every SDK op is routed (no notImplemented entries needed) -- also re-confirms the deleted fabricated Version ops were never part of the real SDK surface this test checks against, so removing them didn't regress completeness"}
 gaps: []
-items_still_open:
-  - "FlywheelIterationProperties.EvaluationManifestS3Prefix: the pinned SDK documents the member with an empty doc string and the data-lake object layout is not specified, so no value can be derived without inventing a path."
+items_still_open: []
 structural_gaps:
   - "ClassifyDocument/DetectEntities Bytes of PDF, Word and image documents (DocumentReaderConfig effect): text extraction needs Amazon Textract; plain-text Bytes are decoded and DocumentReaderConfig is validated, binary documents are rejected."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
@@ -842,3 +841,7 @@ DetectPiiEntities no longer emits a Text member; types.PiiEntity has only BeginO
 ### 2026-10-07: async job output archive written to S3
 
 On COMPLETED, jobs write `<OutputDataConfig.S3Uri>/<AccountId>-<CODE>-<JobId>/output/output.tar.gz` via `S3Writer`/`SetS3Writer` or the emulated S3 from `AppContext.Config`. Archive members: `output` (JSON lines) for entities/key phrases/sentiment/PII/targeted sentiment/language/events, `predictions.jsonl` for classification, `doc-topics.csv` + `topics-terms.csv` for topics. Unverified: the CODE abbreviations (NER, KP, SENTIMENT, PII, TOPICS, CLN, TS, LANGUAGE, EVENTS) and per-line fields are from memory, and result bodies are structurally correct but empty of detected content. A failed write marks the job FAILED.
+
+## Emulator choices where the vendor is silent
+
+- FlywheelIterationProperties.EvaluationManifestS3Prefix: the pinned SDK documents the member with an empty doc string and the data-lake object layout is not specified, so no value can be derived without inventing a path.

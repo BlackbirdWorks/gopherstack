@@ -46,11 +46,7 @@ families:
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug."}
 items_still_open:
   - "The Cloud Run / Functions gateway-to-backend identity token (Authorization: Bearer ID token, jwt_audience) is not minted: the original Authorization header is moved to X-Forwarded-Authorization and the backend gets none."
-  - "API keys are not validated against any project or key store (no API Keys or Service Usage emulator); any non-empty key passes, so the 400 invalid-key and 403 API-not-enabled answers cannot occur."
   - "gRPC API configs (grpc_services, managed_service_configs), more than one OpenAPI document per config, h2 and WebSocket backends, x-google-allow, x-google-parameter, x-google-model-router, x-google-mcp-tool, AI and MCP blocks, and the 2.0 jwt locations extension are not supported."
-  - "Whether OpenAPI 2.0 documents without any x-google-backend are rejected at config creation is undocumented (oasv2 page: only address is Required inside the block); the emulator rejects them as it does 3.x. The 3.x docs example gives address without a scheme (myapp.run.app), the emulator requires http(s). The 3.x quota limit unit is undocumented; limits are taken as per project per minute."
-  - "Data-plane texts not in a primary source: the detail after 429 RESOURCE_EXHAUSTED (from Service Control), 502 for refused destinations (emulator-only), the Gateway-not-found and not-ready answers, and the Envoy JWT messages for header/payload parse failures (jwt_verify_lib has distinct strings; only the three-section case is distinguished)."
-  - "Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule) have no primary text: googleapis apigateway.proto only says ids 'must be unique within scope of the parent resource'."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine, joined by Shutdown, and the pooled backend client, closed there."}
 ---
 
@@ -67,3 +63,13 @@ Verification pass (2026-10-30) against primary sources:
 - github.com/GoogleCloudPlatform/esp-v2 (API Gateway's data plane): src/go/configgenerator/routegen/deny_all.go and deny_invalid_method.go (404 and 405 bodies), filtergen/http_connection_manager.go (local replies as {"code":..,"message":..}), tests/integration_test jwt_*, service_control_check_fail_test (400/403 key texts), service_control_quota_test (429 "RESOURCE_EXHAUSTED: "), backend_auth_disable_auth_test, jwt_locations_test, util.go (key query names key and api_key).
 - github.com/google/jwt_verify_lib src/status.cc: the JWT status strings listed under api jwt.
 - googleapis/googleapis google/cloud/apigateway/v1/apigateway.proto: resource patterns, openapi_documents vs grpc_services exclusivity, gateway_service_account as email.
+
+## Emulator choices where the vendor is silent
+
+- Whether OpenAPI 2.0 documents without any x-google-backend are rejected at config creation is undocumented (oasv2 page: only address is Required inside the block); the emulator rejects them as it does 3.x. The 3.x docs example gives address without a scheme (myapp.run.app), the emulator requires http(s). The 3.x quota limit unit is undocumented; limits are taken as per project per minute.
+- Data-plane texts not in a primary source: the detail after 429 RESOURCE_EXHAUSTED (from Service Control), 502 for refused destinations (emulator-only), the Gateway-not-found and not-ready answers, and the Envoy JWT messages for header/payload parse failures (jwt_verify_lib has distinct strings; only the three-section case is distinguished).
+- Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule) have no primary text: googleapis apigateway.proto only says ids 'must be unique within scope of the parent resource'.
+
+## External effects that are recorded, not performed
+
+- API keys are checked for presence only; validation against API Keys and Service Usage is logged at debug as "would validate" because neither service exists in the emulator.

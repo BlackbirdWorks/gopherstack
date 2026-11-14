@@ -64,8 +64,7 @@ families:
   AutoScaling: {status: ok, note: "SetTimeBasedAutoScaling/DescribeTimeBasedAutoScaling/SetLoadBasedAutoScaling/DescribeLoadBasedAutoScaling all real"}
   Misc: {status: fixed, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations. DescribeStackProvisioningParameters FIXED 2026-08-15 (gopherstack-6flj): the real, dedicated top-level AgentInstallerUrl member was also being duplicated under a fabricated 'AgentInstallerUrl' key inside the free-form Parameters map, which no real response ever carries -- Parameters is now returned empty (honest: this backend tracks none of AWS's real internal agent-bootstrap keys) rather than containing an invented one. FIXED 2026-08-30: DescribeAgentVersions's static list is real AWS behavior, but its ConfigurationManager filter was dropped entirely -- see ops family note above."}
 gaps: []
-items_still_open:
-  - "Layer DefaultRecipes and DefaultSecurityGroupNames are never returned: the SDK documents only the shape (types.go:1263/1268) and AWS retired OpsWorks Stacks, so docs.aws.amazon.com/opsworks API_Layer and user-guide pages now return 404 and the per-layer-type values cannot be sourced. Layer settings round-trip verbatim without validation."
+items_still_open: []
 structural_gaps:
   - "ElasticLoadBalancer.Ec2InstanceIds is never returned: instances carry no EC2 instance id (no EC2 backing)."
   - "RdsDbInstance.Engine is not a RegisterRdsDbInstance input, and MissingOnRds needs drift detection against a real RDS instance (cross-service, out of this package)."
@@ -955,3 +954,7 @@ Recorded, not fixed: the single-identifier rule is stated only in prose ("This c
 - CreateDeployment keeps Comment and resolves InstanceIds/LayerIds into target instances, one command per instance. CloneStack applies Attributes (inherited from the source when absent), CloneAppIds and ClonePermissions. Proof: `TestSDK_CreateDeploymentTargetsAndComment`, `TestSDK_CloneStackAttributesAppsAndPermissions`.
 - RegisterInstance InstanceIdentity, RsaPublicKey and RsaPublicKeyFingerprint: only used by a real agent to authenticate the registration, nothing to verify against here.
 - StopInstance Force: instances stop immediately and there is no EC2 instance to detach, so it cannot change the outcome.
+
+## Emulator choices where the vendor is silent
+
+- Layer DefaultRecipes and DefaultSecurityGroupNames are never returned: the SDK documents only the shape (types.go:1263/1268) and AWS retired OpsWorks Stacks, so docs.aws.amazon.com/opsworks API_Layer and user-guide pages now return 404 and the per-layer-type values cannot be sourced. Layer settings round-trip verbatim without validation.

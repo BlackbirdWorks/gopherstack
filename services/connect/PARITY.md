@@ -402,16 +402,12 @@ items_still_open:
   - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
   - "AttachedFiles: uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked"
   - "Analytics: ListAnalyticsDataLakeDataSets and StartContactConversationalAnalyticsJob are not routed (the dataset catalog is not published; the job needs Contact Lens); associations are recorded without validating DataSetId against a catalog and without a RAM emulator"
-  - "Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)"
   - "Contact data and participants: GetFederationToken ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateParticipantAuthentication are not routed (no chat message plane, no caller identity for federation); UpdateParticipantRoleConfig timers are stored on the contact but nothing enforces them (no chat message plane); QueuePriority/QueueTimeAdjustmentSeconds/RoutingCriteria are stored but no routing engine reorders queues from them"
   - "Instance extras: GetCrossRegionRouting UpdateCrossRegionRouting ReplicateInstance are not routed: they need Global Resiliency instance replicas, which the emulator does not model"
   - "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated"
   - "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated"
   - "Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled"
-  - "Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ConnectedToSystemTimestamp, NextContacts (the NextContactEntry types are not documented), ContactDetails, WisdomInfo, GlobalResiliencyMetadata, Cases and the other contact analytics members are never populated (ContactAssociationId, TaskTemplateInfo, ContactEvaluations, QueuePriority, QueueTimeAdjustmentSeconds and RoutingCriteria are); Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated"
-  - "CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced"
   - "CloudFormation: AWS::Connect::AWSManagedView is not provisioned (no page for it exists in the CloudFormation resource reference, so its properties and attributes cannot be verified) and AWS::Connect::DataLakeAssociation is not provisioned (it is a RAM share of an analytics dataset and the analytics association operations above are unrouted); AWS::Connect::Metric GetAtt CreationMethod, EffectiveTime, Filters, Groupings, PrimaryEventSource, PrimaryEventSourceEffectiveTimestampType, RefreshRate and SupportedStats have no backing state; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
-  - "Lex bot associations are shape-checked only: no Lex service exists in the emulator"
 structural_gaps:
   - "No telephony or media plane: outbound calls are never placed, no audio flows, and contacts only change state through StopContact and UpdateContact because no agent softphone or customer endpoint exists."
   - "Phone numbers come from a fixed pool of fictional numbers: the carrier inventory behind SearchAvailablePhoneNumbers cannot exist in an emulator."
@@ -447,3 +443,13 @@ API_ListEvaluationFormAIVersions re-read: ContactInteractionType (AGENT|AUTOMATE
 - Test case executions: API_StartTestCaseExecution (published test case only), API_StopTestCaseExecution; list query names from the SDK schemas (startTime/endTime epoch milliseconds).
 - Analytics associations: API_AssociateAnalyticsDataSet and API_BatchDisassociateAnalyticsDataSet; ResourceShareStatus ACTIVE and repeated associations returning the existing share are unverified.
 - GetPromptFile: signed URL on the emulator content endpoint serving the prompt WAV from S3 (5 minute expiry unverified).
+
+## Emulator choices where the vendor is silent
+
+- Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ConnectedToSystemTimestamp, NextContacts (the NextContactEntry types are not documented), ContactDetails, WisdomInfo, GlobalResiliencyMetadata, Cases and the other contact analytics members are never populated (ContactAssociationId, TaskTemplateInfo, ContactEvaluations, QueuePriority, QueueTimeAdjustmentSeconds and RoutingCriteria are); Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated
+- CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced
+
+## External effects that are recorded, not performed
+
+- StartAssistantContact, StartScreenSharing, StartWebRTCContact and TransferContact need a real-time media plane and are not routed (unknown operations are rejected, nothing is fabricated).
+- Lex bot associations are stored and listed; the access grant on the Lex bot is logged as "would grant" because no Lex service exists in the emulator.

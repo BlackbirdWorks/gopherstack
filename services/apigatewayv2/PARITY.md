@@ -293,10 +293,7 @@ families:
 gaps: []
 items_still_open:
   - "WebSocket data plane: AWS-type (non-proxy) integrations support Lambda URIs only (no other AWS service URIs), a $connect route on an HTTP/HTTP_PROXY integration does not reject on a non-2xx upstream status, and a non-JSON $disconnect-time context is not implemented (gopherstack-49qct.58)."
-  - "Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the \"Invalid <X> identifier specified\" convention but is not pinned by the SDK; only the API form is certain."
-  - "ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0)."
   - "A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1)."
-  - "GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example."
 structural_gaps:
   - "ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs internal/app/cli.go cross-wiring."
 deferred: []
@@ -1133,3 +1130,9 @@ Now: `$request.body.<path>` / `${request.body.<path>}` / `\$default` expressions
 
 - DeleteRoute/DeleteStage on quick-create resources: API reference apis-apiid-routes-routeid and apis-apiid-stages-stagename list only 204/404/429 for DELETE, so deletion is not rejected (matches code).
 - ProductRestEndpointPage RawDisplayContent: apis-apiid-productrestendpointpage page re-fetched 2026-11-13; it carries no display-content format, so the item stays open.
+
+## Emulator choices where the vendor is silent
+
+- Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the "Invalid <X> identifier specified" convention but is not pinned by the SDK; only the API form is certain.
+- ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0).
+- GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example.

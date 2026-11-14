@@ -9,9 +9,7 @@ ops:
   ListAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "accounts of the signed-in user's direct and group account assignments, sorted by account ID"}
   ListAccountRoles: {wire: ok, errors: ok, state: ok, persist: ok, note: "permission set names assigned in the account, sorted"}
   Logout: {wire: ok, errors: ok, state: ok, persist: ok, note: "revokes the access token and its refresh token"}
-items_still_open:
-  - ListAccountRoles/GetRoleCredentials for an unassigned account or role: answers ResourceNotFoundException "No access"; real AWS reports ForbiddenException, which the pinned SDK does not model (bd: gopherstack-cefu7.3)
-  - max_result bounds: default 10, cap 1000, below 1 is InvalidRequestException; AWS bounds are not in the SDK (bd: gopherstack-cefu7.3)
+items_still_open: []
 gaps: []
 structural_gaps:
   - Role ARNs and assumed-role ARNs use the emulator's single IAM account; an assignment to another account ID still resolves to a role in the emulator account
@@ -35,3 +33,8 @@ has the account, else the account ID is the name.
 managed policies the IAM backend knows (unknown ARNs are skipped), then calls STS `AssumeRoleForService`. The session
 name is the user name, so `GetCallerIdentity` returns `assumed-role/AWSReservedSSO_<name>_<hash>/<user>`.
 Policy removals on the permission set are not propagated to an existing role.
+
+## Emulator choices where the vendor is silent
+
+- ListAccountRoles/GetRoleCredentials for an unassigned account or role: answers ResourceNotFoundException "No access"; real AWS reports ForbiddenException, which the pinned SDK does not model (bd: gopherstack-cefu7.3)
+- max_result bounds: default 10, cap 1000, below 1 is InvalidRequestException; AWS bounds are not in the SDK (bd: gopherstack-cefu7.3)

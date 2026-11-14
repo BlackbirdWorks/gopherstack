@@ -64,8 +64,7 @@ families:
   ListCostCategoryResourceAssociations: {status: ok, note: "fixed this pass: 2 invented field names; correctly and legitimately returns zero associations (no resource-tag inventory modeled in this emulator)"}
   RouteMatcher: {status: ok, note: "X-Amz-Target prefix \"AWSInsightsIndexService.\" verified byte-for-byte against every httpBindingEncoder.SetHeader(\"X-Amz-Target\") call in aws-sdk-go-v2/service/costexplorer@v1.63.8/serializers.go"}
 gaps: []
-items_still_open:
-  - "ListCostCategoryResourceAssociations.CostCategoryArn: the SDK documents no required-field check and no behaviour for a nonexistent ARN, so the error (if any) cannot be determined."
+items_still_open: []
 structural_gaps:
   - "GetReservationCoverage/Utilization and GetSavingsPlansCoverage GroupBy: groups need per-reservation and per-plan inventory (SUBSCRIPTION_ID, AZ, PLATFORM, TENANCY); the ledger only has service, region, account and usage type."
   - "GetSavingsPlansCoverage SortBy/Metrics and GetSavingsPlansUtilizationDetails SortBy: the single synthetic result row makes any ordering or metric selection unobservable."
@@ -732,3 +731,7 @@ DataUnavailableException (types/errors.go:118) is declared on 22 ops but deliber
 
 ## Ledger dimensions
 CostEntry carries AvailabilityZone, InstanceType, Operation, PurchaseType, UsageTypeGroup, ProductFamily and ResourceID (additive, not persisted; the ledger regenerates). The seeded catalog fills them per service; ResourceID is filled only by RecordCharge. Dimension filters and GroupBy use them for AZ, INSTANCE_TYPE, INSTANCE_TYPE_FAMILY, OPERATION, USAGE_TYPE_GROUP, PURCHASE_TYPE, CHARGE_TYPE/RECORD_TYPE, BILLING_ENTITY, INVOICING_ENTITY and LEGAL_ENTITY_NAME. LedgerEntries feeds CUR and Data Exports.
+
+## Emulator choices where the vendor is silent
+
+- ListCostCategoryResourceAssociations.CostCategoryArn: the SDK documents no required-field check and no behaviour for a nonexistent ARN, so the error (if any) cannot be determined.

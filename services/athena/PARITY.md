@@ -59,7 +59,6 @@ items_still_open:
   - "ORC input and output formats (untouched): no ORC library is in go.mod and no maintained pure-Go one exists (scritchley/orc was last updated 2021 and is read-only), so ORC SELECT/CTAS/UNLOAD stay NOT_SUPPORTED. Avro tables with avro.schema.literal/url and no Glue columns are not derived."
   - "ROW values: field order of ROW columns read from tables is not preserved (printed by sorted field name; values built by ROW()/CAST are ordered); ordering comparison, ORDER BY, min and max over ROW values compare canonical JSON text, and equality requires identical field names; CTAS/INSERT/UNLOAD write ROW values nested only in JSON, and Parquet/Avro/text outputs carry them as JSON strings (the Parquet writer has no nested columns). Integral doubles inside arrays render without the .0 suffix; boolean result typing is inferred syntactically from the outermost SELECT list so an unlisted boolean-returning function renders 1/0; SELECT * after such an expression disables the inference."
   - "Partition projection: the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter, an injected IN list over 1,000 values, a non-string injected column or an oversized enumeration is modeled, UNVERIFIED against live Athena (the docs state only that these queries fail)."
-  - "QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as \"The kind of query statement that was run\" with no enum or value list, so the vocabulary cannot be verified."
 structural_gaps:
   - "ORC tables cannot be read or written (no maintained pure-Go ORC library): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR."
   - "DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated."
@@ -682,3 +681,7 @@ Injected projection: string columns only, filter required, IN list at most 1,000
 - Delta deletion vectors follow PROTOCOL.md "Deletion Vector Descriptor Schema" (u/i/p storage, Z85, 1-byte version + size/data/CRC-32 framing); the inline example and the u-path example in the protocol document are asserted in pkgs/deltalog/dv_test.go. No real Delta writer is available offline, so the other fixtures are built to the spec in tests.
 - Partition projection prunes each top-level OR branch separately (union of partitions) and folds column-free predicate operands (e.g. arithmetic, date_add, interval) through the engine before enumerating.
 - Lambdas: array_sort(arr, comparator), map_zip_with and reduce_agg per https://trino.io/docs/current/functions/lambda.html, /array.html, /map.html and /aggregate.html; zip_with takes exactly two arrays in Trino.
+
+## Emulator choices where the vendor is silent
+
+- QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as "The kind of query statement that was run" with no enum or value list, so the vocabulary cannot be verified.

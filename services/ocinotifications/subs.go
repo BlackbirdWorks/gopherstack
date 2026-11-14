@@ -1,6 +1,7 @@
 package ocinotifications
 
 import (
+	"context"
 	"encoding/json/v2"
 	"net/http"
 	"net/mail"
@@ -208,7 +209,11 @@ func unsubscribeURL(s *Subscription) string {
 
 // CreateSubscription subscribes an endpoint to a topic; protocols that need it start PENDING and are sent a
 // confirmation.
-func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL string) (SubWire, error) {
+func (b *InMemoryBackend) CreateSubscription(
+	ctx context.Context,
+	in CreateSubscriptionIn,
+	baseURL string,
+) (SubWire, error) {
 	if in.TopicID == "" || in.Compartment == "" {
 		return SubWire{}, errMissing("topicId and compartmentId are required")
 	}
@@ -260,7 +265,7 @@ func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL st
 
 	if needsConfirmation(s.Protocol) {
 		s.State = subPending
-		b.queueConfirmation(s, topic)
+		b.queueConfirmation(ctx, s, topic)
 	}
 
 	b.subs[s.ID] = s
@@ -489,7 +494,7 @@ func (b *InMemoryBackend) Unsubscribe(id, token, protocol string) (string, error
 }
 
 // ResendConfirmation sends a PENDING subscription's confirmation again.
-func (b *InMemoryBackend) ResendConfirmation(id string) (SubWire, string, error) {
+func (b *InMemoryBackend) ResendConfirmation(ctx context.Context, id string) (SubWire, string, error) {
 	b.mu.Lock("ResendConfirmation")
 	defer b.mu.Unlock()
 
@@ -510,7 +515,7 @@ func (b *InMemoryBackend) ResendConfirmation(id string) (SubWire, string, error)
 	}
 
 	b.cancelConfirmations(s.ID)
-	b.queueConfirmation(s, topic)
+	b.queueConfirmation(ctx, s, topic)
 
 	return subView(s), s.Etag, nil
 }
@@ -537,7 +542,7 @@ func (h *Handler) createSubscription(q *req) error {
 
 	in.RetryToken = q.r.Header.Get(headerRetry)
 
-	v, err := h.Backend.CreateSubscription(in, q.endpoint())
+	v, err := h.Backend.CreateSubscription(q.r.Context(), in, q.endpoint())
 	if err != nil {
 		return err
 	}
@@ -630,7 +635,7 @@ func (h *Handler) unsubscribe(q *req) error {
 }
 
 func (h *Handler) resendConfirmation(q *req) error {
-	v, etag, err := h.Backend.ResendConfirmation(q.param("subscriptionId"))
+	v, etag, err := h.Backend.ResendConfirmation(q.r.Context(), q.param("subscriptionId"))
 	if err != nil {
 		return err
 	}

@@ -113,8 +113,7 @@ families:
   pull_request_approval: {status: ok, note: "rules, states, overrides, evaluation all mutate real backend state; 2 error-code fixes this pass"}
   merge_object_type_conflicts: {status: ok, note: "2026-10-07: a file/folder clash is resolved by conflictResolution.deleteFiles on the file path or by ACCEPT_SOURCE/ACCEPT_DESTINATION keeping the chosen side's object type (merge_engine.go resolveObjectType). Guarded by TestMergeObjectTypeConflictResolution."}
 gaps: []
-items_still_open:
-  - "Merge limits TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are never raised: the pinned SDK documents no numeric limit to enforce. Unverifiable."
+items_still_open: []
 structural_gaps:
   - "Submodules (FilePathConflictsWithSubmodulePathException is mapped but never returned) can only be created through git push, and the emulator has no git transport."
 deferred: []
@@ -1138,3 +1137,7 @@ FIXED: ListApprovalRuleTemplates, ListAssociatedApprovalRuleTemplatesForReposito
 - CreatePullRequest validates the repository, source and destination branches (ReferenceDoesNotExist), identical refs (SourceAndDestinationAreSame), a single repository, title <= 100 and description <= 1000; GetPullRequest rejects non-numeric ids (InvalidPullRequestId).
 - The first branch created becomes the repository default branch; destination defaults to it. Commit, tree and blob ids are 40-char hex.
 - GetFolder lists only the immediate files and subFolders (with relativePath, treeId), returns the commit id, and FolderDoesNotExistException for a missing folder (`TestRealism_FolderListing`).
+
+## Emulator choices where the vendor is silent
+
+- Merge limits TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are never raised: the pinned SDK documents no numeric limit to enforce. Unverifiable.

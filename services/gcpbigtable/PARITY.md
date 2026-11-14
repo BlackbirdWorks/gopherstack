@@ -65,8 +65,11 @@ items_still_open:
   - "Clusters share one copy of the data: replication, per-cluster storage and routing are not simulated, app profile routing is validated but does not place requests, and autoscaling never resizes a cluster."
   - "App profile warnings (ignore_warnings) are never raised, and storage-type specific autoscaling storage targets, KMS key rules and node scaling factor constraints are not validated."
   - "ReadRows never splits large cell values across chunks and reports only the iteration counts in request stats; SampleRowKeys does no size-based sampling."
-  - "Several error codes were chosen without a production reference: unknown column family on mutate (NOT_FOUND), duplicate/missing family on ModifyColumnFamilies, unknown consistency token (INVALID_ARGUMENT), row_sample_filter outside (0, 1) and a chain or interleave of fewer than two filters are rejected as INVALID_ARGUMENT."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine; Shutdown stops the server and joins it."}
 ---
 
 Initial implementation (2026-10-25): google.bigtable.admin.v2 BigtableInstanceAdmin and BigtableTableAdmin plus google.bigtable.v2 Bigtable verified against cloud.google.com/go/bigtable v1.58.0 through the official admin, instance admin and data clients in the package tests.
+
+## Emulator choices where the vendor is silent
+
+- Several error codes were chosen without a production reference: unknown column family on mutate (NOT_FOUND), duplicate/missing family on ModifyColumnFamilies, unknown consistency token (INVALID_ARGUMENT), row_sample_filter outside (0, 1) and a chain or interleave of fewer than two filters are rejected as INVALID_ARGUMENT.

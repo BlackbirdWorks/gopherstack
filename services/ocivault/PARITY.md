@@ -75,16 +75,19 @@ families:
 items_still_open:
   - "HSM clusters, EKMS private endpoints, external vaults and external keys, and UpdateRegisteredVaultForMtls are not implemented."
   - "Secret replication (replicationConfig) is not implemented and is rejected; ADB rotation targets are not contacted (no ADB password is changed); rotation failures are logged only because the SDK has no work requests."
-  - "HSM and SOFTWARE protection modes are both in-process software keys; HSM only differs by being non-exportable."
   - "Key version states are not transitional, and replica endpoints share the primary state: a key is readable there before its replication operation reports REPLICATED."
   - "Not published (checked the keymanagement SDK DecryptedData and SignedData comments): the plaintextChecksum algorithm (SHA-256 hex here) and the ECDSA signature encoding (ASN.1 DER here)"
   - "Not published (checked the vault SDK CreateSecretDetails comments and apierrors.htm): 409 Conflict for a duplicate secret name (the SDK says names should be unique within a vault), 404 for pending-deletion or expired secret retrieval, 409 IncorrectState for a disabled key"
   - "Backup and restore: the 200 statuses, the BackupLocation required rule, the error codes for refused backups and the 409 for existing resources are not published (checked backingupvaultsandkeys.htm and the keymanagement SDK comments)"
   - "Service limits (keys per vault, secrets per tenancy) and IAM policy checks are not applied."
-  - "Per-vault endpoints rely on *.localhost resolving to loopback; hosts without that resolution need an /etc/hosts entry or the /_vault/<ocid> path form with a raw HTTP client."
   - "Resource principal and instance principal tokens are not understood; only API-key signatures are verified."
 ---
 
 ## Primary-source checks (2026-11-13)
 - ocivault: the SDK describes the signature as base64-encoded binary data with ECDSA as the scheme for EC keys.
 - ocivault: backingupvaultsandkeys.htm limits backups to virtual private vaults and HSM master keys in active, enabled or disabled states and restores to the original tenancy and compartment (a vault restore into another compartment is now rejected with InvalidParameter).
+
+## External effects that are recorded, not performed
+
+- HSM protection is software keys in process; HSM only differs by being non-exportable (no hardware).
+- Host limitation: per-vault endpoints rely on *.localhost resolving to loopback; otherwise add an /etc/hosts entry or use the /_vault/<ocid> path form with a raw HTTP client.

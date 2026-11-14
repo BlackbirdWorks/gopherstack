@@ -78,8 +78,7 @@ families:
   resource_union: {status: ok, note: "Resource previously only carried Catalog/Database/Table/TableWithColumns/DataLocation. Added DataCellsFilter/LFTag(LFTagKeyResource)/LFTagExpression/LFTagPolicy(LFTagPolicyResource) -- all real types.Resource union members. GrantPermissions/RevokePermissions/ListPermissions now work end-to-end against every kind (resourceToKey/copyResource/permissionMatchesResource/permissionMatchesResourceType all extended); see handler_permissions_resource_kinds_test.go for coverage of all 6 previously-partial/deferred kinds plus TableWildcard and CatalogResource.Id."}
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
 gaps: []
-items_still_open:
-  - "RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare stay unpopulated: AWS docs (cross-account-permissions, optimize-ram, checked 2026-10-09) only say shares match the IAM condition LakeFormation* and that v2+ reuses shares across grants, giving no exact name or reuse rule; a services/ram lookup also needs internal/app/cli.go wiring."
+items_still_open: []
 structural_gaps:
   - "QuerySessionContext on GetTemporaryGlueTableCredentials and the query-planning ops is an opaque query-engine protocol context with no emulator-visible effect."
   - "No operation enforces LF authorization at runtime: permissions are bookkeeping, since enforcement happens inside integrated query engines. CatalogId on DeleteObjectsOnCancel has no scoping effect (transaction ids are account-scoped)."
@@ -681,3 +680,7 @@ ListPermissions and GetEffectivePermissionsForPath now honour CatalogId: when su
 
 ## 2026-10-10: permission-per-resource matrix verified
 Checked `allowedPermissions` against lf-permissions-reference.html ("Lake Formation permissions per resource type") and the pinned `types.Permission` enum. Catalog was missing ALTER and DROP (documented); added. Database, Table, TableWithColumns and DataLocation rows matched. CREATE_CATALOG/CREATE_LF_TAG/CREATE_LF_TAG_EXPRESSION stay accepted on Catalog (real enum values, no documented target; accepting is the safe side). LFTag, LFTagPolicy, DataCellsFilter resources are not matrix-checked. Rows cited in `TestGrantPermissions_PermissionsMatchResourceKind`.
+
+## Emulator choices where the vendor is silent
+
+- RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare stay unpopulated: AWS docs (cross-account-permissions, optimize-ram, checked 2026-10-09) only say shares match the IAM condition LakeFormation* and that v2+ reuses shares across grants, giving no exact name or reuse rule; a services/ram lookup also needs internal/app/cli.go wiring.

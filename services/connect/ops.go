@@ -290,8 +290,8 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 			return b.ListLambdaFunctions(instOf(r), t, m)
 		},
 	)
-	ops["AssociateLexBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
-		return nil, b.AssociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot})
+	ops["AssociateLexBot"] = typedCtx(func(ctx context.Context, in *lexIn) (*EmptyOutput, error) {
+		return nil, b.AssociateBot(ctx, in.InstanceID, LexBotConfig{LexBot: in.LexBot})
 	})
 	ops["DisassociateLexBot"] = typed(func(in *lexQueryIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateBot(
@@ -309,8 +309,8 @@ func (h *Handler) accessOps(ops map[string]restroute.OpFunc) {
 
 		return bots, next, err
 	})
-	ops["AssociateBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
-		return nil, b.AssociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot, LexV2Bot: in.LexV2Bot})
+	ops["AssociateBot"] = typedCtx(func(ctx context.Context, in *lexIn) (*EmptyOutput, error) {
+		return nil, b.AssociateBot(ctx, in.InstanceID, LexBotConfig{LexBot: in.LexBot, LexV2Bot: in.LexV2Bot})
 	})
 	ops["DisassociateBot"] = typed(func(in *lexIn) (*EmptyOutput, error) {
 		return nil, b.DisassociateBot(in.InstanceID, LexBotConfig{LexBot: in.LexBot, LexV2Bot: in.LexV2Bot})

@@ -29,7 +29,6 @@ families:
   tags: {status: ok, note: "cluster and backup tags; backups inherit the cluster tags at backup time"}
 items_still_open:
   - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
-  - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; API_ModifyCluster lists both without a trigger, and IAM denials come from the shared enforcement middleware as AccessDeniedException
   - "CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported"
 gaps: []
 structural_gaps:
@@ -44,3 +43,7 @@ leaks: {status: clean, note: "no goroutines or timers; transitional states are c
 Protocol awsjson1.1, target prefix `BaldrApiService.`, signing name `cloudhsm`; timestamps are epoch-seconds numbers.
 The CSR key is kept (PKCS#8, persisted) as the HSM key; when the first HSM is created the emulator issues manufacturer (self-signed) -> AWS hardware -> HSM certificates once per cluster, surfaced in Certificates.
 Account and region come from the request; resources are scoped by both, and a backup copy lives in the destination region.
+
+## Emulator choices where the vendor is silent
+
+- CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; API_ModifyCluster lists both without a trigger, and IAM denials come from the shared enforcement middleware as AccessDeniedException

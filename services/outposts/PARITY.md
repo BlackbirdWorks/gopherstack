@@ -232,9 +232,7 @@ families:
   tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into internal/app/cli.go's wireResourceGroupsTagging via wireTaggingOutposts, the 31st service. Both Outpost.Tags and Site.Tags share one ARN-keyed store (tagging.go's resolveTaggableLocked), resourceTypeFromARN derives outposts:outpost vs outposts:site per-ARN since this is a two-resource-kind tag store (unlike Grafana's single-kind constantResourceType)."}
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps: []
-items_still_open:
-  - "ListBlockingInstancesForCapacityTask returns empty and WAITING_FOR_EVACUATION never occurs (UNVERIFIABLE): outposts@v1.66.1 does not say whether InstanceTypeCapacity.Count is a delta or a target, or how running instances map to the physical capacity a task needs, so the additive StartCapacityTask model cannot be replaced by a blocking model without inventing semantics."
-  - "OrderingRequirementType UNSUPPORTED and OUTPOST_STATE_CHANGED_ERROR are not produced (UNVERIFIABLE): the SDK and docs give no trigger condition for either."
+items_still_open: []
 structural_gaps:
   - "LifeCycleStatus (types.Outpost.LifeCycleStatus is a bare *string) has NO SDK enum type anywhere in this module (confirmed by direct grep of types/enums.go -- zero LifeCycleStatus-named type exists) and the AWS API docs (API_Outpost.html) publish only a generic non-empty-string Pattern, no value set. Unlike the other gaps above, there is no more SDK/doc source to converge on even in principle: ACTIVE on CreateOutpost and PENDING_DECOMMISSION on StartOutpostDecommission success (consts.go) are this implementation's own defensible choice, and will remain so regardless of future effort unless AWS itself publishes an enum."
   - "ListCatalogItems/GetCatalogItem/ListOrderableInstanceTypes are served from a small static seed table (seed_data.go: 3 catalog items, 5 orderable instance types) standing in for AWS's own published, centrally-maintained hardware catalog and pricing model. This is proprietary AWS operational/billing data (which rack/server SKUs are currently orderable, real subscription pricing) with no public machine-readable source anywhere -- not in the SDK, not in Terraform, not in AWS's docs. No amount of implementation effort in this emulator can produce the real values; this is the exact 'no billing/settlement system' case structural_gaps exists for. pricing.go's deterministic formula is the same case: real Outposts subscription pricing is not published data."
@@ -937,3 +935,8 @@ Tool false positives: the handlers read these multi-valued query members with `q
 - ListSites.OperatingAddressCityFilter: applied, `TestListSites_AddressFilters`.
 - ListSites.OperatingAddressCountryCodeFilter: applied, `TestListSites_FiltersByCountryCode`.
 - ListSites.OperatingAddressStateOrRegionFilter: applied, `TestListSites_AddressFilters`.
+
+## Emulator choices where the vendor is silent
+
+- ListBlockingInstancesForCapacityTask returns empty and WAITING_FOR_EVACUATION never occurs (UNVERIFIABLE): outposts@v1.66.1 does not say whether InstanceTypeCapacity.Count is a delta or a target, or how running instances map to the physical capacity a task needs, so the additive StartCapacityTask model cannot be replaced by a blocking model without inventing semantics.
+- OrderingRequirementType UNSUPPORTED and OUTPOST_STATE_CHANGED_ERROR are not produced (UNVERIFIABLE): the SDK and docs give no trigger condition for either.

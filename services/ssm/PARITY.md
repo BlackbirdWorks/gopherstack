@@ -399,12 +399,7 @@ structural_gaps:
   - "StartChangeRequestExecution AutoApprove/ChangeDetails/ScheduledEndTime need a change-template approval workflow."
   - "GetMaintenanceWindowExecutionTaskInvocation Parameters: no per-invocation parameter snapshot is kept."
   - "GetDeployablePatchSnapshotForInstance BaselineOverride and DescribePatchGroupState's 6 security-update/pending-reboot counters need real per-instance effective-patch and compliance computation."
-items_still_open:
-  - "DescribePatchProperties: PRODUCT entries use the API-reference sample shape (Name, ProductFamily); the entry keys for CLASSIFICATION/SEVERITY/MSRC_SEVERITY/PRIORITY/PRODUCT_FAMILY are not documented and use Name by analogy. API_DescribePatchProperties.html (checked 2026-11-13) shows only the PRODUCT sample and lists valid properties per OS."
-  - "DescribeAvailablePatches PATCH_ID filter: the real opaque Patch.Id format is not verifiable from the SDK."
-  - "ListDocuments Owner filter Public/Private: the DocumentKeyValuesFilter docs (SDK and API reference) list the values without defining them. API_DocumentKeyValuesFilter.html (checked 2026-11-13) lists Amazon, Private, Public, Self and ThirdParty without defining them."
-  - "StartExecutionPreviewInput.DocumentVersion: neither preview output echoes the version, so there is no observable behaviour to verify."
-  - "OpsItemEventSummary.DetailType has no verifiable source value; DocumentDescription/DocumentIdentifier Author format for user documents is not determinable from the SDK."
+items_still_open: []
 deferred: []              # phase-2 (2026-07-24): closed CreateAssociationInput/UpdateAssociationInput/
                            # CreateAssociationBatchRequestEntry field gaps (bd gopherstack-ouvq),
                            # CreateOpsItemInput/UpdateOpsItemInput field gaps (bd gopherstack-iq4m),
@@ -1679,3 +1674,11 @@ Enum-typed request members across document, automation, association, patch basel
 - An instance counts as agent-served once it has called `GetEndpoint` or `GetMessages`. `SendCommand` then queues `aws.ssm.<CommandId>.<InstanceId>` (topic `aws.ssm.sendCommand`, payload with DocumentContent/Parameters/CommandId/DocumentName/output config) instead of synthesizing output. Docker-backed instances keep direct execution.
 - `AcknowledgeMessage` moves the invocation to `InProgress`; `SendReply` maps `DocumentStatus` and per-plugin `RuntimeStatus` (Status/Code/StandardOutput/StandardError, falling back to Output) onto Success/Failed/TimedOut/Cancelled, output and `ResponseCode`; `FailMessage` fails it. `CancelCommand` queues an `aws.ssm.cancelCommand` message.
 - Gaps: no SigV4 caller identity check, no command `TimeoutSeconds` delivery expiry, no persistence of queues, ssmmessages not implemented.
+
+## Emulator choices where the vendor is silent
+
+- DescribePatchProperties: PRODUCT entries use the API-reference sample shape (Name, ProductFamily); the entry keys for CLASSIFICATION/SEVERITY/MSRC_SEVERITY/PRIORITY/PRODUCT_FAMILY are not documented and use Name by analogy. API_DescribePatchProperties.html (checked 2026-11-13) shows only the PRODUCT sample and lists valid properties per OS.
+- DescribeAvailablePatches PATCH_ID filter: the real opaque Patch.Id format is not verifiable from the SDK.
+- ListDocuments Owner filter Public/Private: the DocumentKeyValuesFilter docs (SDK and API reference) list the values without defining them. API_DocumentKeyValuesFilter.html (checked 2026-11-13) lists Amazon, Private, Public, Self and ThirdParty without defining them.
+- StartExecutionPreviewInput.DocumentVersion: neither preview output echoes the version, so there is no observable behaviour to verify.
+- OpsItemEventSummary.DetailType has no verifiable source value; DocumentDescription/DocumentIdentifier Author format for user documents is not determinable from the SDK.

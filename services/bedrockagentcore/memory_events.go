@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -117,7 +118,8 @@ func (b *InMemoryBackend) createEvent(ctx context.Context, req *restroute.Reques
 
 	sc, memory := b.scopeOf(ctx), req.Params["memoryId"]
 
-	if _, err = b.memoryOf(sc, memory); err != nil {
+	mem, err := b.memoryOf(sc, memory)
+	if err != nil {
 		return nil, 0, err
 	}
 
@@ -140,6 +142,12 @@ func (b *InMemoryBackend) createEvent(ctx context.Context, req *restroute.Reques
 	b.seq++
 	ev.Seq = b.seq
 	b.events.Put(ev)
+
+	if len(mem.Strategies) > 0 {
+		logger.Load(ctx).
+			InfoContext(ctx, "bedrockagentcore: would extract memory records from event (needs a model; not performed)",
+				"memory", memory, "event", ev.EventID, "strategies", len(mem.Strategies))
+	}
 
 	return doc{keyEvent: eventView(ev, true)}, http.StatusCreated, nil
 }

@@ -1,11 +1,13 @@
 package gcpidentitytoolkit
 
 import (
+	"context"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -329,7 +331,7 @@ func (b *InMemoryBackend) oobLocked(sc *scope, code string) (*oobRec, error) {
 }
 
 // SendOobCode records a reset, verification or sign-in code; no email is sent.
-func (b *InMemoryBackend) SendOobCode(c call, r *authRequest) (*oobResponse, error) {
+func (b *InMemoryBackend) SendOobCode(ctx context.Context, c call, r *authRequest) (*oobResponse, error) {
 	if _, ok := oobModes[r.RequestType]; !ok {
 		return nil, idtk("INVALID_REQ_TYPE", "Unsupported request type.")
 	}
@@ -365,6 +367,9 @@ func (b *InMemoryBackend) SendOobCode(c call, r *authRequest) (*oobResponse, err
 		ContinueURL: r.ContinueURL, Link: link, Created: now.UnixMilli(),
 		Expires: now.Add(oobTTL[r.RequestType]).UnixMilli(),
 	}
+
+	logger.Load(ctx).InfoContext(ctx, "gcpidentitytoolkit: would send email (recorded, not delivered)",
+		"requestType", r.RequestType, "to", email, "project", c.project)
 
 	if r.ReturnOobLink && c.admin {
 		out.OobCode, out.OobLink = code, link

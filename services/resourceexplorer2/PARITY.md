@@ -48,10 +48,8 @@ items_still_open:
   - ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
   - Search: the resourcetype.supports:tags filter is not implemented (no per-type taggability catalogue is published in the Resource Explorer docs or SDK) and is treated as a keyword
   - Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
-  - GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN
   - ListIndexesForMembers: no organization membership or delegated-administrator check
   - CreateView: organization and OU scopes are accepted without validating them against Organizations
-  - ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
 structural_gaps:
   - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
 deferred: []
@@ -72,3 +70,8 @@ Emulator choices the SDK does not document:
 ## 2026-11-13 query syntax and page limits
 
 Verified against docs.aws.amazon.com/resource-explorer (using-search-query-syntax.html, API_ListViews/Search/ListIndexes/ListSupportedResourceTypes/ListResources/ListManagedViews/ListIndexesForMembers): MaxResults maxima are ListViews 50, ListManagedViews 50, Search/ListResources/ListSupportedResourceTypes 1000, ListIndexes 100, ListIndexesForMembers 10. Keywords are OR-ed word matches ranked by hit count, filters AND-ed with comma OR values, quotes make phrases, backslash escapes, trailing `*` prefixes, application filter by name or group ARN, tag/application filters need a tags view, FilterString takes filters only. The managed view policy follows the documented two-statement shape.
+
+## Emulator choices where the vendor is silent
+
+- GetManagedView: the two managed view names (AWSDefaultViewForSystemsManager, AWSDefaultViewForResilienceHub) and their ARN UUIDs are emulator-defined; the user guide (aws-managed-views.html) names only the Systems Manager unified-console view as AWSManagedViewForSSM and publishes no ARN
+- ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence

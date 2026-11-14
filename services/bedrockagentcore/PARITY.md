@@ -44,7 +44,6 @@ families:
   Wire: {status: ok, note: "Routes, members, headers, epoch and date-time formats and error codes follow the pinned SDK serializers and deserializers."}
 items_still_open:
   - Unserved operations: AB tests, batch evaluation, payments, recommendations, InvokeHarness, IngestData, InvokeAgentRuntimeCommand, memory extraction jobs, SaveBrowserSessionProfile, InvokeBrowser, UpdateBrowserStream and CompleteResourceTokenAuth have no routes
-  - Memory extraction: events are never turned into memory records because strategies need a model; ExtractionMode and ExtractionConfig are accepted and ignored
   - Retrieval: RetrieveMemoryRecords ranks with lexical BM25 only, so records sharing no term with the query are not returned
   - Runtimes: codeConfiguration (S3 code) runtimes cannot be invoked; only container images run, and the emulated ECR registry is reached through the registry-host setting
   - "Runtimes: runtimes without a customJWTAuthorizer accept any caller and no IAM policy is evaluated"
@@ -76,3 +75,7 @@ Success statuses follow the Response Syntax of each operation in the AgentCore A
 
 ## Primary-source checks (2026-11-13)
 - bedrockagentcore: runtime-oauth.html and runtime-mcp.html document 401 with WWW-Authenticate: Bearer resource_metadata=<runtime invocations URL>/.well-known/oauth-protected-resource?qualifier=...; the challenge now follows it (shared authorizer in bedrockagentcorecontrol).
+
+## External effects that are recorded, not performed
+
+- Memory extraction needs a model: events are stored and CreateEvent logs that extraction "would" run for memories with strategies; no memory records are produced, ExtractionMode and ExtractionConfig are ignored.

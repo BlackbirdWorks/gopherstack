@@ -72,8 +72,6 @@ gaps: []
 deferred: []
 items_still_open:
   - "ExportArtifact: the object names under gcs_path are the emulator's choice because Google does not document how an export is laid out."
-  - "KFP: the .zip package form and the description header are not specified beyond the client example; remote and virtual KFP repositories are rejected; the real KFP SDK client is not exercised."
-  - "apt and yum signing: the signing key is the emulator's own per-repository key at dists/<repo>/apt-key.asc|gpg (Google documents no key URL for such repositories); yum repomd.xml.asc/.key follow the createrepo layout. apt and yum package names, version strings and file paths, the pool layout and the Go upload operation response shape are the emulator's choice, not verified against the live service; the documented gcloud path with the ar+https transport is not modelled."
   - "Remote repositories: only the in-process Secret Manager is consulted for upstream_credentials (the proto has no other type); the failed-validation error code (INVALID_ARGUMENT) and the 502 for an unreachable upstream at read time are undocumented; the docs describe Go remote repositories (proxy.golang.org) but the pinned RemoteRepositoryConfig has no field for them."
   - "Operations: only attachment create/delete and ExportArtifact can be pending (--gcp-artifacts-operation-delay, default 0s); every other operation finishes before the call returns and cannot be cancelled; Google publishes no operation durations."
   - "Maven and Python repositories expose no Tag resources (only npm dist-tags are mapped); Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven HTTP DELETE, the Python JSON simple API (PEP 691) and yank, and npm search/audit/login endpoints are not implemented because Google's documentation does not describe them (deletion is through the API, console and gcloud); file and package names for these formats are the emulator's choice."
@@ -100,3 +98,8 @@ Pass 2026-11-14 (sources, one per closed item):
 - Download rule variables: docs.cloud.google.com/artifact-registry/docs/restrict-artifact-downloads (pkg.id, pkg.version.id, pkg.version.tag, pkg.version.annotations); every download surface passes the version to the rule, KFP included.
 - gcr.io hosts: docs.cloud.google.com/artifact-registry/docs/transition/gcr-repositories (names and multi-regions) and the manual-gcr-repositories page (created on first push).
 - Docker ExportArtifact: object names are the file ids ListFiles reports.
+
+## Emulator choices where the vendor is silent
+
+- KFP: the .zip package form and the description header are not specified beyond the client example; remote and virtual KFP repositories are rejected; the real KFP SDK client is not exercised.
+- apt and yum signing: the signing key is the emulator's own per-repository key at dists/<repo>/apt-key.asc|gpg (Google documents no key URL for such repositories); yum repomd.xml.asc/.key follow the createrepo layout. apt and yum package names, version strings and file paths, the pool layout and the Go upload operation response shape are the emulator's choice, not verified against the live service; the documented gcloud path with the ar+https transport is not modelled.

@@ -137,11 +137,7 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
 
 gaps: []
-items_still_open:
-  - "Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); the real code is not determinable from the SDK. InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy)."
-  - "InvalidRecordingGroupException does not enforce the 'limit of the number of resource types' trigger: the limit is not published."
-  - "MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs."
-  - "DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only); the SDK documents it only as \"The type of a resource\"."
+items_still_open: []
 structural_gaps:
   - "StartResourceEvaluation.EvaluationTimeout is range-checked (0..3600) but never fires: evaluation completes synchronously, so there is nothing to time out."
   - "PutOrganizationConformancePack TemplateBody/TemplateS3Uri/ConformancePackInputParameters are stored and echoed but not deployed: an organization pack deploys into member accounts, which this single-account emulator does not model."
@@ -945,3 +941,10 @@ StartResourceEvaluation ClientToken/EvaluationContext and ListResourceEvaluation
 
 FIXED: DescribeConfigurationRecorderStatus `lastStatus` is the RecorderStatus enum (`Pending`/`Success`/`Failure`), not upper-case, and now carries `lastStartTime`/`lastStopTime`/`lastStatusChangeTime` (epoch seconds; the string-typed fields were never populated and would not decode). PutConfigRule keeps `Source.SourceDetails`, `Source.CustomPolicyDetails` and `EvaluationModes` (all were silently dropped, so custom-Lambda rules lost their triggers) and validates Owner, MaximumExecutionFrequency, SourceDetail MessageType and evaluation modes with `InvalidParameterValueException`. DescribeConfigRuleEvaluationStatus lists every rule (ConfigRuleArn/Id, FirstActivatedTime, evaluation times) instead of only evaluated ones and errors `NoSuchConfigRuleException` for an unknown name. PutDeliveryChannel enforces one channel per region (`MaxNumberOfDeliveryChannelsExceededException`) and validates deliveryFrequency. Describe{ConfigurationRecorders,ConfigurationRecorderStatus,DeliveryChannels,DeliveryChannelStatus,ConformancePackStatus} error for an unknown explicit name. Conformance pack names are validated (`[a-zA-Z][-a-zA-Z0-9]*`, 256), status ARN matches the Put ARN, and `SetLifecycleDelay` (default 0, needs a `internal/app/cli.go` flag) holds a pack in CREATE_IN_PROGRESS/UPDATE_IN_PROGRESS before CREATE_COMPLETE/UPDATE_COMPLETE; status carries ConformancePackId and LastUpdateRequestedTime. Aggregator and aggregation-authorization account ids must be 12 digits. Error messages no longer repeat the code. Proof: `realism_sdk_test.go`.
 LENIENT (recorded): AWS managed-rule SourceIdentifiers are not checked against the catalogue (only a handful are modeled); Source and CUSTOM_LAMBDA SourceDetails stay optional because in-repo fixtures omit them; DeleteConformancePack remains instant (no DELETE_IN_PROGRESS); the delivery-channel S3 bucket and recorder precondition (`NoSuchBucketException`, `NoAvailableConfigurationRecorderException`) are not enforced.
+
+## Emulator choices where the vendor is silent
+
+- Generic ValidationException remains on ops whose declared error set has no validation-shaped code (DeleteConfigurationAggregator, DeleteConfigRule, DeleteEvaluationResults, Start/Stop/DeleteConfigurationRecorder, DeleteConformancePack, PutDeliveryChannel s3BucketName, DeleteDeliveryChannel, DeleteOrganizationConfigRule, DeleteOrganizationConformancePack; verified against configservice@v1.68.4); the real code is not determinable from the SDK. InvalidS3KeyPrefixException has no documented rule to enforce (bd: gopherstack-eboy).
+- InvalidRecordingGroupException does not enforce the 'limit of the number of resource types' trigger: the limit is not published.
+- MaxNumberOfConnectorsExceededException is not enforced: the per-account connector limit is not published in AWS docs.
+- DeleteRemediationConfiguration.ResourceType is ignored (remediation configurations are keyed by rule name only); the SDK documents it only as "The type of a resource".

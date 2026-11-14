@@ -23,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -468,6 +469,10 @@ func (b *InMemoryBackend) checkRequirement(
 		if apiKeyOf(r, d) == "" {
 			return nil, &authError{status: http.StatusUnauthorized, msg: missingKeyMsg}
 		}
+
+		logger.Load(r.Context()).DebugContext(r.Context(),
+			"gcpapigateway: would validate API key against API Keys and Service Usage (no such service; accepted)",
+			"definition", d.Name)
 	}
 
 	if len(jwtDefs) > 0 {

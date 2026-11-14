@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 )
@@ -60,8 +62,28 @@ type env struct {
 	backend *gcpidentitytoolkit.InMemoryBackend
 	clock   *fakeClock
 	hc      *http.Client
+	logs    *syncBuffer
 	url     string
 	project string
+}
+
+type syncBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.String()
 }
 
 func newEnv(t *testing.T) *env {
@@ -71,14 +93,24 @@ func newEnv(t *testing.T) *env {
 	clock := &fakeClock{t: skewedNow()}
 	backend.SetClock(clock.Now)
 
+	logs := &syncBuffer{}
+
 	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			ctx := logger.Save(c.Request().Context(), slog.New(slog.NewTextHandler(logs, nil)))
+			c.SetRequest(c.Request().WithContext(ctx))
+
+			return next(c)
+		}
+	})
 	e.Any("/*", gcpidentitytoolkit.NewHandler(backend).Handler())
 
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
 	return &env{
-		backend: backend, clock: clock, hc: testclient.New(t), url: srv.URL,
+		backend: backend, clock: clock, hc: testclient.New(t), url: srv.URL, logs: logs,
 		project: "proj-" + strings.ToLower(strings.NewReplacer("/", "-", "_", "-").Replace(t.Name())),
 	}
 }

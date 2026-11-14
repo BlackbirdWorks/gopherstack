@@ -12,8 +12,7 @@ ops:
 families:
   device_flow: {status: ok, note: "AuthorizationPendingException until approved; SlowDownException when polled inside the interval (interval grows 5s per slow_down); ExpiredTokenException after expiresIn (600s); AccessDeniedException when denied; the device code is single use"}
   emulator_endpoints: {status: ok, note: "GET/POST /_gopherstack/sso/device?user_code=..[&action=approve|deny][&user=name] and GET /_gopherstack/sso/authorize (PKCE) are emulator-only, not AWS APIs"}
-items_still_open:
-  - RegisterClient AuthorizationEndpoint/TokenEndpoint: returned only when authorization_code is registered; whether AWS returns them for every client is not determinable from the SDK (bd: gopherstack-cefu7.3)
+items_still_open: []
 gaps: []
 structural_gaps:
   - CreateTokenWithIAM jwt-bearer and token-exchange grants need an external identity provider and trusted token issuer trust chain; no data source exists in an emulator
@@ -45,3 +44,7 @@ Lifetimes are emulator choices, not read from AWS documentation.
 `idToken` is never returned: the SDK documents it as not implemented by the service.
 
 State (clients, device authorizations, authorization codes, tokens) persists and is shared across regions.
+
+## Emulator choices where the vendor is silent
+
+- RegisterClient AuthorizationEndpoint/TokenEndpoint: returned only when authorization_code is registered; whether AWS returns them for every client is not determinable from the SDK (bd: gopherstack-cefu7.3)

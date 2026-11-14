@@ -224,9 +224,6 @@ gaps: []
 
 items_still_open:
   - "RegisterWorkspaceDirectory EnableSelfService is accepted but not applied: API_RegisterWorkspaceDirectory says only 'whether self-service capabilities are enabled'; the admin guide lists the self-service toggles (restart, volume size, compute type, running mode, rebuild, remember-me, diagnostic uploads) without stating which EnableSelfService=true turns on."
-  - "RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs: API_RegisterWorkspaceDirectory documents the valid values but no defaults."
-  - "DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only: the WorkspaceDirectoryType enum has no MicrosoftAD/SharedMicrosoftAD value and no doc maps them to CUSTOMER_MANAGED."
-  - "Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK says only 'ensure idempotent creation' and no doc gives the error for a mismatched token."
 structural_gaps:
   - "DescribeApplications ComputeTypeNames/LicenseType/OperatingSystemNames/Owner filters match nothing: the application catalog is a read-only AWS/partner list with no create path, so b.applications is permanently empty (filter values are enum-validated)."
   - "WorkspacesPool.ApplicationSettings.S3BucketName is not returned: AWS provisions the account/region settings bucket, which this backend does not model."
@@ -745,3 +742,9 @@ FIXED: DescribeWorkspacesPools applies Filters (Name PoolName; EQUALS/NOTEQUALS/
 ## 2026-11-13 open-item re-check
 
 API_RegisterWorkspaceDirectory re-read: EnableSelfService is "whether self-service capabilities are enabled" and Tenancy/WorkspaceType/UserIdentityType list valid values only, with no defaults; the items stay open.
+
+## Emulator choices where the vendor is silent
+
+- RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs: API_RegisterWorkspaceDirectory documents the valid values but no defaults.
+- DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only: the WorkspaceDirectoryType enum has no MicrosoftAD/SharedMicrosoftAD value and no doc maps them to CUSTOMER_MANAGED.
+- Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK says only 'ensure idempotent creation' and no doc gives the error for a mismatched token.

@@ -1,6 +1,7 @@
 package gcpapigateway_test
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -9,6 +10,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"log/slog"
 	"maps"
 	"math/big"
 	"net/http"
@@ -22,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -492,4 +495,26 @@ func TestQuotaPerMinute(t *testing.T) {
 
 	e.clock.Advance(time.Minute)
 	assert.Equal(t, []int{200, 200, 429}, statuses(3, "/read"), "the window resets each minute")
+}
+
+func TestAPIKeyNotValidatedIsLogged(t *testing.T) {
+	t.Parallel()
+
+	const top = "securityDefinitions:\n  api_key:\n    type: apiKey\n    name: key\n    in: query\n"
+
+	paths := "  /locked:\n" + op("get", "      security:\n        - api_key: []\n")
+
+	e := newEnv(t)
+	be := echoBackend(t)
+	gw := e.deploy(t, opSpec(be.URL, top, paths))
+
+	var buf bytes.Buffer
+
+	ctx := logger.Save(t.Context(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "http://"+gw.GetDefaultHostname()+"/locked?key=abc", nil)
+	rec := httptest.NewRecorder()
+	e.handler.Backend.DataPlane().ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, buf.String(), "would validate API key")
 }

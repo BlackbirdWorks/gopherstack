@@ -47,8 +47,7 @@ families:
   route_matcher: {status: ok, note: "single query/xml POST matcher (Version=2012-06-01 form field) confirmed reachable for all 29 dispatch-table ops; TestSDKCompleteness passes with empty notImplemented list"}
   create_lb_network_validation: {status: ok, note: "2026-10-07: CreateLoadBalancer's own SecurityGroups and Subnets are existence-checked through elb.EC2Resolver (InvalidSecurityGroup / SubnetNotFound, both in the op's error set), like ApplySecurityGroups/AttachLoadBalancerToSubnets. Guarded by TestCreateLoadBalancer_EC2Resolver."}
 gaps: []
-items_still_open:
-  - "CreateLoadBalancerPolicy has no TooManyPolicies limit: the SDK models TooManyPoliciesException for the op, but the Classic ELB quota table lists only load balancers per region (20), listeners per load balancer (100) and registered instances per load balancer (1,000), so no per-LB policy count can be sourced. Unverifiable (gopherstack-6851)."
+items_still_open: []
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - none — full op-by-op pass completed this round (parity-3: re-verified after the Go-refactoring-2 file split; all backend.go/handler.go logic re-read post-split and re-diffed against the SDK)
 leaks: {status: clean, note: "Reset()/Snapshot()/Restore() all close+recreate tags.Tags registries correctly (no Prometheus label leak); DeleteLoadBalancer cascade-deletes policies via policiesByLB index with a cloned slice before delete to avoid corrupting the in-progress scan"}
@@ -687,3 +686,7 @@ Round trips clean. Recorded, unchanged (SDK silent): ModifyLoadBalancerAttribute
 ### 2026-10-10 (realism pass)
 
 DescribeInstanceHealth derives health from the EC2 instance state through `EC2Resolver.InstanceStateName`: pending, stopped/stopping and terminated instances are OutOfService (ReasonCode Instance, "Instance is in <state> state."); registered instances EC2 no longer knows are Unknown. With no resolver wired every registered instance stays InService. Root SDK test: `TestInitializeServices_ELBInstanceHealthFromEC2`.
+
+## Emulator choices where the vendor is silent
+
+- CreateLoadBalancerPolicy has no TooManyPolicies limit: the SDK models TooManyPoliciesException for the op, but the Classic ELB quota table lists only load balancers per region (20), listeners per load balancer (100) and registered instances per load balancer (1,000), so no per-LB policy count can be sourced. Unverifiable (gopherstack-6851).

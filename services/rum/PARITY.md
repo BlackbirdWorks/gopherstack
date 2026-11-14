@@ -30,11 +30,8 @@ families:
   data_plane: {status: ok, note: "PutRumEvents/GetAppMonitorData over stored events; CloudWatch Logs delivery and CloudWatch metrics wired in internal/app/rum_wiring.go"}
   metrics: {status: ok, note: "default AWS/RUM metrics (SessionCount, PageViewCount, JsErrorCount, PerformanceNavigationDuration, PerformanceResourceDuration, WebVitals*, Http4xxCount, Http5xxCount, HttpErrorCount, Navigation*Transaction) plus extended and custom definitions published through the EventBridge-style pattern matcher"}
 items_still_open:
-  - Evidently destinations: destinations and their metric definitions are stored but no events are published to Evidently (no Evidently service)
   - PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
   - DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
-  - BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
-  - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted API_TimeRange.html and API_GetAppMonitorData.html (checked 2026-11-13) give Long values with no unit.
   - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
 gaps: []
 structural_gaps:
@@ -49,3 +46,12 @@ Protocol restjson1, signing name `rum`; PutRumEvents is `POST /appmonitors/{Id}/
 App monitor IDs are UUIDs; PutRumEvents resolves the monitor by ID alone (account-independent), everything else by name within the caller's account and region.
 Stored events are the JSON strings returned by GetAppMonitorData and written to CloudWatch Logs: event_id, event_type, event_timestamp, event_details, metadata, user_details, batch_id, application_* and account_id.
 Metric namespaces: extended metrics publish to AWS/RUM; custom metrics to RUM/CustomMetrics/<namespace>; every point carries the application_name dimension.
+
+## Emulator choices where the vendor is silent
+
+- BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
+- GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted API_TimeRange.html and API_GetAppMonitorData.html (checked 2026-11-13) give Long values with no unit.
+
+## External effects that are recorded, not performed
+
+- Evidently destinations and their metric definitions are stored; PutRumEvents logs the events that "would" be published to the destination ARN because no Evidently service exists.

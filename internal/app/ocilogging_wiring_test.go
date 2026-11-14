@@ -135,7 +135,7 @@ func TestWireOCIMonitoringNotifications(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = nb.CreateSubscription(ocinotificationsbackend.CreateSubscriptionIn{
+	_, err = nb.CreateSubscription(t.Context(), ocinotificationsbackend.CreateSubscriptionIn{
 		TopicID: topic.TopicID, Compartment: wireCompartment, Protocol: "ORACLE_FUNCTIONS",
 		Endpoint: "ocid1.fnfunc.oc1..ghost",
 	}, "http://x")

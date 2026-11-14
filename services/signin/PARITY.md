@@ -19,12 +19,8 @@ ops:
 gaps: []
 items_still_open:
   - "Policy evaluation: permission statements are stored and rendered by GetResourcePolicy but never evaluated; the emulator has no console sign-in path they could gate."
-  - "Statement rendering: Effect, Principal, Action and the condition operators (StringNotEquals, NotIpAddress, ArnNotLike, StringEquals) of the rendered policy are inferred; the SDK documents only the shape."
-  - "ConsoleAuthorizationConfiguration scope values (ACCOUNT, ORGANIZATION, ROOT) are inferred from the targetId forms; the SDK documents only 'automatic scope detection'. Organization and root targets are checked against the Organizations emulator when wired (unknown IDs are ResourceNotFoundException, an assumption)."
-  - "ServiceQuotaExceededException, TooManyRequestsError and InternalServerException are never returned: no statement quota or rate limit is published."
   - "DPoP key binding of refresh tokens (cnf.jkt) is not modelled; the CreateOAuth2Token SDK shape carries no proof header."
   - "Not published (checked the signin SDK doc comments and the AWS CLI cli-configure-sign-in page): the authorization code lifetime (10 min here), the id_token JWT lifetime (1 h here) and the error HTTP statuses (401 for expired tokens, 403 for other access denials)"
-  - "SDK endpoint rules ignore BaseEndpoint / AWS_ENDPOINT_URL for control-plane and OAuth operations; clients must set EndpointResolverV2 or resolve signin.<region>.api.aws to the emulator."
 structural_gaps:
   - "No browser authorize flow or console session: /_gopherstack/signin/authorize is an emulator-only endpoint that mints a code for the calling identity in place of the interactive sign-in page."
 deferred: []
@@ -40,3 +36,13 @@ Errors carry `X-Amzn-Errortype` plus the OAuth2ErrorCode in the `error` member.
 
 ## Primary-source checks (2026-11-13)
 - signin: SDK types confirm credentials valid for 15 minutes and expires_in at most 900 seconds; cli-configure-sign-in.html confirms the CLI refreshes the session for up to 12 hours.
+
+## Emulator choices where the vendor is silent
+
+- Statement rendering: Effect, Principal, Action and the condition operators (StringNotEquals, NotIpAddress, ArnNotLike, StringEquals) of the rendered policy are inferred; the SDK documents only the shape.
+- ConsoleAuthorizationConfiguration scope values (ACCOUNT, ORGANIZATION, ROOT) are inferred from the targetId forms; the SDK documents only 'automatic scope detection'. Organization and root targets are checked against the Organizations emulator when wired (unknown IDs are ResourceNotFoundException, an assumption).
+- ServiceQuotaExceededException, TooManyRequestsError and InternalServerException are never returned: no statement quota or rate limit is published.
+
+## External effects that are recorded, not performed
+
+- Client limitation: SDK endpoint rules ignore BaseEndpoint / AWS_ENDPOINT_URL for signin control-plane and OAuth operations; clients set EndpointResolverV2 or resolve signin.<region>.api.aws to the emulator.

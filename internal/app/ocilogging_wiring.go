@@ -85,13 +85,13 @@ func functionLogObserver(b *ocilogging.InMemoryBackend) ocifunctionsbackend.Invo
 
 // alarmPublisher publishes alarm notifications to OCI Notifications topics.
 func alarmPublisher(b *ocinotificationsbackend.InMemoryBackend) ocimonitoring.Publisher {
-	return func(_ context.Context, topicID, title, body string, asJSON bool) error {
+	return func(ctx context.Context, topicID, title, body string, asJSON bool) error {
 		msgType := ""
 		if asJSON {
 			msgType = messageTypeJSON
 		}
 
-		_, err := b.PublishMessage(topicID, msgType, ocinotificationsbackend.PublishIn{Title: &title, Body: &body})
+		_, err := b.PublishMessage(ctx, topicID, msgType, ocinotificationsbackend.PublishIn{Title: &title, Body: &body})
 
 		return err
 	}

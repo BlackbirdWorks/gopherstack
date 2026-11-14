@@ -140,6 +140,8 @@ func (b *InMemoryBackend) deliver(ctx context.Context, n notification) {
 
 		if isOutboxType(t.typ) {
 			d.Result, d.Recipient, d.Payload = resultRecorded, outboxRecipient(t), string(payload)
+			logger.Load(ctx).InfoContext(ctx, "gcpmonitoring: would send notification (recorded, not delivered)",
+				"channel", t.name, "type", t.typ, "incident", n.incident.ID, "state", state, "to", d.Recipient)
 		} else if err = b.send(ctx, n, t, payload); err != nil {
 			d.Result, d.Error = "failed", err.Error()
 			logger.Load(ctx).WarnContext(ctx, "gcpmonitoring: notification failed",
