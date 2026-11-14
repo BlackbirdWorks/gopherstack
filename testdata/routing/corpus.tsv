@@ -17983,7 +17983,7 @@ PUT	connect.us-east-1.amazonaws.com	/instance/xinstan/approved-origin	connect			
 PUT	connect.us-east-1.amazonaws.com	/instance/xinstan/bot	connect				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
 PUT	localhost:4566	/agent-status/xinstan	connect				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
 PUT	localhost:4566	/analytics-data/instance/xinstan/association	connect				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
-PUT	localhost:4566	/analytics-data/instance/xinstan/association	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	S3	S3
+PUT	localhost:4566	/analytics-data/instance/xinstan/association	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
 PUT	localhost:4566	/analytics-data/instance/xinstan/association?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fconnect%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
 PUT	localhost:4566	/analytics-data/instance/xinstan/associations	connect				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
 PUT	localhost:4566	/attached-files/xinstan	connect				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/connect#1.0.0	Connect	Connect
@@ -20436,23 +20436,23 @@ POST	localhost:4566	/clusters/xcluste/assume-role-for-pod-identity						EKS	EKS
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetSystemLogsForJobRun	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetSystemLogsForSession	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListIntegrationTableProperties	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
-POST	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/custom-detection-rule/association	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-POST	guardduty.us-east-1.amazonaws.com	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-POST	localhost:4566	/custom-detection-rule/association?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-POST	localhost:4566	/custom-detection-rule/association						S3	S3
-POST	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-POST	localhost:4566	/custom-detection-rule/org-configuration						S3	S3
-DELETE	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-DELETE	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-GET	localhost:4566	/custom-detection-rule/rule/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-GET	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-GET	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-GET	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-GET	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-POST	localhost:4566	/custom-detection-rule/rule	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-PUT	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
-PUT	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	guardduty.us-east-1.amazonaws.com	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/custom-detection-rule/association?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/custom-detection-rule/association						GuardDuty	GuardDuty
+POST	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/custom-detection-rule/org-configuration						GuardDuty	GuardDuty
+DELETE	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+DELETE	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/custom-detection-rule/rule/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/custom-detection-rule/rule	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+PUT	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+PUT	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.DescribeIdentityStore	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSIdentityStore.DescribeIdentityStore	{}		IdentityStore	IdentityStore
 POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.ListIdentityStores	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
