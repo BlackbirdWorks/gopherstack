@@ -301,6 +301,18 @@ var (
 		"AccessDeniedException: you don't have permissions to modify or delete an AWS managed policy",
 		awserr.ErrConflict,
 	)
+	// ErrNonDetachablePolicy is returned when detaching RCPFullAWSAccess (InvalidInputException
+	// reason NON_DETACHABLE_POLICY, API_CreatePolicy error reasons).
+	ErrNonDetachablePolicy = awserr.New(
+		"InvalidInputException: non-detachable policy",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrInvalidPolicyPrincipal is returned for an RCP whose Principal is not "*"
+	// (InvalidInputException reason INVALID_PRINCIPAL).
+	ErrInvalidPolicyPrincipal = awserr.New(
+		"InvalidInputException: invalid principal element",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 // Ensure errors are used somewhere to satisfy linter.

@@ -630,3 +630,31 @@ func headerValue(h http.Header, name string) string {
 
 	return ""
 }
+
+func TestPublishRateLimitPerTopic(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	topic := e.mkTopic(t, "rate")
+	other := e.mkTopic(t, "rate-other")
+
+	publish := func(topicID *string) error {
+		_, err := e.dp.PublishMessage(t.Context(), ons.PublishMessageRequest{TopicId: topicID, Body: new("x")})
+
+		return err
+	}
+
+	for range 60 {
+		require.NoError(t, publish(topic.TopicId))
+	}
+
+	err := publish(topic.TopicId)
+	require.Error(t, err)
+	assert.Equal(t, http.StatusTooManyRequests, svcErr(t, err).GetHTTPStatusCode())
+	assert.Equal(t, "TooManyRequests", svcErr(t, err).GetCode())
+
+	require.NoError(t, publish(other.TopicId))
+
+	e.clock.Advance(time.Minute + time.Second)
+	require.NoError(t, publish(topic.TopicId))
+}

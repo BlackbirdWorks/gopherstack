@@ -5,12 +5,16 @@
 	import ApiManagementDashboard from '#lib/components/azure/ApiManagementDashboard.svelte';
 	import AppServiceDashboard from '#lib/components/azure/AppServiceDashboard.svelte';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import EntraDashboard from '#lib/components/azure/EntraDashboard.svelte';
 	import FlexibleServerDashboard from '#lib/components/azure/FlexibleServerDashboard.svelte';
 	import KubernetesServiceDashboard from '#lib/components/azure/KubernetesServiceDashboard.svelte';
 	import ContainerAppsDashboard from '#lib/components/azure/ContainerAppsDashboard.svelte';
 	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
 	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
+	import SqlDashboard from '#lib/components/azure/SqlDashboard.svelte';
+	import RedisDashboard from '#lib/components/azure/RedisDashboard.svelte';
+	import AcrDashboard from '#lib/components/azure/AcrDashboard.svelte';
 	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
 	import CosmosHub from '#lib/components/azure/CosmosHub.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
@@ -21,6 +25,9 @@
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
 	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
+	import LogicAppsDashboard from '#lib/components/azure/LogicAppsDashboard.svelte';
+	import SearchDashboard from '#lib/components/azure/SearchDashboard.svelte';
+	import NetworkingDashboard from '#lib/components/azure/NetworkingDashboard.svelte';
 	import VirtualMachinesDashboard from '#lib/components/azure/VirtualMachinesDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
@@ -74,6 +81,20 @@
 	<FlexibleServerDashboard />
 {:else if service?.id === 'apim'}
 	<ApiManagementDashboard />
+{:else if service?.id === 'network'}
+	<NetworkingDashboard />
+{:else if service?.id === 'logic'}
+	<LogicAppsDashboard />
+{:else if service?.id === 'search'}
+	<SearchDashboard />
+{:else if service?.id === 'entra'}
+	<EntraDashboard />
+{:else if service?.id === 'sql'}
+	<SqlDashboard />
+{:else if service?.id === 'redis'}
+	<RedisDashboard />
+{:else if service?.id === 'acr'}
+	<AcrDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

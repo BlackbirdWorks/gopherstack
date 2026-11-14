@@ -26,9 +26,15 @@ func (p *ManagedIdentityProvider) restore(snap *managedIdentitySnapshot) {
 		return
 	}
 
-	for k, i := range snap.Identities {
-		if i != nil {
-			p.identities[k] = i
+	for _, i := range snap.Identities {
+		if i == nil {
+			continue
 		}
+
+		if i.Subscription == "" {
+			i.Subscription = p.defaultSub
+		}
+
+		p.identities[msiKey(i.Subscription, i.ResourceGrp, i.Name)] = i
 	}
 }

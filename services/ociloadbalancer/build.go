@@ -22,6 +22,17 @@ const (
 	maxRetries      = 10
 )
 
+const minMaxConnections = 256
+
+// validMaxConnections accepts 0 (unlimited) or at least 256 (loadbalancer.CreateBackendDetails.MaxConnections).
+func validMaxConnections(field string, v *int) *APIError {
+	if v != nil && *v != 0 && *v < minMaxConnections {
+		return errParam(field + " must be 0 (unlimited) or at least 256")
+	}
+
+	return nil
+}
+
 var (
 	nameRE     = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	hostnameRE = regexp.MustCompile(
@@ -102,8 +113,8 @@ func buildBackend(in backendIn) (Backend, *APIError) {
 		return Backend{}, errParam("backend weight must be at least 1")
 	}
 
-	if in.MaxConnections != nil && *in.MaxConnections < 1 {
-		return Backend{}, errParam("backend maxConnections must be at least 1")
+	if aerr := validMaxConnections("backend maxConnections", in.MaxConnections); aerr != nil {
+		return Backend{}, aerr
 	}
 
 	ip := addr.String()
@@ -189,8 +200,8 @@ func buildBackendSet(name string, in *backendSetIn) (*BackendSet, *APIError) {
 		return nil, err
 	}
 
-	if in.BackendMaxConnections != nil && *in.BackendMaxConnections < 1 {
-		return nil, errParam("backendMaxConnections must be at least 1")
+	if aerr := validMaxConnections("backendMaxConnections", in.BackendMaxConnections); aerr != nil {
+		return nil, aerr
 	}
 
 	if in.SessionPersistence != nil && in.LBCookiePersistence != nil {
@@ -315,11 +326,7 @@ func checkConnection(c *ConnectionConfig) *APIError {
 		return errParam("connectionConfiguration idleTimeout must be positive")
 	}
 
-	if c.BackendTCPProxyProtocolVersion != nil || len(c.BackendTCPProxyProtocolOptions) > 0 {
-		return errUnsupported("backend TCP proxy protocol")
-	}
-
-	return nil
+	return checkProxyProtocol(c)
 }
 
 func checkListenerSSL(s *SSLConfig) *APIError {
@@ -442,6 +449,9 @@ type ruleSetIn struct {
 	Items []Rule `json:"items"`
 }
 
+// maxRulesPerSet is the documented rule set size (OCI Load Balancer rule sets page).
+const maxRulesPerSet = 20
+
 func buildRuleSet(name string, in *ruleSetIn) (*RuleSet, *APIError) {
 	if err := checkName("rule set", name); err != nil {
 		return nil, err
@@ -449,6 +459,10 @@ func buildRuleSet(name string, in *ruleSetIn) (*RuleSet, *APIError) {
 
 	if len(in.Items) == 0 {
 		return nil, errMissing("items is required")
+	}
+
+	if len(in.Items) > maxRulesPerSet {
+		return nil, errParam("a rule set holds at most 20 rules")
 	}
 
 	items := make([]Rule, 0, len(in.Items))

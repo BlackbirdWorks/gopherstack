@@ -1,6 +1,8 @@
 package marketplacemetering
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	ent "github.com/blackbirdworks/gopherstack/services/marketplaceentitlementservice"
 )
@@ -91,7 +93,14 @@ func subscriptionKey(v *Subscription) string {
 }
 
 func usageKey(v *StoredUsage) string {
-	return usageDedupKey(v.ProductCode, v.CustomerIdentifier, v.Dimension, v.Timestamp.Unix())
+	unix := v.Timestamp.Unix()
+	if v.Operation == opMeterUsage {
+		unix = meterUsageSlot(v.Timestamp.Time)
+	}
+
+	return usageDedupKey(v.ProductCode, v.CustomerIdentifier, v.Dimension, unix)
 }
+
+func meterUsageSlot(t time.Time) int64 { return t.UTC().Truncate(time.Hour).Unix() }
 
 func registrationKey(v *Registration) string { return v.ID }

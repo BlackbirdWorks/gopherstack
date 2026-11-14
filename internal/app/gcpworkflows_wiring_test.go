@@ -142,6 +142,7 @@ func TestWireGCPEventarcStartsWorkflowExecutions(t *testing.T) {
 	t.Parallel()
 
 	ea := gcpeventarcbackend.NewHandler(gcpeventarcbackend.NewInMemoryBackend())
+	ea.Backend.SetOperationDelay(0)
 	ea.Port = 0
 	ps := gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend())
 	ps.Port = 0

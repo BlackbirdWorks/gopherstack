@@ -49,11 +49,15 @@ func errThrottled(msg string) *APIError {
 }
 
 func errUnavailable(msg string) *APIError {
-	return newErr(http.StatusServiceUnavailable, "ServiceUnavailable", msg)
+	return newErr(http.StatusServiceUnavailable, "FunctionInvokeServiceUnavailable", msg)
 }
 
 func errExecFailed(msg string) *APIError {
 	return newErr(http.StatusBadGateway, "FunctionInvokeExecutionFailed", msg)
+}
+
+func errBodyTooLarge() *APIError {
+	return newErr(http.StatusBadGateway, "FunctionInvokeResponseBodyTooLarge", "function response body too large")
 }
 
 func errExecTimeout(msg string) *APIError {

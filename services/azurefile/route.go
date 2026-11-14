@@ -42,6 +42,9 @@ const (
 	opAbortCopyFile     = "AbortCopyFile"
 	opRenameFile        = "RenameFile"
 	opLeaseFile         = "LeaseFile"
+	opCreateHardLink    = "CreateHardLink"
+	opCreateSymLink     = "CreateSymbolicLink"
+	opGetSymLink        = "GetSymbolicLink"
 )
 
 // GetSupportedOperations lists the supported operations.
@@ -53,7 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetDirProps, opSetDirProps, opSetDirMetadata, opListFilesDirs, opRenameDirectory, opListHandles,
 		opForceCloseHandles, opCreateFile, opDeleteFile, opGetFile, opGetFileProps, opSetFileProps,
 		opSetFileMetadata, opPutRange, opPutRangeFromURL, opListRanges, opCopyFile, opAbortCopyFile,
-		opRenameFile, opLeaseFile,
+		opRenameFile, opLeaseFile, opCreateHardLink, opCreateSymLink, opGetSymLink,
 	}
 }
 
@@ -92,6 +95,8 @@ func (h *Handler) route(rc *reqCtx) (string, opFn) {
 		return h.routeShare(rc, comp)
 	case restype == restypeDirectory:
 		return h.routeDir(rc, comp)
+	case restype == restypeHardLink || restype == restypeSymLink:
+		return h.routeLink(rc, restype)
 	case restype != "":
 		return unknownOperation, nil
 	}

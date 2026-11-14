@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -230,35 +232,51 @@ func (rc *ResourceCreator) createLambdaEventSourceMapping(
 		return logicalID + "-stub", nil
 	}
 
-	functionName := strProp(props, "FunctionName", params, physicalIDs)
-	eventSourceARN := strProp(props, "EventSourceArn", params, physicalIDs)
-	startingPosition := strProp(props, "StartingPosition", params, physicalIDs)
-	if startingPosition == "" {
-		startingPosition = "LATEST"
+	in := lambdabackend.CreateEventSourceMappingInput{Enabled: true}
+	if err := decodeProps(esmCFNProps(props), params, physicalIDs, &in); err != nil {
+		return "", fmt.Errorf("create Lambda event source mapping %s: %w", logicalID, err)
 	}
 
-	batchSize := 100
-	if bv, ok2 := props["BatchSize"].(float64); ok2 {
-		batchSize = int(bv)
-	}
-
-	enabled := true
-	if ev, ok2 := props["Enabled"].(bool); ok2 {
-		enabled = ev
-	}
-
-	esm, err := imb.CreateEventSourceMapping(&lambdabackend.CreateEventSourceMappingInput{
-		FunctionName:     functionName,
-		EventSourceARN:   eventSourceARN,
-		StartingPosition: startingPosition,
-		BatchSize:        batchSize,
-		Enabled:          enabled,
-	})
+	esm, err := imb.CreateEventSourceMapping(&in)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda event source mapping: %w", err)
 	}
 
 	return esm.UUID, nil
+}
+
+// esmCFNProps adapts CloudFormation's EventSourceMapping spelling to the backend input's JSON decoding:
+// numeric and boolean strings become numbers and booleans, and the bootstrap server list takes the
+// KAFKA_BOOTSTRAP_SERVERS key the API uses.
+func esmCFNProps(props map[string]any) map[string]any {
+	out := maps.Clone(props)
+	for _, k := range []string{"BatchSize", "MaximumBatchingWindowInSeconds", "ParallelizationFactor",
+		"MaximumRetryAttempts", "MaximumRecordAgeInSeconds", "TumblingWindowInSeconds", "StartingPositionTimestamp"} {
+		if s, isStr := out[k].(string); isStr {
+			if n, err := strconv.ParseFloat(s, 64); err == nil {
+				out[k] = n
+			}
+		}
+	}
+	for _, k := range []string{"Enabled", "BisectBatchOnFunctionError"} {
+		if s, isStr := out[k].(string); isStr {
+			if b, err := strconv.ParseBool(s); err == nil {
+				out[k] = b
+			}
+		}
+	}
+	if src, isMap := out["SelfManagedEventSource"].(map[string]any); isMap {
+		if eps, hasEps := src["Endpoints"].(map[string]any); hasEps {
+			renamed := maps.Clone(eps)
+			if v, found := renamed["KafkaBootstrapServers"]; found {
+				renamed["KAFKA_BOOTSTRAP_SERVERS"] = v
+				delete(renamed, "KafkaBootstrapServers")
+			}
+			out["SelfManagedEventSource"] = map[string]any{"Endpoints": renamed}
+		}
+	}
+
+	return out
 }
 
 func (rc *ResourceCreator) deleteLambdaEventSourceMapping(uuid string) error {
@@ -295,15 +313,22 @@ func (rc *ResourceCreator) createLambdaPermission(
 	statementID := logicalID + "-" + uuid.New().String()[:8]
 
 	if imb, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend); ok {
-		_, err := imb.AddPermission(functionName, "", &lambdabackend.AddPermissionInput{
-			Action:        strProp(props, "Action", params, physicalIDs),
-			Principal:     strProp(props, "Principal", params, physicalIDs),
-			StatementID:   statementID,
-			SourceAccount: strProp(props, "SourceAccount", params, physicalIDs),
-			SourceArn:     strProp(props, "SourceArn", params, physicalIDs),
+		in := &lambdabackend.AddPermissionInput{
+			Action:           strProp(props, "Action", params, physicalIDs),
+			Principal:        strProp(props, "Principal", params, physicalIDs),
+			StatementID:      statementID,
+			SourceAccount:    strProp(props, "SourceAccount", params, physicalIDs),
+			SourceArn:        strProp(props, "SourceArn", params, physicalIDs),
+			EventSourceToken: strProp(props, "EventSourceToken", params, physicalIDs),
+			PrincipalOrgID:   strProp(props, "PrincipalOrgID", params, physicalIDs),
 
 			FunctionURLAuthType: strProp(props, "FunctionUrlAuthType", params, physicalIDs),
-		})
+		}
+		if v := strProp(props, "InvokedViaFunctionUrl", params, physicalIDs); v != "" {
+			via := v == boolTrue
+			in.InvokedViaFunctionURL = &via
+		}
+		_, err := imb.AddPermission(functionName, "", in)
 		if err != nil {
 			return "", fmt.Errorf("add Lambda permission to %s: %w", functionName, err)
 		}
@@ -981,42 +1006,22 @@ func (rc *ResourceCreator) createRoute53RecordSet(
 		return logicalID + "-stub", nil
 	}
 
-	hostedZoneID := strProp(props, "HostedZoneId", params, physicalIDs)
-	name := strProp(props, "Name", params, physicalIDs)
-	rrType := strProp(props, "Type", params, physicalIDs)
-
-	var ttl int64
-	if v, ok := props["TTL"].(float64); ok {
-		ttl = int64(v)
+	hostedZoneID, err := rc.route53ZoneID(props, params, physicalIDs)
+	if err != nil {
+		return "", fmt.Errorf("create Route53 record set %s: %w", logicalID, err)
 	}
 
-	var records []route53backend.ResourceRecord
-	if rawRecords, ok := props["ResourceRecords"].([]any); ok {
-		for _, r := range rawRecords {
-			if val := resolve(r, params, physicalIDs); val != "" {
-				records = append(records, route53backend.ResourceRecord{Value: val})
-			}
-		}
-	}
+	rs := route53RecordSet(props, params, physicalIDs)
+	change := route53backend.Change{Action: route53backend.ChangeActionCreate, ResourceRecordSet: rs}
 
-	change := route53backend.Change{
-		Action: route53backend.ChangeActionCreate,
-		ResourceRecordSet: route53backend.ResourceRecordSet{
-			Name:    name,
-			Type:    rrType,
-			TTL:     ttl,
-			Records: records,
-		},
-	}
-
-	if _, err := rc.backends.Route53.Backend.ChangeResourceRecordSets(
+	if _, err = rc.backends.Route53.Backend.ChangeResourceRecordSets(
 		hostedZoneID,
 		[]route53backend.Change{change},
 	); err != nil {
-		return "", fmt.Errorf("create Route53 record set %s: %w", name, err)
+		return "", fmt.Errorf("create Route53 record set %s: %w", rs.Name, err)
 	}
 
-	return hostedZoneID + ":" + name + ":" + rrType, nil
+	return hostedZoneID + ":" + rs.Name + ":" + rs.Type, nil // name carries no ":"
 }
 
 // ---- ElastiCache ----

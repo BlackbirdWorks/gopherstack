@@ -3,7 +3,6 @@ package transcribe
 import (
 	"fmt"
 	"sort"
-	"time"
 )
 
 // CreateMedicalVocabulary creates a new medical custom vocabulary.
@@ -33,7 +32,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 		)
 	}
 
-	now := time.Now()
+	now := b.now()
 	v := &MedicalVocabulary{
 		VocabularyName:    vocabularyName,
 		LanguageCode:      languageCode,
@@ -102,7 +101,7 @@ func (b *InMemoryBackend) UpdateMedicalVocabulary(
 		v.VocabularyFileURI = vocabularyFileURI
 	}
 
-	v.LastModifiedTime = time.Now()
+	v.LastModifiedTime = b.now()
 
 	cp := *v
 	b.observeMedicalVocabulary(&cp)

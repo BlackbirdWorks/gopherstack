@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException because OAM models no access-denied exception; the live error code is not verified
-- Quotas: the one sink per account and Region limit and the one link per source account, Region and sink limit follow AWS documentation and are not verified against the live API
+- SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException; not published: API_PutSinkPolicy.html and API_CreateLink.html model no access-denied exception and do not say which code a sink-policy denial returns
+- Quotas: one link per source account, Region and sink (ConflictException) is not published: API_CreateLink.html states only the 100,000 and five account limits
 - LabelTemplate: without an Organizations directory $AccountName, $AccountEmail and $AccountEmailNoDomain all resolve to the account ID
 
 ### Structural gaps

@@ -16,6 +16,16 @@ func errorDetails() map[error]errorDetail {
 	out := lookupErrorDetails()
 	maps.Copy(out, constraintErrorDetails())
 	maps.Copy(out, delegatedAdminErrorDetails())
+	maps.Copy(out, map[error]errorDetail{
+		ErrNonDetachablePolicy: {
+			message: "You can't detach this Amazon Web Services managed policy.",
+			reason:  "NON_DETACHABLE_POLICY",
+		},
+		ErrInvalidPolicyPrincipal: {
+			message: "You specified an invalid principal element in the policy.",
+			reason:  "INVALID_PRINCIPAL",
+		},
+	})
 
 	return out
 }

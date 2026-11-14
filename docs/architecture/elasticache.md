@@ -46,15 +46,22 @@ gopherstack --elasticache-engine stub
 
 ## `docker`
 
-A real Redis container is started via the Docker daemon when a cluster is created, and stopped when the cluster is deleted.
+Real Redis (or Valkey) containers run the data plane, started through the container runtime (Docker or Podman):
 
-**When to use:** When you need the full Redis stack (Lua scripts, modules, AUTH, TLS) that miniredis does not support.
+- Standalone cache clusters get one container.
+- Replication groups without cluster mode get one primary plus replicas wired with `REPLICAOF`; `PrimaryEndpoint` targets the primary and `ReaderEndpoint` the first replica.
+- Cluster-mode groups launch `NumNodeGroups x (1 + replicas)` containers with `cluster-enabled yes`, form a real cluster (`CLUSTER MEET`/`ADDSLOTSRANGE`/`REPLICATE`) over the 16384-slot map (`NodeGroupConfiguration.Slots` is honoured), and announce `127.0.0.1` (or `ELASTICACHE_HOST`) as the hostname so `MOVED` redirects reach the host. Every node has its own port in `NodeGroupMembers[].ReadEndpoint`.
+- `TransitEncryptionEnabled` serves TLS only (certificates from the emulator CA, `InMemoryBackend.DockerCAPEM()`); mode `preferred` serves plaintext.
+- `AuthToken` protects the `default` user; RBAC users and user groups become `ACL SETUSER` accounts on every node, re-synced on user, user group and replication group changes.
+- `CreateSnapshot` reads each node group primary's RDB; `SnapshotName` seeds the new primaries from it.
+
+**When to use:** When you need the full Redis stack (Lua, modules, ACLs, TLS, cluster slots) that miniredis does not support.
 
 ```bash
 gopherstack --elasticache-engine docker
 ```
 
-Requires Docker to be running. The image `redis:7-alpine` is used by default. Port allocation follows the same range as `embedded` mode.
+Requires a container runtime. Images are `redis:7.x-alpine` (`valkey/valkey:8.x-alpine` for Valkey). Ports come from the port allocator range.
 
 ## Configuration reference
 

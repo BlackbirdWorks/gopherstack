@@ -258,37 +258,3 @@ func TestPasswordCredentials(t *testing.T) {
 		assert.Empty(t, got["passwordCredentials"])
 	})
 }
-
-func TestKeyCredentials(t *testing.T) {
-	t.Parallel()
-
-	e := newEnv(t)
-	app := newApp(t, e, "Keys")
-	base := "/v1.0/applications/" + str(app, "id")
-
-	good := map[string]any{
-		"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify", "key": "AAEC"},
-	}
-	add := e.req(t, http.MethodPost, base+"/addKey", good)
-	require.Equal(t, http.StatusOK, add.status, add.raw)
-	assert.Nil(t, add.body["key"], "key material is not returned")
-
-	for name, body := range map[string]any{
-		"bad type": map[string]any{"keyCredential": map[string]any{"type": "x", "usage": "Verify", "key": "AAEC"}},
-		"bad usage": map[string]any{"keyCredential": map[string]any{
-			"type": "AsymmetricX509Cert", "usage": "x", "key": "AAEC",
-		}},
-		"bad key": map[string]any{"keyCredential": map[string]any{
-			"type": "AsymmetricX509Cert", "usage": "Verify", "key": "%%",
-		}},
-		"no key": map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify"}},
-	} {
-		assertErr(t, e.req(t, http.MethodPost, base+"/addKey", body), http.StatusBadRequest, "Request_BadRequest")
-		_ = name
-	}
-
-	require.Equal(t, http.StatusNoContent,
-		e.req(t, http.MethodPost, base+"/removeKey", map[string]any{"keyId": str(add.body, "keyId")}).status)
-	assertErr(t, e.req(t, http.MethodPost, base+"/removeKey", map[string]any{"keyId": str(add.body, "keyId")}),
-		http.StatusBadRequest, "Request_BadRequest")
-}

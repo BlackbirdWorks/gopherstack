@@ -151,6 +151,10 @@ func (b *InMemoryBackend) writeOneLocked(w *writeCtx, i int, ts *monitoringpb.Ti
 			"Only one point can be written per TimeSeries per request.", i)
 	}
 
+	if err = b.checkExplicitLabelsLocked(w.project, i, ts.GetMetric()); err != nil {
+		return err
+	}
+
 	key := seriesKey(w.project, ts.GetMetric(), res)
 	if _, dup := w.seen[key]; dup {
 		return errInvalid("Field timeSeries[%d] had an invalid value: Duplicate TimeSeries encountered. "+
@@ -465,4 +469,28 @@ func clonePoint(p *monitoringpb.Point) *monitoringpb.Point {
 	out, _ := proto.Clone(p).(*monitoringpb.Point)
 
 	return out
+}
+
+// checkExplicitLabelsLocked rejects labels the descriptor created with CreateMetricDescriptor does not declare;
+// auto-created descriptors keep growing instead.
+func (b *InMemoryBackend) checkExplicitLabelsLocked(project string, i int, m *metricpb.Metric) error {
+	name := descriptorName(project, m.GetType())
+	if _, ok := b.explicit[name]; !ok {
+		return nil
+	}
+
+	d := b.descriptors[name]
+	declared := make(map[string]struct{}, len(d.GetLabels()))
+
+	for _, l := range d.GetLabels() {
+		declared[l.GetKey()] = struct{}{}
+	}
+
+	for _, k := range sortedKeys(m.GetLabels()) {
+		if _, ok := declared[k]; !ok {
+			return fieldErr(i, scopeMetricLabels, k, "Unrecognized metric label.")
+		}
+	}
+
+	return nil
 }

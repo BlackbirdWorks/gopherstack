@@ -127,6 +127,56 @@ func TestAzureFunctionsProxy(t *testing.T) {
 			wantCode: http.StatusNotFound, wantBody: "NOT_FOUND",
 		},
 		{
+			name: "keys masked", method: http.MethodGet, path: base + "/apps/app1/keys", served: true,
+			wantCode: http.StatusOK, wantBody: `"kind":"masterKey"`, notWant: "==",
+		},
+		{
+			name: "reveal master key", method: http.MethodPost, path: base + "/apps/app1/keys/reveal",
+			body: `{"kind":"masterKey"}`, served: true, wantCode: http.StatusOK, wantBody: "==",
+		},
+		{
+			name: "reveal host key", method: http.MethodPost, path: base + "/apps/app1/keys/reveal",
+			body: `{"kind":"functionKeys","name":"default"}`, served: true, wantCode: http.StatusOK, wantBody: "==",
+		},
+		{
+			name: "reveal missing key", method: http.MethodPost, path: base + "/apps/app1/keys/reveal",
+			body: `{"kind":"systemKeys","name":"nope"}`, served: true, wantCode: http.StatusNotFound,
+			wantBody: "NOT_FOUND",
+		},
+		{
+			name: "keys missing app", method: http.MethodGet, path: base + "/apps/nope/keys", served: true,
+			wantCode: http.StatusNotFound, wantBody: "NOT_FOUND",
+		},
+		{
+			name: "invoke bad method", method: http.MethodPost, path: base + "/apps/app1/invoke",
+			body: `{"function":"hello","method":"TRACE"}`, served: true, wantCode: http.StatusBadRequest,
+			wantBody: "unsupported method",
+		},
+		{
+			name: "invoke bad body", method: http.MethodPost, path: base + "/apps/app1/invoke",
+			body: `{`, served: true, wantCode: http.StatusBadRequest, wantBody: "INVALID_ARGUMENT",
+		},
+		{
+			name: "invoke unknown function", method: http.MethodPost, path: base + "/apps/app1/invoke",
+			body: `{"function":"nope","method":"GET"}`, served: true, wantCode: http.StatusNotFound,
+			wantBody: "NOT_FOUND",
+		},
+		{
+			name: "invoke non http function", method: http.MethodPost, path: base + "/apps/app1/invoke",
+			body: `{"function":"tick","method":"GET"}`, served: true, wantCode: http.StatusBadRequest,
+			wantBody: "no HTTP trigger",
+		},
+		{
+			name: "invoke without runtime", method: http.MethodPost, path: base + "/apps/app1/invoke",
+			body: `{"function":"hello","method":"GET"}`, served: true, wantCode: http.StatusOK,
+			wantBody: `"status":503`,
+		},
+		{
+			name: "invoke missing app", method: http.MethodPost, path: base + "/apps/nope/invoke",
+			body: `{"function":"hello","method":"GET"}`, served: true, wantCode: http.StatusNotFound,
+			wantBody: "NOT_FOUND",
+		},
+		{
 			name: "not served", method: http.MethodGet, path: base + "/apps",
 			wantCode: http.StatusServiceUnavailable, wantBody: "UNAVAILABLE",
 		},
@@ -161,6 +211,35 @@ func TestAzureFunctionsProxy(t *testing.T) {
 			if tt.after != "" {
 				assert.Contains(t, call(http.MethodGet, tt.after, "").Body.String(), tt.wantAfter)
 			}
+		})
+	}
+}
+
+func TestAzureFunctionsRevealNoStore(t *testing.T) {
+	t.Parallel()
+
+	b := azurefunctions.NewInMemoryBackend()
+	b.PutApp("app1", azurefunctions.AppConfig{Kind: "functionapp,linux", LinuxFx: "NODE|20"})
+	require.NoError(t, b.SetSettings("app1", map[string]string{"FOO": "v"}))
+
+	h := dashboard.NewHandler(dashboard.Config{
+		AzureFunctionsOps: azurefunctions.NewHandler(b, azurefunctions.Settings{}),
+	})
+
+	for _, tc := range []struct{ name, path, body string }{
+		{"setting", "/apps/app1/settings/reveal", `{"name":"FOO"}`},
+		{"key", "/apps/app1/keys/reveal", `{"kind":"masterKey"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(
+				http.MethodPost, "/dashboard/api/v1/azure/functions"+tc.path, strings.NewReader(tc.body),
+			)
+			require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 		})
 	}
 }

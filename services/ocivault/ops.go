@@ -11,7 +11,17 @@ import (
 
 func buildOps() map[string]opFunc {
 	ops := map[string]opFunc{}
-	for _, m := range []map[string]opFunc{vaultOps(), keyOps(), cryptoOps(), secretOps(), bundleOps()} {
+	groups := []map[string]opFunc{
+		vaultOps(),
+		keyOps(),
+		cryptoOps(),
+		secretOps(),
+		bundleOps(),
+		backupOps(),
+		replicaOps(),
+	}
+
+	for _, m := range groups {
 		maps.Copy(ops, m)
 	}
 
@@ -69,6 +79,8 @@ func secretOps() map[string]opFunc {
 		opGetSecretVersion:   (*Handler).getSecretVersion,
 		opScheduleSecretVDel: (*Handler).scheduleSecretVersionDeletion,
 		opCancelSecretVDel:   (*Handler).cancelSecretVersionDeletion,
+		opRotateSecret:       (*Handler).rotateSecret,
+		opCancelRotation:     (*Handler).cancelSecretRotation,
 	}
 }
 
@@ -173,6 +185,8 @@ func (h *Handler) createVault(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
+
 	w, etag, err := h.Backend.CreateVault(in, q.hostPort())
 
 	return reply(q, w, etag, err)
@@ -207,13 +221,13 @@ func (h *Handler) scheduleVaultDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ScheduleVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), at)
+	w, etag, err := h.Backend.ScheduleVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), q.retry(), at)
 
 	return reply(q, w, etag, err)
 }
 
 func (h *Handler) cancelVaultDeletion(q *req) error {
-	w, etag, err := h.Backend.CancelVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort())
+	w, etag, err := h.Backend.CancelVaultDeletion(q.param("vaultId"), q.ifMatch(), q.hostPort(), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -224,7 +238,7 @@ func (h *Handler) changeVaultCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeVaultCompartment(q.param("vaultId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeVaultCompartment(q.param("vaultId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) getVaultUsage(q *req) error {
@@ -243,6 +257,8 @@ func (h *Handler) createKey(q *req) error {
 	if err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	w, etag, err := h.Backend.CreateKey(vid, in)
 
@@ -292,13 +308,13 @@ func (h *Handler) updateKey(q *req) error {
 	return reply(q, w, etag, err)
 }
 
-func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch string) (keyWire, string, error)) error {
+func (h *Handler) keyAction(q *req, fn func(vaultID, keyID, ifMatch, token string) (KeyWire, string, error)) error {
 	vid, err := h.scope(q)
 	if err != nil {
 		return err
 	}
 
-	w, etag, err := fn(vid, q.param("keyId"), q.ifMatch())
+	w, etag, err := fn(vid, q.param("keyId"), q.ifMatch(), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -316,8 +332,8 @@ func (h *Handler) scheduleKeyDeletion(q *req) error {
 		return err
 	}
 
-	return h.keyAction(q, func(v, k, m string) (keyWire, string, error) {
-		return h.Backend.ScheduleKeyDeletion(v, k, m, at)
+	return h.keyAction(q, func(v, k, m, t string) (KeyWire, string, error) {
+		return h.Backend.ScheduleKeyDeletion(v, k, m, t, at)
 	})
 }
 
@@ -332,7 +348,7 @@ func (h *Handler) changeKeyCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeKeyCompartment(vid, q.param("keyId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeKeyCompartment(vid, q.param("keyId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) createKeyVersion(q *req) error {
@@ -341,7 +357,7 @@ func (h *Handler) createKeyVersion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.CreateKeyVersion(vid, q.param("keyId"))
+	w, etag, err := h.Backend.CreateKeyVersion(vid, q.param("keyId"), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -379,7 +395,9 @@ func (h *Handler) scheduleKeyVersionDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ScheduleKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"), at)
+	w, etag, err := h.Backend.ScheduleKeyVersionDeletion(
+		vid, q.param("keyId"), q.param("keyVersionId"), q.retry(), at,
+	)
 
 	return reply(q, w, etag, err)
 }
@@ -390,7 +408,7 @@ func (h *Handler) cancelKeyVersionDeletion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.CancelKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"))
+	w, etag, err := h.Backend.CancelKeyVersionDeletion(vid, q.param("keyId"), q.param("keyVersionId"), q.retry())
 
 	return reply(q, w, etag, err)
 }
@@ -406,7 +424,7 @@ func (h *Handler) importKey(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ImportKey(vid, in)
+	w, etag, err := h.Backend.ImportKey(vid, q.retry(), in)
 
 	return reply(q, w, etag, err)
 }
@@ -422,7 +440,7 @@ func (h *Handler) importKeyVersion(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.ImportKeyVersion(vid, q.param("keyId"), in)
+	w, etag, err := h.Backend.ImportKeyVersion(vid, q.param("keyId"), q.retry(), in)
 
 	return reply(q, w, etag, err)
 }
@@ -468,6 +486,8 @@ func (h *Handler) createSecret(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	w, etag, err := h.Backend.CreateSecret(in)
 
@@ -520,7 +540,7 @@ func (h *Handler) changeSecretCompartment(q *req) error {
 		return err
 	}
 
-	return okEmpty(q, h.Backend.ChangeSecretCompartment(q.param("secretId"), q.ifMatch(), c))
+	return okEmpty(q, h.Backend.ChangeSecretCompartment(q.param("secretId"), q.ifMatch(), c, q.retry()))
 }
 
 func (h *Handler) listSecretVersions(q *req) error {
@@ -613,4 +633,22 @@ func (h *Handler) listBundleVersions(q *req) error {
 	pg, err := h.Backend.ListSecretBundleVersions(q.param("secretId"), q.listOpts())
 
 	return listReply(q, pg, err)
+}
+
+func (h *Handler) rotateSecret(q *req) error {
+	return accepted(q, h.Backend.RotateSecret(q.param("secretId"), q.ifMatch(), q.retry()))
+}
+
+func (h *Handler) cancelSecretRotation(q *req) error {
+	return done(q, h.Backend.CancelSecretRotation(q.param("secretId"), q.ifMatch()))
+}
+
+func accepted(q *req, err error) error {
+	if err != nil {
+		return err
+	}
+
+	q.w.WriteHeader(http.StatusAccepted)
+
+	return nil
 }

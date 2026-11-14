@@ -100,7 +100,8 @@ func TestProtectionModeStored(t *testing.T) {
 
 	_, err := m.CreateKey(t.Context(), keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("ext"), KeyShape: aes256(),
-		ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeExternal})
+		ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeExternal,
+	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
 	list, err := m.ListKeys(t.Context(), keymanagement.ListKeysRequest{
@@ -131,6 +132,8 @@ func TestKeyStateMachine(t *testing.T) {
 	dis, err := m.DisableKey(ctx, keymanagement.DisableKeyRequest{KeyId: k.Id})
 	require.NoError(t, err)
 	assert.Equal(t, keymanagement.KeyLifecycleStateDisabling, dis.LifecycleState)
+	assert.Equal(t, keymanagement.KeyLifecycleStateDisabling, get().LifecycleState)
+	e.settle()
 	assert.Equal(t, keymanagement.KeyLifecycleStateDisabled, get().LifecycleState)
 
 	_, err = m.DisableKey(ctx, keymanagement.DisableKeyRequest{KeyId: k.Id})
@@ -138,12 +141,16 @@ func TestKeyStateMachine(t *testing.T) {
 
 	_, err = m.EnableKey(ctx, keymanagement.EnableKeyRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateEnabling, get().LifecycleState)
+	e.settle()
 
 	at := common.SDKTime{Time: e.clock.Now().Add(8 * 24 * time.Hour)}
 	_, err = m.ScheduleKeyDeletion(ctx, keymanagement.ScheduleKeyDeletionRequest{
 		KeyId: k.Id, TimeOfDeletion: &at,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateSchedulingDeletion, get().LifecycleState)
+	e.settle()
 	assert.Equal(t, keymanagement.KeyLifecycleStatePendingDeletion, get().LifecycleState)
 
 	_, err = m.EnableKey(ctx, keymanagement.EnableKeyRequest{KeyId: k.Id})
@@ -151,12 +158,16 @@ func TestKeyStateMachine(t *testing.T) {
 
 	_, err = m.CancelKeyDeletion(ctx, keymanagement.CancelKeyDeletionRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateCancellingDeletion, get().LifecycleState)
+	e.settle()
+
 	got := get()
 	assert.Equal(t, keymanagement.KeyLifecycleStateEnabled, got.LifecycleState)
 	assert.Nil(t, got.TimeOfDeletion)
 
 	_, err = m.ScheduleKeyDeletion(ctx, keymanagement.ScheduleKeyDeletionRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	e.settle()
 	e.clock.Advance(31 * 24 * time.Hour)
 	assert.Equal(t, keymanagement.KeyLifecycleStateDeleted, get().LifecycleState)
 }
@@ -289,14 +300,16 @@ func TestAutoRotation(t *testing.T) {
 	resp, err := m.CreateKey(ctx, keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("auto"), KeyShape: aes256(),
 		IsAutoRotationEnabled:  new(true),
-		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(60)}})
+		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(60)},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, resp.AutoKeyRotationDetails.TimeOfNextRotation)
 
 	_, err = m.CreateKey(ctx, keymanagement.CreateKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("bad"), KeyShape: aes256(),
 		IsAutoRotationEnabled:  new(true),
-		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(5)}})
+		AutoKeyRotationDetails: &keymanagement.AutoKeyRotationDetails{RotationIntervalInDays: new(5)},
+	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
 	e.clock.Advance(61 * 24 * time.Hour)

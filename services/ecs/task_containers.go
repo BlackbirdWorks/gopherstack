@@ -231,7 +231,7 @@ func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
 			{Name: "networkInterfaceId", Value: eniID},
 			{Name: "macAddress", Value: mac},
 			{Name: "privateDnsName", Value: privateDNS},
-			{Name: "privateIPv4Address", Value: privateIP},
+			{Name: detailPrivateIPv4, Value: privateIP},
 		},
 	}
 }

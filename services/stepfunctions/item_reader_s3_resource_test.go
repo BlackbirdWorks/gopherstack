@@ -391,6 +391,60 @@ func TestItemReader_S3GetObject_Errors(t *testing.T) {
 // TestItemReader_ItemsPointer covers ReaderConfig.ItemsPointer, the RFC 6901
 // JSON Pointer selecting a nested array within a JSON InputType file (AWS
 // docs: input-output-itemreader.html, "ItemsPointer").
+func TestItemReader_JSONObjectPairs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config string
+		body   string
+	}{
+		{"top_level_object", `{"InputType":"JSON"}`, `{"b":2,"a":{"x":1}}`},
+		{"pointer_to_object", `{"InputType":"JSON","ItemsPointer":"/data"}`, `{"data":{"b":2,"a":{"x":1}}}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const bucket = "obj-pairs-bucket"
+
+			s3Bk := newBucketBackedS3(t, bucket)
+			putS3Object(t, s3Bk, bucket, "o.json", []byte(tc.body))
+
+			itemReader := `{
+				"Resource": "arn:aws:states:::s3:getObject",
+				"ReaderConfig": ` + tc.config + `,
+				"Parameters": {"Bucket": "` + bucket + `", "Key": "o.json"}
+			}`
+
+			status, output, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+			require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
+			assert.JSONEq(t, `[{"Key":"a","Value":{"x":1}},{"Key":"b","Value":2}]`, output)
+		})
+	}
+}
+
+func TestItemReader_ParquetVersionID(t *testing.T) {
+	t.Parallel()
+
+	const bucket = "parquet-version-bucket"
+
+	s3Bk := newBucketBackedS3(t, bucket)
+	putS3Object(t, s3Bk, bucket, "r.parquet", parquetFixture(t, "SNAPPY"))
+
+	itemReader := `{
+		"Resource": "arn:aws:states:::s3:getObject",
+		"ReaderConfig": {"InputType": "PARQUET"},
+		"Parameters": {"Bucket": "` + bucket + `", "Key": "r.parquet", "VersionId": "v1"}
+	}`
+
+	status, _, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+	assert.Equal(t, sfntypes.ExecutionStatusFailed, status)
+	assert.Equal(t, "States.ItemReaderFailed", errCode)
+	assert.Contains(t, cause, "VersionId")
+}
+
 func TestItemReader_ItemsPointer(t *testing.T) {
 	t.Parallel()
 
@@ -424,7 +478,7 @@ func TestItemReader_ItemsPointer(t *testing.T) {
 
 		itemReader := `{
 			"Resource": "arn:aws:states:::s3:getObject",
-			"ReaderConfig": {"InputType": "JSON", "ItemsPointer": "/data"},
+			"ReaderConfig": {"InputType": "JSON", "ItemsPointer": "/data/id"},
 			"Parameters": {"Bucket": "` + bucket + `", "Key": "nested.json"}
 		}`
 

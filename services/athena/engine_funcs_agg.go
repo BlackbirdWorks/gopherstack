@@ -30,7 +30,7 @@ func (a *aggState) Final(_ *fnCtx) {}
 var errNoWindowInverse = errors.New("this aggregate cannot be used as a window function")
 
 func registerAgg(name string, nargs int32, newState func() *aggState) {
-	sqlitedriver.MustRegisterFunction(name, &sqlitedriver.FunctionImpl{
+	sqlitedriver.MustRegisterFunction(funcNames.record(name), &sqlitedriver.FunctionImpl{
 		NArgs: nargs,
 		MakeAggregate: func(_ fnCtx) (sqlitedriver.AggregateFunction, error) {
 			return newState(), nil

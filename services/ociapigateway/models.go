@@ -42,7 +42,7 @@ type Gateway struct {
 	TimeUpdated   time.Time      `json:"timeUpdated"`
 	Tags          Tags           `json:"tags"`
 	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
-	Locks         jsontext.Value `json:"locks,omitempty"`
+	Locks         []Lock         `json:"locks,omitempty"`
 	CaBundles     jsontext.Value `json:"caBundles,omitempty"`
 	ResponseCache jsontext.Value `json:"responseCache,omitempty"`
 	ID            string         `json:"id"`
@@ -53,9 +53,13 @@ type Gateway struct {
 	Hostname      string         `json:"hostname"`
 	CertificateID string         `json:"certificateId,omitempty"`
 	IPMode        string         `json:"ipMode,omitempty"`
+	VnicID        string         `json:"vnicId,omitempty"`
+	IPv4Config    *ipv4Config    `json:"ipv4AddressConfiguration,omitempty"`
+	IPv6Config    *ipv6Config    `json:"ipv6AddressConfiguration,omitempty"`
 	State         string         `json:"state"`
 	Etag          string         `json:"etag"`
 	NSGs          []string       `json:"networkSecurityGroupIds,omitempty"`
+	IPs           []string       `json:"ipAddresses,omitempty"`
 }
 
 // Deployment is an API deployment on a gateway.
@@ -71,26 +75,27 @@ type Deployment struct {
 	DisplayName   string         `json:"displayName"`
 	State         string         `json:"state"`
 	Etag          string         `json:"etag"`
-	Locks         jsontext.Value `json:"locks,omitempty"`
+	Locks         []Lock         `json:"locks,omitempty"`
 	Spec          jsontext.Value `json:"specification"`
 }
 
 // Certificate is a TLS certificate usable by a gateway.
 type Certificate struct {
-	TimeCreated       time.Time      `json:"timeCreated"`
-	TimeUpdated       time.Time      `json:"timeUpdated"`
-	TimeNotValidAfter time.Time      `json:"timeNotValidAfter"`
-	Tags              Tags           `json:"tags"`
-	TransitionAt      *time.Time     `json:"transitionAt,omitempty"`
-	Locks             jsontext.Value `json:"locks,omitempty"`
-	ID                string         `json:"id"`
-	CompartmentID     string         `json:"compartmentId"`
-	DisplayName       string         `json:"displayName"`
-	CertPEM           string         `json:"certificate"`
-	Intermediate      string         `json:"intermediateCertificates,omitempty"`
-	State             string         `json:"state"`
-	Etag              string         `json:"etag"`
-	SubjectNames      []string       `json:"subjectNames"`
+	TimeCreated       time.Time  `json:"timeCreated"`
+	TimeUpdated       time.Time  `json:"timeUpdated"`
+	TimeNotValidAfter time.Time  `json:"timeNotValidAfter"`
+	Tags              Tags       `json:"tags"`
+	TransitionAt      *time.Time `json:"transitionAt,omitempty"`
+	Locks             []Lock     `json:"locks,omitempty"`
+	ID                string     `json:"id"`
+	CompartmentID     string     `json:"compartmentId"`
+	DisplayName       string     `json:"displayName"`
+	CertPEM           string     `json:"certificate"`
+	Intermediate      string     `json:"intermediateCertificates,omitempty"`
+	PrivateKey        string     `json:"privateKey,omitempty"`
+	State             string     `json:"state"`
+	Etag              string     `json:"etag"`
+	SubjectNames      []string   `json:"subjectNames"`
 }
 
 // WorkRequest records an asynchronous operation.
@@ -104,4 +109,5 @@ type WorkRequest struct {
 	EntityID      string    `json:"entityId"`
 	Action        string    `json:"action"`
 	Seq           int64     `json:"seq"`
+	Canceled      bool      `json:"canceled,omitempty"`
 }

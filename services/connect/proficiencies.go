@@ -92,12 +92,12 @@ func findProficiency(list []UserProficiency, name, value string) int {
 
 func (b *Backend) changeProficiencies(
 	ctx context.Context, op string, in *ProficienciesInput, create bool,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if len(in.UserProficiencies) == 0 {
 		return nil, invalidParamErr("UserProficiencies is required")
 	}
 
-	return writeInstance(b, op, in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, op, in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		u, err := b.users.get(inst, in.UserID)
 		if err != nil {
 			return nil, err
@@ -129,29 +129,29 @@ func (b *Backend) changeProficiencies(
 		u.Proficiencies = next
 		u.User.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // AssociateUserProficiencies adds or re-levels proficiencies of a user.
-func (b *Backend) AssociateUserProficiencies(ctx context.Context, in *ProficienciesInput) (*empty, error) {
+func (b *Backend) AssociateUserProficiencies(ctx context.Context, in *ProficienciesInput) (*EmptyOutput, error) {
 	return b.changeProficiencies(ctx, "AssociateUserProficiencies", in, true)
 }
 
 // UpdateUserProficiencies changes the level of proficiencies a user already has.
-func (b *Backend) UpdateUserProficiencies(ctx context.Context, in *ProficienciesInput) (*empty, error) {
+func (b *Backend) UpdateUserProficiencies(ctx context.Context, in *ProficienciesInput) (*EmptyOutput, error) {
 	return b.changeProficiencies(ctx, "UpdateUserProficiencies", in, false)
 }
 
 // DisassociateUserProficiencies removes proficiencies from a user.
 func (b *Backend) DisassociateUserProficiencies(
 	ctx context.Context, in *DisassociateProficienciesInput,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	if len(in.UserProficiencies) == 0 {
 		return nil, invalidParamErr("UserProficiencies is required")
 	}
 
-	return writeInstance(b, "DisassociateUserProficiencies", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DisassociateUserProficiencies", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		u, err := b.users.get(inst, in.UserID)
 		if err != nil {
 			return nil, err
@@ -171,7 +171,7 @@ func (b *Backend) DisassociateUserProficiencies(
 		u.Proficiencies = next
 		u.User.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -274,7 +274,7 @@ func userConfigFields(in *UpdateUserConfigInput) []userConfigField {
 }
 
 // UpdateUserConfig replaces the supplied per-channel settings of a user.
-func (b *Backend) UpdateUserConfig(ctx context.Context, in *UpdateUserConfigInput) (*empty, error) {
+func (b *Backend) UpdateUserConfig(ctx context.Context, in *UpdateUserConfigInput) (*EmptyOutput, error) {
 	fields := userConfigFields(in)
 	checked := make([]jsontext.Value, len(fields))
 
@@ -287,7 +287,7 @@ func (b *Backend) UpdateUserConfig(ctx context.Context, in *UpdateUserConfigInpu
 		checked[i] = raw
 	}
 
-	return writeInstance(b, "UpdateUserConfig", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateUserConfig", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		u, err := b.users.get(inst, in.UserID)
 		if err != nil {
 			return nil, err
@@ -301,6 +301,6 @@ func (b *Backend) UpdateUserConfig(ctx context.Context, in *UpdateUserConfigInpu
 
 		u.User.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }

@@ -192,8 +192,7 @@ func (b *InMemoryBackend) ListJobChildren(
 	out := make([]*Job, 0, len(pageIDs))
 
 	for _, id := range pageIDs {
-		cp := *byID[id]
-		cp.Tags = tagsCloneOrEmpty(cp.Tags)
+		cp := byID[id].snapshot()
 		out = append(out, &cp)
 	}
 

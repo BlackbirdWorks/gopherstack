@@ -128,6 +128,10 @@ func (h *DashboardHandler) registerGCPRESTProxyVersion(prefix, version string, r
 
 		r := c.Request()
 
+		if r.Method == http.MethodPost {
+			c.Response().Header().Set("Cache-Control", "no-store")
+		}
+
 		segs, verb, ok := parseGCPRESTPath(strings.TrimPrefix(r.URL.EscapedPath(), prefix), version)
 		if !ok {
 			return c.String(http.StatusBadRequest, "unsupported GCP proxy request")
@@ -239,6 +243,8 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerAzureContainerAppsRoutes()
 	h.registerAzureVMRoutes()
 	h.registerAzureAKSRoutes()
+	h.registerAzureNetworkRoutes()
+	h.registerStorageAndWorkflowRoutes()
 	h.registerOCIContainerEngineRoutes()
 	h.registerOCIMySQLRoutes()
 	h.registerOCILoggingRoutes()
@@ -249,10 +255,14 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerOCILoadBalancerRoutes()
 	h.registerOCIArtifactsRoutes()
 	h.registerOCIContainerInstancesRoutes()
+	h.registerOCIDNSRoutes()
+	h.registerOCIDatabaseRoutes()
 	h.registerGCPIdentityToolkitRoutes()
 	h.registerAzureFlexDBRoutes()
 	h.registerGCPAPIGatewayRoutes()
 	h.registerGCPBatchRoutes()
 	h.registerGCPResourceManagerRoutes()
 	h.registerAzureAPIMRoutes()
+	h.registerAzureGraphRoutes()
+	h.registerAzureAuthzRoutes()
 }

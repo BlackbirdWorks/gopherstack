@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
@@ -871,6 +872,7 @@ type InMemoryBackend struct {
 	metrics                   cwmetric.Sink
 	dnsRegistrar              DNSRegistrar
 	secrets                   SecretsStore
+	keys                      cmek.KeyChecker
 	sgEnforcer                *sgfilter.Enforcer
 	engine                    *dbEngine
 	pause                     map[string]*pauseTracker

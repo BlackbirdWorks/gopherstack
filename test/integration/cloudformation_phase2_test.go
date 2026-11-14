@@ -46,7 +46,7 @@ func deleteStackPhase2(t *testing.T, client *cloudformationsdk.Client, stackName
 	})
 	require.NoError(t, err)
 
-	waitForStackStatus(t, client, stackName, 10*time.Second)
+	waitStackDeleted(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_RDS(t *testing.T) {

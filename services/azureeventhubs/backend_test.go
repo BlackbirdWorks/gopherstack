@@ -109,6 +109,9 @@ func TestBackend_Resolve(t *testing.T) {
 		want int64
 	}{
 		{expr: "amqp.annotation.x-opt-offset > '-1'", want: 0},
+		{expr: "amqp.annotation.x-opt-offset > -1", want: 0},
+		{expr: "amqp.annotation.x-opt-offset > @latest", want: 4},
+		{expr: "amqp.annotation.x-opt-sequence-number >= 1", want: 1},
 		{expr: "amqp.annotation.x-opt-offset > '@latest'", want: 4},
 		{expr: "amqp.annotation.x-opt-offset >= '@latest'", want: 4},
 		{expr: "amqp.annotation.x-opt-offset > '" + strconv.FormatInt(info.LastOffset, 10) + "'", want: 4},
@@ -150,7 +153,8 @@ func TestParseSelector_Invalid(t *testing.T) {
 	t.Parallel()
 
 	for _, expr := range []string{
-		"", "x > 1", "amqp.annotation.x-opt-offset > ''", "amqp.annotation.x-opt-offset > 'abc'",
+		"", "x > 1", "amqp.annotation.x-opt-offset > ''", "amqp.annotation.x-opt-offset >",
+		"amqp.annotation.x-opt-offset > 1 2", "amqp.annotation.x-opt-offset > 'abc'",
 		"amqp.annotation.x-opt-sequence-number < '1'", "amqp.annotation.x-opt-foo > '1'",
 	} {
 		t.Run(expr, func(t *testing.T) {
@@ -441,6 +445,8 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 	assert.False(t, restored.NamespaceExists(testNS))
 }
 
+const nsAudience = "sb%3A%2F%2Fehns.servicebus.windows.net%2F"
+
 func TestClaimRights(t *testing.T) {
 	t.Parallel()
 
@@ -471,25 +477,25 @@ func TestClaimRights(t *testing.T) {
 	}{
 		{
 			name:       "root",
-			token:      token(azureeventhubs.DefaultKeyName, azureeventhubs.DefaultKeyValue, future, "res"),
+			token:      token(azureeventhubs.DefaultKeyName, azureeventhubs.DefaultKeyValue, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen", "Send", "Manage"},
 		},
 		{
 			name:       "listen rule",
-			token:      token("listen", rule.PrimaryKey, future, "res"),
+			token:      token("listen", rule.PrimaryKey, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen"},
 		},
 		{
 			name:       "secondary key",
-			token:      token("listen", rule.SecondaryKey, future, "res"),
+			token:      token("listen", rule.SecondaryKey, future, nsAudience),
 			wantOK:     true,
 			wantRights: []string{"Listen"},
 		},
-		{name: "expired", token: token("listen", rule.PrimaryKey, past, "res")},
-		{name: "wrong key", token: token("listen", azureeventhubs.DefaultKeyValue, future, "res")},
-		{name: "unknown rule", token: token("ghost", rule.PrimaryKey, future, "res")},
+		{name: "expired", token: token("listen", rule.PrimaryKey, past, nsAudience)},
+		{name: "wrong key", token: token("listen", azureeventhubs.DefaultKeyValue, future, nsAudience)},
+		{name: "unknown rule", token: token("ghost", rule.PrimaryKey, future, nsAudience)},
 		{name: "garbage", token: "SharedAccessSignature nonsense"},
 		{name: "oversized", token: "SharedAccessSignature " + string(make([]byte, 10000))},
 	}
@@ -505,4 +511,119 @@ func TestClaimRights(t *testing.T) {
 	}
 }
 
+func TestClaimAudienceScope(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t, azureeventhubs.HubConfig{})
+	_, err := b.CreateHub(azureeventhubs.HubRef{Namespace: testNS, Hub: "other"}, azureeventhubs.HubConfig{})
+	require.NoError(t, err)
+
+	hubRule, err := b.PutRule(testNS, testHub, "hubsend", []string{azureeventhubs.RightSend})
+	require.NoError(t, err)
+
+	token := func(key string, expiry int64, resource string) string {
+		sig := azureeventhubs.SignSAS(resource, expiry, key)
+
+		return "SharedAccessSignature sr=" + resource + "&sig=" + urlEscape(sig) +
+			"&se=" + strconv.FormatInt(expiry, 10) + "&skn=hubsend"
+	}
+
+	future := time.Now().Add(time.Hour).Unix()
+	hubRes := "sb%3A%2F%2Fehns.servicebus.windows.net%2F" + testHub
+	otherRes := "sb%3A%2F%2Fehns.servicebus.windows.net%2Fother"
+
+	tests := []struct {
+		name         string
+		token        string
+		wantAudience string
+		wantOK       bool
+	}{
+		{name: "own hub", token: token(hubRule.PrimaryKey, future, hubRes), wantOK: true, wantAudience: testHub},
+		{name: "other hub", token: token(hubRule.PrimaryKey, future, otherRes)},
+		{name: "namespace audience", token: token(hubRule.PrimaryKey, future, nsAudience)},
+		{name: "opaque audience", token: token(hubRule.PrimaryKey, future, "res")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			aud, ok := azureeventhubs.ClaimAudience(b, tt.token)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantAudience, aud)
+		})
+	}
+}
+
 func urlEscape(s string) string { return url.QueryEscape(s) }
+
+func TestRegenerateRuleKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		hub     string
+		keyType string
+		key     string
+		wantErr bool
+		primary bool
+	}{
+		{name: "primary random", keyType: azureeventhubs.KeyTypePrimary, primary: true},
+		{name: "secondary random", keyType: azureeventhubs.KeyTypeSecondary},
+		{name: "primary explicit", keyType: azureeventhubs.KeyTypePrimary, key: "chosen", primary: true},
+		{name: "hub scoped", hub: testHub, keyType: azureeventhubs.KeyTypePrimary, primary: true},
+		{name: "bad type", keyType: "Primary", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t, azureeventhubs.HubConfig{})
+			before, err := b.PutRule(testNS, tt.hub, "rule", []string{azureeventhubs.RightListen})
+			require.NoError(t, err)
+
+			after, err := b.RegenerateRuleKey(testNS, tt.hub, "rule", tt.keyType, tt.key)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			replaced, fresh, kept := before.PrimaryKey, after.PrimaryKey, after.SecondaryKey
+			if !tt.primary {
+				replaced, fresh, kept = before.SecondaryKey, after.SecondaryKey, after.PrimaryKey
+			}
+
+			assert.NotEqual(t, replaced, fresh)
+
+			if tt.key != "" {
+				assert.Equal(t, tt.key, fresh)
+			}
+
+			exp := time.Now().Add(time.Hour).Unix()
+			audience := nsAudience + tt.hub
+			token := func(key string) string {
+				sig := azureeventhubs.SignSAS(audience, exp, key)
+
+				return "SharedAccessSignature sr=" + audience + "&sig=" + urlEscape(sig) + "&se=" +
+					strconv.FormatInt(exp, 10) + "&skn=rule"
+			}
+
+			_, ok := azureeventhubs.ClaimRights(b, token(replaced))
+			assert.False(t, ok, "the replaced key stops validating")
+
+			_, ok = azureeventhubs.ClaimRights(b, token(fresh))
+			assert.True(t, ok, "the new key validates")
+
+			_, ok = azureeventhubs.ClaimRights(b, token(kept))
+			assert.True(t, ok, "the other key keeps validating")
+		})
+	}
+
+	b := newBackend(t, azureeventhubs.HubConfig{})
+	_, err := b.RegenerateRuleKey(testNS, "", "missing", azureeventhubs.KeyTypePrimary, "")
+	require.ErrorIs(t, err, azureeventhubs.ErrRuleNotFound)
+}

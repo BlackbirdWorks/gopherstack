@@ -13,13 +13,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	agentcoredataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 	agentcorebackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
-var errAgentCoreNoSecrets = errors.New("secrets manager is not wired")
+var (
+	errAgentCoreNoSecrets = errors.New("secrets manager is not wired")
+	errAgentCoreNoLambda  = errors.New("lambda is not wired")
+)
 
 const (
 	maxAgentCoreObjectBytes = 64 << 20
@@ -180,4 +184,45 @@ func wireAgentCore(byName map[string]service.Registerable) {
 	if dp, found := byName["BedrockAgentCore"].(*agentcoredataplane.Handler); found {
 		dp.Backend.SetControl(h.Backend.DataPlane())
 	}
+}
+
+var _ agentcorebackend.LambdaInvoker = agentCoreRefs{}
+
+// InvokeLambda runs the function synchronously with the gateway client context.
+func (r agentCoreRefs) InvokeLambda(
+	ctx context.Context, functionARN, clientContext string, payload []byte,
+) ([]byte, string, error) {
+	parts := strings.Split(functionARN, ":")
+	if r.lambda == nil || len(parts) < arnResourceFields {
+		return nil, "", errAgentCoreNoLambda
+	}
+
+	qi, ok := r.lambda.BackendFor(parts[3]).(lambdabackend.QualifierInvoker)
+	if !ok {
+		return nil, "", errAgentCoreNoLambda
+	}
+
+	ctx = awsmeta.Set(ctx, &awsmeta.Metadata{Account: parts[4], Region: parts[3], Partition: awsmeta.DefaultPartition})
+
+	out, _, fnErr, _, err := qi.InvokeFunctionWithQualifier(
+		ctx, parts[6], "", clientContext, "", lambdabackend.InvocationTypeRequestResponse, payload)
+	if err != nil {
+		return nil, "", fmt.Errorf("invoke %s: %w", functionARN, err)
+	}
+
+	return out, fnErr, nil
+}
+
+// wireAgentCoreAuth lets gateway authorizers verify Cognito-issued JWTs and AWS_IAM signatures.
+func wireAgentCoreAuth(byName map[string]service.Registerable, sigV4Secret string) {
+	h, ok := byName["BedrockAgentCoreControl"].(*agentcorebackend.Handler)
+	if !ok {
+		return
+	}
+
+	if cognito, found := byName["CognitoIDP"].(*cognitoidpbackend.Handler); found {
+		h.Backend.SetJWKSProvider(cognito)
+	}
+
+	h.Backend.SetSigV4Secret(sigV4Secret)
 }

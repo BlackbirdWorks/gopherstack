@@ -1,0 +1,134 @@
+{
+  "Parameters": {
+    "BMT": {
+      "Default": "image~1jpeg",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "ExplicitApiDefinitionBody": {
+      "Properties": {
+        "BinaryMediaTypes": [
+          "image~1jpeg",
+          "image~1jpg",
+          {
+            "Fn::Join": [
+              "~1",
+              [
+                "image",
+                "png"
+              ]
+            ]
+          },
+          "application~1json"
+        ],
+        "Body": {
+          "paths": {},
+          "swagger": "2.0",
+          "x-amazon-apigateway-binary-media-types": [
+            "image/jpeg",
+            "image/jpg",
+            {
+              "Fn::Join": [
+                "/",
+                [
+                  "image",
+                  "png"
+                ]
+              ]
+            },
+            "application/json"
+          ]
+        }
+      },
+      "Type": "AWS::ApiGateway::RestApi"
+    },
+    "ExplicitApiDefinitionBodyDeployment1f26996adb": {
+      "Properties": {
+        "Description": "RestApi deployment id: 1f26996adbe5077359ecb2bb0688a9cc0ae8e4fc",
+        "RestApiId": {
+          "Ref": "ExplicitApiDefinitionBody"
+        },
+        "StageName": "Stage"
+      },
+      "Type": "AWS::ApiGateway::Deployment"
+    },
+    "ExplicitApiDefinitionBodyProdStage": {
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "ExplicitApiDefinitionBodyDeployment1f26996adb"
+        },
+        "RestApiId": {
+          "Ref": "ExplicitApiDefinitionBody"
+        },
+        "StageName": "Prod"
+      },
+      "Type": "AWS::ApiGateway::Stage"
+    },
+    "ExplicitApiManagedSwagger": {
+      "Properties": {
+        "BinaryMediaTypes": [
+          "image~1jpeg",
+          "image~1jpg",
+          {
+            "Fn::Join": [
+              "~1",
+              [
+                "image",
+                "png"
+              ]
+            ]
+          },
+          "image~1gif"
+        ],
+        "Body": {
+          "info": {
+            "title": {
+              "Ref": "AWS::StackName"
+            },
+            "version": "1.0"
+          },
+          "paths": {},
+          "swagger": "2.0",
+          "x-amazon-apigateway-binary-media-types": [
+            "image/jpeg",
+            "image/jpg",
+            {
+              "Fn::Join": [
+                "/",
+                [
+                  "image",
+                  "png"
+                ]
+              ]
+            },
+            "image/gif"
+          ]
+        }
+      },
+      "Type": "AWS::ApiGateway::RestApi"
+    },
+    "ExplicitApiManagedSwaggerDeploymentfe9c2c09a2": {
+      "Properties": {
+        "Description": "RestApi deployment id: fe9c2c09a27ce00c2fa53d5a491cf343e6a3278e",
+        "RestApiId": {
+          "Ref": "ExplicitApiManagedSwagger"
+        },
+        "StageName": "Stage"
+      },
+      "Type": "AWS::ApiGateway::Deployment"
+    },
+    "ExplicitApiManagedSwaggerProdStage": {
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "ExplicitApiManagedSwaggerDeploymentfe9c2c09a2"
+        },
+        "RestApiId": {
+          "Ref": "ExplicitApiManagedSwagger"
+        },
+        "StageName": "Prod"
+      },
+      "Type": "AWS::ApiGateway::Stage"
+    }
+  }
+}

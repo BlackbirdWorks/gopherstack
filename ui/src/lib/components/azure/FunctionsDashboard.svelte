@@ -4,11 +4,15 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Tabs from '#lib/components/Tabs.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
-	import { attempt, copyText, GCP_MINI } from '#lib/gcp-action.ts';
+	import { attempt, copyText, GCP_INPUT, GCP_MINI, GCP_PRIMARY } from '#lib/gcp-action.ts';
 	import { describeGcpError } from '#lib/gcprest.ts';
 	import {
 		appAction,
 		deleteFunctionApp,
+		describePlan,
+		invokeAppFunction,
+		listHostKeys,
+		revealHostKey,
 		listAppFunctions,
 		listDeployments,
 		listFunctionApps,
@@ -18,12 +22,15 @@
 		type AppFunction,
 		type AppSetting,
 		type Deployment,
+		type HostKey,
+		type InvokeOutput,
 		type FunctionApp
 	} from '#lib/azurefunctions.ts';
 
 	const TABS = [
 		{ id: 'settings', label: 'App settings' },
 		{ id: 'functions', label: 'Functions' },
+		{ id: 'keys', label: 'Host keys' },
 		{ id: 'deployments', label: 'Deployments' }
 	];
 
@@ -36,6 +43,16 @@
 	let revealed = $state<Record<string, string>>({});
 	let functions = $state<AppFunction[]>([]);
 	let deployments = $state<Deployment[]>([]);
+	let keys = $state<HostKey[]>([]);
+	let revealedKeys = $state<Record<string, string>>({});
+	let invokeFn = $state('');
+	let invokeMethod = $state('GET');
+	let invokeQuery = $state('');
+	let invokeBody = $state('');
+	let invokeType = $state('application/json');
+	let invoking = $state(false);
+	let invokeError = $state('');
+	let invokeResult = $state<InvokeOutput | null>(null);
 	let childLoading = $state(false);
 	let childError = $state('');
 
@@ -56,13 +73,18 @@
 		childLoading = true;
 		childError = '';
 		revealed = {};
+		revealedKeys = {};
+		invokeFn = '';
+		invokeResult = null;
+		invokeError = '';
 		try {
-			[settings, functions, deployments] = await Promise.all([listSettings(selected), listAppFunctions(selected), listDeployments(selected)]);
+			[settings, functions, deployments, keys] = await Promise.all([listSettings(selected), listAppFunctions(selected), listDeployments(selected), listHostKeys(selected)]);
 		} catch (e) {
 			childError = describeGcpError(e);
 			settings = [];
 			functions = [];
 			deployments = [];
+			keys = [];
 		} finally {
 			childLoading = false;
 		}
@@ -94,6 +116,35 @@
 			revealed = { ...revealed, [name]: await revealSetting(selected, name) };
 		} catch (e) {
 			childError = describeGcpError(e);
+		}
+	}
+
+	const keyId = (k: HostKey) => `${k.kind}/${k.name}`;
+
+	async function toggleKey(k: HostKey) {
+		const id = keyId(k);
+		if (id in revealedKeys) {
+			const { [id]: _drop, ...rest } = revealedKeys;
+			revealedKeys = rest;
+			return;
+		}
+		try {
+			revealedKeys = { ...revealedKeys, [id]: await revealHostKey(selected, k) };
+		} catch (e) {
+			childError = describeGcpError(e);
+		}
+	}
+
+	async function runInvoke() {
+		invoking = true;
+		invokeError = '';
+		try {
+			invokeResult = await invokeAppFunction(selected, { function: invokeFn, method: invokeMethod, query: invokeQuery, body: invokeBody, contentType: invokeType });
+		} catch (e) {
+			invokeResult = null;
+			invokeError = describeGcpError(e);
+		} finally {
+			invoking = false;
 		}
 	}
 
@@ -129,8 +180,9 @@
 					{#each apps as app (app.id)}
 						<tr class={selected === app.name ? 'bg-teal-50/60 dark:bg-teal-950/20' : ''} data-testid="functions-app">
 							<td class="{cell} font-mono text-xs"><button class="underline decoration-dotted" onclick={() => open(app.name)} data-testid="functions-select">{app.name}</button></td>
-							<td class={cell}><span class="rounded-full px-2 py-0.5 text-xs {pill(app.state)}" data-testid="functions-state">{app.state}</span></td>
-							<td class="{cell} text-xs">{app.plan || '—'}{app.planSku ? ` (${app.planSku})` : ''}</td>
+							<td class={cell}><span class="rounded-full px-2 py-0.5 text-xs {pill(app.state)}" data-testid="functions-state">{app.state}</span>
+								{#if app.failure}<p class="mt-1 max-w-xs text-xs text-amber-700 dark:text-amber-400" data-testid="functions-host-failure">Host not running: {app.failure}</p>{/if}</td>
+							<td class="{cell} text-xs">{describePlan(app.plan, app.planSku) || '—'}</td>
 							<td class="{cell} text-xs">{app.runtimeStack || '—'}</td>
 							<td class="{cell} font-mono text-xs break-all">{app.hostName || '—'}</td>
 							<td class="{cell} text-right whitespace-nowrap space-x-1">
@@ -185,7 +237,7 @@
 						<p class="py-6 text-center text-gray-500 dark:text-gray-400" data-testid="functions-fn-empty">No functions. Deploy a package to this app.</p>
 					{:else}
 						<table class="w-full text-sm" data-testid="functions-fns">
-							<thead class="text-left text-gray-500 dark:text-gray-400"><tr><th class={cell}>Function</th><th class={cell}>Trigger</th><th class={cell}>Auth level</th><th class={cell}>Invoke URL</th></tr></thead>
+							<thead class="text-left text-gray-500 dark:text-gray-400"><tr><th class={cell}>Function</th><th class={cell}>Trigger</th><th class={cell}>Auth level</th><th class={cell}>Invoke URL</th><th class={cell}></th></tr></thead>
 							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 								{#each functions as f (f.name)}
 									<tr data-testid="functions-fn">
@@ -193,11 +245,53 @@
 										<td class="{cell} text-xs">{f.triggerType || '—'}</td>
 										<td class="{cell} text-xs">{f.authLevel || '—'}</td>
 										<td class="{cell} font-mono text-xs break-all">{f.invokeUrl || '—'}</td>
+										<td class="{cell} text-right">
+											{#if f.invokeUrl}<button class={GCP_MINI} onclick={() => { invokeFn = f.name; invokeResult = null; invokeError = ''; }} data-testid="functions-invoke-open">Invoke</button>{/if}
+										</td>
 									</tr>
 								{/each}
 							</tbody>
 						</table>
+						{#if invokeFn}
+							<div class="space-y-2 rounded-md border border-gray-200 p-3 dark:border-gray-700" data-testid="functions-invoke">
+								<h4 class="font-semibold text-gray-700 dark:text-gray-300">Invoke {invokeFn}</h4>
+								<div class="flex flex-wrap gap-2">
+									<select class="{GCP_INPUT} w-28" bind:value={invokeMethod} aria-label="Method" data-testid="functions-invoke-method">
+										{#each ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as m (m)}<option>{m}</option>{/each}
+									</select>
+									<input class="{GCP_INPUT} flex-1 font-mono" bind:value={invokeQuery} placeholder="Query string, e.g. name=gopher" aria-label="Query string" data-testid="functions-invoke-query" />
+									<input class="{GCP_INPUT} w-48 font-mono" bind:value={invokeType} aria-label="Content type" />
+									<button class={GCP_PRIMARY} disabled={invoking} onclick={runInvoke} data-testid="functions-invoke-run">{invoking ? 'Calling…' : 'Invoke'}</button>
+								</div>
+								<textarea class="{GCP_INPUT} h-20 w-full font-mono text-xs" bind:value={invokeBody} placeholder="Request body" aria-label="Request body" data-testid="functions-invoke-body"></textarea>
+								{#if invokeError}<p class="text-red-600 dark:text-red-400" role="alert" data-testid="functions-invoke-error">{invokeError}</p>{/if}
+								{#if invokeResult}
+									<div data-testid="functions-invoke-result">
+										<p class="font-mono font-semibold" data-testid="functions-invoke-status">{invokeResult.status}</p>
+										<pre class="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-all font-mono text-xs" data-testid="functions-invoke-response">{invokeResult.body}</pre>
+									</div>
+								{/if}
+							</div>
+						{/if}
 					{/if}
+				{:else if tab === 'keys'}
+					<table class="w-full text-sm" data-testid="functions-keys">
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each keys as k (keyId(k))}
+								<tr data-testid="functions-key">
+									<td class="{cell} text-xs">{k.kind === 'masterKey' ? 'Master' : k.kind === 'systemKeys' ? 'System' : 'Host'}</td>
+									<td class="{cell} font-mono text-xs">{k.name}</td>
+									<td class="{cell} font-mono text-xs break-all" data-testid="functions-key-value">{keyId(k) in revealedKeys ? revealedKeys[keyId(k)] : k.value}</td>
+									<td class="{cell} text-right whitespace-nowrap space-x-1">
+										<button class={GCP_MINI} onclick={() => toggleKey(k)} aria-label="{keyId(k) in revealedKeys ? 'Hide' : 'Reveal'} key {k.name}" data-testid="functions-key-reveal">
+											{#if keyId(k) in revealedKeys}<EyeOff class="inline h-3.5 w-3.5" />{:else}<Eye class="inline h-3.5 w-3.5" />{/if}
+										</button>
+										{#if keyId(k) in revealedKeys}<button class={GCP_MINI} onclick={() => copyText(revealedKeys[keyId(k)])}>Copy</button>{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
 				{:else if deployments.length === 0}
 					<p class="py-6 text-center text-gray-500 dark:text-gray-400" data-testid="functions-dep-empty">No deployments</p>
 				{:else}

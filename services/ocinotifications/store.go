@@ -14,6 +14,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -44,6 +46,9 @@ type InMemoryBackend struct {
 	topics     map[string]*Topic
 	subs       map[string]*Subscription
 	deliveries map[string]*Delivery
+	published  map[string][]time.Time
+	retry      *ociretry.Store
+	tagLookup  ocitags.Lookup
 	Auth       *ociauth.Registry
 	transition time.Duration
 	seq        int64
@@ -63,7 +68,26 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.topics, b.subs, b.deliveries = map[string]*Topic{}, map[string]*Subscription{}, map[string]*Delivery{}
+	b.published = map[string][]time.Time{}
+	b.retry = ociretry.New()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 // SetClock injects the time source used for lifecycle transitions and delivery retries.
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
@@ -191,6 +215,7 @@ func (b *InMemoryBackend) sweepLocked() {
 			t.State = stateActive
 		case stateDeleting:
 			delete(b.topics, id)
+			delete(b.published, id)
 			b.dropTopicChildren(id)
 		}
 	}

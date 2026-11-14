@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
@@ -89,6 +90,10 @@ type acaRuntime struct {
 	mu        *lockmetrics.RWMutex
 	pools     map[string]*acaPool
 	failures  map[string]string
+	timer     gcpscale.Timer
+	gen       uint64
+	busy      atomic.Bool
+	stopped   bool
 }
 
 func newACARuntime(engine *ACIEngine) *acaRuntime {
@@ -267,6 +272,8 @@ func (rt *acaRuntime) closeRevisions(keys []string) {
 }
 
 func (rt *acaRuntime) closeAll() {
+	rt.disarm()
+
 	rt.mu.RLock("closeAll")
 	keys := make([]string, 0, len(rt.pools))
 
@@ -326,8 +333,10 @@ func (s *acaRevSpec) replicaProps(replica string) aciPropsWire {
 		env := append([]aciEnvWire(nil), c.Properties.EnvironmentVariables...)
 
 		for _, kv := range [][2]string{
-			{"CONTAINER_APP_NAME", s.App}, {"CONTAINER_APP_REVISION", s.Revision},
-			{"CONTAINER_APP_REPLICA_NAME", replica}, {"CONTAINER_APP_HOSTNAME", s.Revision + "." + s.Domain},
+			{"CONTAINER_APP_NAME", s.App},
+			{"CONTAINER_APP_REVISION", s.Revision},
+			{"CONTAINER_APP_REPLICA_NAME", replica},
+			{"CONTAINER_APP_HOSTNAME", s.Revision + "." + s.Domain},
 			{"CONTAINER_APP_ENV_DNS_SUFFIX", s.Domain},
 		} {
 			env = append(env, aciEnvWire{Name: kv[0], Value: new(kv[1])})

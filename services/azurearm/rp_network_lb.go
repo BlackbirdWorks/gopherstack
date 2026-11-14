@@ -633,6 +633,8 @@ func (p *NetworkProvider) checkLBKidDelete(lb *netParent, kt string, id Resource
 		for _, k := range []string{lbRules, lbNATRules, lbNATPools, lbOutbound} {
 			users = append(users, refsTo(lb.Kids[k], k, lb.armID(), propFrontendIP, self)...)
 		}
+
+		users = append(users, p.plsUsingFrontend(self)...)
 	case lbProbes:
 		users = refsTo(lb.Kids[lbRules], lbRules, lb.armID(), "probe", self)
 	}

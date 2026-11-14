@@ -27,6 +27,9 @@ const (
 	// sa password never appears on an exec command line. -x stops sqlcmd expanding $(...) in the text.
 	sqlcmdScript = `exec /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" ` +
 		`-C -b -x -h -1 -W -Q "$1"`
+	// queryScript is sqlcmd with a header row and a unit-separator column delimiter for result parsing.
+	queryScript = `exec /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" ` +
+		`-C -b -x -W -t 15 -s "$(printf '\037')" -Q "$1"`
 )
 
 type containerRuntime interface {
@@ -207,6 +210,22 @@ func (e *dockerEngine) run(ctx context.Context, text string) (string, error) {
 
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("%w: sqlcmd exit %d: %s", ErrInvalid, res.ExitCode, trimOutput(res.Stdout+res.Stderr))
+	}
+
+	return res.Stdout, nil
+}
+
+func (e *dockerEngine) runQuery(ctx context.Context, text string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, execTimeout)
+	defer cancel()
+
+	res, err := e.rt.Exec(ctx, e.container(), []string{"sh", "-c", queryScript, "sh", text})
+	if err != nil {
+		return "", fmt.Errorf("sqlcmd exec: %w", err)
+	}
+
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("%w: %s", ErrInvalid, trimOutput(res.Stdout+res.Stderr))
 	}
 
 	return res.Stdout, nil

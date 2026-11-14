@@ -35,8 +35,8 @@ func (w *lineWriter) flush() {
 }
 
 // execLogged runs a script and logs its output, line by line when the runtime can stream.
-func (r *buildRunner) execLogged(script string) (string, int, error) {
-	cmd := shellInvocation(script)
+func (r *buildRunner) execLogged(script, user string) (string, int, error) {
+	cmd := shellInvocation(script, r.spec.linuxShell(), user)
 
 	if se, ok := r.rt.(container.StreamExecer); ok {
 		lw := &lineWriter{ctx: r.ctx, log: r.log}

@@ -10,6 +10,7 @@ const idSuffixLen = 10
 
 type createSignatureIn struct {
 	Tags
+	RetryToken       string `json:"-"`
 	CompartmentID    string `json:"compartmentId"`
 	ImageID          string `json:"imageId"`
 	KmsKeyID         string `json:"kmsKeyId"`
@@ -83,7 +84,16 @@ func (b *InMemoryBackend) CreateContainerImageSignature(
 	b.mu.Lock("CreateContainerImageSignature")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateContainerImageSignature", in.RetryToken, b.nowUTC()); ok {
+		s, live := b.sigs[id]
+		if !live {
+			return signatureWire{}, "", errInvalidatedToken()
+		}
+
+		return s.view(), s.Etag, nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return signatureWire{}, "", err
 	}
 
@@ -94,7 +104,7 @@ func (b *InMemoryBackend) CreateContainerImageSignature(
 	for _, s := range b.sigs {
 		if s.ImageID == in.ImageID && s.KmsKeyID == in.KmsKeyID && s.KmsKeyVersionID == in.KmsKeyVersionID &&
 			s.Algorithm == in.SigningAlgorithm && s.Signature == in.Signature && s.Message == in.Message {
-			return signatureWire{}, "", errConflict("The image already has an identical signature")
+			return signatureWire{}, "", errExists("The image already has an identical signature")
 		}
 	}
 
@@ -105,6 +115,7 @@ func (b *InMemoryBackend) CreateContainerImageSignature(
 		Seq: b.nextSeq(), Tags: in.Tags,
 	}
 	b.sigs[s.ID] = s
+	b.retry.Remember("CreateContainerImageSignature", in.RetryToken, s.ID, s.TimeCreated)
 
 	return s.view(), s.Etag, nil
 }
@@ -219,7 +230,7 @@ func (b *InMemoryBackend) UpdateContainerImageSignature(
 		return signatureWire{}, "", err
 	}
 
-	if err = checkEtag(s.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(s.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return signatureWire{}, "", err
 	}
 

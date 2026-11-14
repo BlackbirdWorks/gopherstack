@@ -26,6 +26,7 @@ const (
 	linkTypePath     = "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
 	dnsZoneTypePath  = "Microsoft.Network/privateDnsZones"
 	dnsCodeBad       = "BadRequest"
+	dnsCodeConflict  = "Conflict"
 	dnsAAAA          = "AAAA"
 	dnsPTR           = "PTR"
 	dnsSRV           = "SRV"

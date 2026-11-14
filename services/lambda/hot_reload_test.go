@@ -17,7 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -49,14 +49,13 @@ func (m *bindRecordingAPI) created() [][]string {
 	return append([][]string(nil), m.binds...)
 }
 
-func newHotReloadBackend(t *testing.T, rangeStart int, s lambda.Settings) (*lambda.InMemoryBackend, *bindRecordingAPI) {
+func newHotReloadBackend(t *testing.T, s lambda.Settings) (*lambda.InMemoryBackend, *bindRecordingAPI) {
 	t.Helper()
 
 	api := &bindRecordingAPI{mockDockerAPI: &mockDockerAPI{}}
 	dc := gophercontainer.NewDockerRuntimeWithAPI(api, gophercontainer.Config{PoolSize: 3, IdleTimeout: time.Minute})
 
-	pa, err := portalloc.New(rangeStart, rangeStart+20)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 50)
 
 	return closeBackend(t, lambda.NewInMemoryBackend(dc, pa, s, "000000000000", "us-east-1")), api
 }
@@ -79,18 +78,15 @@ func TestHotReload_RecyclesRuntimeOnChange(t *testing.T) {
 	tests := []struct {
 		mutate         func(t *testing.T, dir string)
 		name           string
-		portStart      int
 		wantContainers int
 	}{
 		{
 			name:           "unchanged_reuses_container",
-			portStart:      22000,
 			mutate:         func(*testing.T, string) {},
 			wantContainers: 1,
 		},
 		{
-			name:      "edited_file_recycles",
-			portStart: 22030,
+			name: "edited_file_recycles",
 			mutate: func(t *testing.T, dir string) {
 				t.Helper()
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "index.py"), []byte("v2 changed"), 0o600))
@@ -98,8 +94,7 @@ func TestHotReload_RecyclesRuntimeOnChange(t *testing.T) {
 			wantContainers: 2,
 		},
 		{
-			name:      "new_file_recycles",
-			portStart: 22060,
+			name: "new_file_recycles",
 			mutate: func(t *testing.T, dir string) {
 				t.Helper()
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "helper.py"), []byte("x"), 0o600))
@@ -117,7 +112,7 @@ func TestHotReload_RecyclesRuntimeOnChange(t *testing.T) {
 
 			s := lambda.DefaultSettings()
 			s.HotReloadIntervalMS = 0
-			bk, api := newHotReloadBackend(t, tt.portStart, s)
+			bk, api := newHotReloadBackend(t, s)
 
 			require.NoError(t, bk.CreateFunction(hotReloadFn("hot-fn", dir)))
 
@@ -147,7 +142,7 @@ func TestHotReload_ScanIntervalBoundsChecks(t *testing.T) {
 	s := lambda.DefaultSettings()
 	s.HotReloadIntervalMS = 3_600_000
 
-	bk, api := newHotReloadBackend(t, 19600, s)
+	bk, api := newHotReloadBackend(t, s)
 	require.NoError(t, bk.CreateFunction(hotReloadFn("hot-fn", dir)))
 
 	for range 2 {
@@ -387,7 +382,7 @@ func TestHotReload_SymlinkResolvedAndMounted(t *testing.T) {
 	want, err := filepath.EvalSymlinks(target)
 	require.NoError(t, err)
 
-	bk, api := newHotReloadBackend(t, 19700, lambda.DefaultSettings())
+	bk, api := newHotReloadBackend(t, lambda.DefaultSettings())
 	require.NoError(t, bk.CreateFunction(hotReloadFn("sym-fn", link)))
 
 	_, _, err = bk.InvokeFunction(t.Context(), "sym-fn", lambda.InvocationTypeEvent, []byte(`{}`))
@@ -405,7 +400,7 @@ func TestHotReload_SocketAppearingAfterStartFailsInvoke(t *testing.T) {
 	s := lambda.DefaultSettings()
 	s.HotReloadIntervalMS = 0
 
-	bk, api := newHotReloadBackend(t, 19730, s)
+	bk, api := newHotReloadBackend(t, s)
 	require.NoError(t, bk.CreateFunction(hotReloadFn("sock-fn", dir)))
 
 	_, _, err := bk.InvokeFunction(t.Context(), "sock-fn", lambda.InvocationTypeEvent, []byte(`{}`))

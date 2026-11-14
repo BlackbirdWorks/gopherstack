@@ -3,7 +3,6 @@ package transcribe
 import (
 	"fmt"
 	"sort"
-	"time"
 )
 
 // maxVocabularyFilterWords is the maximum number of words in a vocabulary filter.
@@ -56,7 +55,7 @@ func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*Voca
 		)
 	}
 
-	now := time.Now()
+	now := b.now()
 	f := *input
 	f.LastModifiedTime = now
 	b.vocabularyFilters.Put(&f)
@@ -128,7 +127,7 @@ func (b *InMemoryBackend) UpdateVocabularyFilter(
 	f.Words, f.VocabularyFilterFileURI = applyListOrURI(
 		input.Words, input.VocabularyFilterFileURI, f.Words, f.VocabularyFilterFileURI,
 	)
-	f.LastModifiedTime = time.Now()
+	f.LastModifiedTime = b.now()
 
 	cp := *f
 

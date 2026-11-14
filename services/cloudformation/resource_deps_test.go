@@ -352,13 +352,19 @@ func TestDeleteStack_ResourceDependencyInference_EndToEnd(t *testing.T) {
 	vpcID := outputs["VpcId"]
 	require.NotEmpty(t, vpcID)
 
-	_, err := client.DeleteStack(t.Context(), &cfnsdk.DeleteStackInput{
+	live, err := client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{
+		StackName: aws.String("dep-inference-delete-stack"),
+	})
+	require.NoError(t, err)
+	require.Len(t, live.Stacks, 1)
+
+	_, err = client.DeleteStack(t.Context(), &cfnsdk.DeleteStackInput{
 		StackName: aws.String("dep-inference-delete-stack"),
 	})
 	require.NoError(t, err)
 
 	desc, err := client.DescribeStacks(t.Context(), &cfnsdk.DescribeStacksInput{
-		StackName: aws.String("dep-inference-delete-stack"),
+		StackName: live.Stacks[0].StackId,
 	})
 	require.NoError(t, err)
 	require.Len(t, desc.Stacks, 1)

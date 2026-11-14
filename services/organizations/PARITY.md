@@ -148,7 +148,7 @@ families:
   id_formats: {status: ok, note: "12-digit account IDs, ou- root- p- h- o- prefixes match AWS patterns"}
   timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit. RE-VERIFIED 2026-08-29 (dedicated timestamp-encoding pattern hunt): protocol confirmed JSON-RPC 1.1 (awsAwsjson11_* serializer prefix, organizations@v1.53.5); all 12 *time.Time members across the whole SDK package (Account.JoinedTimestamp, CreateAccountStatus.{Completed,Requested}Timestamp, DelegatedAdministrator.{DelegationEnabledDate,JoinedTimestamp}, DelegatedService.DelegationEnabledDate, EffectivePolicy.LastUpdatedTimestamp, EnabledServicePrincipal.DateEnabled, Handshake.{Expiration,Requested}Timestamp, ResponsibilityTransfer.{End,Start}Timestamp) confirmed against deserializers.go's smithytime.ParseEpochSeconds calls and gopherstack's float64 wire structs -- all correct, 12-of-12. Request-side StartTimestamp/EndTimestamp (InviteOrganizationToTransferResponsibility, TerminateResponsibilityTransfer) parsed via time.Unix(int64(req.Field), 0).UTC(), matching serializers.go's smithytime.FormatEpochSeconds encoding -- also correct. ListEffectivePolicyValidationErrorsOutput.EvaluationTimestamp (a 13th member, Output-struct-only, not in types.go) is never emitted -- correctly ABSENT, not this pass's scope: the op always returns an empty EffectivePolicyValidationErrors list (no validation engine modeled) and there is no genuine 'last evaluated' instant to report without fabricating one."}
 gaps: []
-items_still_open: []
+items_still_open:
 structural_gaps:
   - "Policy size limits use the AWS default per-type quotas; quota increases (e.g. SCP up to 20480) live in Service Quotas account state, which this repo does not emulate."
   - "ResponsibilityTransfer is originate-only (this account as Source): the Target-side Inbound view needs a second organization's backend, which a single-account emulator lacks."
@@ -159,6 +159,15 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 ---
 
 ## Notes
+
+### 2026-11-05 RESOURCE_CONTROL_POLICY end to end
+
+Authority: Organizations User Guide "Resource control policies (RCPs)", "RCP evaluation", "RCP syntax" and CreatePolicy API reference (error reasons INVALID_PRINCIPAL, NON_DETACHABLE_POLICY).
+
+- EnablePolicyType(RCP) creates the AWS managed `RCPFullAWSAccess` (Allow, Principal `*`, Action `*`, Resource `*`) and attaches it to the root, every OU and every account; new OUs/accounts get it while RCPs are enabled; it cannot be detached (InvalidInputException/NON_DETACHABLE_POLICY) nor edited/deleted; DisablePolicyType detaches all RCPs (as for SCPs).
+- CreatePolicy/UpdatePolicy RCP content is validated per "RCP syntax": Version 2012-10-17, Effect Deny only, Principal `*` only (INVALID_PRINCIPAL otherwise, also NotPrincipal), NotAction rejected, bare `*` Action rejected, each Action must name an RCP-supported service (documented prefix list, `iam.RCPSupportsService`), Resource xor NotResource; other violations -> MalformedPolicyDocumentException.
+- Policy ARNs now use the lowercase type segment (`policy/o-x/resource_control_policy/p-y`, `arn:aws:organizations::aws:policy/service_control_policy/p-FullAWSAccess`) as in the API reference examples.
+- `RCPsForAccount` / `OrgIDForAccount` feed IAM enforcement (see services/iam/PARITY.md). Tests: `rcp_test.go`, `internal/app/iam_rcp_test.go`.
 
 ### 2026-10-12 (deep realism pass)
 
@@ -660,3 +669,6 @@ Account drops RoleName/IamUserAccessToBilling and EffectivePolicy drops PolicyId
 - `SCPsForAccount` (scp.go) feeds services/iam enforcement; tests `scp_test.go`.
 - DetachPolicy refuses to remove the last SCP from a root/OU/account while SCPs are enabled: ConstraintViolationException, reason MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED (DetachPolicy API reference: "Every root, OU, and account must have at least one SCP attached"; the reason code appears in its ConstraintViolationException list).
 - Restore attaches FullAWSAccess to any root/OU/account with no SCP when SCPs are enabled, repairing snapshots from before default attachment (`TestRestoreMigratesMissingDefaultSCPs`).
+
+## Primary-source checks (2026-11-13)
+- organizations: orgs_reference_available-policies.html lists RCPFullAWSAccess as arn:aws:organizations::aws:policy/resource_control_policy/p-RCPFullAWSAccess with description 'Allows access to every resource' (description fixed); the policy is created when RCPs are first enabled rather than at organization creation (orgs_manage_policies_rcps_examples.html: attached when RCPs are enabled).

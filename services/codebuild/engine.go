@@ -66,6 +66,10 @@ type EngineServices struct {
 	Logs   LogSink
 	Repos  RepoSource
 	Values ValueResolver
+	// Credentials mints service-role credentials for builds; nil injects none.
+	Credentials CredentialIssuer
+	// Endpoint is the emulator URL as seen from build containers, injected as AWS_ENDPOINT_URL.
+	Endpoint string
 }
 
 // EngineConfig configures docker-backed builds.
@@ -139,6 +143,19 @@ func (b *InMemoryBackend) SetEngineServices(s EngineServices) {
 
 	eng.mu.Lock("SetEngineServices")
 	eng.services = s
+	eng.mu.Unlock()
+}
+
+// SetEngineRuntime sets the emulator endpoint and service-role credential issuer injected into builds.
+func (b *InMemoryBackend) SetEngineRuntime(endpoint string, issuer CredentialIssuer) {
+	eng := b.shareEngine()
+	if eng == nil {
+		return
+	}
+
+	eng.mu.Lock("SetEngineRuntime")
+	eng.services.Endpoint = endpoint
+	eng.services.Credentials = issuer
 	eng.mu.Unlock()
 }
 

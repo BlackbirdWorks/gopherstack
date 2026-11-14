@@ -83,6 +83,8 @@ func (b *InMemoryBackend) RunDue(ctx context.Context) int {
 		b.deadLetter(item)
 	}
 
+	b.retryDeadLetters()
+
 	return len(jobs)
 }
 

@@ -6,6 +6,7 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -55,12 +56,15 @@ type InMemoryBackend struct {
 	views      map[string]*loggingpb.LogView
 	sinks      map[string]*loggingpb.LogSink
 	exclusions map[string]*loggingpb.LogExclusion
+	links      map[string]*loggingpb.Link
 	metrics    map[string]*metricRec
 	settings   map[string]*loggingpb.Settings
 	cmek       map[string]*loggingpb.CmekSettings
+	keys       cmek.Checker
 	seeded     map[string]bool
 	filters    map[string]*filter
 	tails      *tailHub
+	observers  []EntryObserver
 	seq        uint64
 }
 
@@ -83,6 +87,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.views = make(map[string]*loggingpb.LogView)
 	b.sinks = make(map[string]*loggingpb.LogSink)
 	b.exclusions = make(map[string]*loggingpb.LogExclusion)
+	b.links = make(map[string]*loggingpb.Link)
 	b.metrics = make(map[string]*metricRec)
 	b.settings = make(map[string]*loggingpb.Settings)
 	b.cmek = make(map[string]*loggingpb.CmekSettings)

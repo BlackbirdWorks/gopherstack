@@ -97,6 +97,11 @@ func TestCompositeIndexEnforcement(t *testing.T) {
 			[]*adminpb.Index_IndexedProperty{prop("Priority", false)}, adminpb.Index_ALL_ANCESTORS, true,
 		},
 		{
+			datastore.NewQuery("Task").FilterField("Priority", ">", 1).FilterField("Score", "<", 5.0),
+			"inequalities on two properties",
+			[]*adminpb.Index_IndexedProperty{prop("Priority", false), prop("Score", false)}, adminpb.Index_NONE, true,
+		},
+		{
 			datastore.NewQuery("Task").Order("-__key__"),
 			"descending key",
 			[]*adminpb.Index_IndexedProperty{prop("__key__", true)}, adminpb.Index_NONE, true,

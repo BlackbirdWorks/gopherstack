@@ -189,7 +189,7 @@ func extractSQSTargetResourceARN(payload jsonTargetResourcePayload, region, acco
 		path := strings.TrimPrefix(payload.QueueURL, "http://")
 		path = strings.TrimPrefix(path, "https://")
 		if _, rest, found := strings.Cut(path, "/"); found {
-			return extractSQSResourceARN(rest, region, accountID)
+			return extractSQSResourceARN(rest, region)
 		}
 	}
 	if payload.QueueName != "" {
@@ -298,7 +298,15 @@ func extractFormResourceARN(r *http.Request) string {
 		return tArn
 	}
 
-	return values.Get("TargetArn")
+	if tArn := values.Get("TargetArn"); tArn != "" {
+		return tArn
+	}
+
+	if strings.HasPrefix(values.Get("Action"), "AssumeRole") {
+		return values.Get("RoleArn")
+	}
+
+	return ""
 }
 
 func extractURLQueryResourceARN(r *http.Request) string {
@@ -337,7 +345,7 @@ func extractPathBasedResourceARN(path, region, accountID string) string {
 	}
 
 	if looksLikeSQSPath(path, accountID) {
-		return extractSQSResourceARN(path, region, accountID)
+		return extractSQSResourceARN(path, region)
 	}
 
 	if fnName, ok := extractLambdaFunctionName(path); ok && fnName != "" {
@@ -395,13 +403,13 @@ func looksLikeSQSPath(path, accountID string) bool {
 }
 
 // extractSQSResourceARN extracts the SQS ARN from a path like {accountID}/{queueName}.
-func extractSQSResourceARN(path, region, accountID string) string {
-	queueName := strings.TrimPrefix(path, accountID+"/")
-	if queueName == "" || strings.Contains(queueName, "/") {
+func extractSQSResourceARN(path, region string) string {
+	account, queueName, found := strings.Cut(path, "/")
+	if !found || !isAccountID(account) || queueName == "" || strings.Contains(queueName, "/") {
 		return ""
 	}
 
-	return arn.Build("sqs", region, accountID, queueName)
+	return arn.Build("sqs", region, account, queueName)
 }
 
 // extractS3ResourceARN builds an S3 ARN from a path-style S3 URL path.

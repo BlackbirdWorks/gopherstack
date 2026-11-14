@@ -199,6 +199,10 @@ func (b *InMemoryBackend) CreateLink(ctx context.Context, in LinkInput) (*Link, 
 		}
 	}
 
+	if err = b.linkQuotaLocked(sink, s.account); err != nil {
+		return nil, err
+	}
+
 	id := uuid.NewString()
 	link := &Link{
 		ARN: linkARN(s, id), ID: id, Label: label, LabelTemplate: in.LabelTemplate, SinkARN: sink.ARN,
@@ -208,6 +212,40 @@ func (b *InMemoryBackend) CreateLink(ctx context.Context, in LinkInput) (*Link, 
 	b.links.Put(link)
 
 	return cloneLink(link), nil
+}
+
+// linkQuotaLocked enforces the CreateLink limits: a source account links to at most five monitoring accounts and a
+// monitoring account has at most 100,000 source accounts (API_CreateLink.html).
+func (b *InMemoryBackend) linkQuotaLocked(sink *Sink, source string) error {
+	monitors := map[string]struct{}{sink.Account: {}}
+	sources := map[string]struct{}{source: {}}
+
+	for _, l := range b.links.All() {
+		linked, ok := b.sinks.Get(l.SinkARN)
+		if !ok {
+			continue
+		}
+
+		if l.Account == source {
+			monitors[linked.Account] = struct{}{}
+		}
+
+		if linked.Account == sink.Account {
+			sources[l.Account] = struct{}{}
+		}
+	}
+
+	if len(monitors) > maxMonitoringAccountsPerSource {
+		return fail(ErrServiceQuotaExceeded,
+			"A source account can be linked to at most %d monitoring accounts", maxMonitoringAccountsPerSource)
+	}
+
+	if len(sources) > maxSourceAccountsPerMonitoring {
+		return fail(ErrServiceQuotaExceeded,
+			"A monitoring account can be linked to at most %d source accounts", maxSourceAccountsPerMonitoring)
+	}
+
+	return nil
 }
 
 // GetLink returns a link by ARN or ID.

@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-const runStatusManualTriggerFailure = "MANUAL_TRIGGER_FAILURE"
-
 var (
 	errTargetColumn = errors.New("column named in the target configuration is not in the query result")
 	errTimeColumn   = errors.New("time column value is not a timestamp")
@@ -18,51 +16,26 @@ var (
 // ExecuteScheduledQuery runs the scheduled query once for invocationTime ("@scheduled_runtime")
 // and ingests its result rows into the target table, recording the run outcome.
 func (b *InMemoryBackend) ExecuteScheduledQuery(ctx context.Context, arnStr string, invocationTime time.Time) error {
-	b.mu.RLock("ExecuteScheduledQuery")
-	found, err := b.lookupByARN(arnStr)
-	if err != nil {
-		b.mu.RUnlock()
+	return b.runScheduledOnce(ctx, arnStr, invocationTime, false)
+}
 
-		return err
-	}
-
-	sq := cloneScheduledQuery(found)
-	b.mu.RUnlock()
-
-	ctx = context.WithValue(ctx, regionContextKey{}, regionFromARN(arnStr, b.defaultRegion))
-	started := time.Now()
-	stats, runErr := b.runScheduledQuery(ctx, sq, invocationTime)
-	stats.ExecutionTimeInMillis = time.Since(started).Milliseconds()
-
-	b.mu.Lock("ExecuteScheduledQuery")
-	defer b.mu.Unlock()
-
-	cur, lookupErr := b.lookupByARN(arnStr)
-	if lookupErr != nil {
-		return nil
-	}
-
-	cur.LastRunTime = invocationTime
-	cur.LastRunStats = &stats
-	cur.LastRunStatus = runStatusManualTriggerSuccess
-	cur.LastRunFailure = ""
-
-	if runErr != nil {
-		cur.LastRunStatus = runStatusManualTriggerFailure
-		cur.LastRunFailure = runErr.Error()
-	}
-
-	return nil
+// runFailure describes why a scheduled run failed; recoverable failures produce an error report.
+type runFailure struct {
+	err         error
+	rejected    []SourceRecord
+	recoverable bool
 }
 
 func (b *InMemoryBackend) runScheduledQuery(
 	ctx context.Context, sq *ScheduledQuery, invocationTime time.Time,
-) (ExecutionStats, error) {
+) (ExecutionStats, *runFailure) {
 	var stats ExecutionStats
 
-	rs, err := b.execute(ctx, sq.QueryString, map[string]string{"@scheduled_runtime": formatTS(invocationTime.UTC())})
+	vars := map[string]string{"@scheduled_runtime": formatTS(invocationTime.UTC())}
+
+	rs, err := b.execute(ctx, sq.QueryString, vars, "")
 	if err != nil {
-		return stats, err
+		return stats, &runFailure{err: err}
 	}
 
 	stats.QueryResultRows = int64(len(rs.rows))
@@ -76,7 +49,7 @@ func (b *InMemoryBackend) runScheduledQuery(
 
 	recs, err := scheduledRecords(rs, sq.TargetDetail, invocationTime)
 	if err != nil {
-		return stats, err
+		return stats, &runFailure{err: err, recoverable: true}
 	}
 
 	if len(recs) == 0 {
@@ -85,7 +58,7 @@ func (b *InMemoryBackend) runScheduledQuery(
 
 	region := getRegion(ctx, b.defaultRegion)
 	if err = src.AppendRecords(region, sq.TargetDatabase, sq.TargetTable, recs); err != nil {
-		return stats, err
+		return stats, &runFailure{err: err, rejected: recs, recoverable: true}
 	}
 
 	stats.RecordsIngested = int64(len(recs))

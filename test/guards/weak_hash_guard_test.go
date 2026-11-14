@@ -19,12 +19,21 @@ import (
 // credential. See gopherstack-ziv9.
 func allowedWeakHashFiles() map[string]string {
 	return map[string]string{
+		// SAM's LogicalIdGenerator suffixes generated logical ids with a SHA-1 prefix; stable ids, never a credential.
+		"services/cloudformation/sam_hash.go": "SAM LogicalIdGenerator SHA-1 logical id suffix parity",
+		// SPARQL 1.1 defines MD5() and SHA1() as query builtins over caller-supplied literals; never credentials.
+		"services/neptune/sparql/funcs_hash.go": "SPARQL 1.1 MD5()/SHA1() builtin functions",
+		// Entra identifies certificates by SHA-1 thumbprint (JWS x5t, RFC 7515 4.1.7; keyCredential.customKeyIdentifier); an
+		// identifier match, never a credential.
+		"services/azuregraph/certauth.go": "Entra x5t / customKeyIdentifier SHA-1 certificate thumbprint parity",
 		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
 		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
 		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
 		"services/gcpartifactregistry/npm.go": "npm dist.shasum SHA-1 parity",
 		// Maven .sha1/.md5 checksum files and twine md5_digest are defined over those digests; never credentials.
-		"services/gcpartifactregistry/maven.go":  "Maven repository SHA-1/MD5 checksum parity",
+		"services/gcpartifactregistry/maven.go": "Maven repository SHA-1/MD5 checksum parity",
+		// apt Release and Packages files list MD5Sum and SHA1 beside SHA256 by protocol; never credentials.
+		"services/gcpartifactregistry/apt.go":    "apt Release/Packages MD5Sum and SHA1 checksum parity",
 		"services/gcpartifactregistry/python.go": "twine md5_digest upload field verification",
 		// Verified this session: DocumentDescription declares a deprecated Sha1
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
@@ -33,9 +42,15 @@ func allowedWeakHashFiles() map[string]string {
 		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+		// Cloud Build SourceProvenance.file_hashes offers Hash_MD5 beside SHA256 (cloudbuildpb Hash_HashType);
+		// source-integrity digest, never a credential.
+		"services/gcpcloudbuild/filehash.go": "Cloud Build Hash_MD5 source provenance digest parity",
+		// V2 signed URLs with an HMAC key are defined as base64 HMAC-SHA1 of the string to sign (storage signed-urls V2).
+		"services/gcpstorage/signing.go": "GCS V2 HMAC signed URL verification, SHA-1 mandated by the scheme",
 		// OCI Object Storage md5/opc-multipart-md5 headers are base64 MD5 of the content, and API key
 		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
 		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
+		"services/ocivault/backupops.go":     "OCI Vault Content-MD5 / opc-content-md5 integrity headers on backup files",
 		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
 		// Identity Platform batchCreate accepts MD5/SHA1/PBKDF_SHA1/HMAC_* password hashes
 		// (UploadAccountRequest.hashAlgorithm); imported digests, never produced for new credentials.
@@ -64,8 +79,9 @@ func allowedWeakHashFiles() map[string]string {
 
 		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
 		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
-		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
-		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+		"services/azurekeyvault/keycrypto.go":            "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
+		"services/azurekeyvault/certpolicy.go":           "certificate x5t SHA-1 thumbprint, verified",
+		"services/azurearm/rp_containerapps_children.go": "Container Apps certificate SHA-1 thumbprint property",
 
 		// Azure Files Content-MD5 / x-ms-content-md5 headers are defined as the base64 MD5 of the
 		// payload; integrity checksum, never a credential.

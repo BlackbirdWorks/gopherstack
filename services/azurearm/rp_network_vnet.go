@@ -95,6 +95,10 @@ func (p *NetworkProvider) putVNet(id ResourceID, body map[string]any) (map[strin
 		loc = old.Obj.Location
 	}
 
+	if err = p.checkDDoSRef(subID(props, propDDoSPlan)); err != nil {
+		return nil, false, err
+	}
+
 	subnets, err := p.inlineSubnets(id, old, props, parsed, loc)
 	if err != nil {
 		return nil, false, err
@@ -356,6 +360,10 @@ func (p *NetworkProvider) subnetRefs(props map[string]any) error {
 		}
 
 		props[propNATGateway] = map[string]any{netFieldID: id}
+	}
+
+	if err := p.checkSubnetSEPs(props); err != nil {
+		return err
 	}
 
 	if id := subID(props, propSubnetRT); id != "" {

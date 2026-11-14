@@ -205,5 +205,30 @@ func validateSource(s *cloudbuildpb.Source) error {
 		return errInvalid("Invalid build: source.repo_source needs a repo_name.")
 	}
 
+	if err := validateRepoRegex(s.GetRepoSource()); err != nil {
+		return err
+	}
+
+	if m := s.GetStorageSourceManifest(); m != nil && (m.GetBucket() == "" || m.GetObject() == "") {
+		return errInvalid("Invalid build: source.storage_source_manifest needs a bucket and an object.")
+	}
+
+	if c := s.GetConnectedRepository(); c != nil && (c.GetRepository() == "" || c.GetRevision() == "") {
+		return errInvalid("Invalid build: source.connected_repository needs a repository and a revision.")
+	}
+
+	return nil
+}
+
+func validateRepoRegex(rs *cloudbuildpb.RepoSource) error {
+	expr := rs.GetBranchName() + rs.GetTagName()
+	if expr == "" {
+		return nil
+	}
+
+	if _, err := compileRefRegex(expr); err != nil {
+		return errInvalid("Invalid build: source.repo_source: %v.", err)
+	}
+
 	return nil
 }

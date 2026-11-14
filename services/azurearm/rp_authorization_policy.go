@@ -293,11 +293,17 @@ func (p *AuthorizationProvider) validatePolicySet(props map[string]any, scope st
 
 // resolvePolicyRef finds the policy or policy set definition id names, as seen from scope.
 func (p *AuthorizationProvider) resolvePolicyRef(id, from string) (authPolKind, bool) {
+	k, _, ok := p.lookupPolicy(id, from)
+
+	return k, ok
+}
+
+func (p *AuthorizationProvider) lookupPolicy(id, from string) (authPolKind, map[string]any, bool) {
 	segs := splitARMPath(id)
 	n := len(segs)
 
 	if n < authPathListTail+1 || !strings.EqualFold(segs[n-3], namespaceMicrosoftAuthorization) {
-		return 0, false
+		return 0, nil, false
 	}
 
 	var k authPolKind
@@ -308,7 +314,7 @@ func (p *AuthorizationProvider) resolvePolicyRef(id, from string) (authPolKind, 
 	case strings.EqualFold(segs[n-2], authPolicySets):
 		k = authPolKindSet
 	default:
-		return 0, false
+		return 0, nil, false
 	}
 
 	name, scope := segs[n-1], ""
@@ -317,14 +323,20 @@ func (p *AuthorizationProvider) resolvePolicyRef(id, from string) (authPolKind, 
 	}
 
 	if scope == "" {
-		_, ok := p.builtinFor(k)[strings.ToLower(name)]
+		b, ok := p.builtinFor(k)[strings.ToLower(name)]
+		if !ok {
+			return k, nil, false
+		}
 
-		return k, ok
+		return k, mapOf(b.Properties), true
 	}
 
-	_, ok := p.storeFor(k)[authKey(scope, name)]
+	rec, ok := p.storeFor(k)[authKey(scope, name)]
+	if !ok || !scopeWithin(from, scope) {
+		return k, nil, false
+	}
 
-	return k, ok && scopeWithin(from, scope)
+	return k, rec.Props, true
 }
 
 func (p *AuthorizationProvider) deletePolicy(req authReq, k authPolKind) (authResp, error) {
@@ -340,6 +352,10 @@ func (p *AuthorizationProvider) deletePolicy(req authReq, k authPolKind) (authRe
 	s, ok := p.storeFor(k)[key]
 	if !ok {
 		return authResp{Status: http.StatusNoContent}, nil
+	}
+
+	if err := p.checkPolicyInUse(k, authID(req.Scope.id, k.typeName(), req.Name)); err != nil {
+		return authResp{}, err
 	}
 
 	delete(p.storeFor(k), key)
@@ -503,9 +519,15 @@ func (p *AuthorizationProvider) putPolicyAssignment(req authReq) (authResp, erro
 	p.mu.Lock("putPolicyAssignment")
 	defer p.mu.Unlock()
 
-	if _, ok := p.resolvePolicyRef(defID, req.Scope.id); !ok {
+	_, defProps, ok := p.lookupPolicy(defID, req.Scope.id)
+	if !ok {
 		return authResp{}, authErr(http.StatusBadRequest, policyCodeDefNotFound,
 			"The policy definition '%s' could not be found.", defID)
+	}
+
+	if err := checkAssignmentParameters(defID, mapOf(defProps[authFieldParameters]),
+		mapOf(props[authFieldParameters])); err != nil {
+		return authResp{}, err
 	}
 
 	now := p.now()

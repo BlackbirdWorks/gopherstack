@@ -1,0 +1,163 @@
+{
+  "Resources": {
+    "MinimalFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalFunction2": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalFunction2Role",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalFunction2Aliaslive": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction2"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "MinimalFunction2Version640128d35d",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "MinimalFunction2Role": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalFunction2Version640128d35d": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "sam-testing",
+        "FunctionName": {
+          "Ref": "MinimalFunction2"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    },
+    "MinimalFunctionAliaslive": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "MinimalFunctionVersion640128d35d",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "MinimalFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalFunctionVersion640128d35d": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Description": "sam-testing",
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    }
+  }
+}

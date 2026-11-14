@@ -23,6 +23,9 @@ const (
 	logDrainLimit = 10 * time.Second
 	scriptPerm    = 0o755
 	shebang       = "#!/bin/sh\n"
+	builderOutput = "/builder/outputs"
+	// maxStepOutput is the documented cap on results.build_step_outputs entries (Results.build_step_outputs).
+	maxStepOutput = 50 << 10
 )
 
 // stepResult is what runStep reports to the scheduler.
@@ -49,6 +52,8 @@ func (r *runner) runStep(ctx context.Context, i int) stepResult {
 	r.log.system("Starting " + label)
 	r.log.step(label, "Pulling image: "+spec.Image)
 
+	pullStart := r.b.ts()
+
 	id, err := r.rt.CreateAndStart(stepCtx, spec)
 	if err != nil {
 		return r.stepError(i, step, fmt.Errorf("start step: %w", err))
@@ -56,10 +61,14 @@ func (r *runner) runStep(ctx context.Context, i int) stepResult {
 
 	defer r.remove(id)
 
+	r.markPulled(i, pullStart)
+	r.stepImages[i] = r.imageDigest(stepCtx, spec.Image)
+
 	logDone := r.followLogs(stepCtx, id, label)
 
 	code, err := r.waitExit(stepCtx, id)
 	r.drain(logDone)
+	r.collectOutput(i)
 
 	switch {
 	case timedOut.Load():
@@ -228,14 +237,15 @@ func (r *runner) drain(done <-chan struct{}) {
 // stepSpec builds the container specification for step i.
 func (r *runner) stepSpec(i int, step *cloudbuildpb.BuildStep) (container.Spec, error) {
 	spec := container.Spec{
-		Image: step.GetName(), Cmd: step.GetArgs(), Env: r.stepEnv(step), WorkingDir: r.workingDir(step.GetDir()),
+		Image: step.GetName(), Cmd: step.GetArgs(), WorkingDir: r.workingDir(step.GetDir()),
+		Env: append(r.stepEnv(step), "BUILDER_OUTPUT="+builderOutput),
 	}
 
 	if step.GetEntrypoint() != "" {
 		spec.Entrypoint = []string{step.GetEntrypoint()}
 	}
 
-	mounts, err := r.stepMounts(step)
+	mounts, err := r.stepMounts(i, step)
 	if err != nil {
 		return spec, err
 	}
@@ -264,7 +274,8 @@ func (r *runner) workingDir(dir string) string {
 }
 
 func (r *runner) stepEnv(step *cloudbuildpb.BuildStep) []string {
-	env := slices.Clone(r.build.GetOptions().GetEnv())
+	env := r.automapEnv()
+	env = append(env, r.build.GetOptions().GetEnv()...)
 	env = append(env, step.GetEnv()...)
 
 	for _, name := range step.GetSecretEnv() {
@@ -276,23 +287,30 @@ func (r *runner) stepEnv(step *cloudbuildpb.BuildStep) []string {
 	return env
 }
 
-func (r *runner) stepMounts(step *cloudbuildpb.BuildStep) ([]string, error) {
+func (r *runner) stepMounts(i int, step *cloudbuildpb.BuildStep) ([]string, error) {
 	mounts := []string{r.work + ":" + workspace}
+
+	out, err := r.outputDir(i)
+	if err != nil {
+		return nil, err
+	}
+
+	mounts = append(mounts, out+":"+builderOutput)
 
 	if step.GetScript() != "" {
 		mounts = append(mounts, r.scriptsDir()+":"+scriptsMount+":ro")
 	}
 
-	if _, err := os.Stat(dockerSocket); err == nil {
+	if _, sErr := os.Stat(dockerSocket); sErr == nil {
 		mounts = append(mounts, dockerSocket+":"+dockerSocket)
 	}
 
 	vols := append(slices.Clone(r.build.GetOptions().GetVolumes()), step.GetVolumes()...)
 
 	for _, v := range vols {
-		dir, err := r.volumeDir(v.GetName())
-		if err != nil {
-			return nil, err
+		dir, vErr := r.volumeDir(v.GetName())
+		if vErr != nil {
+			return nil, vErr
 		}
 
 		mounts = append(mounts, dir+":"+path.Clean(v.GetPath()))
@@ -334,4 +352,28 @@ func (r *runner) writeScript(i int, script string) (string, error) {
 	}
 
 	return scriptsMount + "/" + name, nil
+}
+
+// automapEnv turns the built-in and custom substitutions into KEY=value pairs for every step when
+// options.automap_substitutions is set; options.env and step env override them.
+func (r *runner) automapEnv() []string {
+	if !r.build.GetOptions().GetAutomapSubstitutions() {
+		return nil
+	}
+
+	vals := mergeSubs(builtinSubstitutions(r.ref), r.build.GetSubstitutions())
+	keys := make([]string, 0, len(vals))
+
+	for k := range vals {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	env := make([]string, 0, len(keys))
+	for _, k := range keys {
+		env = append(env, k+"="+vals[k])
+	}
+
+	return env
 }

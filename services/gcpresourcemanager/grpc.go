@@ -251,6 +251,29 @@ func (s tagValuesServer) DeleteTagValue(_ context.Context, in *resourcemanagerpb
 	return s.b.DeleteTagValue(in)
 }
 
+type tagHoldsServer struct {
+	resourcemanagerpb.UnimplementedTagHoldsServer
+	b *InMemoryBackend
+}
+
+func (s tagHoldsServer) CreateTagHold(_ context.Context, in *resourcemanagerpb.CreateTagHoldRequest) (
+	*longrunningpb.Operation, error,
+) {
+	return s.b.CreateTagHold(in)
+}
+
+func (s tagHoldsServer) DeleteTagHold(_ context.Context, in *resourcemanagerpb.DeleteTagHoldRequest) (
+	*longrunningpb.Operation, error,
+) {
+	return s.b.DeleteTagHold(in)
+}
+
+func (s tagHoldsServer) ListTagHolds(_ context.Context, in *resourcemanagerpb.ListTagHoldsRequest) (
+	*resourcemanagerpb.ListTagHoldsResponse, error,
+) {
+	return s.b.ListTagHolds(in)
+}
+
 type tagBindingsServer struct {
 	resourcemanagerpb.UnimplementedTagBindingsServer
 	b *InMemoryBackend

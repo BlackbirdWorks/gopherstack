@@ -58,6 +58,8 @@ const (
 	redisKindFirewall
 	redisKindPatch
 	redisKindLinked
+	redisKindPolicy
+	redisKindAssignment
 )
 
 type redisFirewall struct {
@@ -75,26 +77,29 @@ type redisLinked struct {
 
 // redisRecord is the ARM-side state of one cache. Keys, ports and data live in the Redis data plane.
 type redisRecord struct {
-	CreatedAt    time.Time                `json:"createdAt"`
-	ReadyAt      time.Time                `json:"readyAt"`
-	Tags         map[string]string        `json:"tags,omitempty"`
-	Extra        map[string]any           `json:"extra,omitempty"`
-	Config       map[string]string        `json:"config,omitempty"`
-	Identity     map[string]any           `json:"identity,omitempty"`
-	Firewall     map[string]redisFirewall `json:"firewall,omitempty"`
-	Linked       map[string]redisLinked   `json:"linked,omitempty"`
-	Name         string                   `json:"name"`
-	ResourceGrp  string                   `json:"resourceGroup"`
-	Location     string                   `json:"location"`
-	SKU          string                   `json:"sku"`
-	Family       string                   `json:"family"`
-	MinTLS       string                   `json:"minTls"`
-	PublicAccess string                   `json:"publicAccess"`
-	Version      string                   `json:"version"`
-	Patch        []any                    `json:"patch,omitempty"`
-	Zones        []any                    `json:"zones,omitempty"`
-	Capacity     int                      `json:"capacity"`
-	NonSSL       bool                     `json:"nonSsl,omitempty"`
+	CreatedAt    time.Time                  `json:"createdAt"`
+	ReadyAt      time.Time                  `json:"readyAt"`
+	Tags         map[string]string          `json:"tags,omitempty"`
+	Extra        map[string]any             `json:"extra,omitempty"`
+	Config       map[string]string          `json:"config,omitempty"`
+	Identity     map[string]any             `json:"identity,omitempty"`
+	Firewall     map[string]redisFirewall   `json:"firewall,omitempty"`
+	Linked       map[string]redisLinked     `json:"linked,omitempty"`
+	Policies     map[string]redisPolicy     `json:"accessPolicies,omitempty"`
+	Assignments  map[string]redisAssignment `json:"accessPolicyAssignments,omitempty"`
+	Name         string                     `json:"name"`
+	ResourceGrp  string                     `json:"resourceGroup"`
+	Location     string                     `json:"location"`
+	SKU          string                     `json:"sku"`
+	Family       string                     `json:"family"`
+	MinTLS       string                     `json:"minTls"`
+	PublicAccess string                     `json:"publicAccess"`
+	Version      string                     `json:"version"`
+	Patch        []any                      `json:"patch,omitempty"`
+	Zones        []any                      `json:"zones,omitempty"`
+	Capacity     int                        `json:"capacity"`
+	NonSSL       bool                       `json:"nonSsl,omitempty"`
+	DisableKeys  bool                       `json:"disableAccessKeys,omitempty"`
 }
 
 // RedisProvider implements ResourceProvider for Microsoft.Cache/redis. ARM keeps the resource metadata,
@@ -136,6 +141,8 @@ func (p *RedisProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: redisType + "/" + redisFirewallType, APIVersions: v},
 		{Type: redisType + "/" + redisPatchType, APIVersions: v},
 		{Type: redisType + "/" + redisLinkedType, APIVersions: v},
+		{Type: redisType + "/" + redisPolicyType, APIVersions: v},
+		{Type: redisType + "/" + redisAssignmentType, APIVersions: v},
 	}
 }
 
@@ -149,6 +156,10 @@ func classifyRedisPath(id ResourceID) redisKind {
 		return redisKindPatch
 	case strings.ToLower(redisType + "/" + redisLinkedType):
 		return redisKindLinked
+	case strings.ToLower(redisType + "/" + redisPolicyType):
+		return redisKindPolicy
+	case strings.ToLower(redisType + "/" + redisAssignmentType):
+		return redisKindAssignment
 	}
 
 	return redisKindUnsupported
@@ -194,6 +205,10 @@ func (p *RedisProvider) Put(_ context.Context, id ResourceID, body map[string]an
 		return p.putPatch(id, body)
 	case redisKindLinked:
 		return p.putLinked(id, body)
+	case redisKindPolicy:
+		return p.putPolicy(id, body)
+	case redisKindAssignment:
+		return p.putAssignment(id, body)
 	case redisKindUnsupported:
 	}
 
@@ -237,6 +252,10 @@ func (p *RedisProvider) childBody(id ResourceID, kind redisKind, rec *redisRecor
 		}
 
 		return linkedBody(id, rec, ls), nil
+	case redisKindPolicy:
+		return rec.policyBodyFor(id)
+	case redisKindAssignment:
+		return rec.assignmentBodyFor(id)
 	case redisKindCache, redisKindUnsupported:
 	}
 
@@ -253,7 +272,7 @@ func (p *RedisProvider) Delete(_ context.Context, id ResourceID) error {
 	switch kind {
 	case redisKindCache:
 		return p.deleteCache(id)
-	case redisKindFirewall, redisKindPatch, redisKindLinked:
+	case redisKindFirewall, redisKindPatch, redisKindLinked, redisKindPolicy, redisKindAssignment:
 		return p.deleteChild(id, kind)
 	case redisKindUnsupported:
 	}
@@ -343,6 +362,8 @@ func redisErrorDetails(err error) (errorEntry, bool) {
 		{ErrRedisFirewallNotFound, notFoundEntry("The firewall rule was not found.")},
 		{ErrRedisPatchNotFound, notFoundEntry("There are no patch schedules found for the Redis cache.")},
 		{ErrRedisLinkedNotFound, notFoundEntry("The linked server was not found.")},
+		{ErrRedisAccessPolicyNotFound, notFoundEntry("The access policy was not found.")},
+		{ErrRedisAccessAssignmentNotFound, notFoundEntry("The access policy assignment was not found.")},
 		{
 			ErrRedisNameTaken,
 			errorEntry{redisCodeConflict, "The Redis cache name is already in use.", http.StatusConflict},

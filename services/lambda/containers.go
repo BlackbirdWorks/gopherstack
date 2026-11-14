@@ -245,6 +245,8 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 		functionARN: buildARN(b.region, b.accountID, fn.FunctionName), accountID: b.accountID,
 	})
 
+	srv.configureTelemetry(fn)
+
 	if startErr := srv.start(ctx); startErr != nil {
 		_ = b.portAlloc.Release(port)
 		rt.startErr = fmt.Errorf(
@@ -260,6 +262,8 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.srv = srv
 	rt.port = port
 	rt.started = true
+
+	srv.tel.initStart(time.Now())
 
 	env, credsExpire := b.buildContainerEnv(ctx, fn, port)
 
@@ -278,6 +282,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
+
+	b.attachContainer(srv, containerID)
+
 	rt.hotFP = hotFP
 	rt.credsExpire = credsExpire
 	rt.hotCheckedAt = time.Now()
@@ -660,6 +667,12 @@ func (b *InMemoryBackend) startContainer(
 	env []string,
 	srv *runtimeServer,
 ) (string, []string, string, error) {
+	if b.deliversArchives() {
+		containerID, err := b.startArchiveContainer(ctx, fn, env)
+
+		return "", nil, containerID, err
+	}
+
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {
@@ -669,8 +682,13 @@ func (b *InMemoryBackend) startContainer(
 
 	ctx, layerDirs = b.withDebugPlan(ctx, fn, layerDirs)
 
-	if srv != nil && layerMount != "" {
-		srv.exts.setExpected(len(listLayerExtensions(layerHostDir(layerMount))))
+	if srv != nil && fn.PackageType == PackageTypeZip {
+		names := []string(nil)
+		if layerMount != "" {
+			names = listLayerExtensions(layerHostDir(layerMount))
+		}
+
+		srv.exts.setExternal(names)
 	}
 
 	if fn.PackageType == PackageTypeZip {
@@ -705,9 +723,24 @@ func (b *InMemoryBackend) startContainer(
 	b.applyDockerFlags(ctx, &spec)
 	spec.OCIRuntime = b.ociRuntime
 
-	containerID, err := b.docker.CreateAndStart(ctx, spec)
+	if srv == nil {
+		containerID, err := b.docker.CreateAndStart(ctx, spec)
 
-	return "", layerDirs, containerID, err
+		return "", layerDirs, containerID, err
+	}
+
+	srv.exts.holdInit()
+
+	containerID, err := b.docker.CreateAndStart(ctx, spec)
+	if err != nil {
+		srv.exts.releaseInit()
+
+		return "", layerDirs, containerID, err
+	}
+
+	b.startImageExtensions(ctx, srv, containerID)
+
+	return "", layerDirs, containerID, nil
 }
 
 // startZipContainer handles container startup for Zip-packaged Lambda functions.
@@ -730,34 +763,9 @@ func (b *InMemoryBackend) startZipContainer(
 		return b.startHotReloadContainer(ctx, fn, baseImage, env, layerMount)
 	}
 
-	// Resolve zip bytes from inline data or S3.
-	zipData := fn.ZipData
-	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
-		if b.s3Fetcher == nil {
-			return "", "", fmt.Errorf(
-				"%w: S3 code delivery requires S3 integration",
-				ErrLambdaUnavailable,
-			)
-		}
-
-		var fetchErr error
-
-		zipData, fetchErr = b.fetchS3Code(ctx, fn)
-		if fetchErr != nil {
-			return "", "", fmt.Errorf(
-				"%w: failed to fetch zip from S3: %w",
-				ErrLambdaUnavailable,
-				fetchErr,
-			)
-		}
-	}
-
-	if len(zipData) == 0 {
-		return "", "", fmt.Errorf(
-			"%w: no zip data available for function %q",
-			ErrLambdaUnavailable,
-			fn.FunctionName,
-		)
+	zipData, err := b.resolveZipData(ctx, fn)
+	if err != nil {
+		return "", "", err
 	}
 
 	zipDir, extractErr := extractZip(zipData)
@@ -773,6 +781,29 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	return zipDir, containerID, nil
+}
+
+// resolveZipData returns the function's deployment package from inline data or S3.
+func (b *InMemoryBackend) resolveZipData(ctx context.Context, fn *FunctionConfiguration) ([]byte, error) {
+	zipData := fn.ZipData
+	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
+		if b.s3Fetcher == nil {
+			return nil, fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
+		}
+
+		var fetchErr error
+
+		zipData, fetchErr = b.fetchS3Code(ctx, fn)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
+		}
+	}
+
+	if len(zipData) == 0 {
+		return nil, fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
+	}
+
+	return zipData, nil
 }
 
 // startHotReloadContainer bind-mounts the function's live local directory read-only.

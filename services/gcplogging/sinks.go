@@ -61,6 +61,40 @@ func writerIdentity(parent, id string, unique bool) string {
 	)
 }
 
+func isProjectParent(parent string) bool { return strings.HasPrefix(parent, "projects/") }
+
+func uniqueIdentity(parent string, requested bool) bool { return requested || !isProjectParent(parent) }
+
+// destProject returns the project a destination lives in; Cloud Storage buckets carry none.
+func destProject(dest string) string {
+	for _, p := range []string{destPubSub, destBigQuery, destLogging} {
+		if rest, ok := strings.CutPrefix(dest, p); ok {
+			if m := parentOfRe.FindStringSubmatch(rest); m != nil && strings.HasPrefix(m[1], "projects/") {
+				return m[1]
+			}
+		}
+	}
+
+	return ""
+}
+
+// checkSameProject enforces the documented rule that a sink in a project writing with the shared identity
+// must have its destination in that project (projects.sinks.create reference, uniqueWriterIdentity).
+func checkSameProject(parent, dest string, unique bool) error {
+	if unique || !isProjectParent(parent) {
+		return nil
+	}
+
+	if p := destProject(dest); p != "" && p != parent {
+		return errInvalid(
+			"The destination [%s] must be in the same project as the sink unless uniqueWriterIdentity is true.",
+			dest,
+		)
+	}
+
+	return nil
+}
+
 func validateDestination(dest string) error {
 	switch {
 	case strings.HasPrefix(dest, destPubSub):
@@ -143,6 +177,10 @@ func (b *InMemoryBackend) CreateSink(req *loggingpb.CreateSinkRequest) (*logging
 		return nil, err
 	}
 
+	if err := checkSameProject(parent, in.GetDestination(), req.GetUniqueWriterIdentity()); err != nil {
+		return nil, err
+	}
+
 	b.seed(parent)
 	b.mu.Lock("CreateSink")
 	defer b.mu.Unlock()
@@ -154,7 +192,7 @@ func (b *InMemoryBackend) CreateSink(req *loggingpb.CreateSinkRequest) (*logging
 
 	now := timestamppb.New(b.now())
 	sink := cloneSink(in)
-	sink.WriterIdentity = writerIdentity(parent, in.GetName(), req.GetUniqueWriterIdentity())
+	sink.WriterIdentity = writerIdentity(parent, in.GetName(), uniqueIdentity(parent, req.GetUniqueWriterIdentity()))
 	sink.CreateTime, sink.UpdateTime = now, now
 	b.sinks[key] = sink
 
@@ -289,8 +327,17 @@ func (b *InMemoryBackend) UpdateSink(req *loggingpb.UpdateSinkRequest) (*logging
 		return nil, err
 	}
 
-	if req.GetUniqueWriterIdentity() {
+	wasUnique := cur.GetWriterIdentity() != "" && cur.GetWriterIdentity() != sharedWriterIdentity
+
+	switch {
+	case wasUnique && !uniqueIdentity(parent, req.GetUniqueWriterIdentity()):
+		return nil, errInvalid("uniqueWriterIdentity cannot be changed from true to false.")
+	case !wasUnique && req.GetUniqueWriterIdentity():
 		next.WriterIdentity = writerIdentity(parent, id, true)
+	}
+
+	if err = checkSameProject(parent, next.GetDestination(), wasUnique || req.GetUniqueWriterIdentity()); err != nil {
+		return nil, err
 	}
 
 	next.UpdateTime = timestamppb.New(b.now())

@@ -27,9 +27,9 @@ func orderTriggers(all []*eventarcpb.Trigger, orderBy string) error {
 		switch field {
 		case fieldName:
 			return t.GetName(), true
-		case "create_time":
+		case fieldCreateTime:
 			return timeKey(t.GetCreateTime()), true
-		case "update_time":
+		case fieldUpdateTime:
 			return timeKey(t.GetUpdateTime()), true
 		}
 
@@ -140,6 +140,10 @@ func (b *InMemoryBackend) CreateChannel(in *eventarcpb.CreateChannelRequest) (*l
 		return nil, errExists("Channel %q already exists.", ch.GetName())
 	}
 
+	if err = b.checkKey(ch.GetCryptoKeyName(), location); err != nil {
+		return nil, err
+	}
+
 	if !in.GetValidateOnly() {
 		if b.svc.PubSub != nil {
 			if _, err = b.svc.PubSub.CreateTopic(&pubsubpb.Topic{Name: topic}); err != nil {
@@ -185,9 +189,9 @@ func (b *InMemoryBackend) ListChannels(in *eventarcpb.ListChannelsRequest) (*eve
 		switch field {
 		case fieldName:
 			return c.GetName(), true
-		case "create_time":
+		case fieldCreateTime:
 			return timeKey(c.GetCreateTime()), true
-		case "update_time":
+		case fieldUpdateTime:
 			return timeKey(c.GetUpdateTime()), true
 		}
 
@@ -255,6 +259,12 @@ func (b *InMemoryBackend) UpdateChannel(in *eventarcpb.UpdateChannelRequest) (*l
 
 	if err = validateChannel(next); err != nil {
 		return nil, err
+	}
+
+	if next.GetCryptoKeyName() != rec.pb.GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
+		}
 	}
 
 	next.UpdateTime = b.ts()
@@ -526,6 +536,12 @@ func (b *InMemoryBackend) UpdateGoogleChannelConfig(
 			next.Labels = src.GetLabels()
 		default:
 			return nil, errInvalid("Unsupported update_mask path %q for GoogleChannelConfig.", p)
+		}
+	}
+
+	if next.GetCryptoKeyName() != b.configs[name].GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
 		}
 	}
 

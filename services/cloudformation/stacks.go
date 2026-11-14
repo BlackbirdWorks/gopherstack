@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +17,35 @@ import (
 // "CreateStack did not succeed" outcomes: the failure itself
 // (statusCreateFailed) or either outcome of the automatic rollback that
 // follows it.
+const (
+	onFailureDoNothing = "DO_NOTHING"
+	onFailureRollback  = "ROLLBACK"
+	onFailureDelete    = "DELETE"
+)
+
+// validateOnFailure checks CreateStack's OnFailure enum and its exclusivity
+// with DisableRollback.
+func validateOnFailure(opts StackOptions) error {
+	switch opts.OnFailure {
+	case "":
+		return nil
+	case onFailureDoNothing, onFailureRollback, onFailureDelete:
+	default:
+		return awsErrorf(
+			ErrStackOptions,
+			"1 validation error detected: Value '%s' at 'onFailure' failed to satisfy constraint: "+
+				"Member must satisfy enum value set: [ROLLBACK, DELETE, DO_NOTHING]",
+			opts.OnFailure,
+		)
+	}
+
+	if opts.DisableRollback {
+		return awsErrorf(ErrStackOptions, "You can specify either DisableRollback or OnFailure, but not both.")
+	}
+
+	return nil
+}
+
 func isFailedCreateStatus(status string) bool {
 	return status == statusCreateFailed || status == statusRollbackComplete || status == statusRollbackFailed
 }
@@ -62,6 +90,8 @@ type StackOptions struct {
 }
 
 // CreateNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
+// Inside an async parent step the child is provisioned at once but settles on
+// its own later step, which the parent waits for.
 func (b *InMemoryBackend) CreateNestedStack(
 	ctx context.Context,
 	name, templateURL, templateBody string,
@@ -77,10 +107,25 @@ func (b *InMemoryBackend) CreateNestedStack(
 		templateBody = fetched
 	}
 
+	settleLater := b.stepAsync && b.provisionSchedule != nil
+	stepAsync, announced := b.stepAsync, b.announced
+	b.stepAsync, b.announced = false, nil
+
+	defer func() { b.stepAsync, b.announced = stepAsync, announced }()
+
 	// Lock already held by parent CreateStack — use the no-lock variant.
-	stack, err := b.createStackLocked(ctx, name, templateBody, params, StackOptions{}, parentID)
+	stack, err := b.beginCreateLocked(name, templateBody, params, StackOptions{}, parentID)
 	if err != nil {
 		return "", err
+	}
+
+	b.finishCreateLocked(ctx, stack, params, createFinish{settleLater: settleLater})
+
+	if isFailedCreateStatus(stack.StackStatus) {
+		return "", awsErrorf(
+			ErrNestedStackFailed, "Embedded stack %s was not successfully created: %s",
+			stack.StackID, stack.StackStatusReason,
+		)
 	}
 
 	return stack.StackID, nil
@@ -88,110 +133,12 @@ func (b *InMemoryBackend) CreateNestedStack(
 
 // DeleteNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
 func (b *InMemoryBackend) DeleteNestedStack(ctx context.Context, stackID string) error {
+	announced := b.announced
+	b.announced = nil
+
+	defer func() { b.announced = announced }()
+
 	return b.deleteStackLocked(ctx, stackID)
-}
-
-// deleteStackLocked deletes a stack without acquiring the mutex — callers must hold b.mu.
-func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string) error {
-	stack, ok := b.resolveStack(nameOrID)
-	if !ok {
-		// DeleteStack is idempotent in real AWS: deleting a stack that never
-		// existed (or was already deleted) is a silent no-op, not an error —
-		// the DeleteStack operation has no modeled "stack not found" error.
-		return nil
-	}
-
-	if stack.EnableTerminationProtection {
-		return fmt.Errorf("%w: %s", ErrTerminationProtectionEnabled, stack.StackName)
-	}
-
-	if name, importer, inUse := b.stackExportsInUse(stack.StackID, nil); inUse {
-		return fmt.Errorf(
-			"%w: Export %s cannot be deleted as it is in use by %s",
-			ErrExportInUse, name, importer,
-		)
-	}
-
-	stack.StackStatus = statusDeleteInProgress
-	b.addEvent(
-		stack.StackID,
-		stack.StackName,
-		stack.StackName,
-		stack.StackID,
-		cfnStackType,
-		statusDeleteInProgress,
-		reasonUserInitiated,
-	)
-
-	var failedLogicalIDs []string
-
-	liveIDs := make([]string, 0, len(b.resources[stack.StackID]))
-	for logicalID := range b.resources[stack.StackID] {
-		liveIDs = append(liveIDs, logicalID)
-	}
-
-	physIDs := b.deleteResolveContext(stack)
-
-	for _, logicalID := range reverseDependencyOrder(liveIDs, stack.TemplateBody) {
-		res := b.resources[stack.StackID][logicalID]
-		b.addEvent(
-			stack.StackID,
-			stack.StackName,
-			logicalID,
-			res.PhysicalID,
-			res.Type,
-			statusDeleteInProgress,
-			"",
-		)
-		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
-			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
-				failedLogicalIDs = append(failedLogicalIDs, fmt.Sprintf("%s: %v", logicalID, delErr))
-				b.addEvent(
-					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
-					statusDeleteFailed, delErr.Error(),
-				)
-
-				continue
-			}
-		}
-		b.addEvent(
-			stack.StackID,
-			stack.StackName,
-			logicalID,
-			res.PhysicalID,
-			res.Type,
-			statusDeleteComplete,
-			"",
-		)
-		delete(b.resources[stack.StackID], logicalID)
-	}
-
-	// AWS never rolls DELETE_FAILED back to DELETE_COMPLETE: the stack, its
-	// remaining resources, and its events all stay describable so the caller
-	// can retry DeleteStack after fixing the underlying resource.
-	if len(failedLogicalIDs) > 0 {
-		stack.StackStatus = statusDeleteFailed
-		stack.StackStatusReason = strings.Join(failedLogicalIDs, "; ")
-		b.addEvent(
-			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-			cfnStackType, statusDeleteFailed, stack.StackStatusReason,
-		)
-
-		return nil
-	}
-
-	now := time.Now()
-	stack.DeletionTime = &now
-	stack.StackStatus = statusDeleteComplete
-	b.removeExports(stack.StackID)
-	delete(b.stackPolicies, stack.StackID)
-	delete(b.events, stack.StackID)
-	delete(b.resources, stack.StackID)
-	delete(b.changeSets, stack.StackName)
-	b.pruneDriftDetections(stack.StackID)
-	b.evictDeletedStacks()
-
-	return nil
 }
 
 // evictDeletedStacks caps the number of DELETE_COMPLETE stacks at maxDeletedStacks.
@@ -298,14 +245,19 @@ func (b *InMemoryBackend) createStack(
 		return nil, err
 	}
 
-	if async && templateBody != "" && b.scheduleLocked(ctx, stack.StackID, &pendingStackOp{
-		Kind:                 pendingCreate,
-		DisableValidation:    opts.DisableValidation,
-		ResourceTypes:        opts.ResourceTypes,
-		RetainExceptOnCreate: opts.RetainExceptOnCreate,
-		OnFailure:            opts.OnFailure,
-	}) {
-		return stack, nil
+	if async && templateBody != "" && b.provisionSchedule != nil {
+		op := &pendingStackOp{
+			Kind:                 pendingCreate,
+			DisableValidation:    opts.DisableValidation,
+			ResourceTypes:        opts.ResourceTypes,
+			RetainExceptOnCreate: opts.RetainExceptOnCreate,
+			OnFailure:            opts.OnFailure,
+			Announced:            b.announceCreateLocked(stack, params),
+		}
+
+		if b.scheduleLocked(ctx, stack.StackID, op) {
+			return stack, nil
+		}
 	}
 
 	b.finishCreateLocked(ctx, stack, params, createFinishOpts(opts))
@@ -319,6 +271,10 @@ func (b *InMemoryBackend) createStack(
 // DisableValidation), split out of createStackLocked to keep its cognitive
 // complexity down (no //nolint:gocognit, per repo convention).
 func validateCreateStackPreflight(templateBody string, opts StackOptions, parentID string) error {
+	if err := validateOnFailure(opts); err != nil {
+		return err
+	}
+
 	if parentID == "" {
 		if err := validateStackOptions(templateBody, opts); err != nil {
 			return err
@@ -385,7 +341,7 @@ func (b *InMemoryBackend) beginCreateLocked(
 		NotificationARNs:            opts.NotificationARNs,
 		RoleARN:                     opts.RoleARN,
 		TimeoutInMinutes:            opts.TimeoutInMinutes,
-		DisableRollback:             opts.DisableRollback,
+		DisableRollback:             opts.DisableRollback || opts.OnFailure == onFailureDoNothing,
 		EnableTerminationProtection: opts.EnableTerminationProtection,
 		RollbackConfiguration:       opts.RollbackConfiguration,
 		ParentID:                    parentID,
@@ -424,6 +380,7 @@ type createFinish struct {
 	resourceTypes        []string
 	disableValidation    bool
 	retainExceptOnCreate bool
+	settleLater          bool
 }
 
 func createFinishOpts(opts StackOptions) createFinish {
@@ -442,53 +399,92 @@ func (b *InMemoryBackend) finishCreateLocked(
 	params []Parameter,
 	opts createFinish,
 ) {
-	arn, name := stack.StackID, stack.StackName
-
 	if stack.TemplateBody != "" {
-		b.createStackFromTemplate(
-			ctx, stack, params, opts.disableValidation, opts.resourceTypes, opts.retainExceptOnCreate,
-		)
+		b.createStackFromTemplate(ctx, stack, params, opts)
 	}
 
-	if !isFailedCreateStatus(stack.StackStatus) {
-		stack.StackStatus = statusCreateComplete
-		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateComplete, "")
-	}
-
-	// OnFailure=DELETE: remove the stack entirely when creation fails.
-	// Deliberately excludes statusRollbackFailed: automatic rollback already
-	// failed to delete a resource, so this unconditional-success path can't
-	// honestly report DELETE_COMPLETE either -- leave the stack as
-	// ROLLBACK_FAILED for the caller to inspect and retry.
-	if opts.onFailure == "DELETE" &&
-		(stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
-		stack.StackStatus = statusDeleteInProgress
-		b.addEvent(arn, name, name, arn, cfnStackType, statusDeleteInProgress, "")
-		now2 := time.Now()
-		stack.DeletionTime = &now2
-		stack.StackStatus = statusDeleteComplete
-		b.removeExports(arn)
-		delete(b.events, arn)
-		delete(b.stackPolicies, arn)
-		delete(b.resources, arn)
-		delete(b.changeSets, name)
-		b.pruneDriftDetections(arn)
+	switch {
+	case stack.StackStatus == statusRollbackInProgress,
+		stack.StackStatus == statusDeleteInProgress,
+		stack.StackStatus == statusDeleteComplete:
+		return
+	case isFailedCreateStatus(stack.StackStatus):
+		b.deleteAfterFailedCreateLocked(ctx, stack, opts)
+	case opts.settleLater || b.stepAsync && b.childrenInProgressLocked(stack):
+		b.stageSettleLocked(ctx, stack, opts)
+	default:
+		b.completeCreateLocked(stack)
 	}
 }
 
+// stageSettleLocked leaves a provisioned stack CREATE_IN_PROGRESS until its
+// own later step, which also waits for any nested stacks.
+func (b *InMemoryBackend) stageSettleLocked(ctx context.Context, stack *Stack, opts createFinish) {
+	if opts.settleLater {
+		stepAsync := b.stepAsync
+		b.stepAsync = true
+
+		defer func() { b.stepAsync = stepAsync }()
+	}
+
+	b.stageLocked(ctx, stack.StackID, &pendingStackOp{Kind: pendingCreateSettle}, func() {
+		b.completeCreateLocked(stack)
+	})
+}
+
+func (b *InMemoryBackend) completeCreateLocked(stack *Stack) {
+	stack.StackStatus = statusCreateComplete
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusCreateComplete, "",
+	)
+}
+
+// deleteAfterFailedCreateLocked implements OnFailure=DELETE: once creation has
+// failed and rolled back, the stack is removed. ROLLBACK_FAILED is excluded:
+// the failed rollback cannot honestly report DELETE_COMPLETE, so the stack
+// stays for the caller to inspect and retry.
+func (b *InMemoryBackend) deleteAfterFailedCreateLocked(ctx context.Context, stack *Stack, opts createFinish) {
+	if opts.onFailure != onFailureDelete ||
+		(stack.StackStatus != statusCreateFailed && stack.StackStatus != statusRollbackComplete) {
+		return
+	}
+
+	stack.StackStatus = statusDeleteInProgress
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusDeleteInProgress, "",
+	)
+	b.stageLocked(ctx, stack.StackID, &pendingStackOp{Kind: pendingDeleteFinalize}, func() {
+		b.finishDeleteLocked(stack)
+	})
+}
+
+// announceCreateLocked emits CREATE_IN_PROGRESS for the resources that start
+// first, so the window shows them before the provisioning step runs.
+func (b *InMemoryBackend) announceCreateLocked(stack *Stack, params []Parameter) []string {
+	tmpl, err := ParseTemplate(stack.TemplateBody)
+	if err != nil {
+		return nil
+	}
+
+	pruneConditional(tmpl, ResolveParameters(tmpl, params))
+
+	return b.announceLocked(
+		stack, statusCreateInProgress, firstWave(tmpl.Resources, sortedKeys(tmpl.Resources), false), tmpl.Resources,
+	)
+}
+
 // createStackFromTemplate parses and applies a template during CreateStack.
-// It updates stack.StackStatus on failure. disableValidation/resourceTypes/
-// retainExceptOnCreate mirror CreateStackInput's own DisableValidation/
-// ResourceTypes/RetainExceptOnCreate fields (see StackOptions);
+// It updates stack.StackStatus on failure. opts carries CreateStackInput's own
+// DisableValidation/ResourceTypes/RetainExceptOnCreate/OnFailure (see StackOptions);
 // stack.DisableRollback (already persisted on Stack) gates whether a
 // provisioning failure rolls back at all.
 func (b *InMemoryBackend) createStackFromTemplate(
 	ctx context.Context,
 	stack *Stack,
 	params []Parameter,
-	disableValidation bool,
-	allowedResourceTypes []string,
-	retainExceptOnCreate bool,
+	opts createFinish,
 ) {
 	arn := stack.StackID
 	name := stack.StackName
@@ -514,7 +510,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	resolvedParams := ResolveParameters(tmpl, params)
 
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
-		b.failAndRollback(stack, valErr.Error())
+		b.failAndRollback(ctx, stack, opts, valErr.Error())
 
 		return
 	}
@@ -522,9 +518,9 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	// Validate intrinsic references (Fn::GetAtt / Fn::Sub to undefined
 	// resources, unsupported resource types) before provisioning anything --
 	// skipped entirely when the caller set DisableValidation.
-	if !disableValidation {
+	if !opts.disableValidation {
 		if intErr := validateIntrinsics(tmpl); intErr != nil {
-			b.failAndRollback(stack, intErr.Error())
+			b.failAndRollback(ctx, stack, opts, intErr.Error())
 
 			return
 		}
@@ -532,16 +528,16 @@ func (b *InMemoryBackend) createStackFromTemplate(
 
 	pruneConditional(tmpl, resolvedParams)
 
-	if !disableValidation {
+	if !opts.disableValidation {
 		if propErr := b.validateProperties(tmpl); propErr != nil {
-			b.failAndRollback(stack, propErr.Error())
+			b.failAndRollback(ctx, stack, opts, propErr.Error())
 
 			return
 		}
 	}
 
-	if rtErr := validateResourceTypesAllowed(tmpl, allowedResourceTypes); rtErr != nil {
-		b.failAndRollback(stack, rtErr.Error())
+	if rtErr := validateResourceTypesAllowed(tmpl, opts.resourceTypes); rtErr != nil {
+		b.failAndRollback(ctx, stack, opts, rtErr.Error())
 
 		return
 	}
@@ -549,13 +545,13 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	// Validate that all Fn::ImportValue references can be satisfied before
 	// creating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
-		b.failAndRollback(stack, impErr.Error())
+		b.failAndRollback(ctx, stack, opts, impErr.Error())
 
 		return
 	}
 
-	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams, retainExceptOnCreate)
-	if isFailedCreateStatus(stack.StackStatus) {
+	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams, opts)
+	if isFailedCreateStatus(stack.StackStatus) || stack.StackStatus == statusRollbackInProgress {
 		return
 	}
 
@@ -585,39 +581,75 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	}
 }
 
-// updateFailAndRollback records UPDATE_FAILED then emits UPDATE_ROLLBACK_IN_PROGRESS /
-// UPDATE_ROLLBACK_COMPLETE for pre-flight update failures (no resources changed).
-func (b *InMemoryBackend) updateFailAndRollback(stack *Stack, reason string) {
+// updateFailAndRollback records UPDATE_FAILED then enters UPDATE_ROLLBACK_IN_PROGRESS
+// for pre-flight update failures (no resources changed).
+func (b *InMemoryBackend) updateFailAndRollback(ctx context.Context, stack *Stack, reason string) {
 	arn := stack.StackID
 	name := stack.StackName
 	stack.StackStatusReason = reason
 	b.addEvent(arn, name, name, arn, cfnStackType, statusUpdateFailed, reason)
-	b.addEvent(arn, name, name, arn, cfnStackType, statusUpdateRollbackInProgress, reason)
-	b.addEvent(arn, name, name, arn, cfnStackType, statusUpdateRollbackComplete, "")
-	stack.StackStatus = statusUpdateRollbackComplete
+	b.beginUpdateRollbackLocked(ctx, stack, nil, nil, reason, false)
 }
 
-// failAndRollback records a pre-flight CREATE_FAILED then immediately emits
-// ROLLBACK_IN_PROGRESS / ROLLBACK_COMPLETE (no resources to undo) -- unless
-// stack.DisableRollback is set, matching provisionResources' own check:
-// real AWS's "Set to true to disable rollback of the stack if stack
-// creation failed" applies to every CreateStack failure, not only
-// resource-creation failures, so the stack is left CREATE_FAILED instead.
-func (b *InMemoryBackend) failAndRollback(stack *Stack, reason string) {
-	arn := stack.StackID
-	name := stack.StackName
+// failAndRollback records a pre-flight CREATE_FAILED then enters rollback (no
+// resources to undo) -- unless stack.DisableRollback is set: real AWS's "Set to
+// true to disable rollback of the stack if stack creation failed" applies to
+// every CreateStack failure, so the stack is then left CREATE_FAILED.
+func (b *InMemoryBackend) failAndRollback(ctx context.Context, stack *Stack, opts createFinish, reason string) {
 	stack.StackStatusReason = reason
-	b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, reason)
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusCreateFailed, reason,
+	)
+	b.enterCreateRollbackLocked(ctx, stack, nil, opts, reason)
+}
 
+// enterCreateRollbackLocked moves a failed create to ROLLBACK_IN_PROGRESS and
+// undoes created in the same step, or in the next one when async.
+func (b *InMemoryBackend) enterCreateRollbackLocked(
+	ctx context.Context, stack *Stack, created []string, opts createFinish, reason string,
+) {
 	if stack.DisableRollback {
 		stack.StackStatus = statusCreateFailed
 
 		return
 	}
 
-	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, reason)
-	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
-	stack.StackStatus = statusRollbackComplete
+	stack.StackStatus = statusRollbackInProgress
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusRollbackInProgress, reason,
+	)
+
+	op := &pendingStackOp{
+		Kind:                 pendingRollbackCreate,
+		Created:              created,
+		OnFailure:            opts.onFailure,
+		RetainExceptOnCreate: opts.retainExceptOnCreate,
+	}
+
+	b.stageLocked(ctx, stack.StackID, op, func() { b.finishCreateRollbackLocked(ctx, stack, created, opts) })
+}
+
+// finishCreateRollbackLocked deletes the resources a failed create made and
+// settles the stack ROLLBACK_COMPLETE or ROLLBACK_FAILED.
+func (b *InMemoryBackend) finishCreateRollbackLocked(
+	ctx context.Context, stack *Stack, created []string, opts createFinish,
+) {
+	arn, name := stack.StackID, stack.StackName
+
+	if b.rollbackCreateResources(ctx, stack, created, opts.retainExceptOnCreate) {
+		b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+		stack.StackStatus = statusRollbackComplete
+		b.deleteAfterFailedCreateLocked(ctx, stack, opts)
+
+		return
+	}
+
+	reason := reasonRollbackDeleteFailed
+	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
+	stack.StackStatus = statusRollbackFailed
+	stack.StackStatusReason = reason
 }
 
 // provisionResources creates all resources defined in the template.
@@ -634,7 +666,7 @@ func (b *InMemoryBackend) provisionResources(
 	stack *Stack,
 	tmpl *Template,
 	resolvedParams map[string]string,
-	retainExceptOnCreate bool,
+	opts createFinish,
 ) map[string]string {
 	arn := stack.StackID
 	name := stack.StackName
@@ -662,7 +694,7 @@ func (b *InMemoryBackend) provisionResources(
 
 	ordered, ordErr := topoSortResources(tmpl.Resources)
 	if ordErr != nil {
-		b.failAndRollback(stack, ordErr.Error())
+		b.failAndRollback(ctx, stack, opts, ordErr.Error())
 
 		return physicalIDs
 	}
@@ -671,7 +703,7 @@ func (b *InMemoryBackend) provisionResources(
 
 	for _, logicalID := range ordered {
 		res := tmpl.Resources[logicalID]
-		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
+		b.addProgressEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress)
 		physicalID, cerr := b.creator.Create(
 			ctx,
 			logicalID,
@@ -683,27 +715,12 @@ func (b *InMemoryBackend) provisionResources(
 		if cerr != nil {
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
-
-			if stack.DisableRollback {
-				stack.StackStatus = statusCreateFailed
-
-				return physicalIDs
-			}
-
-			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
-
-			if b.rollbackCreateResources(ctx, stack, created, retainExceptOnCreate) {
-				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
-				stack.StackStatus = statusRollbackComplete
-			} else {
-				reason := reasonRollbackDeleteFailed
-				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackFailed, reason)
-				stack.StackStatus = statusRollbackFailed
-				stack.StackStatusReason = reason
-			}
+			b.enterCreateRollbackLocked(ctx, stack, created, opts, cerr.Error())
 
 			return physicalIDs
 		}
+
+		b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateInProgress, reasonCreationInitiated)
 		physicalIDs[logicalID] = physicalID
 		b.resources[arn][logicalID] = &StackResource{
 			Timestamp:      time.Now(),
@@ -832,6 +849,8 @@ func (b *InMemoryBackend) updateStack(
 	oldTemplateBody := stack.TemplateBody
 	oldParams := slices.Clone(stack.Parameters)
 
+	changes := b.changesIfAsync(async, templateBody, stack, params)
+
 	now := time.Now()
 	stack.LastUpdatedTime = &now
 	stack.StackStatus = statusUpdateInProgress
@@ -861,22 +880,82 @@ func (b *InMemoryBackend) updateStack(
 	)
 
 	op := &pendingStackOp{
-		Kind:              pendingUpdate,
-		DisableValidation: opts.DisableValidation,
-		ResourceTypes:     opts.ResourceTypes,
-		OldTemplateBody:   oldTemplateBody,
-		OldParams:         oldParams,
+		Kind:                 pendingUpdate,
+		DisableValidation:    opts.DisableValidation,
+		ResourceTypes:        opts.ResourceTypes,
+		RetainExceptOnCreate: opts.RetainExceptOnCreate,
+		OldTemplateBody:      oldTemplateBody,
+		OldParams:            oldParams,
 	}
 
-	if async && b.scheduleLocked(ctx, stack.StackID, op) {
+	if async && b.scheduleUpdateLocked(ctx, stack, op, changes) {
 		return stack, nil
 	}
 
-	if b.applyTemplateToStack(ctx, stack, op.DisableValidation, op.ResourceTypes, oldTemplateBody, oldParams) {
+	if b.applyTemplateToStack(ctx, stack, op.updateOptions(), oldTemplateBody, oldParams) {
 		b.completeUpdateLocked(stack)
 	}
 
 	return stack, nil
+}
+
+func (b *InMemoryBackend) changesIfAsync(
+	async bool, templateBody string, stack *Stack, params []Parameter,
+) []Change {
+	if !async || b.provisionSchedule == nil {
+		return nil
+	}
+
+	return b.computeChanges(templateBody, stack, params)
+}
+
+// scheduleUpdateLocked announces the update's first wave and defers the rest;
+// false means async provisioning is off.
+func (b *InMemoryBackend) scheduleUpdateLocked(
+	ctx context.Context, stack *Stack, op *pendingStackOp, changes []Change,
+) bool {
+	if b.provisionSchedule == nil {
+		return false
+	}
+
+	op.Announced = b.announceUpdateLocked(stack, changes)
+
+	return b.scheduleLocked(ctx, stack.StackID, op)
+}
+
+// announceUpdateLocked emits the first wave of CREATE/UPDATE_IN_PROGRESS events
+// for the resources an update adds or modifies in place.
+func (b *InMemoryBackend) announceUpdateLocked(stack *Stack, changes []Change) []string {
+	tmpl, err := ParseTemplate(stack.TemplateBody)
+	if err != nil {
+		return nil
+	}
+
+	statusOf := make(map[string]string, len(changes))
+	want := make([]string, 0, len(changes))
+
+	for _, c := range changes {
+		rc := c.ResourceChange
+
+		switch {
+		case rc.Action == changeActionAdd:
+			statusOf[rc.LogicalID] = statusCreateInProgress
+		case rc.Action == changeActionModify && rc.Replacement != "True":
+			statusOf[rc.LogicalID] = statusUpdateInProgress
+		default:
+			continue
+		}
+
+		want = append(want, rc.LogicalID)
+	}
+
+	var keys []string
+
+	for _, id := range firstWave(tmpl.Resources, want, false) {
+		keys = append(keys, b.announceLocked(stack, statusOf[id], []string{id}, tmpl.Resources)...)
+	}
+
+	return keys
 }
 
 func (b *InMemoryBackend) completeUpdateLocked(stack *Stack) {
@@ -929,7 +1008,7 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 	resolvedParams := ResolveParameters(tmpl, stack.Parameters)
 
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
-		b.updateFailAndRollback(stack, valErr.Error())
+		b.updateFailAndRollback(ctx, stack, valErr.Error())
 
 		return nil, nil
 	}
@@ -938,7 +1017,7 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 	// entirely when the caller set DisableValidation.
 	if !disableValidation {
 		if intErr := validateIntrinsics(tmpl); intErr != nil {
-			b.updateFailAndRollback(stack, intErr.Error())
+			b.updateFailAndRollback(ctx, stack, intErr.Error())
 
 			return nil, nil
 		}
@@ -948,14 +1027,14 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 
 	if !disableValidation {
 		if propErr := b.validateProperties(tmpl); propErr != nil {
-			b.updateFailAndRollback(stack, propErr.Error())
+			b.updateFailAndRollback(ctx, stack, propErr.Error())
 
 			return nil, nil
 		}
 	}
 
 	if rtErr := validateResourceTypesAllowed(tmpl, resourceTypes); rtErr != nil {
-		b.updateFailAndRollback(stack, rtErr.Error())
+		b.updateFailAndRollback(ctx, stack, rtErr.Error())
 
 		return nil, nil
 	}
@@ -963,7 +1042,7 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 	// Validate that all Fn::ImportValue references can be satisfied before
 	// updating any resources.
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
-		b.updateFailAndRollback(stack, impErr.Error())
+		b.updateFailAndRollback(ctx, stack, impErr.Error())
 
 		return nil, nil
 	}
@@ -972,14 +1051,13 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 }
 
 func (b *InMemoryBackend) applyTemplateToStack(
-	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
-	oldTemplateBody string, oldParams []Parameter,
+	ctx context.Context, stack *Stack, ux updateOptions, oldTemplateBody string, oldParams []Parameter,
 ) bool {
 	if stack.TemplateBody == "" {
 		return true
 	}
 
-	tmpl, resolvedParams := b.parseAndValidateUpdateTemplate(ctx, stack, disableValidation, resourceTypes)
+	tmpl, resolvedParams := b.parseAndValidateUpdateTemplate(ctx, stack, ux.disableValidation, ux.resourceTypes)
 	if tmpl == nil {
 		return false
 	}
@@ -990,7 +1068,10 @@ func (b *InMemoryBackend) applyTemplateToStack(
 		physicalIDs[logicalID] = res.PhysicalID
 	}
 
+	maps.Copy(physicalIDs, stack.ResourceAttrs)
+
 	uc := newUpdateContext(oldTemplateBody, oldParams, physicalIDs)
+	uc.retainExceptOnCreate = ux.retainExceptOnCreate
 
 	// Side channel for property-time Fn::GetAtt during update -- see the
 	// matching block in provisionResources and physIDResourceTypeKey.
@@ -1005,7 +1086,7 @@ func (b *InMemoryBackend) applyTemplateToStack(
 	// stack still imports via Fn::ImportValue (computed against pre-update
 	// resource state, mirroring AWS's validate-before-apply semantics).
 	if expErr := b.validateExportsStillInUse(stack, tmpl, resolvedParams, physicalIDs); expErr != nil {
-		b.updateFailAndRollback(stack, expErr.Error())
+		b.updateFailAndRollback(ctx, stack, expErr.Error())
 
 		return false
 	}
@@ -1075,7 +1156,7 @@ func (b *InMemoryBackend) updateResources(
 
 	ordered, ordErr := topoSortResources(tmpl.Resources)
 	if ordErr != nil {
-		b.updateFailAndRollback(stack, ordErr.Error())
+		b.updateFailAndRollback(ctx, stack, ordErr.Error())
 
 		return false
 	}
@@ -1084,10 +1165,8 @@ func (b *InMemoryBackend) updateResources(
 
 	for _, logicalID := range ordered {
 		if err := b.applyResourceUpdate(ctx, stack, tmpl.Resources[logicalID], logicalID, pass); err != nil {
-			b.rollbackUpdateResources(ctx, stack, prevResources, pass.created)
-			if stack.StackStatus != statusUpdateRollbackFailed {
-				stack.StackStatusReason = err.Error()
-			}
+			stack.StackStatusReason = err.Error()
+			b.rollbackUpdateResources(ctx, stack, prevResources, pass.created, uc.retainExceptOnCreate)
 
 			return false
 		}
@@ -1122,7 +1201,7 @@ func (b *InMemoryBackend) createUpdateResource(
 	res TemplateResource,
 	resolvedParams, physicalIDs map[string]string,
 ) (string, error) {
-	b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
+	b.addProgressEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress)
 	ctx = parentStackIDKey.Set(ctx, stack.StackID)
 	physicalID, cerr := b.creator.Create(
 		ctx,
@@ -1145,6 +1224,11 @@ func (b *InMemoryBackend) createUpdateResource(
 
 		return "", cerr
 	}
+
+	b.addEvent(
+		stack.StackID, stack.StackName, logicalID, physicalID, res.Type,
+		statusCreateInProgress, reasonCreationInitiated,
+	)
 
 	b.resources[stack.StackID][logicalID] = &StackResource{
 		Timestamp:      time.Now(),
@@ -1226,24 +1310,54 @@ func (b *InMemoryBackend) deleteStaleResources(
 	return ok
 }
 
-// rollbackUpdateResources undoes a partially-applied update: it deletes every
-// resource that was newly created in this update pass and restores resources
-// that were modified to their pre-update snapshots, then sets the stack
-// status to UPDATE_ROLLBACK_COMPLETE -- or UPDATE_ROLLBACK_FAILED when a
-// newly-created resource can't actually be deleted, leaving it registered
-// rather than dropping it from DescribeStackResources.
+// rollbackUpdateResources undoes a partially-applied update: the stack goes
+// UPDATE_ROLLBACK_IN_PROGRESS and, in this step or the next one when async,
+// every resource the update newly created is deleted and modified resources
+// are restored to their pre-update snapshots.
 func (b *InMemoryBackend) rollbackUpdateResources(
 	ctx context.Context,
 	stack *Stack,
 	prevResources map[string]*StackResource,
 	created []string,
+	retainExceptOnCreate bool,
+) {
+	b.beginUpdateRollbackLocked(ctx, stack, prevResources, created, stack.StackStatusReason, retainExceptOnCreate)
+}
+
+func (b *InMemoryBackend) beginUpdateRollbackLocked(
+	ctx context.Context,
+	stack *Stack,
+	prevResources map[string]*StackResource,
+	created []string,
+	reason string,
+	retainExceptOnCreate bool,
 ) {
 	stack.StackStatus = statusUpdateRollbackInProgress
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusUpdateRollbackInProgress, "",
+		cfnStackType, statusUpdateRollbackInProgress, reason,
 	)
 
+	op := &pendingStackOp{
+		Kind: pendingRollbackUpdate, PrevResources: prevResources, Created: created,
+		RetainExceptOnCreate: retainExceptOnCreate,
+	}
+
+	b.stageLocked(ctx, stack.StackID, op, func() {
+		b.runUpdateRollbackLocked(ctx, stack, prevResources, created, retainExceptOnCreate)
+	})
+}
+
+// runUpdateRollbackLocked ends in UPDATE_ROLLBACK_FAILED when a newly-created
+// resource can't be deleted (it stays registered rather than being dropped),
+// otherwise in UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS.
+func (b *InMemoryBackend) runUpdateRollbackLocked(
+	ctx context.Context,
+	stack *Stack,
+	prevResources map[string]*StackResource,
+	created []string,
+	retainExceptOnCreate bool,
+) {
 	rollbackOK := true
 	physIDs := b.deleteResolveContext(stack)
 
@@ -1254,14 +1368,18 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 		}
 
 		b.addEvent(
-			stack.StackID,
-			stack.StackName,
-			logicalID,
-			res.PhysicalID,
-			res.Type,
-			statusDeleteInProgress,
-			"",
+			stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "",
 		)
+
+		keepsPolicy := res.DeletionPolicy == deletionPolicyRetain || res.DeletionPolicy == deletionPolicySnapshot
+		if keepsPolicy && !retainExceptOnCreate {
+			b.addEvent(
+				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "",
+			)
+			delete(b.resources[stack.StackID], logicalID)
+
+			continue
+		}
 
 		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties, physIDs); delErr != nil {
 			rollbackOK = false
@@ -1274,18 +1392,11 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 		}
 
 		b.addEvent(
-			stack.StackID,
-			stack.StackName,
-			logicalID,
-			res.PhysicalID,
-			res.Type,
-			statusDeleteComplete,
-			"",
+			stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "",
 		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
 
-	// Restore resources that existed before the update.
 	maps.Copy(b.resources[stack.StackID], prevResources)
 
 	if !rollbackOK {
@@ -1300,6 +1411,18 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 		return
 	}
 
+	stack.StackStatus = statusUpdateRollbackCleanup
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateRollbackCleanup, "",
+	)
+
+	b.stageLocked(ctx, stack.StackID, &pendingStackOp{Kind: pendingRollbackUpdateCleanup}, func() {
+		b.completeUpdateRollbackLocked(stack)
+	})
+}
+
+func (b *InMemoryBackend) completeUpdateRollbackLocked(stack *Stack) {
 	stack.StackStatus = statusUpdateRollbackComplete
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,

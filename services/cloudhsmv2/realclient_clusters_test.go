@@ -378,6 +378,7 @@ func testModifyCluster(t *testing.T, f *fixture) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "hsm1.medium", aws.ToString(back.Cluster.HsmType))
+	assert.Equal(t, types.ClusterStateRollbackInProgress, back.Cluster.State)
 
 	f.clock.advance(time.Second)
 
@@ -455,4 +456,45 @@ func testClusterLimit(t *testing.T, f *fixture) {
 		HsmType: aws.String("hsm1.medium"), SubnetIds: []string{"subnet-a"},
 	})
 	assert.Equal(t, "CloudHsmResourceLimitExceededException", apiCode(err))
+}
+
+func TestRealClient_HsmTypeRollbackWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantCode string
+		name     string
+		elapsed  time.Duration
+	}{
+		{name: "inside 24 hours", elapsed: 23 * time.Hour},
+		{name: "after 24 hours", elapsed: 25 * time.Hour, wantCode: "CloudHsmInvalidRequestException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			c := f.initializedCluster(t)
+
+			out, err := f.client.ModifyCluster(t.Context(), &sdk.ModifyClusterInput{
+				ClusterId: c.ClusterId, HsmType: aws.String("hsm2m.medium"),
+			})
+			require.NoError(t, err)
+			assert.InDelta(t, f.clock.now().Add(24*time.Hour).Unix(), out.Cluster.HsmTypeRollbackExpiration.Unix(), 1)
+
+			f.clock.advance(tt.elapsed)
+
+			_, err = f.client.ModifyCluster(t.Context(), &sdk.ModifyClusterInput{
+				ClusterId: c.ClusterId, HsmType: aws.String("hsm1.medium"),
+			})
+			if tt.wantCode == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantCode, apiCode(err))
+		})
+	}
 }

@@ -34,6 +34,7 @@ const (
 	flexKindFirewall
 	flexKindDatabase
 	flexKindConfig
+	flexKindAdmin
 )
 
 type flexFirewall struct {
@@ -60,6 +61,7 @@ type flexServer struct {
 	AuthConfig  map[string]any          `json:"authConfig,omitempty"`
 	Firewall    map[string]flexFirewall `json:"firewall,omitempty"`
 	Databases   map[string]flexDatabase `json:"databases,omitempty"`
+	Admins      map[string]flexAdmin    `json:"admins,omitempty"`
 	Config      map[string]string       `json:"config,omitempty"`
 	Pending     map[string]bool         `json:"pendingRestart,omitempty"`
 	Name        string                  `json:"name"`
@@ -171,6 +173,7 @@ func (p *FlexDBProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: flexServersType + "/" + flexFirewallType, APIVersions: v},
 		{Type: flexServersType + "/" + flexDatabasesType, APIVersions: v},
 		{Type: flexServersType + "/" + flexConfigsType, APIVersions: v},
+		{Type: flexServersType + "/" + flexAdminType, APIVersions: v},
 		{Type: flexServersType + "/" + flexReplicasType, APIVersions: v},
 		{Type: "checkNameAvailability", APIVersions: v},
 		{Type: "locations/capabilities", APIVersions: v},
@@ -187,6 +190,8 @@ func classifyFlexPath(id ResourceID) flexKind {
 		return flexKindDatabase
 	case strings.ToLower(flexServersType + "/" + flexConfigsType):
 		return flexKindConfig
+	case strings.ToLower(flexServersType + "/" + flexAdminType):
+		return flexKindAdmin
 	}
 
 	return flexKindUnsupported
@@ -290,6 +295,8 @@ func (p *FlexDBProvider) Write(id ResourceID, method string, body map[string]any
 		return p.writeDatabase(id, body)
 	case flexKindConfig:
 		return p.writeConfig(id, body)
+	case flexKindAdmin:
+		return p.writeAdmin(id, body)
 	case flexKindUnsupported:
 	}
 
@@ -328,6 +335,13 @@ func (p *FlexDBProvider) Get(_ context.Context, id ResourceID) (map[string]any, 
 		return p.databaseBody(id, db), nil
 	case flexKindConfig:
 		return p.configBody(id, rec)
+	case flexKindAdmin:
+		a, ok := rec.Admins[strings.ToLower(id.LeafName())]
+		if !ok {
+			return nil, p.childNotFound(id)
+		}
+
+		return p.adminBody(id, a), nil
 	case flexKindServer, flexKindUnsupported:
 	}
 
@@ -352,6 +366,8 @@ func (p *FlexDBProvider) Remove(id ResourceID) (string, error) {
 		return p.deleteDatabase(id)
 	case flexKindConfig:
 		return "", flexInvalid("Server parameters cannot be deleted; set source to system-default to reset one.")
+	case flexKindAdmin:
+		return p.deleteAdmin(id)
 	case flexKindUnsupported:
 	}
 
@@ -530,7 +546,7 @@ func cloneFlexServer(r *flexServer) *flexServer {
 	c := *r
 	c.Tags, c.Identity, c.Maintenance = maps.Clone(r.Tags), maps.Clone(r.Identity), maps.Clone(r.Maintenance)
 	c.Encryption, c.AuthConfig = maps.Clone(r.Encryption), maps.Clone(r.AuthConfig)
-	c.Firewall, c.Databases = maps.Clone(r.Firewall), maps.Clone(r.Databases)
+	c.Firewall, c.Databases, c.Admins = maps.Clone(r.Firewall), maps.Clone(r.Databases), maps.Clone(r.Admins)
 	c.Config, c.Pending = maps.Clone(r.Config), maps.Clone(r.Pending)
 
 	return &c

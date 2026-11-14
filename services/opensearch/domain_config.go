@@ -73,11 +73,7 @@ func applySecurityConfig(d *Domain, input UpdateDomainConfigInput) {
 	}
 
 	if next := input.AdvancedSecurityOptions; next != nil {
-		if prev := d.AdvancedSecurityOptions; prev != nil && next.MasterUserName == "" && next.MasterUserARN == "" {
-			next.MasterUserName, next.MasterUserARN = prev.MasterUserName, prev.MasterUserARN
-			next.MasterUserPasswordHash = prev.MasterUserPasswordHash
-		}
-
+		mergeAdvancedSecurity(d.AdvancedSecurityOptions, next)
 		d.AdvancedSecurityOptions = next
 	}
 }
@@ -148,12 +144,23 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 		return nil, err
 	}
 
+	prevSecurity := d.AdvancedSecurityOptions
+
+	cand := *d
+	applyClusterConfig(&cand, input)
+	applySecurityConfig(&cand, input)
+
+	if err := validateAdvancedSecurity(&cand, prevSecurity); err != nil {
+		return nil, err
+	}
+
 	applyClusterConfig(d, input)
 	applyStorageConfig(d, input)
 	applySecurityConfig(d, input)
 	applyNetworkConfig(d, input)
 	applyOperationalConfig(d, input)
 	applyAutoTuneConfig(d, input, b.clock())
+	b.finalizeAdvancedSecurityLocked(d, prevSecurity)
 
 	// ChangeId is a bare UUID (confirmed pattern on ChangeProgressStatusDetails,
 	// docs.aws.amazon.com/opensearch-service).
@@ -194,6 +201,10 @@ func (b *InMemoryBackend) PreviewDomainConfig(
 	applyNetworkConfig(&cp, input)
 	applyOperationalConfig(&cp, input)
 	applyAutoTuneConfig(&cp, input, b.clock())
+
+	if err := validateAdvancedSecurity(&cp, d.AdvancedSecurityOptions); err != nil {
+		return nil, err
+	}
 
 	return &cp, nil
 }

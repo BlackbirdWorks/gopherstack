@@ -2,10 +2,13 @@ package bolt
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const sniffWindow = 30 * time.Second
@@ -48,6 +51,8 @@ func (s *splitter) run() {
 }
 
 func (s *splitter) route(c net.Conn) {
+	defer logger.Recover(context.Background(), "bolt.split", func(any) { _ = c.Close() })
+
 	br := bufio.NewReader(c)
 
 	_ = c.SetReadDeadline(time.Now().Add(sniffWindow))

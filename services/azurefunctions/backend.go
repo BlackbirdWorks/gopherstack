@@ -46,6 +46,7 @@ type Deployment struct {
 type appState struct {
 	Created         time.Time                    `json:"created"`
 	Settings        map[string]string            `json:"settings"`
+	ConnEnv         map[string]string            `json:"connEnv,omitempty"`
 	HostKeys        map[string]string            `json:"hostKeys"`
 	SystemKeys      map[string]string            `json:"systemKeys"`
 	FunctionKeys    map[string]map[string]string `json:"functionKeys"`
@@ -60,6 +61,7 @@ type appState struct {
 	Zip             []byte                       `json:"zip"`
 	Deployments     []Deployment                 `json:"deployments"`
 	Stopped         bool                         `json:"stopped"`
+	Flex            bool                         `json:"flex,omitempty"`
 }
 
 // app is a function app with its running host, if any.
@@ -76,16 +78,17 @@ type app struct {
 
 // InMemoryBackend holds all function apps under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
-	mu             *lockmetrics.RWMutex
-	runCtx         context.Context //nolint:containedctx // workload lifetime, set by the worker
+	runCtx         context.Context
+	ports          PortPool
+	apps           map[string]*app
 	runtime        func() (Runner, error)
 	onClose        func()
-	ports          PortPool
+	mu             *lockmetrics.RWMutex
 	transport      *http.Transport
 	wg             *sync.WaitGroup
-	apps           map[string]*app
+	now            func() time.Time
 	domain         string
+	network        Network
 	startupTimeout time.Duration
 	port           int
 }
@@ -116,6 +119,10 @@ func (b *InMemoryBackend) Configure(s Settings) {
 
 	if s.Port != 0 {
 		b.port = s.Port
+	}
+
+	if s.ContainerHost != "" {
+		b.network.Host = s.ContainerHost
 	}
 
 	if s.StartupTimeout > 0 {
@@ -238,6 +245,7 @@ type AppConfig struct {
 	LinuxFx         string
 	AppCommandLine  string
 	HealthCheckPath string
+	Flex            bool
 }
 
 // AppInfo is the data plane's view of an app.
@@ -306,7 +314,7 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 		b.apps[strs.Fold(name)] = a
 	}
 
-	a.Kind = cfg.Kind
+	a.Kind, a.Flex = cfg.Kind, cfg.Flex
 	if a.Kind == "" {
 		a.Kind = defaultKindName
 	}
@@ -416,6 +424,29 @@ func (b *InMemoryBackend) SetSettings(name string, settings map[string]string) e
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
+
+	return nil
+}
+
+// SetConnectionStrings replaces the app's connection strings, given as the prefixed environment variables the host
+// sees (SQLCONNSTR_name and the like); a running host restarts on its next request.
+func (b *InMemoryBackend) SetConnectionStrings(name string, env map[string]string) error {
+	b.mu.Lock("SetConnectionStrings")
+
+	a, ok := b.apps[strs.Fold(name)]
+	if !ok {
+		b.mu.Unlock()
+
+		return ErrAppNotFound
+	}
+
+	a.ConnEnv = maps.Clone(env)
+	old := b.takeBoxLocked(a)
+	b.mu.Unlock()
+
+	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
@@ -436,11 +467,12 @@ func (b *InMemoryBackend) SetStopped(name string, stopped bool) error {
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
 
-// Restart discards the running host; the next request starts a fresh one.
+// Restart discards the running host; the next request (or, for background triggers, a fresh start) replaces it.
 func (b *InMemoryBackend) Restart(name string) error {
 	b.mu.Lock("Restart")
 
@@ -455,6 +487,7 @@ func (b *InMemoryBackend) Restart(name string) error {
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
@@ -513,6 +546,7 @@ func (b *InMemoryBackend) Deploy(name string, zipData []byte, deployer, message 
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return d, nil
 }

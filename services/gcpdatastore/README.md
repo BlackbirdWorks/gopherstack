@@ -16,7 +16,7 @@
 ### Known gaps
 
 - ExportEntities and ImportEntities are not served (they need a Cloud Storage bucket target); the admin service answers UNIMPLEMENTED for them.
-- Query explain (explain_options), vector search (find_nearest), __property__ metadata queries are not supported; explain and find_nearest return UNIMPLEMENTED, and a property_mask is applied to full entities only.
+- Vector search (find_nearest) returns UNIMPLEMENTED, and a property_mask is applied to full entities only.
 - Pessimistic concurrency, point-in-time recovery beyond one hour, multiple named databases' lifecycle API and TTL policies are not modelled; the database_id field only partitions data.
 - Composite index rules cover only the cases the documentation states; the index build is instantaneous (no CREATING state) and the exact wording of FAILED_PRECONDITION and ABORTED messages was chosen without a production reference.
 - There is no dashboard page.

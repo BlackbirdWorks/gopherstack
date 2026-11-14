@@ -712,3 +712,69 @@ func TestWatchContainerExit_RestartPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestRunTask_ManagedEBSVolumeMount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mounts     map[string]ebsMount
+		name       string
+		wantRemove []string
+		wantErr    bool
+	}{
+		{
+			name:       "deleted with the task",
+			mounts:     map[string]ebsMount{"data": {volumeID: "vol-1", deleteOnTermination: true}},
+			wantRemove: []string{"gopherstack-ecs-ebs-vol-1"},
+		},
+		{
+			name:   "kept when not deleted on termination",
+			mounts: map[string]ebsMount{"data": {volumeID: "vol-2"}},
+		},
+		{name: "not provisioned", mounts: nil, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeDockerClient{}
+			r := newLaunchRunner(t, fake)
+			task := launchTask()
+			task.ebsVolumes = tt.mounts
+
+			td := &TaskDefinition{
+				Volumes: []Volume{{Name: "data", ConfiguredAtLaunch: true}},
+				ContainerDefinitions: []ContainerDefinition{{
+					Name: "app", Image: "busybox", Essential: true,
+					MountPoints: []MountPoint{{SourceVolume: "data", ContainerPath: "/data"}},
+				}},
+			}
+
+			err := r.RunTask(task, td)
+			if tt.wantErr {
+				var le *taskLaunchError
+
+				require.ErrorAs(t, err, &le)
+				assert.Empty(t, fake.createdImages())
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			m := fake.createAt(0).host.Mounts
+			require.Len(t, m, 1)
+			assert.Equal(t, mount.TypeVolume, m[0].Type)
+			assert.Equal(t, ebsDockerVolumeName(tt.mounts["data"].volumeID), m[0].Source)
+			assert.Equal(t, "/data", m[0].Target)
+
+			require.NoError(t, r.StopTask(task))
+
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+
+			assert.Equal(t, tt.wantRemove, fake.volumesRemoved)
+		})
+	}
+}

@@ -22,6 +22,7 @@ type readmeIn struct {
 
 type createRepoIn struct {
 	Tags
+	RetryToken    string    `json:"-"`
 	IsImmutable   *bool     `json:"isImmutable"`
 	IsPublic      *bool     `json:"isPublic"`
 	Readme        *readmeIn `json:"readme"`
@@ -38,6 +39,7 @@ type updateRepoIn struct {
 
 type changeCompartmentIn struct {
 	CompartmentID string `json:"compartmentId"`
+	RetryToken    string `json:"-"`
 }
 
 func validRepoName(name string) *APIError {
@@ -177,7 +179,16 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 	b.mu.Lock("CreateContainerRepository")
 	defer b.mu.Unlock()
 
-	if err := b.checkCompartment(in.CompartmentID); err != nil {
+	if id, ok := b.retry.Lookup("CreateContainerRepository", in.RetryToken, b.nowUTC()); ok {
+		r, live := b.repos[id]
+		if !live {
+			return repoWire{}, "", errInvalidatedToken()
+		}
+
+		return b.repoView(r), r.Etag, nil
+	}
+
+	if err := firstAPIErr(b.checkCompartment(in.CompartmentID), b.checkTags(in.Tags)); err != nil {
 		return repoWire{}, "", err
 	}
 
@@ -190,12 +201,13 @@ func (b *InMemoryBackend) CreateContainerRepository(in createRepoIn, createdBy s
 	}
 
 	if b.repoByName(in.DisplayName) != nil {
-		return repoWire{}, "", errConflict("A container repository named " + in.DisplayName + " already exists")
+		return repoWire{}, "", errExists("A container repository named " + in.DisplayName + " already exists")
 	}
 
 	r := b.newRepo(in.DisplayName, in.CompartmentID, createdBy)
 	r.IsImmutable, r.IsPublic = in.IsImmutable != nil && *in.IsImmutable, in.IsPublic != nil && *in.IsPublic
 	r.Readme, r.Tags = readme, in.Tags
+	b.retry.Remember("CreateContainerRepository", in.RetryToken, r.ID, r.TimeCreated)
 
 	return b.repoView(r), r.Etag, nil
 }
@@ -300,7 +312,7 @@ func (b *InMemoryBackend) UpdateContainerRepository(id, ifMatch string, in updat
 		return repoWire{}, "", err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err = firstAPIErr(checkEtag(r.Etag, ifMatch), b.checkTags(in.Tags)); err != nil {
 		return repoWire{}, "", err
 	}
 
@@ -367,19 +379,39 @@ func (b *InMemoryBackend) ChangeContainerRepositoryCompartment(id, ifMatch strin
 	defer b.mu.Unlock()
 
 	r, err := b.repo(id)
-	if err != nil {
+
+	return b.moveCompartment("ChangeContainerRepositoryCompartment/"+id, ifMatch, in, err, func() (*string, *string) {
+		return &r.CompartmentID, &r.Etag
+	})
+}
+
+// moveCompartment moves a resource once per retry token; ref is only called when the lookup succeeded.
+func (b *InMemoryBackend) moveCompartment(
+	scope, ifMatch string, in changeCompartmentIn, lookup *APIError, ref func() (*string, *string),
+) error {
+	_, replay := b.retry.Lookup(scope, in.RetryToken, b.nowUTC())
+
+	switch {
+	case lookup != nil && replay:
+		return errInvalidatedToken()
+	case lookup != nil:
+		return lookup
+	case replay:
+		return nil
+	}
+
+	compartment, etag := ref()
+
+	if err := checkEtag(*etag, ifMatch); err != nil {
 		return err
 	}
 
-	if err = checkEtag(r.Etag, ifMatch); err != nil {
+	if err := b.checkCompartment(in.CompartmentID); err != nil {
 		return err
 	}
 
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
-		return err
-	}
-
-	r.CompartmentID, r.Etag = in.CompartmentID, newEtag()
+	*compartment, *etag = in.CompartmentID, newEtag()
+	b.retry.Remember(scope, in.RetryToken, scope, b.nowUTC())
 
 	return nil
 }

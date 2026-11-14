@@ -109,7 +109,7 @@ func TestFilters(t *testing.T) {
 			200,
 		},
 		{"search needs header", `$search="displayName:alpha"`, nil, nil, 400},
-		{"expand unsupported", "$expand=owners", nil, nil, 400},
+		{"expand invalid navigation", "$expand=members", nil, nil, 400},
 	}
 
 	for _, tt := range tests {

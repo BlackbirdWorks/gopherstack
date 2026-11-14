@@ -36,6 +36,7 @@ func errCannotVerifySource() *apiError {
 // clone sharing the immutable extents; for blobs Blob holds the bytes.
 type sourceData struct {
 	File *node
+	Acct string
 	SDDL string
 	Type string
 	Blob []byte
@@ -148,7 +149,7 @@ func (h *Handler) readFileSource(u *url.URL) (*sourceData, *apiError) {
 		return nil, errTypeMismatch()
 	}
 
-	return &sourceData{File: n.clone(), SDDL: sh.Permissions[n.PermKey], Type: n.ContentType}, nil
+	return &sourceData{Acct: acct, File: n.clone(), SDDL: sh.Permissions[n.PermKey], Type: n.ContentType}, nil
 }
 
 func notFoundSource(e *apiError) *apiError {
@@ -246,12 +247,19 @@ func (h *Handler) copyFile(rc *reqCtx) (*resp, *apiError) {
 
 	n := b.newNode(parent, leaf, false, rc.now)
 
+	var oldSize int64
+
 	if old := parent.child(leaf); old != nil {
 		if aerr = checkCopyTarget(rc, old); aerr != nil {
 			return nil, aerr
 		}
 
 		n.ID, n.Lease = old.ID, old.Lease
+		oldSize = old.Size
+	}
+
+	if aerr = sh.checkQuota(src.size() - oldSize); aerr != nil {
+		return nil, aerr
 	}
 
 	fillFromSource(n, src, md)
@@ -260,18 +268,42 @@ func (h *Handler) copyFile(rc *reqCtx) (*resp, *apiError) {
 		return nil, aerr
 	}
 
+	if aerr = sh.initNFS(n, nfsFromHeaders(rc), true); aerr != nil {
+		return nil, aerr
+	}
+
+	copyNFSSource(rc, n, src)
+
 	u, _ := parseSourceURL(rawSrc)
 	u.RawQuery = ""
-	n.Copy = &copyInfo{ID: uuid.NewString(), Source: u.String(), Status: "success", Completed: rc.now}
+	n.Copy = &copyInfo{ID: uuid.NewString(), Source: u.String(), Status: copySuccess, Completed: rc.now}
+	if src.async(rc.acct) {
+		n.Copy.Status, n.Copy.Completed = copyPending, rc.now.Add(copyPendingFor(src.size()))
+	}
 	parent.Children[strs.Fold(leaf)] = n
 
 	rs := newResp(http.StatusAccepted)
 	rs.hdr.Set("ETag", n.ETag)
 	rs.hdr.Set("Last-Modified", fmtHTTP(n.LastModified))
 	rs.hdr.Set("X-Ms-Copy-Id", n.Copy.ID)
-	rs.hdr.Set("X-Ms-Copy-Status", n.Copy.Status)
+	rs.hdr.Set("X-Ms-Copy-Status", n.Copy.state(rc.now))
 
 	return rs, nil
+}
+
+// copyNFSSource applies the source mode, owner and group when the copy modes ask for them.
+func copyNFSSource(rc *reqCtx, n *node, src *sourceData) {
+	if n.NFS == nil || src.File == nil || src.File.NFS == nil {
+		return
+	}
+
+	if strs.Equal(rc.hdr("x-ms-file-mode-copy-mode"), "source") {
+		n.NFS.Mode = src.File.NFS.Mode
+	}
+
+	if strs.Equal(rc.hdr("x-ms-file-owner-copy-mode"), "source") {
+		n.NFS.Owner, n.NFS.Group = src.File.NFS.Owner, src.File.NFS.Group
+	}
 }
 
 func checkCopyTarget(rc *reqCtx, old *node) *apiError {
@@ -344,14 +376,19 @@ func copySMB(rc *reqCtx, src *sourceData) smbIn {
 	return in
 }
 
+func errNoPendingCopy() *apiError {
+	return newErr(http.StatusConflict, "NoPendingCopyOperation", "There is currently no pending copy operation.")
+}
+
 func (h *Handler) abortCopy(rc *reqCtx) (*resp, *apiError) {
 	id := rc.q.Get("copyid")
 	if id == "" {
 		return nil, errMissingHeader("copyid")
 	}
 
-	h.Backend.mu.RLock("AbortCopy")
-	defer h.Backend.mu.RUnlock()
+	b := h.Backend
+	b.mu.Lock("AbortCopy")
+	defer b.mu.Unlock()
 
 	_, n, aerr := h.lookupFile(rc, true)
 	if aerr != nil {
@@ -359,11 +396,7 @@ func (h *Handler) abortCopy(rc *reqCtx) (*resp, *apiError) {
 	}
 
 	if n.Copy == nil {
-		return nil, newErr(
-			http.StatusConflict,
-			"NoPendingCopyOperation",
-			"There is currently no pending copy operation.",
-		)
+		return nil, errNoPendingCopy()
 	}
 
 	if n.Copy.ID != id {
@@ -371,5 +404,17 @@ func (h *Handler) abortCopy(rc *reqCtx) (*resp, *apiError) {
 			"The specified copy ID did not match the copy ID for the destination file.")
 	}
 
-	return nil, newErr(http.StatusConflict, "NoPendingCopyOperation", "There is currently no pending copy operation.")
+	if n.Copy.state(rc.now) != copyPending {
+		return nil, errNoPendingCopy()
+	}
+
+	if aerr = n.Lease.check(rc.hdr("x-ms-lease-id"), rc.now, true); aerr != nil {
+		return nil, aerr
+	}
+
+	n.Copy.Status, n.Copy.Completed = copyAborted, rc.now
+	n.Data, n.Size, n.MD5 = nil, 0, nil
+	n.ETag, n.LastModified = b.etag(), rc.now
+
+	return newResp(http.StatusNoContent), nil
 }

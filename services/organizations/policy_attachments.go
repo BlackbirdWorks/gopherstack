@@ -63,6 +63,10 @@ func (b *InMemoryBackend) DetachPolicy(policyID, targetID string) error {
 		return ErrPolicyNotAttached
 	}
 
+	if policyID == rcpFullAWSAccessPolicyID && b.rcpEnabledLocked() {
+		return ErrNonDetachablePolicy
+	}
+
 	if b.lastSCPLocked(policyID, targetID) {
 		return ErrMinPolicyAttachment
 	}

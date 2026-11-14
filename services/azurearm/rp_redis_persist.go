@@ -16,6 +16,7 @@ func (p *RedisProvider) snapshot() *redisSnapshot {
 	for k, r := range p.res {
 		c := *r
 		c.Firewall, c.Linked = maps.Clone(r.Firewall), maps.Clone(r.Linked)
+		c.Policies, c.Assignments = maps.Clone(r.Policies), maps.Clone(r.Assignments)
 		snap.Caches[k] = &c
 	}
 

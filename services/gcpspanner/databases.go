@@ -98,10 +98,6 @@ func (b *InMemoryBackend) precheckCreate(in *databasepb.CreateDatabaseRequest) (
 		return "", err
 	}
 
-	if in.GetEncryptionConfig() != nil {
-		return "", errUnimplemented("Customer-managed encryption is not supported by this emulator.")
-	}
-
 	b.mu.RLock("CreateDatabase")
 	defer b.mu.RUnlock()
 
@@ -112,6 +108,12 @@ func (b *InMemoryBackend) precheckCreate(in *databasepb.CreateDatabaseRequest) (
 
 	if rec.pb.GetState() != instancepb.Instance_READY {
 		return "", errPrecondition("Instance %s is not ready.", in.GetParent())
+	}
+
+	if in.GetEncryptionConfig() != nil {
+		if err = b.checkEncryption(in.GetEncryptionConfig(), rec.pb.GetConfig()); err != nil {
+			return "", err
+		}
 	}
 
 	if _, dup := rec.dbs[id]; dup {
@@ -152,13 +154,17 @@ func (b *InMemoryBackend) CreateDatabase(
 	}
 
 	pb := b.newDatabase(name, in.GetDatabaseDialect())
+	pb.EncryptionConfig = in.GetEncryptionConfig()
 	if err = b.insertDatabase(in.GetParent(), id, &dbRec{pb: pb, ddl: ddl}); err != nil {
 		return nil, err
 	}
 
 	meta := &databasepb.CreateDatabaseMetadata{Database: name}
 
-	return b.finished(opName(name, ""), meta, cloneDatabase(pb))
+	view := cloneDatabase(pb)
+	view.EncryptionInfo = encryptionInfo(b.keyChecker(), pb.GetEncryptionConfig())
+
+	return b.finished(opName(name, ""), meta, view)
 }
 
 func (b *InMemoryBackend) newDatabase(name string, dialect databasepb.DatabaseDialect) *databasepb.Database {
@@ -218,7 +224,7 @@ func (b *InMemoryBackend) GetDatabase(name string) (*databasepb.Database, error)
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
-	return cloneDatabase(d.pb), nil
+	return b.databaseView(d.pb), nil
 }
 
 // ListDatabases lists the databases of an instance.
@@ -255,7 +261,7 @@ func (b *InMemoryBackend) ListDatabases(
 
 	all := make([]*databasepb.Database, 0, len(ids))
 	for _, id := range ids {
-		all = append(all, cloneDatabase(rec.dbs[id].pb))
+		all = append(all, b.databaseView(rec.dbs[id].pb))
 	}
 	b.mu.RUnlock()
 

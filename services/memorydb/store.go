@@ -3,12 +3,14 @@ package memorydb
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -169,26 +171,28 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // map key, not a value field), and events is slice-valued
 // (map[string][]*Event), neither of which store.Table can represent.
 type InMemoryBackend struct {
-	sgEnforcer                 atomic.Pointer[sgfilter.Enforcer]
-	parameterGroups            map[string]*store.Table[ParameterGroup]
+	registry                   *store.Registry
+	users                      map[string]*store.Table[User]
 	reservedNodes              map[string]*store.Table[ReservedNode]
 	multiRegionParameterGroups *store.Table[MultiRegionParameterGroup]
 	serviceUpdates             *store.Table[ServiceUpdate]
 	clusters                   map[string]*store.Table[Cluster]
 	acls                       map[string]*store.Table[ACL]
-	subnetGroups               map[string]*store.Table[SubnetGroup]
-	users                      map[string]*store.Table[User]
-	multiRegionClusters        *store.Table[MultiRegionCluster]
-	registry                   *store.Registry
-	snapshots                  map[string]*store.Table[Snapshot]
 	arnToResource              map[string]map[string]resourceRef
+	snapshots                  map[string]*store.Table[Snapshot]
+	multiRegionClusters        *store.Table[MultiRegionCluster]
+	parameterGroups            map[string]*store.Table[ParameterGroup]
+	sgEnforcer                 atomic.Pointer[sgfilter.Enforcer]
+	subnetGroups               map[string]*store.Table[SubnetGroup]
 	events                     map[string][]*Event
 	clock                      func() time.Time
 	mu                         *lockmetrics.RWMutex
 	allocator                  *portalloc.Allocator
+	docker                     *redisdocker.Engine
 	engineMode                 string
 	defaultRegion              string
 	accountID                  string
+	dockerWG                   sync.WaitGroup
 	lifecycleDelay             time.Duration
 }
 

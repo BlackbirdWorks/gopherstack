@@ -58,6 +58,10 @@ func (b *InMemoryBackend) CreateDataIntegration(
 		return nil, invalidErr("KmsKey must be 1-%d characters", maxNameLen)
 	}
 
+	if err := b.checkKmsKey(ctx, in.KmsKey); err != nil {
+		return nil, err
+	}
+
 	if in.SourceURI != "" && !strings.Contains(in.SourceURI, "://") {
 		return nil, invalidErr("SourceURI must be a URI such as salesforce://my-source")
 	}

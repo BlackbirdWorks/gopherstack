@@ -217,7 +217,9 @@ type BatchLoadTask struct {
 type tableRecords struct {
 	mu          *lockmetrics.RWMutex
 	recordIndex map[string]int
+	shapeIndex  map[string]struct{}
 	records     []Record
+	shapes      []RecordShape
 }
 
 // InMemoryBackend is the in-memory store for Timestream Write resources.

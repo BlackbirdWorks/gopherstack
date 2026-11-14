@@ -63,6 +63,7 @@ type store struct {
 	Keys      []AccessKey          `json:"keys"`
 	History   []histEntry          `json:"history"`
 	Seq       int64                `json:"seq"`
+	Retention int                  `json:"retentionDays,omitempty"`
 }
 
 // StoreInfo is the ARM-visible view of a store.

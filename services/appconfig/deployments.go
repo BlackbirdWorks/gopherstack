@@ -394,12 +394,12 @@ func (b *InMemoryBackend) scheduleDeploymentReconcilerLocked() {
 		defer ticker.Stop()
 
 		for {
-			<-ticker.C
+			now := <-ticker.C
 
-			b.runDeploymentTicks()
+			b.runDeploymentTicks(now)
 
 			b.mu.Lock("deploymentReconcile")
-			b.reconcileDeploymentsLocked()
+			b.reconcileDeploymentsLocked(now)
 
 			done := len(b.deploymentTimers) == 0
 			b.mu.Unlock()
@@ -413,9 +413,7 @@ func (b *InMemoryBackend) scheduleDeploymentReconcilerLocked() {
 
 // reconcileDeploymentsLocked advances every in-flight deployment whose
 // timer has elapsed by one progression step. Must be called under lock.
-func (b *InMemoryBackend) reconcileDeploymentsLocked() {
-	now := time.Now()
-
+func (b *InMemoryBackend) reconcileDeploymentsLocked(now time.Time) {
 	for key, timer := range b.deploymentTimers {
 		if now.Before(timer.nextAt) {
 			continue

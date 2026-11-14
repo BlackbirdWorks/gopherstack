@@ -226,6 +226,7 @@ func (b *InMemoryBackend) runDelete(j job) {
 	}
 
 	delete(b.functions, j.name)
+	b.iam.Drop(j.name)
 	b.mu.Unlock()
 
 	if pool != nil {

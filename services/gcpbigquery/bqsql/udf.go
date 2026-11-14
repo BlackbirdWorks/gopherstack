@@ -44,6 +44,7 @@ func registerUDFs() {
 		addRegexUDFs(defs)
 		addTimeUDFs(defs)
 		addArrayUDFs(defs)
+		addApproxUDFs(defs)
 		addCastUDFs(defs)
 
 		for name, d := range defs {

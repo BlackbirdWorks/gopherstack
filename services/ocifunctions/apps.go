@@ -199,6 +199,14 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
+	if aerr := b.checkImagePolicyKeys(in.ImagePolicy); aerr != nil {
+		return appWire{}, "", "", aerr
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return appWire{}, "", "", aerr
+	}
+
 	if b.appNameTaken(in.Compartment, in.Name, "") {
 		return appWire{}, "", "", errExists("An application named " + in.Name + " already exists in the compartment")
 	}
@@ -273,8 +281,14 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 		return "", aerr
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
+
+	if aerr := b.checkImagePolicyKeys(in.ImagePolicy); aerr != nil {
+		return "", aerr
+	}
 
 	a, aerr := b.activeApp(id)
 	if aerr != nil {
@@ -282,6 +296,10 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 	}
 
 	if aerr = checkEtag(a.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 
@@ -302,6 +320,7 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 	a.ImagePolicy = cmpPtr(in.ImagePolicy, a.ImagePolicy)
 	a.Tags.replace(in.Tags)
 	a.TimeUpdated, a.Etag = b.nowUTC(), newEtag()
+	b.recordEvent(EventUpdateApplication, a.CompartmentID, a.Name, a.ID)
 
 	return b.newWR("UPDATE_APPLICATION", a.CompartmentID, "application", a.ID, "UPDATED",
 		"/applications/"+a.ID, a.TimeUpdated), nil
@@ -350,6 +369,8 @@ func (b *InMemoryBackend) ChangeApplicationCompartment(id, ifMatch, compartment 
 		return "", errMissing("compartmentId is required")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("ChangeApplicationCompartment")
 	defer b.mu.Unlock()
 
@@ -373,6 +394,8 @@ func (b *InMemoryBackend) ChangeApplicationCompartment(id, ifMatch, compartment 
 			f.CompartmentID = compartment
 		}
 	}
+
+	b.recordEvent(EventChangeApplicationCompartment, compartment, a.Name, a.ID)
 
 	return b.newWR("UPDATE_APPLICATION", compartment, "application", a.ID, "UPDATED",
 		"/applications/"+a.ID, a.TimeUpdated), nil

@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
+	"regexp"
 	"slices"
 	"time"
 
@@ -271,7 +273,7 @@ func (b *InMemoryBackend) managerLocked(sc scope, wsID string) (*alertManager, e
 }
 
 // alertManagerAlerts lists the alerts the workspace's alert manager holds.
-func (b *InMemoryBackend) alertManagerAlerts(ctx context.Context, wsID string) ([]amAlertJSON, error) {
+func (b *InMemoryBackend) alertManagerAlerts(ctx context.Context, wsID string, q amAlertQuery) ([]amAlertJSON, error) {
 	b.mu.RLock("AlertManagerAlerts")
 	m, err := b.managerLocked(b.scopeOf(ctx), wsID)
 	now := b.now()
@@ -281,7 +283,71 @@ func (b *InMemoryBackend) alertManagerAlerts(ctx context.Context, wsID string) (
 		return nil, err
 	}
 
-	return m.view(now), nil
+	return m.view(now, q), nil
+}
+
+// alertManagerGroups lists the workspace's alert groups.
+func (b *InMemoryBackend) alertManagerGroups(
+	ctx context.Context, wsID string, q amAlertQuery,
+) ([]amAlertGroupJSON, error) {
+	b.mu.RLock("AlertManagerAlertGroups")
+	m, err := b.managerLocked(b.scopeOf(ctx), wsID)
+	now := b.now()
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return m.groupsView(now, q), nil
+}
+
+// alertManagerReceivers lists the receivers of the workspace's alert manager definition.
+func (b *InMemoryBackend) alertManagerReceivers(ctx context.Context, wsID string) ([]amReceiverName, error) {
+	b.mu.RLock("AlertManagerReceivers")
+	m, err := b.managerLocked(b.scopeOf(ctx), wsID)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	names := slices.Sorted(maps.Keys(m.cfg.receivers))
+	out := make([]amReceiverName, 0, len(names))
+
+	for _, n := range names {
+		out = append(out, amReceiverName{Name: n})
+	}
+
+	return out, nil
+}
+
+type amStatusJSON struct {
+	Cluster     any `json:"cluster"`
+	VersionInfo any `json:"versionInfo"`
+	Uptime      any `json:"uptime"`
+	Config      struct {
+		Original string `json:"original"`
+	} `json:"config"`
+}
+
+// alertManagerStatus reports the running definition; cluster, version and uptime are null as in AMP.
+func (b *InMemoryBackend) alertManagerStatus(ctx context.Context, wsID string) (amStatusJSON, error) {
+	b.mu.RLock("AlertManagerStatus")
+	defer b.mu.RUnlock()
+
+	m, err := b.managerLocked(b.scopeOf(ctx), wsID)
+	if err != nil {
+		return amStatusJSON{}, err
+	}
+
+	raw, _ := alertManagerConfigYAML(m.src)
+
+	var out amStatusJSON
+
+	out.Config.Original = string(raw)
+
+	return out, nil
 }
 
 // ReceiveAlerts hands alerts posted to the alert manager API to the workspace's alert manager.
@@ -300,7 +366,58 @@ func (b *InMemoryBackend) ReceiveAlerts(ctx context.Context, wsID string, alerts
 	return nil
 }
 
-func (m *alertManager) view(now time.Time) []amAlertJSON {
+// amAlertQuery is the filter set of the alert manager alert listings.
+type amAlertQuery struct {
+	receiver *regexp.Regexp
+	filters  []*promql.Matcher
+	active   bool
+	silenced bool
+	inhibit  bool
+}
+
+func (q amAlertQuery) keep(a amAlertJSON) bool {
+	st := a.Status
+	if (!q.active && st.State == "active") || (!q.silenced && len(st.SilencedBy) > 0) ||
+		(!q.inhibit && len(st.InhibitedBy) > 0) {
+		return false
+	}
+
+	if !promql.MatchesAll(a.Labels, q.filters) {
+		return false
+	}
+
+	if q.receiver == nil {
+		return true
+	}
+
+	return slices.ContainsFunc(a.Receivers, func(r amReceiverName) bool { return q.receiver.MatchString(r.Name) })
+}
+
+func (m *alertManager) alertJSONLocked(a Alert, now time.Time) amAlertJSON {
+	routes := matchRoutes(m.cfg.root, a.Labels)
+	recv := make([]amReceiverName, 0, len(routes))
+
+	for _, r := range routes {
+		recv = append(recv, amReceiverName{Name: r.receiver})
+	}
+
+	silenced := m.silencedByLocked(a.Labels, now)
+	inhibited := m.inhibitorsLocked(a, now)
+	state := "active"
+
+	if len(silenced) > 0 || len(inhibited) > 0 {
+		state = "suppressed"
+	}
+
+	return amAlertJSON{
+		Labels: a.Labels, Annotations: a.Annotations, StartsAt: timeJSON(a.StartsAt), EndsAt: timeJSON(a.EndsAt),
+		UpdatedAt: timeJSON(now), GeneratorURL: a.GeneratorURL, Fingerprint: fingerprintHex(a.Labels),
+		Status:    amAlertStatus{State: state, SilencedBy: silenced, InhibitedBy: inhibited},
+		Receivers: recv,
+	}
+}
+
+func (m *alertManager) view(now time.Time, q amAlertQuery) []amAlertJSON {
 	alerts := m.List()
 
 	m.mu.RLock("view")
@@ -313,19 +430,53 @@ func (m *alertManager) view(now time.Time) []amAlertJSON {
 			continue
 		}
 
-		routes := matchRoutes(m.cfg.root, a.Labels)
-		recv := make([]amReceiverName, 0, len(routes))
+		if j := m.alertJSONLocked(a, now); q.keep(j) {
+			out = append(out, j)
+		}
+	}
 
-		for _, r := range routes {
-			recv = append(recv, amReceiverName{Name: r.receiver})
+	return out
+}
+
+type amAlertGroupJSON struct {
+	Labels   promql.Labels  `json:"labels"`
+	Receiver amReceiverName `json:"receiver"`
+	Alerts   []amAlertJSON  `json:"alerts"`
+}
+
+func (m *alertManager) groupsView(now time.Time, q amAlertQuery) []amAlertGroupJSON {
+	m.mu.RLock("groupsView")
+	defer m.mu.RUnlock()
+
+	keys := slices.Sorted(maps.Keys(m.groups))
+	out := make([]amAlertGroupJSON, 0, len(keys))
+
+	for _, k := range keys {
+		g := m.groups[k]
+		grp := amAlertGroupJSON{
+			Labels: g.labels, Receiver: amReceiverName{Name: g.route.receiver}, Alerts: []amAlertJSON{},
 		}
 
-		out = append(out, amAlertJSON{
-			Labels: a.Labels, Annotations: a.Annotations, StartsAt: timeJSON(a.StartsAt), EndsAt: timeJSON(a.EndsAt),
-			UpdatedAt: timeJSON(now), GeneratorURL: a.GeneratorURL, Fingerprint: fingerprintHex(a.Labels),
-			Status:    amAlertStatus{State: "active", SilencedBy: []string{}, InhibitedBy: []string{}},
-			Receivers: recv,
-		})
+		members := make([]Alert, 0, len(g.alerts))
+		for _, a := range g.alerts {
+			members = append(members, a)
+		}
+
+		sortAlerts(members)
+
+		for _, a := range members {
+			if a.resolved(now) {
+				continue
+			}
+
+			if j := m.alertJSONLocked(a, now); q.keep(j) {
+				grp.Alerts = append(grp.Alerts, j)
+			}
+		}
+
+		if len(grp.Alerts) > 0 {
+			out = append(out, grp)
+		}
 	}
 
 	return out

@@ -509,6 +509,10 @@ func (b *InMemoryBackend) SetUserPoolMfaConfigFull(userPoolID string, cfg UserPo
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	if err := validateWebAuthnConfiguration(cfg.WebAuthnConfiguration); err != nil {
+		return err
+	}
+
 	if cfg.MfaConfiguration != "" {
 		pool.MfaConfiguration = cfg.MfaConfiguration
 	}

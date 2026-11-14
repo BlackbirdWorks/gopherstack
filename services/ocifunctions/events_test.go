@@ -58,3 +58,55 @@ func TestResourceEvents(t *testing.T) {
 		assert.Equal(t, testCompartment, got[i].CompartmentID)
 	}
 }
+
+func TestUpdateResourceEvents(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	app := e.mkApp(t, "upapp", nil)
+	fn := e.mkFn(t, app, "upfn", nil)
+
+	var (
+		mu  sync.Mutex
+		got []oci.ResourceEvent
+	)
+
+	e.backend.SetEventSink(func(ev oci.ResourceEvent) {
+		mu.Lock()
+		got = append(got, ev)
+		mu.Unlock()
+	})
+
+	_, err := e.mgmt.UpdateApplication(t.Context(), functions.UpdateApplicationRequest{
+		ApplicationId: app.Id,
+		Config:        map[string]string{"k": "v"},
+	})
+	require.NoError(t, err)
+
+	_, err = e.mgmt.UpdateFunction(t.Context(), functions.UpdateFunctionRequest{
+		FunctionId: fn.Id,
+		Config:     map[string]string{"k": "v"},
+	})
+	require.NoError(t, err)
+
+	_, err = e.mgmt.ChangeApplicationCompartment(t.Context(), functions.ChangeApplicationCompartmentRequest{
+		ApplicationId: app.Id,
+		CompartmentId: new("ocid1.compartment.oc1..other"),
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	types := make([]string, 0, len(got))
+	for _, ev := range got {
+		types = append(types, ev.EventType)
+	}
+
+	assert.Equal(
+		t,
+		[]string{oci.EventUpdateApplication, oci.EventUpdateFunction, oci.EventChangeApplicationCompartment},
+		types,
+	)
+	assert.Equal(t, "ocid1.compartment.oc1..other", got[2].CompartmentID)
+}

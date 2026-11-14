@@ -1,14 +1,19 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { ALL_REGIONS, currentRegionSelection, setStoredRegion } from '#lib/region.svelte.ts';
 	import { fetchRegionCatalog } from '#lib/region-catalog.ts';
+	import { regionCatalogAvailable } from '#lib/cloud.svelte.ts';
 
 	let open = $state(false);
 	let query = $state('');
 	let catalog = $state<string[]>([]);
 	let inputEl = $state<HTMLInputElement | null>(null);
 
-	onMount(() => {
+	let catalogRequested = false;
+
+	// DescribeRegions is an EC2 call: with EC2 disabled the router answers 501 and the browser logs a console error.
+	$effect(() => {
+		if (catalogRequested || !regionCatalogAvailable()) return;
+		catalogRequested = true;
 		fetchRegionCatalog().then((regions) => {
 			catalog = regions;
 		});

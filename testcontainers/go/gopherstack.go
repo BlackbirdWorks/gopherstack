@@ -60,7 +60,7 @@ const (
 )
 
 func ociPorts() map[string]string {
-	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155", "queue": "8156", "notifications": "8157", "containerengine": "8158", "mysql": "8159", "logging": "8160", "monitoring": "8161", "nosql": "8162", "apigateway": "8163", "events": "8164", "loadbalancer": "8165", "artifacts": "8166", "containerinstances": "8167"}
+	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155", "queue": "8156", "notifications": "8157", "containerengine": "8158", "mysql": "8159", "logging": "8160", "monitoring": "8161", "nosql": "8162", "apigateway": "8163", "events": "8164", "loadbalancer": "8165", "artifacts": "8166", "containerinstances": "8167", "dns": "8168", "dnsserver": "8169", "database": "8170", "filestorage": "8171"}
 }
 
 func gcpPorts() map[string]string {
@@ -134,13 +134,16 @@ func WithServices(names ...string) Option {
 }
 
 // WithPersistence enables snapshot persistence, bind-mounting hostDir at /data.
+// The image runs as UID 65532 by default; a host bind mount is rarely writable by it, so the container
+// runs as root. Override with a WithCustomizer user if hostDir is owned by 65532.
 func WithPersistence(hostDir string) Option {
 	return func(s *settings) { s.persistDir = hostDir }
 }
 
 // WithDockerSocket mounts the host Docker socket so Lambda/RDS/ECS docker
 // engines can start sibling containers. This grants the emulator control of
-// the host Docker daemon; use only in trusted test environments.
+// the host Docker daemon; use only in trusted test environments. The container
+// runs as root so it can open the socket regardless of the socket's group.
 func WithDockerSocket() Option {
 	return func(s *settings) { s.dockerSock = true }
 }
@@ -193,6 +196,8 @@ func Run(ctx context.Context, image string, opts ...Option) (*Container, error) 
 
 	var binds []string
 
+	rootUser := s.persistDir != "" || s.dockerSock
+
 	if s.persistDir != "" {
 		s.env["PERSIST"] = "true"
 		s.env["GOPHERSTACK_DATA_DIR"] = dataDir
@@ -209,6 +214,10 @@ func Run(ctx context.Context, image string, opts ...Option) (*Container, error) 
 		Env:          s.env,
 		WaitingFor: wait.ForHTTP(HealthPath).WithPort(APIPort + "/tcp").
 			WithStartupTimeout(startupTimeout),
+	}
+
+	if rootUser {
+		req.User = "0:0"
 	}
 
 	if len(binds) > 0 {

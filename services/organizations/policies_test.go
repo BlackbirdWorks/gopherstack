@@ -382,7 +382,7 @@ func TestValidPolicyTypes_AllEight(t *testing.T) {
 
 			b, _ := newOrgBackend(t)
 
-			p, err := b.CreatePolicy("test", "desc", `{"Version":"2012-10-17"}`, pt, nil)
+			p, err := b.CreatePolicy("test", "desc", minimalPolicyContent(pt), pt, nil)
 			require.NoError(t, err, "CreatePolicy should succeed for %s", pt)
 			assert.Equal(t, pt, p.PolicySummary.Type)
 		})
@@ -408,7 +408,7 @@ func TestNewPolicyTypes_ResourceControl_SecurityHub(t *testing.T) {
 			b, rootID := newOrgBackend(t)
 
 			// CreatePolicy.
-			p, err := b.CreatePolicy("test", "desc", `{"Version":"2012-10-17"}`, tt.policyType, nil)
+			p, err := b.CreatePolicy("test", "desc", minimalPolicyContent(tt.policyType), tt.policyType, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.policyType, p.PolicySummary.Type)
 
@@ -1021,7 +1021,7 @@ func TestCreatePolicy_ContentSizeLimit(t *testing.T) {
 
 			// Build oversized-but-valid JSON: a big string value padded past the limit.
 			pad := strings.Repeat("a", tt.limit)
-			oversized := `{"k":"` + pad + `"}`
+			oversized := paddedPolicyContent(tt.policyType, pad)
 
 			_, err := b.CreatePolicy("too-big", "", oversized, tt.policyType, nil)
 			require.Error(t, err)
@@ -1029,7 +1029,8 @@ func TestCreatePolicy_ContentSizeLimit(t *testing.T) {
 			assert.Contains(t, err.Error(), "POLICY_CONTENT_LIMIT_EXCEEDED")
 
 			// A document right at the limit is accepted.
-			atLimit := `{"k":"` + strings.Repeat("a", tt.limit-8) + `"}`
+			overhead := len(paddedPolicyContent(tt.policyType, ""))
+			atLimit := paddedPolicyContent(tt.policyType, strings.Repeat("a", tt.limit-overhead))
 			require.Len(t, atLimit, tt.limit)
 
 			_, err = b.CreatePolicy("just-right", "", atLimit, tt.policyType, nil)
@@ -1107,4 +1108,24 @@ func TestBackend_AddPolicyInternal(t *testing.T) {
 			assert.Equal(t, tt.wantCount, organizations.PolicyCount(b))
 		})
 	}
+}
+
+const validRCPContent = `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*",` +
+	`"Action":"s3:*","Resource":"*"}]}`
+
+func minimalPolicyContent(policyType string) string {
+	if policyType == "RESOURCE_CONTROL_POLICY" {
+		return validRCPContent
+	}
+
+	return `{"Version":"2012-10-17"}`
+}
+
+func paddedPolicyContent(policyType, pad string) string {
+	if policyType == "RESOURCE_CONTROL_POLICY" {
+		return `{"Version":"2012-10-17","Statement":{"Sid":"` + pad +
+			`","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":"*"}}`
+	}
+
+	return `{"k":"` + pad + `"}`
 }

@@ -128,7 +128,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 
 func isTerminal(name string) bool {
 	switch name {
-	case "toList", "next", "iterate", "hasNext", "toSet", "tryNext", "getRawTraversal", "fill":
+	case termToList, "next", "iterate", "hasNext", "toSet", "tryNext", "getRawTraversal", "fill":
 		return true
 	}
 
@@ -158,6 +158,12 @@ func (p *parser) parseChain(tr *Traversal, top bool) (string, int, error) {
 			return name.text, termCount(args), nil
 		}
 
+		if top && name.text == "withSack" {
+			tr.Sources = append(tr.Sources, Step{Name: name.text, Args: args})
+
+			continue
+		}
+
 		if skipSourceStep(name.text) {
 			continue
 		}
@@ -170,7 +176,7 @@ func (p *parser) parseChain(tr *Traversal, top bool) (string, int, error) {
 
 func skipSourceStep(name string) bool {
 	switch name {
-	case "withSideEffect", "withStrategies", "withoutStrategies", "withBulk", "withPath", "withSack":
+	case "withSideEffect", "withStrategies", "withoutStrategies", "withBulk", "withPath":
 		return true
 	}
 
@@ -334,6 +340,17 @@ func (p *parser) parseMapKeyOrValue() (any, error) {
 		p.pos++
 
 		return t.text, nil
+	}
+
+	if p.isPunct("(") {
+		p.pos++
+
+		k, err := p.parseValue()
+		if err != nil {
+			return nil, err
+		}
+
+		return k, p.expectPunct(")")
 	}
 
 	return p.parseValue()

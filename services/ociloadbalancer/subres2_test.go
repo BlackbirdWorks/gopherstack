@@ -168,7 +168,8 @@ func TestListenersAndRouting(t *testing.T) {
 		assert.Equal(t, 302, *redir.ResponseCode)
 
 		bad := []loadbalancer.Rule{
-			loadbalancer.IpBasedMaxConnectionsRule{DefaultMaxConnections: new(5)},
+			loadbalancer.IpBasedMaxConnectionsRule{DefaultMaxConnections: new(0)},
+			loadbalancer.IpBasedMaxConnectionsRule{},
 			loadbalancer.AddHttpRequestHeaderRule{Header: new("Host"), Value: new("x")},
 			loadbalancer.ControlAccessUsingHttpMethodsRule{AllowedMethods: []string{}},
 			loadbalancer.AllowRule{

@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	reasonIdentityPolicy       = iampolicystream.ReasonIdentityPolicy
-	reasonResourcePolicy       = iampolicystream.ReasonResourcePolicy
-	reasonPermissionBoundary   = iampolicystream.ReasonPermissionBound
-	reasonImplicitDeny         = iampolicystream.ReasonImplicitDeny
-	reasonUnresolvedCaller     = iampolicystream.ReasonUnresolvedCaller
-	reasonServiceControlPolicy = iampolicystream.ReasonServiceControl
+	reasonIdentityPolicy        = iampolicystream.ReasonIdentityPolicy
+	reasonResourcePolicy        = iampolicystream.ReasonResourcePolicy
+	reasonPermissionBoundary    = iampolicystream.ReasonPermissionBound
+	reasonImplicitDeny          = iampolicystream.ReasonImplicitDeny
+	reasonUnresolvedCaller      = iampolicystream.ReasonUnresolvedCaller
+	reasonServiceControlPolicy  = iampolicystream.ReasonServiceControl
+	reasonResourceControlPolicy = iampolicystream.ReasonResourceControl
 )
 
 // requestDecision is the outcome of evaluating one request. For a deny, reason

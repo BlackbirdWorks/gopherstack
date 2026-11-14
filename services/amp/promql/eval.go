@@ -66,6 +66,7 @@ type Scalar struct {
 // VectorSample is one instant sample of a labelled series.
 type VectorSample struct {
 	Metric Labels
+	H      *FloatHistogram
 	T      int64
 	V      float64
 }
@@ -96,6 +97,7 @@ type Engine struct {
 	Store    Storage
 	Lookback time.Duration
 	steps    int
+	histOK   bool
 }
 
 func isRangeExpr(x Expr) bool {
@@ -129,6 +131,7 @@ func (e *Engine) Instant(src string, ts time.Time) (Value, error) {
 func (e *Engine) InstantExpr(expr Expr, ts time.Time) (Value, error) {
 	t := ts.UnixMilli()
 	resolveAt(expr, t, t)
+	e.histOK = isBareSelector(expr)
 
 	v, err := e.eval(expr, t)
 	if err != nil {
@@ -162,6 +165,7 @@ func (e *Engine) Range(src string, start, end time.Time, step time.Duration) (Ma
 	}
 
 	resolveAt(expr, start.UnixMilli(), end.UnixMilli())
+	e.histOK = isBareSelector(expr)
 
 	if isRangeExpr(expr) {
 		return nil, evalErr(
@@ -180,10 +184,10 @@ func (e *Engine) Range(src string, start, end time.Time, step time.Duration) (Ma
 
 		switch x := v.(type) {
 		case Scalar:
-			addPoint(acc, &order, Labels{}, Sample(x))
+			addPoint(acc, &order, Labels{}, Sample{T: x.T, V: x.V})
 		case Vector:
 			for _, s := range x {
-				addPoint(acc, &order, s.Metric, Sample{T: s.T, V: s.V})
+				addPoint(acc, &order, s.Metric, Sample{T: s.T, V: s.V, H: s.H})
 			}
 		default:
 			return nil, evalErr("invalid expression type %q for range query", v.valueType())
@@ -252,9 +256,12 @@ func (e *Engine) evalVector(vs *VectorSelector, t int64) Vector {
 	out := make(Vector, 0, len(series))
 
 	for _, s := range series {
-		if p, ok := lastAtOrBefore(s.Samples, maxT, minT); ok {
-			out = append(out, VectorSample{Metric: s.Labels, T: t, V: p.V})
+		p, ok := lastAtOrBefore(s.Samples, maxT, minT)
+		if !ok || (p.H != nil && !e.histOK) {
+			continue
 		}
+
+		out = append(out, VectorSample{Metric: s.Labels, T: t, V: p.V, H: p.H})
 	}
 
 	sortVector(out)
@@ -288,7 +295,7 @@ func (e *Engine) evalMatrix(ms *MatrixSelector, t int64) Matrix {
 		var win []Sample
 
 		for _, p := range s.Samples {
-			if p.T > minT && p.T <= maxT && !IsStale(p.V) {
+			if p.T > minT && p.T <= maxT && !IsStale(p.V) && p.H == nil {
 				win = append(win, p)
 			}
 		}

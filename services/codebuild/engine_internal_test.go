@@ -42,6 +42,7 @@ type fakeRuntime struct {
 	started   chan struct{}
 	rules     []fakeRule
 	scripts   []string
+	cmds      [][]string
 	mounts    []string
 	removed   int
 }
@@ -76,6 +77,7 @@ func (f *fakeRuntime) Exec(ctx context.Context, _ string, cmd []string) (contain
 
 	f.mu.Lock("exec")
 	f.scripts = append(f.scripts, script)
+	f.cmds = append(f.cmds, cmd)
 	dir := f.hostDir
 	f.mu.Unlock()
 

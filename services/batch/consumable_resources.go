@@ -251,8 +251,7 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(
 
 	for _, j := range b.jobsByRegion.Get(region) {
 		if jobReferencesConsumableResource(j, consumableResource) && jobMatchesAllConsumableFilters(j, filters) {
-			cp := *j
-			cp.Tags = tagsCloneOrEmpty(j.Tags)
+			cp := j.snapshot()
 			list = append(list, &cp)
 		}
 	}

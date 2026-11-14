@@ -7,26 +7,29 @@ import (
 )
 
 const (
-	maxDimension     = 4096
-	maxTopK          = 100
-	maxPutBatch      = 500
-	maxKeyBatch      = 100
-	maxKeyLen        = 1024
-	maxMetadataBytes = 40 * 1024
-	maxFilterBytes   = 2 * 1024
-	maxMetadataKeys  = 50
-	maxNonFilterable = 10
-	maxTags          = 50
-	maxTagKey        = 128
-	maxTagValue      = 256
-	maxBuckets       = 10000
-	maxIndexes       = 10000
-	minNameLen       = 3
-	maxNameLen       = 63
-	maxListBuckets   = 500
-	maxListVectors   = 1000
-	defaultListVecs  = 500
-	maxSegments      = 16
+	maxDimension         = 4096
+	maxTopK              = 10000
+	maxQueryPage         = 100
+	maxPutBatch          = 500
+	maxFilterConstraints = 100
+	maxDeleteBatch       = 500
+	maxGetBatch          = 100
+	maxKeyLen            = 1024
+	maxMetadataBytes     = 40 * 1024
+	maxFilterBytes       = 2 * 1024
+	maxMetadataKeys      = 50
+	maxNonFilterable     = 10
+	maxTags              = 50
+	maxTagKey            = 128
+	maxTagValue          = 256
+	maxBuckets           = 10000
+	maxIndexes           = 10000
+	minNameLen           = 3
+	maxNameLen           = 63
+	maxListBuckets       = 500
+	maxListVectors       = 1000
+	defaultListVecs      = 500
+	maxSegments          = 16
 )
 
 var (

@@ -57,6 +57,26 @@ const (
 	tLongblob   = "longblob"
 	tJSONB      = "jsonb"
 	tDatetime6  = "datetime(6)"
+	tBlob       = "blob"
+	tBinary     = "binary"
+	tVarbinary  = "varbinary"
+	tTinyblob   = "tinyblob"
+	tMediumblob = "mediumblob"
+	tSerial     = "serial"
+	tBigserial  = "bigserial"
+	tInt1       = "int1"
+	tInt2       = "int2"
+	tInt4       = "int4"
+	tInt8       = "int8"
+	tReal4      = "real4"
+	tFloat4     = "float4"
+	tFloat8     = "float8"
+	tBool       = "bool"
+	tClob       = "clob"
+	tBytes      = "bytes"
+	tReal8      = "real8"
+	tNclob      = "nclob"
+	tTinyint1   = "tinyint(1)"
 )
 
 func kindByBase() map[string]Kind {
@@ -68,12 +88,12 @@ func kindByBase() map[string]Kind {
 		tInteger:                 KindInt,
 		tBigint:                  KindInt,
 		"year":                   KindInt,
-		"serial":                 KindInt,
-		"bigserial":              KindInt,
+		tSerial:                  KindInt,
+		tBigserial:               KindInt,
 		"smallserial":            KindInt,
-		"int2":                   KindInt,
-		"int4":                   KindInt,
-		"int8":                   KindInt,
+		tInt2:                    KindInt,
+		tInt4:                    KindInt,
+		tInt8:                    KindInt,
 		tDecimal:                 KindDecimal,
 		tNumeric:                 KindDecimal,
 		"dec":                    KindDecimal,
@@ -83,10 +103,10 @@ func kindByBase() map[string]Kind {
 		tDouble:                  KindFloat,
 		tDoublePrec:              KindFloat,
 		tReal:                    KindFloat,
-		"float4":                 KindFloat,
-		"float8":                 KindFloat,
+		tFloat4:                  KindFloat,
+		tFloat8:                  KindFloat,
 		tBoolean:                 KindBool,
-		"bool":                   KindBool,
+		tBool:                    KindBool,
 		tDate:                    KindTime,
 		tDatetime:                KindTime,
 		tTimestamp:               KindTime,
@@ -97,11 +117,11 @@ func kindByBase() map[string]Kind {
 		"time with time zone":    KindTime,
 		"timestamptz":            KindTime,
 		"timetz":                 KindTime,
-		"binary":                 KindBytes,
-		"varbinary":              KindBytes,
-		"tinyblob":               KindBytes,
-		"blob":                   KindBytes,
-		"mediumblob":             KindBytes,
+		tBinary:                  KindBytes,
+		tVarbinary:               KindBytes,
+		tTinyblob:                KindBytes,
+		tBlob:                    KindBytes,
+		tMediumblob:              KindBytes,
 		tLongblob:                KindBytes,
 		tBytea:                   KindBytes,
 		"bit":                    KindBytes,
@@ -120,7 +140,7 @@ func mysqlToPGBase() map[string]string {
 	return map[string]string{
 		tTinyint: tSmallint, tMediumint: tInteger, "year": tSmallint, tFloat: tReal, tDouble: tDoublePrec,
 		tDoublePrec: tDoublePrec, tDatetime: tTimestamp, tTimestamp: tTimestamp, tDate: tDate, tTime: tTime,
-		"binary": tBytea, "varbinary": tBytea, "tinyblob": tBytea, "blob": tBytea, "mediumblob": tBytea,
+		tBinary: tBytea, tVarbinary: tBytea, tTinyblob: tBytea, tBlob: tBytea, tMediumblob: tBytea,
 		tLongblob: tBytea, "bit": tBytea, "geometry": tBytea, tJSON: tJSONB,
 	}
 }
@@ -172,10 +192,10 @@ func numericWithArgs(args string) string {
 
 func pgToMySQLBase() map[string]string {
 	return map[string]string{
-		tSmallint: tSmallint, "int2": tSmallint, "smallserial": tSmallint, tInteger: tInt, tInt: tInt, "int4": tInt,
-		"serial": tInt, tBigint: tBigint, "int8": tBigint, "bigserial": tBigint, tBoolean: "tinyint(1)",
-		"bool": "tinyint(1)", "money": "decimal(19,2)", tReal: tFloat, "float4": tFloat, tDoublePrec: tDouble,
-		"float8": tDouble, tTimestampN: tDatetime6, tTimestampZ: tDatetime6, tTimestamp: tDatetime6,
+		tSmallint: tSmallint, tInt2: tSmallint, "smallserial": tSmallint, tInteger: tInt, tInt: tInt, tInt4: tInt,
+		tSerial: tInt, tBigint: tBigint, tInt8: tBigint, tBigserial: tBigint, tBoolean: tTinyint1,
+		tBool: tTinyint1, "money": "decimal(19,2)", tReal: tFloat, tFloat4: tFloat, tDoublePrec: tDouble,
+		tFloat8: tDouble, tTimestampN: tDatetime6, tTimestampZ: tDatetime6, tTimestamp: tDatetime6,
 		"timestamptz": tDatetime6, tDate: tDate, "time without time zone": tTime, "time with time zone": tTime,
 		tTime: tTime, "timetz": tTime, tBytea: tLongblob, tJSON: tJSON, tJSONB: tJSON, "uuid": "char(36)",
 	}

@@ -33,7 +33,7 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 		ClientID:      clientID,
 		Username:      username,
 		ChallengeType: challengeType,
-		ExpiresAt:     time.Now().Add(mfaSessionTTL),
+		ExpiresAt:     b.now().Add(mfaSessionTTL),
 	}
 
 	if challengeType == challengeSMSMFA || challengeType == challengeEmailOTP {
@@ -102,6 +102,12 @@ func (b *InMemoryBackend) RespondToMFAChallenge(
 	b.mu.Lock("RespondToMFAChallenge")
 	defer b.mu.Unlock()
 
+	return b.respondToMFAChallengeLocked(clientID, session, code, firstMetadata(meta))
+}
+
+func (b *InMemoryBackend) respondToMFAChallengeLocked(
+	clientID, session, code string, cm ClientMetadata,
+) (*TokenResult, error) {
 	if len(code) != totpCodeLen {
 		return nil, fmt.Errorf("%w: code must be %d digits", ErrCodeMismatch, totpCodeLen)
 	}
@@ -117,7 +123,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(
 		return nil, fmt.Errorf("%w: MFA session not found or expired", ErrNotAuthorized)
 	}
 
-	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+	if !entry.ExpiresAt.IsZero() && b.now().After(entry.ExpiresAt) {
 		delete(b.mfaSessions, session)
 
 		return nil, fmt.Errorf("%w: MFA session not found or expired", ErrNotAuthorized)
@@ -137,7 +143,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	if err := verifyMFAChallengeCode(entry, user, code); err != nil {
+	if err := b.verifyMFAChallengeCode(entry, user, code); err != nil {
 		// Do not consume the session on a wrong code: the caller may retry until it expires.
 		return nil, err
 	}
@@ -145,7 +151,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(
 	// Consume the session (one-time use).
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, firstMetadata(meta))
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, cm)
 	if err != nil {
 		return nil, err
 	}
@@ -158,14 +164,14 @@ func (b *InMemoryBackend) RespondToMFAChallenge(
 // user's secret; SMS_MFA/EMAIL_OTP (and, via USER_AUTH's first-factor round in
 // user_auth.go, SMS_OTP) are verified against the code generated when the session was
 // created, since there is no client-held secret to re-derive those from.
-func verifyMFAChallengeCode(entry *mfaSessionEntry, user *User, code string) error {
+func (b *InMemoryBackend) verifyMFAChallengeCode(entry *mfaSessionEntry, user *User, code string) error {
 	switch entry.ChallengeType {
 	case challengeSoftwareTokenMFA:
 		if user.TOTPSecret == "" {
 			return fmt.Errorf("%w: no TOTP secret associated; call AssociateSoftwareToken first", ErrNotAuthorized)
 		}
 
-		if !verifyTOTPCode(user.TOTPSecret, code, time.Now()) {
+		if !verifyTOTPCode(user.TOTPSecret, code, b.now()) {
 			return fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
 		}
 
@@ -222,7 +228,7 @@ func (b *InMemoryBackend) resolveMFASetupSubjectLocked(accessToken, session stri
 			return nil, "", fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
 		}
 
-		if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+		if !entry.ExpiresAt.IsZero() && b.now().After(entry.ExpiresAt) {
 			delete(b.mfaSessions, session)
 
 			return nil, "", fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
@@ -261,16 +267,26 @@ func (b *InMemoryBackend) AssociateSoftwareToken(accessToken, session string) (s
 		return "", "", err
 	}
 
+	secret, err := associateTOTPLocked(user)
+	if err != nil {
+		return "", "", err
+	}
+
+	return secret, sess, nil
+}
+
+// associateTOTPLocked gives the user a fresh, unverified TOTP secret.
+func associateTOTPLocked(user *User) (string, error) {
 	secretBytes := make([]byte, totpSecretLen)
-	if _, err = rand.Read(secretBytes); err != nil {
-		return "", "", fmt.Errorf("generating TOTP secret: %w", err)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return "", fmt.Errorf("generating TOTP secret: %w", err)
 	}
 
 	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secretBytes)
 	user.TOTPSecret = secret
 	user.TOTPVerified = false
 
-	return secret, sess, nil
+	return secret, nil
 }
 
 // VerifySoftwareToken validates userCode as a real RFC 6238 TOTP code for the secret
@@ -304,7 +320,7 @@ func (b *InMemoryBackend) VerifySoftwareToken(accessToken, session, userCode str
 		}
 	}
 
-	if !verifyTOTPCode(user.TOTPSecret, userCode, time.Now()) {
+	if !verifyTOTPCode(user.TOTPSecret, userCode, b.now()) {
 		return "", fmt.Errorf("%w: invalid software token code", ErrCodeMismatch)
 	}
 
@@ -331,7 +347,7 @@ func (b *InMemoryBackend) RespondToMFASetupChallenge(
 		return nil, fmt.Errorf("%w: MFA_SETUP session not found or expired", ErrNotAuthorized)
 	}
 
-	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+	if !entry.ExpiresAt.IsZero() && b.now().After(entry.ExpiresAt) {
 		delete(b.mfaSessions, session)
 
 		return nil, fmt.Errorf("%w: MFA_SETUP session not found or expired", ErrNotAuthorized)

@@ -591,7 +591,7 @@ func TestRollbackStack_ChangesStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.RollbackStack(t.Context(), "rb-change", false)
+	_, err = b.RollbackStack(t.Context(), "rb-change", false, "")
 	require.NoError(t, err)
 
 	// Stack should still be accessible.

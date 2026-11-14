@@ -40,3 +40,10 @@ var (
 	// ErrInvestigationNotFound is returned when an investigation does not exist.
 	ErrInvestigationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
+
+var (
+	// ErrCustomDetectionRuleNotFound covers a missing rule, association or organization configuration.
+	ErrCustomDetectionRuleNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrCustomDetectionRuleConflict is returned when an association or organization configuration clashes.
+	ErrCustomDetectionRuleConflict = awserr.New(errConflictException, awserr.ErrConflict)
+)

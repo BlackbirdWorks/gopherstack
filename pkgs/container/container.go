@@ -41,21 +41,38 @@ const (
 	RuntimePodman RuntimeName = "podman"
 	// RuntimeAuto auto-detects the available runtime by probing sockets.
 	RuntimeAuto RuntimeName = "auto"
+	// RuntimeKubernetes runs containers as Pods through the Kubernetes API.
+	RuntimeKubernetes RuntimeName = "kubernetes"
 )
 
 // Config holds configuration for the container runtime layer.
 type Config struct {
 	Logger *slog.Logger
 	// Injection overrides the env-derived DNS/CA injection for spawned containers.
-	Injection   *Injection
+	Injection *Injection
+	// Kubernetes configures RuntimeKubernetes; unset fields come from the environment.
+	Kubernetes  *KubernetesConfig
 	Runtime     RuntimeName
 	PoolSize    int
 	IdleTimeout time.Duration
 }
 
+// Archive is a zip delivered to Dest inside the container; runtimes without bind mounts unpack it for the caller.
+type Archive struct {
+	Dest string
+	Zip  []byte
+}
+
+// ArchiveDeliverer is implemented by runtimes that deliver Spec.Archives and have no host bind mounts.
+type ArchiveDeliverer interface {
+	DeliversArchives() bool
+}
+
 // Spec holds the specification for creating a container.
 type Spec struct {
-	Labels      map[string]string
+	Labels map[string]string
+	// Archives are unpacked read-only at their Dest before the container starts.
+	Archives    []Archive
 	Image       string
 	Name        string
 	Network     string

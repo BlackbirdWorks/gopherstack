@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,9 +17,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
-const serverlessDwell = 150 * time.Millisecond
+const serverlessDwell = time.Hour
 
 func TestRedshiftServerlessDataAPI(t *testing.T) {
 	t.Parallel()
@@ -36,6 +38,15 @@ func TestRedshiftServerlessDataAPI(t *testing.T) {
 	byName := serviceByName(services)
 	wireRedshiftServerlessData(byName)
 	applyRedshiftServerless(byName["RedshiftServerless"], serverlessDwell)
+
+	var offset atomic.Int64
+
+	slHandler, ok := byName["RedshiftServerless"].(*redshiftbackend.ServerlessHandler)
+	require.True(t, ok)
+
+	slHandler.Backend.SetServerlessClock(func() time.Time {
+		return time.Now().Add(time.Duration(offset.Load()))
+	})
 
 	e := buildEchoServer(t.Context(), log, nil, services, cli)
 	require.NoError(t, setupChaosAndRegistry(e, log, &cli, services))
@@ -78,6 +89,8 @@ func TestRedshiftServerlessDataAPI(t *testing.T) {
 
 	require.ErrorAs(t, execute("wg-data"), &apiErr)
 	assert.Equal(t, "ValidationException", apiErr.ErrorCode())
+
+	offset.Store(int64(serverlessDwell))
 
 	require.Eventually(t, func() bool {
 		got, gerr := rs.GetWorkgroup(

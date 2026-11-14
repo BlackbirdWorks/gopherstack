@@ -97,6 +97,7 @@ func (b *InMemoryBackend) SetCertificateResolver(r CertificateResolver) {
 // no goroutine outlives the backend. Safe to call more than once.
 func (b *InMemoryBackend) Close() {
 	b.closeRealListeners()
+	b.closeIdleConns()
 
 	select {
 	case <-b.stopCh:

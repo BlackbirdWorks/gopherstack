@@ -47,6 +47,7 @@ func (b *InMemoryBackend) ingest(ctx context.Context, entries []*loggingpb.LogEn
 
 	b.deliver(ctx, deliveries)
 	b.tails.publish(entries)
+	b.notifyObservers(entries)
 }
 
 func (b *InMemoryBackend) routeLocked(parent string, e *loggingpb.LogEntry, doc *entryDoc) []delivery {
@@ -146,5 +147,28 @@ func (b *InMemoryBackend) expireLocked(bd *bucketData) {
 
 	for len(bd.entries) > 0 && bd.entries[0].GetReceiveTimestamp().AsTime().Before(cutoff) {
 		b.dropFirstLocked(bd)
+	}
+}
+
+// EntryObserver sees entries after they are stored, outside the backend lock.
+type EntryObserver func(*loggingpb.LogEntry)
+
+// ObserveEntries registers fn to see every entry written from now on.
+func (b *InMemoryBackend) ObserveEntries(fn EntryObserver) {
+	b.mu.Lock("ObserveEntries")
+	defer b.mu.Unlock()
+
+	b.observers = append(b.observers, fn)
+}
+
+func (b *InMemoryBackend) notifyObservers(entries []*loggingpb.LogEntry) {
+	b.mu.RLock("notifyObservers")
+	obs := b.observers
+	b.mu.RUnlock()
+
+	for _, fn := range obs {
+		for _, e := range entries {
+			fn(e)
+		}
 	}
 }

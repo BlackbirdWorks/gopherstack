@@ -6,6 +6,13 @@ last_audit_date: 2026-10-29
 overall: B
 ops:
   ClusterManager.CreateCluster: {wire: ok, errors: partial, state: ok, persist: ok, note: "Zonal and regional, Standard and Autopilot. Validates name (40 chars, lowercase letters/digits/hyphens), location, labels, release channel and version, node pools (machine type, disk, image type, taints, labels, autoscaling, max pods), ipAllocationPolicy (pod /8-/21 and services /16-/27 ranges, '/N' size requests auto-allocated, secondary range names resolved against gcpcompute), private cluster master /28, authorized networks and maintenance policy. Network and subnetwork are checked against gcpcompute when wired ('default' always exists). Returns a RUNNING CREATE_CLUSTER operation."}
+  ClusterManager.CancelOperation: {wire: ok, errors: partial, state: ok, persist: ok, note: "Ends a running UPGRADE_MASTER or UPGRADE_NODES operation as DONE with error code CANCELLED; 404 unknown, 400 FAILED_PRECONDITION when done or not an upgrade."}
+  ClusterManager.CompleteNodePoolUpgrade: {wire: ok, errors: partial, state: ok, persist: ok, note: "Finishes the running UPGRADE_NODES operation of the pool; FAILED_PRECONDITION when none runs."}
+  ClusterManager.CompleteControlPlaneUpgrade: {wire: ok, errors: partial, state: ok, persist: ok, note: "Finishes the running UPGRADE_MASTER operation and returns it; version must match the current master version."}
+  ClusterManager.FetchClusterUpgradeInfo: {wire: ok, errors: partial, state: ok, persist: n/a, note: "minor and patch target versions from the release channel catalog; autoUpgradeStatus and pausedReason follow active maintenance exclusions (NO_UPGRADES, NO_MINOR_UPGRADES)."}
+  ClusterManager.FetchNodePoolUpgradeInfo: {wire: ok, errors: partial, state: ok, persist: n/a, note: "Same derivation as the cluster, from the pool version."}
+  ClusterManager.GetJSONWebKeys: {wire: ok, errors: partial, state: ok, persist: ok, note: "One RS256 signing key per cluster (kty, alg, use, kid, n, e), generated on first use and kept in the snapshot as clusters[].jwk."}
+  ClusterManager.ListUsableSubnetworks: {wire: ok, errors: partial, state: ok, persist: n/a, note: "Subnetworks of gcpcompute for projects/{p}; filter networkProjectId=; secondary range status UNUSED, IN_USE_SERVICE or IN_USE_MANAGED_POD from the clusters using the range; empty without a compute backend."}
   ClusterManager.GetCluster: {wire: ok, errors: ok, state: ok, persist: n/a, note: "status, node counts, instanceGroupUrls and etag are derived at read time from the operations on the injectable clock."}
   ClusterManager.ListClusters: {wire: ok, errors: ok, state: ok, persist: n/a, note: "'-' lists every location."}
   ClusterManager.UpdateCluster: {wire: ok, errors: partial, state: ok, persist: ok, note: "Desired* fields map onto the same-named Cluster or NetworkConfig field; master/node version, node pool autoscaling and image type, locations, cluster autoscaling, logging/monitoring service, addons and authorized networks have dedicated handling. Fields that cannot be honoured are 400, never ignored."}
@@ -47,8 +54,8 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
 items_still_open:
   - "The control plane is metadata: without GKE_ENGINE=docker the endpoint is a documentation-range address with a real but unused CA, and node pools never run nodes (the docker engine runs one k3s node regardless of pool sizes). Instance groups named in instanceGroupUrls are not created in gcpcompute."
-  - "Unimplemented RPCs: CancelOperation, GetJSONWebKeys, ListUsableSubnetworks, CheckAutopilotCompatibility, FetchClusterUpgradeInfo, FetchNodePoolUpgradeInfo, CompleteNodePoolUpgrade, CompleteControlPlaneUpgrade."
+  - "CheckAutopilotCompatibility is not implemented: it analyses the workloads running in the cluster, and no Kubernetes API server runs for a metadata cluster. FetchClusterUpgradeInfo and FetchNodePoolUpgradeInfo leave end_of_standard_support_timestamp, end_of_extended_support_timestamp, upgrade_details and rollback_safe_upgrade_status unset: the version catalog carries no support dates and no upgrade history; CancelOperation only accepts UPGRADE_MASTER and UPGRADE_NODES operations (the cancellable set is not documented) and cannot revert state already applied."
   - "Version catalog and region/zone lists are a fixed representative set; Autopilot being regional-only, error message texts and the PreconditionFailure/BadRequest/ResourceInfo detail payloads were chosen without a production reference (only the cluster name rules were checked against Google docs)."
   - "createSubnetwork is not honoured (no subnet is created in gcpcompute), pod/service ranges of other clusters are only avoided for auto-allocation, and quotas are not modelled."
-  - "No dashboard page, and the emulator does not enforce IAM or return permission errors."
+  - "The emulator does not enforce IAM or return permission errors."
 ---

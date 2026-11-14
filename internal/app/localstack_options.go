@@ -159,6 +159,7 @@ func (p *envPlan) planOptions() {
 	p.planPortRange()
 
 	p.planSQS()
+	p.planDMS()
 	p.planLimits()
 	p.planS3Signatures()
 
@@ -180,6 +181,13 @@ func (p *envPlan) planOptions() {
 
 	if v := p.val("REQUESTS_CA_BUNDLE"); v != "" {
 		p.put("SSL_CERT_FILE", v)
+	}
+}
+
+// planDMS maps ENABLE_DMS=1, which LocalStack documents as activating DMS, onto the engine that moves data.
+func (p *envPlan) planDMS() {
+	if p.truthy("ENABLE_DMS") {
+		p.put("DMS_ENGINE", "docker")
 	}
 }
 

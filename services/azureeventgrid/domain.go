@@ -320,7 +320,7 @@ func domainTopicField(schema string) string {
 		return "source"
 	}
 
-	return "topic"
+	return propTopic
 }
 
 func domainTopicOf(ev Event, schema string) string {

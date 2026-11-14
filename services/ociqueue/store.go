@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -34,8 +36,10 @@ type InMemoryBackend struct {
 	after      func(time.Duration) <-chan time.Time
 	queues     map[string]*Queue
 	workReqs   map[string]*WorkRequest
+	retry      *ociretry.Store
 	Auth       *ociauth.Registry
 	keyChecker KeyChecker
+	tagLookup  ocitags.Lookup
 	transition time.Duration
 	seq        int64
 }
@@ -53,6 +57,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.queues, b.workReqs = map[string]*Queue{}, map[string]*WorkRequest{}
+	b.retry = ociretry.New()
 }
 
 // SetClock injects the time source used for lifecycle, visibility and retention.
@@ -204,24 +209,37 @@ func (b *InMemoryBackend) settle(q *Queue, now time.Time) {
 		case stateDeleting:
 			q.State = stateDeleted
 			q.Messages, q.DLQ = nil, nil
+
+			for _, g := range q.Groups {
+				g.Messages, g.DLQ = nil, nil
+			}
+
 			q.notify()
 
 			return
 		}
 	}
 
-	q.Messages = slices.DeleteFunc(q.Messages, func(m *Message) bool { return !m.Expire.After(now) })
-	q.DLQ = slices.DeleteFunc(q.DLQ, func(m *Message) bool { return !m.Expire.After(now) })
+	settleGroups(q, now)
 
-	if q.DLQCount <= 0 {
+	for _, l := range q.lanes() {
+		settleLane(l, now)
+	}
+}
+
+func settleLane(l lane, now time.Time) {
+	*l.msgs = slices.DeleteFunc(*l.msgs, func(m *Message) bool { return !m.Expire.After(now) })
+	*l.dlq = slices.DeleteFunc(*l.dlq, func(m *Message) bool { return !m.Expire.After(now) })
+
+	if l.dlqCount <= 0 {
 		return
 	}
 
-	kept := q.Messages[:0]
+	kept := (*l.msgs)[:0]
 
-	for _, m := range q.Messages {
-		if !m.VisibleAfter.After(now) && m.Deliveries >= q.DLQCount {
-			q.DLQ = append(q.DLQ, m)
+	for _, m := range *l.msgs {
+		if !m.VisibleAfter.After(now) && m.Deliveries >= l.dlqCount {
+			*l.dlq = append(*l.dlq, m)
 
 			continue
 		}
@@ -229,8 +247,8 @@ func (b *InMemoryBackend) settle(q *Queue, now time.Time) {
 		kept = append(kept, m)
 	}
 
-	clear(q.Messages[len(kept):])
-	q.Messages = kept
+	clear((*l.msgs)[len(kept):])
+	*l.msgs = kept
 }
 
 func (q *Queue) notify() {
@@ -253,4 +271,21 @@ func (b *InMemoryBackend) settleID(id string) {
 	if q, ok := b.queues[id]; ok {
 		b.settle(q, b.nowUTC())
 	}
+}
+
+const headerRetry = "Opc-Retry-Token"
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
 }

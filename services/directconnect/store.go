@@ -329,7 +329,7 @@ func (b *InMemoryBackend) scheduleTransition(component string, steps []string, t
 
 		b.work.After(component, asyncTransitionDelay, func() {
 			b.mu.Lock("asyncTransition:" + component)
-			if winding := isWindingDownState(*target); winding && !isWindingDownState(steps[i]) {
+			if holdsAgainstCreationHop(*target) && !isWindingDownState(steps[i]) {
 				b.mu.Unlock()
 
 				return
@@ -343,6 +343,14 @@ func (b *InMemoryBackend) scheduleTransition(component string, steps []string, t
 	}
 
 	schedule(0)
+}
+
+// holdsAgainstCreationHop: a stale creation hop must not overwrite a
+// delete/disassociate state or an in-flight BGP failover test (vif
+// "testing", peer status "down"; both restored by revertBgpTestLocked). A
+// peer's creation-time status is "unknown", never "down".
+func holdsAgainstCreationHop(state string) bool {
+	return isWindingDownState(state) || state == VifStateTesting || state == BGPStatusDown
 }
 
 // isWindingDownState reports a delete/disassociate state; a stale creation

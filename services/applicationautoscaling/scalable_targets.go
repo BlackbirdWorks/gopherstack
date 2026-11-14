@@ -438,7 +438,7 @@ type DescribeScalableTargetsFilter struct {
 // returns the NextToken for the following page (empty on the last page).
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilter) ([]*ScalableTarget, string, error) {
-	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+	if err := validateDescribeFilter(f.ServiceNamespace, f.ScalableDimension, len(f.ResourceIDs) > 0); err != nil {
 		return nil, "", err
 	}
 

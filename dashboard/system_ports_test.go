@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 func TestCollectAllocatedPorts(t *testing.T) {
@@ -36,8 +36,7 @@ func TestCollectAllocatedPorts(t *testing.T) {
 				t.Cleanup(func() { _ = ln.Close() })
 			}
 
-			alloc, err := portalloc.New(1, 2)
-			require.NoError(t, err)
+			alloc := portalloctest.New(t, 1)
 			require.NoError(t, alloc.Reserve(fixedPort, "gcpfake"))
 			require.NoError(t, alloc.Reserve(0, "disabled"))
 

@@ -82,3 +82,36 @@ func lastSegment(name string) string {
 func etag(uid string, generation int64, at *timestamppb.Timestamp) string {
 	return shortHash(uid, strconv.FormatInt(generation, 10), strconv.FormatInt(at.AsTime().UnixNano(), 10))
 }
+
+type workloadKind int
+
+const (
+	kindService workloadKind = iota
+	kindWorkerPool
+	kindInstance
+)
+
+// parseWorkloadName parses the name of a service or worker pool revision, or of an instance.
+func parseWorkloadName(name string) (resName, workloadKind, error) {
+	if n, err := parseName(name, "services", "revisions"); err == nil {
+		return n, kindService, nil
+	}
+
+	if n, err := parseName(name, "workerPools", "revisions"); err == nil {
+		return n, kindWorkerPool, nil
+	}
+
+	n, err := parseName(name, "instances")
+
+	return n, kindInstance, err
+}
+
+// ownerOf returns the service or worker pool name a revision name belongs to.
+func ownerOf(revName string) string {
+	owner, _, found := strings.CutLast(revName, "/revisions/")
+	if !found {
+		return ""
+	}
+
+	return owner
+}

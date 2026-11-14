@@ -9,22 +9,21 @@
 | --- | --- |
 | PARITY entries audited | 85 (85 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | 2 |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CreateFirewall NatGatewayMappings and VpcEndpoint: UnsupportedOperationException (bd: gopherstack-cefu7.79)
-- Transit gateway attachments start PENDING_ACCEPTANCE only when a TransitGatewayResolver reports another owner account; internal/app does not wire one to EC2, so standalone attachments auto-accept (bd: gopherstack-cefu7.79)
-- FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.79)
-- Firewall, VPC endpoint association and proxy endpoints are generated IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.79)
+- CapacityUsageSummary resolves only managed prefix list references; resource group, address list and container association references count 0 CIDRs because no Resource Groups, address list or container runtime backs them (bd: gopherstack-cefu7.79)
+- Firewall, VPC endpoint association and proxy endpoint IDs are generated; the Network Firewall developer guide (firewall-high-level-steps) does not say these endpoints are customer-visible EC2 VPC endpoints, so none is created in EC2 (bd: gopherstack-cefu7.79)
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Transit gateways shared from another account cannot exist: EC2 is single-account, so PENDING_ACCEPTANCE is reachable only when a TransitGatewayResolver reports a foreign owner (unit-tested with a fake resolver).
 - Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic.
 - AnalysisResults on DescribeRuleGroup need a rule-analysis engine; none exists.
 - Managed rule groups (AWS_MANAGED_*, partner) have no catalog to list.

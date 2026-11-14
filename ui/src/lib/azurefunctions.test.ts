@@ -4,7 +4,11 @@ import {
   FUNCTIONS_PROXY_BASE,
   appAction,
   deleteFunctionApp,
+  describePlan,
   describeRuntime,
+  invokeAppFunction,
+  listHostKeys,
+  revealHostKey,
   listAppFunctions,
   listDeployments,
   listFunctionApps,
@@ -144,5 +148,47 @@ describe("data plane", () => {
       Promise.resolve(json({ error: { message: "gone", status: "NOT_FOUND" } }, 404)),
     );
     await expect(appAction("x", "stop", f)).rejects.toThrow("gone");
+  });
+});
+
+describe("plans", () => {
+  it.each([
+    ["plan1", "FC1", "plan1 (Flex Consumption)"],
+    ["plan1", "Y1", "plan1 (Y1)"],
+    ["plan1", "", "plan1"],
+    ["", "Y1", ""],
+  ])("%s %s", (plan, sku, want) => expect(describePlan(plan, sku)).toBe(want));
+});
+
+describe("keys and invoke", () => {
+  it("lists host keys masked and reveals with POST", async () => {
+    const f = vi.fn((url: unknown, ..._rest: unknown[]) =>
+      Promise.resolve(
+        String(url).endsWith("/keys/reveal")
+          ? json({ value: "k==" })
+          : json({ keys: [{ kind: "masterKey", name: "_master", value: "••••••••" }] }),
+      ),
+    );
+    expect(await listHostKeys("app1", f)).toEqual([
+      { kind: "masterKey", name: "_master", value: "••••••••" },
+    ]);
+    expect(await revealHostKey("app1", { kind: "masterKey", name: "_master" }, f)).toBe("k==");
+    const init = f.mock.calls[1][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ kind: "masterKey", name: "_master" });
+  });
+
+  it("posts an invoke with fixed fields", async () => {
+    const f = vi.fn((..._a: unknown[]) =>
+      Promise.resolve(json({ status: 200, headers: { A: "b" }, body: "hi" })),
+    );
+    const input = { function: "hello", method: "POST", query: "a=1", body: "x", contentType: "" };
+    expect(await invokeAppFunction("app1", input, f)).toEqual({
+      status: 200,
+      headers: { A: "b" },
+      body: "hi",
+    });
+    expect(f.mock.calls[0][0]).toContain("/apps/app1/invoke");
+    expect(JSON.parse((f.mock.calls[0][1] as RequestInit).body as string)).toEqual(input);
   });
 });

@@ -166,6 +166,11 @@ func (b *InMemoryBackend) checkGroupType(rg *ReportGroup, rtype string) error {
 	return nil
 }
 
+const (
+	maxTestCasesPerReport = 500
+	reportRetention       = 30 * 24 * time.Hour
+)
+
 // recordBuildReport stores one report (and its parsed detail) for a finished build.
 func (b *InMemoryBackend) recordBuildReport(build Build, ref, rtype string, c reportContent) error {
 	b.mu.Lock("recordBuildReport")
@@ -178,23 +183,32 @@ func (b *InMemoryBackend) recordBuildReport(build Build, ref, rtype string, c re
 
 	reportArn := arn.Build("codebuild", b.region, b.accountID, "report/"+rg.Name+":"+randomID())
 	exportCfg := rg.ExportConfig
+	created := time.Now()
+	expired := awstime.Epoch(created.Add(reportRetention))
 	rep := &Report{
 		Arn: reportArn, Name: rg.Name, ReportGroupArn: rg.Arn, ExecutionID: build.Arn, Type: rtype,
-		Status: c.status, Created: awstime.Epoch(time.Now()), ExportConfig: &exportCfg,
+		Status: c.status, Created: awstime.Epoch(created), Expired: expired, ExportConfig: &exportCfg,
 	}
 
 	detail := &reportDetail{ReportArn: reportArn}
 
 	for i := range c.tests {
 		c.tests[i].ReportArn = reportArn
+		c.tests[i].Expired = expired
 	}
 
 	for i := range c.coverages {
+		c.coverages[i].Expired = expired
 		c.coverages[i].ReportARN = reportArn
 		c.coverages[i].ID = reportArn + ":" + c.coverages[i].FilePath
 	}
 
 	detail.TestCases, detail.Coverages = c.tests, c.coverages
+
+	if len(detail.TestCases) > maxTestCasesPerReport {
+		detail.TestCases = detail.TestCases[:maxTestCasesPerReport]
+		rep.Truncated = true
+	}
 
 	if rtype == reportTypeTest {
 		sum, status := summarizeTests(c.tests)

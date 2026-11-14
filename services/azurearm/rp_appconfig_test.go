@@ -16,15 +16,16 @@ import (
 var errACBad = errors.New("bad store")
 
 type fakeAppConfig struct {
-	stores map[string]time.Time
-	keys   map[string][]azurearm.AppConfigKey
-	kvs    map[string]map[string]azurearm.AppConfigKV
+	stores    map[string]time.Time
+	keys      map[string][]azurearm.AppConfigKey
+	kvs       map[string]map[string]azurearm.AppConfigKV
+	retention map[string]int
 }
 
 func newFakeAppConfig() *fakeAppConfig {
 	return &fakeAppConfig{
 		stores: map[string]time.Time{}, keys: map[string][]azurearm.AppConfigKey{},
-		kvs: map[string]map[string]azurearm.AppConfigKV{},
+		kvs: map[string]map[string]azurearm.AppConfigKV{}, retention: map[string]int{},
 	}
 }
 
@@ -54,6 +55,14 @@ func (f *fakeAppConfig) StoreCreated(name string) (time.Time, bool) {
 func (f *fakeAppConfig) DeleteStore(name string) error {
 	delete(f.stores, name)
 	delete(f.kvs, name)
+
+	return nil
+}
+
+func (f *fakeAppConfig) PurgeStore(string) {}
+
+func (f *fakeAppConfig) SetRevisionRetention(name string, days int) error {
+	f.retention[name] = days
 
 	return nil
 }
@@ -502,4 +511,41 @@ func TestAppConfigHandlerDeleteThenSoftDeleteFlow(t *testing.T) {
 
 	st, _ = doRequest(t, h, http.MethodGet, deleted+acAPI, nil)
 	assert.Equal(t, http.StatusNotFound, st)
+}
+
+func TestAppConfigHandlerPatchStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		path   string
+		body   string
+		status int
+	}{
+		{name: "tags sku props", path: acTestBase, status: 200,
+			body: `{"tags":{"a":"b"},"sku":{"name":"Free"},"properties":{"disableLocalAuth":true}}`},
+		{name: "missing store", path: acTestBase + "x", body: `{}`, status: 404},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAppConfigHandler(t)
+
+			st, out := doRequest(t, h, http.MethodPatch, tt.path+acAPI, []byte(tt.body))
+			require.Equal(t, tt.status, st, "%v", out)
+
+			if tt.status != http.StatusOK {
+				return
+			}
+
+			assert.Equal(t, map[string]any{"a": "b"}, out["tags"])
+			assert.Equal(t, "free", out["sku"].(map[string]any)["name"])
+			assert.Equal(t, true, props(out)["disableLocalAuth"])
+
+			_, got := doRequest(t, h, http.MethodGet, tt.path+acAPI, nil)
+			assert.Equal(t, true, props(got)["disableLocalAuth"])
+		})
+	}
 }

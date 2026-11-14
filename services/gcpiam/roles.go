@@ -187,8 +187,10 @@ func (b *InMemoryBackend) customRoles(parent string, showDeleted bool, view admi
 
 	var out []*adminpb.Role
 
+	cutoff := b.now().Add(-rolePurgeAfter)
+
 	for n, r := range b.roles {
-		if strings.HasPrefix(n, parent+"/roles/") && (showDeleted || r.active()) {
+		if strings.HasPrefix(n, parent+"/roles/") && (r.active() || showDeleted && !r.deletedAt.Before(cutoff)) {
 			out = append(out, viewRole(r.pb, view))
 		}
 	}
@@ -326,6 +328,8 @@ func (b *InMemoryBackend) UndeleteRole(req *adminpb.UndeleteRoleRequest) (*admin
 
 	b.mu.Lock("UndeleteRole")
 	defer b.mu.Unlock()
+
+	b.purgeRolesLocked()
 
 	rec, ok := b.roles[req.GetName()]
 	if !ok {

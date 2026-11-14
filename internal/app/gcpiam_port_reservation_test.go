@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 )
 
@@ -15,27 +13,24 @@ func TestReserveFixedServicePorts_GCPIAM(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		port       int
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		port      int
+		wantTaken bool
 	}{
-		{"port inside pool range", gcpiambackend.DefaultPort, 8000, 9000, true},
-		{"port outside pool range", gcpiambackend.DefaultPort, 10000, 10100, false},
+		{"port inside pool range", gcpiambackend.DefaultPort, true},
+		{"port outside pool range", gcpiambackend.DefaultPort, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, tt.port)
 
-			cli := CLI{GCPIAM: gcpiambackend.Settings{Port: tt.port}}
+			cli := CLI{GCPIAM: gcpiambackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(tt.port))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }

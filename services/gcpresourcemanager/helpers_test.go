@@ -50,6 +50,7 @@ type clients struct {
 	tagKeys  *resourcemanager.TagKeysClient
 	tagVals  *resourcemanager.TagValuesClient
 	bindings *resourcemanager.TagBindingsClient
+	holds    *resourcemanager.TagHoldsClient
 	usage    *serviceusage.Client
 }
 
@@ -125,6 +126,8 @@ func newClients(t *testing.T, rest bool, opts []option.ClientOption) *clients {
 		require.NoError(t, err)
 		c.bindings, err = resourcemanager.NewTagBindingsRESTClient(ctx, opts...)
 		require.NoError(t, err)
+		c.holds, err = resourcemanager.NewTagHoldsRESTClient(ctx, opts...)
+		require.NoError(t, err)
 		c.usage, err = serviceusage.NewRESTClient(ctx, opts...)
 		require.NoError(t, err)
 	} else {
@@ -140,6 +143,8 @@ func newClients(t *testing.T, rest bool, opts []option.ClientOption) *clients {
 		require.NoError(t, err)
 		c.bindings, err = resourcemanager.NewTagBindingsClient(ctx, opts...)
 		require.NoError(t, err)
+		c.holds, err = resourcemanager.NewTagHoldsClient(ctx, opts...)
+		require.NoError(t, err)
 		c.usage, err = serviceusage.NewClient(ctx, opts...)
 		require.NoError(t, err)
 	}
@@ -151,6 +156,7 @@ func newClients(t *testing.T, rest bool, opts []option.ClientOption) *clients {
 		_ = c.tagKeys.Close()
 		_ = c.tagVals.Close()
 		_ = c.bindings.Close()
+		_ = c.holds.Close()
 		_ = c.usage.Close()
 	})
 

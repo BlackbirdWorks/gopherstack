@@ -27,25 +27,31 @@ type ClusterResolver interface {
 // InMemoryBackend is the AMP state; one coarse lock guards every table.
 type InMemoryBackend struct {
 	lastPrune     time.Time
-	workspaces    *store.Table[Workspace]
-	namespaces    *store.Table[RuleGroupsNamespace]
-	scrapers      *store.Table[Scraper]
-	detectors     *store.Table[AnomalyDetector]
-	series        *store.Table[SeriesRecord]
+	logs          LogSink
+	keys          KeyChecker
+	publisher     SNSPublisher
+	clusters      ClusterResolver
 	seriesByWS    *store.Index[SeriesRecord]
+	silences      *store.Table[Silence]
+	silencesByWS  *store.Index[Silence]
+	scrapers      *store.Table[Scraper]
 	metadata      *store.Table[MetadataRecord]
 	metadataByWS  *store.Index[MetadataRecord]
 	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
 	now           func() time.Time
-	clusters      ClusterResolver
+	detectors     *store.Table[AnomalyDetector]
 	idem          *idempotency.Memo
-	publisher     SNSPublisher
+	series        *store.Table[SeriesRecord]
+	namespaces    *store.Table[RuleGroupsNamespace]
+	workspaces    *store.Table[Workspace]
+	auth          *DataPlaneAuth
+	ams           map[string]*alertManager
 	groups        map[string]*groupRuntime
 	parsed        map[string]*parsedNamespace
-	ams           map[string]*alertManager
 	accountID     string
 	region        string
+	logQueue      []logEvent
 	dwellOverride time.Duration
 }
 
@@ -197,12 +203,18 @@ func (b *InMemoryBackend) dropWorkspaceLocked(id string) {
 		b.series.Delete(s.Key)
 	}
 
+	for _, s := range slices.Clone(b.silencesByWS.Get(id)) {
+		b.silences.Delete(silenceKeyOf(s))
+	}
+
 	for _, m := range slices.Clone(b.metadataByWS.Get(id)) {
 		b.metadata.Delete(m.Key)
 	}
 }
 
 func (b *InMemoryBackend) purgeChildrenLocked() {
+	b.purgeSilencesLocked(b.now())
+
 	for _, n := range b.namespaces.All() {
 		if b.gone(n.Doc.Pending) {
 			b.namespaces.Delete(namespaceKey(n))

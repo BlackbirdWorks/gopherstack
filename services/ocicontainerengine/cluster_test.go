@@ -677,3 +677,52 @@ func TestStandaloneWithoutCore(t *testing.T) {
 		})
 	}
 }
+
+func TestUpgradeControlPlaneChecksWorkerNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		poolVer    string
+		settle     bool
+		wantStatus int
+	}{
+		{name: "nodes still creating", poolVer: "v1.35.2", settle: false, wantStatus: http.StatusConflict},
+		{name: "pool too far behind target", poolVer: "v1.32.1", settle: true, wantStatus: http.StatusBadRequest},
+		{name: "pool within skew", poolVer: "v1.33.1", settle: true, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			c := e.mkCluster(t, "upg", func(d *ke.CreateClusterDetails) { d.KubernetesVersion = new("v1.35.2") })
+
+			d := poolDetails(c.Id, "pool")
+			d.KubernetesVersion = new(tt.poolVer)
+
+			_, err := e.ce.CreateNodePool(t.Context(), ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
+			require.NoError(t, err)
+
+			if tt.settle {
+				e.settle()
+			}
+
+			upgrade := ke.UpdateClusterDetails{KubernetesVersion: new("v1.36.4")}
+
+			resp, err := e.ce.UpdateCluster(t.Context(), ke.UpdateClusterRequest{
+				ClusterId: c.Id, UpdateClusterDetails: upgrade,
+			})
+
+			if tt.wantStatus == http.StatusOK {
+				require.NoError(t, err)
+				assert.NotNil(t, resp.OpcWorkRequestId)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantStatus, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}

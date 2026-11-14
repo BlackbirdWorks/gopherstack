@@ -123,6 +123,7 @@ type InMemoryBackend struct {
 	tasksByEndpointARN map[string]map[string]struct{} // endpointARN → taskARN set
 	mu                 *lockmetrics.RWMutex
 	eng                *engineState
+	secrets            SecretResolver
 	now                func() time.Time
 	accountID          string
 	region             string

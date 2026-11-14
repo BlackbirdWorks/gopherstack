@@ -163,3 +163,109 @@ func (s *tasksServer) ListTasks(_ context.Context, in *runpb.ListTasksRequest) (
 
 	return &runpb.ListTasksResponse{Tasks: items, NextPageToken: next}, nil
 }
+
+type workerPoolsServer struct {
+	runpb.UnimplementedWorkerPoolsServer
+	b *InMemoryBackend
+}
+
+func (s *workerPoolsServer) CreateWorkerPool(
+	_ context.Context,
+	in *runpb.CreateWorkerPoolRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateWorkerPool(in)
+}
+
+func (s *workerPoolsServer) GetWorkerPool(
+	_ context.Context,
+	in *runpb.GetWorkerPoolRequest,
+) (*runpb.WorkerPool, error) {
+	return s.b.GetWorkerPool(in.GetName())
+}
+
+func (s *workerPoolsServer) ListWorkerPools(
+	_ context.Context,
+	in *runpb.ListWorkerPoolsRequest,
+) (*runpb.ListWorkerPoolsResponse, error) {
+	items, next, err := s.b.ListWorkerPools(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &runpb.ListWorkerPoolsResponse{WorkerPools: items, NextPageToken: next}, nil
+}
+
+func (s *workerPoolsServer) UpdateWorkerPool(
+	_ context.Context,
+	in *runpb.UpdateWorkerPoolRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.UpdateWorkerPool(in)
+}
+
+func (s *workerPoolsServer) DeleteWorkerPool(
+	_ context.Context,
+	in *runpb.DeleteWorkerPoolRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteWorkerPool(in)
+}
+
+type instancesServer struct {
+	runpb.UnimplementedInstancesServer
+	b *InMemoryBackend
+}
+
+func (s *instancesServer) CreateInstance(
+	_ context.Context,
+	in *runpb.CreateInstanceRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateInstance(in)
+}
+
+func (s *instancesServer) GetInstance(_ context.Context, in *runpb.GetInstanceRequest) (*runpb.Instance, error) {
+	return s.b.GetInstance(in.GetName())
+}
+
+func (s *instancesServer) ListInstances(
+	_ context.Context,
+	in *runpb.ListInstancesRequest,
+) (*runpb.ListInstancesResponse, error) {
+	items, next, err := s.b.ListInstances(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &runpb.ListInstancesResponse{Instances: items, NextPageToken: next}, nil
+}
+
+func (s *instancesServer) DeleteInstance(
+	_ context.Context,
+	in *runpb.DeleteInstanceRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteInstance(in)
+}
+
+func (s *instancesServer) StopInstance(
+	_ context.Context,
+	in *runpb.StopInstanceRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.StopInstance(in)
+}
+
+func (s *instancesServer) StartInstance(
+	_ context.Context,
+	in *runpb.StartInstanceRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.StartInstance(in)
+}
+
+type buildsServer struct {
+	runpb.UnimplementedBuildsServer
+	b *InMemoryBackend
+}
+
+func (s *buildsServer) SubmitBuild(
+	_ context.Context,
+	in *runpb.SubmitBuildRequest,
+) (*runpb.SubmitBuildResponse, error) {
+	return s.b.SubmitBuild(in)
+}

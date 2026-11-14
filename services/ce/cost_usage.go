@@ -12,9 +12,13 @@ import (
 // syntheticServiceDef describes a synthetic AWS service used in the cost ledger seed
 // and as a fallback when real ledger entries are absent for a queried time period.
 type syntheticServiceDef struct {
-	name      string
-	usageType string
-	weight    float64
+	name           string
+	usageType      string
+	operation      string
+	usageTypeGroup string
+	productFamily  string
+	weight         float64
+	hasAZ          bool
 }
 
 // syntheticServiceCatalog is the canonical list of services used in both the cost
@@ -22,18 +26,25 @@ type syntheticServiceDef struct {
 //
 //nolint:gochecknoglobals // package-level catalog shared by seed and fallback
 var syntheticServiceCatalog = []syntheticServiceDef{
-	{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", 0.40},
-	{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", 0.15},
-	{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", 0.10},
-	{"AWS Lambda", "Lambda-GB-Second", 0.08},
-	{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", 0.07},
-	{"Amazon DynamoDB", "TimedStorage-ByteHrs", 0.05},
-	{"Amazon Elastic Load Balancing", "LoadBalancerUsage", 0.04},
-	{"AWS Key Management Service", "KMS-Requests", 0.03},
-	{"Amazon Route 53", "DNS-Queries", 0.02},
-	{"AWS CloudTrail", "EUS-DataScanned", 0.01},
-	{"Amazon SNS", "DeliveryAttempts-HTTP", 0.005},
-	{"Amazon SQS", "SQS-Requests", 0.005},
+	{"Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.medium", "RunInstances", "EC2: Running Hours",
+		"Compute Instance", 0.40, true},
+	{"Amazon Simple Storage Service", "TimedStorage-ByteHrs", "StandardStorage", "S3: Storage - Standard",
+		"Storage", 0.15, false},
+	{"Amazon Relational Database Service", "InstanceUsage:db.t3.medium", "CreateDBInstance",
+		"RDS: Running Hours", "Database Instance", 0.10, true},
+	{"AWS Lambda", "Lambda-GB-Second", "Invoke", "Lambda: Duration", "Serverless", 0.08, false},
+	{"Amazon CloudFront", "US-DataTransfer-Out-Bytes", "GET", "CloudFront: Data Transfer Out",
+		"Data Transfer", 0.07, false},
+	{"Amazon DynamoDB", "TimedStorage-ByteHrs", "StandardStorage", "DynamoDB: Storage", "Database Storage",
+		0.05, false},
+	{"Amazon Elastic Load Balancing", "LoadBalancerUsage", "LoadBalancing", "ELB: Running Hours",
+		"Load Balancer", 0.04, true},
+	{"AWS Key Management Service", "KMS-Requests", "Decrypt", "KMS: Requests", "Encryption Key", 0.03, false},
+	{"Amazon Route 53", "DNS-Queries", "DNS-Query", "Route 53: DNS Queries", "DNS Query", 0.02, false},
+	{"AWS CloudTrail", "EUS-DataScanned", "ManagementEvent", "CloudTrail: Events", "Management Tools",
+		0.01, false},
+	{"Amazon SNS", "DeliveryAttempts-HTTP", "Publish", "SNS: Deliveries", "Message Delivery", 0.005, false},
+	{"Amazon SQS", "SQS-Requests", "SendMessage", "SQS: Requests", "Queue", 0.005, false},
 }
 
 // syntheticBaseMonthlyTotal is the base monthly cost used when no ledger entries
@@ -101,17 +112,39 @@ func (b *InMemoryBackend) seedCostLedger() {
 		for _, svc := range services {
 			amount := totalDailyBase * svc.weight * dayMultiplier * jitter
 			b.costLedger = append(b.costLedger, CostEntry{
-				Date:          dateStr,
-				Service:       svc.name,
-				Region:        b.region,
-				UsageType:     svc.usageType,
-				Account:       b.accountID,
-				BlendedCost:   amount,
-				UnblendedCost: amount * unblendedCostFactor,
-				UsageQuantity: amount * usageQuantityFactor,
+				Date:             dateStr,
+				Service:          svc.name,
+				Region:           b.region,
+				UsageType:        svc.usageType,
+				Operation:        svc.operation,
+				UsageTypeGroup:   svc.usageTypeGroup,
+				ProductFamily:    svc.productFamily,
+				PurchaseType:     purchaseOnDemand,
+				InstanceType:     instanceTypeOf(svc.usageType),
+				AvailabilityZone: b.zoneOf(svc),
+				Account:          b.accountID,
+				BlendedCost:      amount,
+				UnblendedCost:    amount * unblendedCostFactor,
+				UsageQuantity:    amount * usageQuantityFactor,
 			})
 		}
 	}
+}
+
+func instanceTypeOf(usageType string) string {
+	if _, t, ok := strings.Cut(usageType, ":"); ok && strings.Contains(usageType, "Usage:") {
+		return t
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) zoneOf(svc syntheticServiceDef) string {
+	if !svc.hasAZ {
+		return ""
+	}
+
+	return b.region + "a"
 }
 
 // costLedgerInBucket returns entries where start <= date < end (no lock — caller holds).
@@ -227,7 +260,11 @@ func extractGroupKeys(e CostEntry, groupBy []GroupBySpec) []string {
 		case dimKeyLinkedAccount:
 			keys = append(keys, e.Account)
 		default:
-			keys = append(keys, e.Tags[g.Key])
+			if v, ok := dimensionFieldValue(e, g.Key); ok && strings.EqualFold(g.Type, "DIMENSION") {
+				keys = append(keys, v)
+			} else {
+				keys = append(keys, e.Tags[g.Key])
+			}
 		}
 	}
 
@@ -477,31 +514,52 @@ func (b *InMemoryBackend) GetApproximateUsageRecords(
 	return lookbackStart, lookbackEnd, perService, total
 }
 
-// dimensionFieldValue returns the ledger entry's value for the given CE
-// dimension name, and whether that dimension is modeled by this emulator's
-// ledger. Dimensions like INSTANCE_TYPE/OPERATING_SYSTEM/TENANCY/
-// PURCHASE_TYPE/RECORD_TYPE are constant synthetic values not tied to any
-// per-entry field, so they report ok=true with a fixed value.
+// dimensionFieldValue returns the ledger entry's value for the CE dimension and whether the ledger models it.
+// OPERATING_SYSTEM, TENANCY and the billing/legal entity are fixed values for every entry.
 func dimensionFieldValue(e CostEntry, dimension string) (string, bool) {
 	switch strings.ToUpper(dimension) {
 	case dimKeyService:
 		return e.Service, true
-	case dimKeyRegion, "AZ":
+	case dimKeyRegion:
 		return e.Region, true
+	case dimKeyAZ:
+		return e.AvailabilityZone, true
 	case dimKeyUsageType:
 		return e.UsageType, true
 	case dimKeyLinkedAccount:
 		return e.Account, true
-	case "INSTANCE_TYPE":
-		return syntheticInstanceType, true
+	case dimKeyInstanceType:
+		return e.InstanceType, true
+	case dimKeyOperation:
+		return e.Operation, true
+	case dimKeyUsageTypeGroup:
+		return e.UsageTypeGroup, true
+	case dimKeyResourceID:
+		return e.ResourceID, true
+	default:
+		return derivedDimensionValue(e, strings.ToUpper(dimension))
+	}
+}
+
+// derivedDimensionValue covers dimensions computed from other fields or fixed for every entry.
+func derivedDimensionValue(e CostEntry, dimension string) (string, bool) {
+	switch dimension {
+	case dimKeyInstanceTypeFamily:
+		fam, _, _ := strings.Cut(strings.TrimPrefix(e.InstanceType, "db."), ".")
+
+		return fam, true
 	case "OPERATING_SYSTEM":
 		return "Linux", true
 	case "TENANCY":
 		return "Shared", true
-	case "PURCHASE_TYPE":
-		return "On Demand", true
-	case "RECORD_TYPE":
+	case dimKeyPurchaseType:
+		return entryPurchaseType(e), true
+	case dimKeyRecordType, dimKeyChargeType:
 		return entryChargeType(e), true
+	case dimKeyBillingEntity:
+		return billingEntityAWS, true
+	case dimKeyInvoicingEntity, dimKeyLegalEntity:
+		return invoicingEntityAWS, true
 	default:
 		return "", false
 	}

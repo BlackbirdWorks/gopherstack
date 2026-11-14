@@ -212,8 +212,8 @@ func (b *Backend) ListWorkspaces(inst, token string, maxResults int32) ([]Worksp
 
 func (b *Backend) updateWorkspace(
 	ctx context.Context, op, instRef, id string, apply func(inst string, r *workspaceRec) error,
-) (*empty, error) {
-	return writeInstance(b, op, instRef, func(inst string) (*empty, error) {
+) (*EmptyOutput, error) {
+	return writeInstance(b, op, instRef, func(inst string) (*EmptyOutput, error) {
 		r, err := b.workspaceByID(inst, id)
 		if err != nil {
 			return nil, err
@@ -225,7 +225,7 @@ func (b *Backend) updateWorkspace(
 
 		r.Workspace.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -238,7 +238,7 @@ type UpdateWorkspaceMetadataInput struct {
 }
 
 // UpdateWorkspaceMetadata changes the name, description or title of a workspace.
-func (b *Backend) UpdateWorkspaceMetadata(ctx context.Context, in *UpdateWorkspaceMetadataInput) (*empty, error) {
+func (b *Backend) UpdateWorkspaceMetadata(ctx context.Context, in *UpdateWorkspaceMetadataInput) (*EmptyOutput, error) {
 	return b.updateWorkspace(ctx, "UpdateWorkspaceMetadata", in.InstanceID, in.WorkspaceID,
 		func(_ string, r *workspaceRec) error {
 			w := &r.Workspace
@@ -267,7 +267,7 @@ type UpdateWorkspaceThemeInput struct {
 }
 
 // UpdateWorkspaceTheme replaces the theme of a workspace.
-func (b *Backend) UpdateWorkspaceTheme(ctx context.Context, in *UpdateWorkspaceThemeInput) (*empty, error) {
+func (b *Backend) UpdateWorkspaceTheme(ctx context.Context, in *UpdateWorkspaceThemeInput) (*EmptyOutput, error) {
 	if err := checkTheme(in.Theme); err != nil {
 		return nil, err
 	}
@@ -287,7 +287,10 @@ type UpdateWorkspaceVisibilityInput struct {
 }
 
 // UpdateWorkspaceVisibility sets who can see a workspace.
-func (b *Backend) UpdateWorkspaceVisibility(ctx context.Context, in *UpdateWorkspaceVisibilityInput) (*empty, error) {
+func (b *Backend) UpdateWorkspaceVisibility(
+	ctx context.Context,
+	in *UpdateWorkspaceVisibilityInput,
+) (*EmptyOutput, error) {
 	if err := oneOf("Visibility", in.Visibility, visibilities()...); err != nil {
 		return nil, err
 	}
@@ -301,8 +304,8 @@ func (b *Backend) UpdateWorkspaceVisibility(ctx context.Context, in *UpdateWorks
 }
 
 // DeleteWorkspace removes a workspace with its pages, media and assignments.
-func (b *Backend) DeleteWorkspace(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteWorkspace", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteWorkspace(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteWorkspace", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.workspaces.del(inst, id)
 	})
 }
@@ -395,7 +398,7 @@ func strOrEmpty(s *string) string {
 }
 
 // CreateWorkspacePage maps a page of a workspace to a view.
-func (b *Backend) CreateWorkspacePage(ctx context.Context, in *CreateWorkspacePageInput) (*empty, error) {
+func (b *Backend) CreateWorkspacePage(ctx context.Context, in *CreateWorkspacePageInput) (*EmptyOutput, error) {
 	if err := checkPageName(in.Page); err != nil {
 		return nil, err
 	}
@@ -426,7 +429,7 @@ func (b *Backend) CreateWorkspacePage(ctx context.Context, in *CreateWorkspacePa
 }
 
 // UpdateWorkspacePage changes the view, input, slug or name of a page.
-func (b *Backend) UpdateWorkspacePage(ctx context.Context, in *UpdateWorkspacePageInput) (*empty, error) {
+func (b *Backend) UpdateWorkspacePage(ctx context.Context, in *UpdateWorkspacePageInput) (*EmptyOutput, error) {
 	if in.NewPage != nil {
 		if err := checkPageName(*in.NewPage); err != nil {
 			return nil, err
@@ -480,7 +483,7 @@ type DeleteWorkspacePageInput struct {
 }
 
 // DeleteWorkspacePage removes the view mapping of a page.
-func (b *Backend) DeleteWorkspacePage(ctx context.Context, in *DeleteWorkspacePageInput) (*empty, error) {
+func (b *Backend) DeleteWorkspacePage(ctx context.Context, in *DeleteWorkspacePageInput) (*EmptyOutput, error) {
 	return b.updateWorkspace(ctx, "DeleteWorkspacePage", in.InstanceID, in.WorkspaceID,
 		func(_ string, r *workspaceRec) error {
 			n := len(r.Pages)
@@ -543,7 +546,7 @@ func checkMediaSource(src string) error {
 }
 
 // ImportWorkspaceMedia stores a media asset of a workspace; one asset is kept per media type.
-func (b *Backend) ImportWorkspaceMedia(ctx context.Context, in *WorkspaceMediaInput) (*empty, error) {
+func (b *Backend) ImportWorkspaceMedia(ctx context.Context, in *WorkspaceMediaInput) (*EmptyOutput, error) {
 	if err := firstError(
 		oneOf("MediaType", in.MediaType, mediaTypes()...),
 		checkMediaSource(in.MediaSource),
@@ -565,7 +568,7 @@ func (b *Backend) ImportWorkspaceMedia(ctx context.Context, in *WorkspaceMediaIn
 }
 
 // DeleteWorkspaceMedia removes the media asset of one type.
-func (b *Backend) DeleteWorkspaceMedia(ctx context.Context, in *WorkspaceMediaInput) (*empty, error) {
+func (b *Backend) DeleteWorkspaceMedia(ctx context.Context, in *WorkspaceMediaInput) (*EmptyOutput, error) {
 	if err := oneOf("MediaType", in.MediaQuery, mediaTypes()...); err != nil {
 		return nil, err
 	}

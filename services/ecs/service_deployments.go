@@ -273,6 +273,18 @@ func (b *InMemoryBackend) serviceByArnLocked(serviceArn string) *Service {
 func (b *InMemoryBackend) enrichServiceDeploymentLocked(sd *ServiceDeployment) ServiceDeployment {
 	out := *sd
 
+	if sd.Alarms != nil {
+		al := *sd.Alarms
+		al.AlarmNames = slices.Clone(al.AlarmNames)
+		al.TriggeredAlarmNames = slices.Clone(al.TriggeredAlarmNames)
+		out.Alarms = &al
+	}
+
+	if sd.Rollback != nil {
+		rb := *sd.Rollback
+		out.Rollback = &rb
+	}
+
 	svc := b.serviceByArnLocked(sd.ServiceArn)
 	if svc == nil {
 		return out

@@ -128,7 +128,7 @@ func (b *InMemoryBackend) CreateProject(in *resourcemanagerpb.CreateProjectReque
 
 	b.purgeLocked()
 
-	if _, ok := b.findProjectLocked(pr.GetProjectId()); ok {
+	if _, ok := b.findProjectLocked(pr.GetProjectId()); ok || b.retired[pr.GetProjectId()] {
 		return nil, errExists("Requested entity already exists: project %s.", pr.GetProjectId())
 	}
 
@@ -414,6 +414,10 @@ func (b *InMemoryBackend) DeleteProject(in *resourcemanagerpb.DeleteProjectReque
 	}
 
 	if !p.requested() {
+		if b.lienBlocksDeleteLocked(p.Number) {
+			return nil, errPrecondition("A lien to prevent deletion was placed on the project %s.", p.ID)
+		}
+
 		now := b.now()
 		p.Deleted, p.Updated = now, now
 	}

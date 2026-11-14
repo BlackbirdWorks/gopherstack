@@ -188,6 +188,67 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "network",
+    label: "Networking",
+    description:
+      "Azure virtual networks, security groups, load balancers, application gateways and firewalls (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "logic",
+    label: "Logic Apps",
+    description:
+      "Azure Logic Apps workflows, triggers and runs with action timelines (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "search",
+    label: "AI Search",
+    description:
+      "Azure AI Search services, keys, indexes, a search explorer and indexers (service management is served by Resource Manager)",
+    healthName: "AzureSearch",
+    portLabel: "azuresearch",
+    defaultPort: 10015,
+  },
+  {
+    id: "entra",
+    label: "Entra ID & access",
+    description:
+      "Microsoft Entra applications, service principals, users and groups, plus Azure role assignments, locks and policy",
+    healthName: "AzureGraph",
+    portLabel: "azuregraph",
+    defaultPort: 10014,
+  },
+  {
+    id: "sql",
+    label: "SQL Database",
+    description:
+      "Azure SQL logical servers, databases, firewall rules and a read-only query runner (served by Resource Manager)",
+    healthName: "AzureSQL",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "redis",
+    label: "Cache for Redis",
+    description: "Azure Cache for Redis caches, a read-only key browser and access keys",
+    healthName: "AzureRedis",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "acr",
+    label: "Container Registry",
+    description: "Azure Container Registry repositories, tags, manifests and admin credentials",
+    healthName: "AzureContainerRegistry",
+    portLabel: "azurecontainerregistry",
+    defaultPort: 10011,
+  },
 ];
 
 export type GcpService = {
@@ -591,6 +652,30 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCIContainerInstances",
     portLabel: "ocicontainerinstances",
     defaultPort: 8167,
+  },
+  {
+    id: "dns",
+    label: "DNS",
+    description: "Oracle Cloud DNS zones, records, views, resolvers and a live query panel",
+    healthName: "OCIDNS",
+    portLabel: "ocidns",
+    defaultPort: 8168,
+  },
+  {
+    id: "database",
+    label: "Autonomous Database",
+    description: "Oracle Cloud Autonomous Databases, connection strings, backups and wallets",
+    healthName: "OCIDatabase",
+    portLabel: "ocidatabase",
+    defaultPort: 8170,
+  },
+  {
+    id: "filestorage",
+    label: "File Storage",
+    description: "Oracle Cloud file systems, snapshots, mount targets and NFS exports",
+    healthName: "OCIFileStorage",
+    portLabel: "ocifilestorage",
+    defaultPort: 8171,
   },
 ];
 

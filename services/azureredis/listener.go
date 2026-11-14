@@ -20,8 +20,13 @@ type front struct {
 }
 
 // openFront listens on a port from alloc (all interfaces) or an ephemeral loopback port, serving TLS when cfg is
-// non-nil, and relays accepted clients to upstream.
-func openFront(alloc *portalloc.Allocator, label, upstream string, cfg *tls.Config) (*front, error) {
+// non-nil, and relays accepted clients to upstream that admit accepts (nil admits all).
+func openFront(
+	alloc *portalloc.Allocator,
+	label, upstream string,
+	cfg *tls.Config,
+	admit sgfilter.Admitter,
+) (*front, error) {
 	port, err := portalloc.AcquireFrom(alloc, label)
 	if err != nil {
 		return nil, fmt.Errorf("allocate redis port: %w", err)
@@ -43,7 +48,7 @@ func openFront(alloc *portalloc.Allocator, label, upstream string, cfg *tls.Conf
 		ln = tls.NewListener(ln, cfg)
 	}
 
-	p := sgfilter.NewProxy(ln, upstream, nil, nil)
+	p := sgfilter.NewProxy(ln, upstream, admit, nil)
 	p.Start()
 
 	return &front{proxy: p, alloc: alloc, port: port}, nil
@@ -56,6 +61,12 @@ func (f *front) close() {
 
 	f.proxy.Close()
 	portalloc.ReleaseTo(f.alloc, f.port)
+}
+
+func (f *front) dropConnections() {
+	if f != nil {
+		f.proxy.DropConnections()
+	}
 }
 
 func (f *front) portOr0() int {

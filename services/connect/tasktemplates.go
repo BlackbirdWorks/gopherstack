@@ -357,15 +357,15 @@ func mergeTemplate(cur *TaskTemplate, in *taskTemplateBody) taskTemplateBody {
 }
 
 // DeleteTaskTemplate removes a task template.
-func (b *Backend) DeleteTaskTemplate(inst, id string) (*empty, error) {
-	return writeInstance(b, "DeleteTaskTemplate", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteTaskTemplate(inst, id string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteTaskTemplate", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.taskTemplates.del(inst, id)
 	})
 }
 
 // UpdateContactTaskTemplate attaches a template to a task contact.
-func (b *Backend) UpdateContactTaskTemplate(in *UpdateContactTaskTemplateInput) (*empty, error) {
-	return writeInstance(b, "UpdateContactTaskTemplate", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) UpdateContactTaskTemplate(in *UpdateContactTaskTemplateInput) (*EmptyOutput, error) {
+	return writeInstance(b, "UpdateContactTaskTemplate", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		c, err := b.contacts.get(inst, in.ContactID)
 		if err != nil {
 			return nil, contactNotFoundErr(in.ContactID)
@@ -381,7 +381,7 @@ func (b *Backend) UpdateContactTaskTemplate(in *UpdateContactTaskTemplateInput) 
 
 		c.TaskTemplateID = in.TaskTemplateID
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 

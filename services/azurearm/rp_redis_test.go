@@ -385,6 +385,14 @@ func TestRedisDataPlaneSpec(t *testing.T) {
 			want: azurearm.RedisSpec{SKU: "Premium", MinTLS: "1.0", Persistence: true, AuthNotRequired: true},
 		},
 		{
+			name: "keys disabled with entra", sku: "Standard", fam: "C", cap: 1,
+			props: map[string]any{
+				"disableAccessKeyAuthentication": true,
+				"redisConfiguration":             map[string]any{"aad-enabled": "true"},
+			},
+			want: azurearm.RedisSpec{SKU: "Standard", MinTLS: "1.2", DisableAccessKeys: true, EntraEnabled: true},
+		},
+		{
 			name: "standard ignores persistence", sku: "Standard", fam: "C", cap: 1,
 			props: map[string]any{"redisConfiguration": map[string]any{"rdb-backup-enabled": "true"}},
 			want:  azurearm.RedisSpec{SKU: "Standard", MinTLS: "1.2"},
@@ -716,4 +724,50 @@ func TestRedisProviderRegistration(t *testing.T) {
 		"/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Cache"+redisAPI, nil)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "Microsoft.Cache", body["namespace"])
+}
+
+func TestRedisFirewallReachesDataPlane(t *testing.T) {
+	t.Parallel()
+
+	e := newRedisEnv(t)
+	id := strings.ToLower(redisBase + "c1")
+	status, _, _ := e.do(t, http.MethodPut, redisBase+"c1"+redisAPI, redisCacheBody("Basic", "C", 0, nil))
+	require.Equal(t, http.StatusCreated, status)
+	assert.Empty(t, e.dp.specs[id].Firewall)
+
+	for _, r := range []struct{ name, start, end string }{
+		{"b", "10.0.0.5", "10.0.0.9"}, {"a", "192.168.1.1", "192.168.1.4"},
+	} {
+		status, _, _ = e.do(t, http.MethodPut, redisBase+"c1/firewallRules/"+r.name+redisAPI,
+			map[string]any{"properties": map[string]any{"startIP": r.start, "endIP": r.end}})
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	assert.Equal(t, []azurearm.RedisIPRange{
+		{Start: "192.168.1.1", End: "192.168.1.4"}, {Start: "10.0.0.5", End: "10.0.0.9"},
+	}, e.dp.specs[id].Firewall)
+
+	status, _, _ = e.do(t, http.MethodDelete, redisBase+"c1/firewallRules/a"+redisAPI, nil)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []azurearm.RedisIPRange{{Start: "10.0.0.5", End: "10.0.0.9"}}, e.dp.specs[id].Firewall)
+
+	status, _, _ = e.do(t, http.MethodPatch, redisBase+"c1"+redisAPI,
+		map[string]any{"tags": map[string]any{"k": "v"}})
+	require.Equal(t, http.StatusOK, status)
+	assert.Len(t, e.dp.specs[id].Firewall, 1, "a cache update keeps the rules")
+}
+
+func TestRedisDisableAccessKeyAuthenticationRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := newRedisEnv(t)
+	status, body, _ := e.do(t, http.MethodPut, redisBase+"c1"+redisAPI, redisCacheBody("Basic", "C", 0, nil))
+	require.Equal(t, http.StatusCreated, status, body)
+	assert.Equal(t, false, propsOf(body)["disableAccessKeyAuthentication"])
+
+	status, body, _ = e.do(t, http.MethodPatch, redisBase+"c1"+redisAPI,
+		map[string]any{"properties": map[string]any{"disableAccessKeyAuthentication": true}})
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, true, propsOf(body)["disableAccessKeyAuthentication"])
+	assert.True(t, e.dp.specs[strings.ToLower(redisBase+"c1")].DisableAccessKeys)
 }

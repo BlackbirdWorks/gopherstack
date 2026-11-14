@@ -163,8 +163,10 @@ func (b *InMemoryBackend) CreateTagKey(in *resourcemanagerpb.CreateTagKeyRequest
 
 // GetTagKey returns a tag key.
 func (b *InMemoryBackend) GetTagKey(name string) (*resourcemanagerpb.TagKey, error) {
-	b.mu.RLock("GetTagKey")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTagKey")
+	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	k, err := b.tagKeyLocked(name)
 	if err != nil {
@@ -176,8 +178,10 @@ func (b *InMemoryBackend) GetTagKey(name string) (*resourcemanagerpb.TagKey, err
 
 // GetNamespacedTagKey finds a tag key by "{org id or project id}/{short name}".
 func (b *InMemoryBackend) GetNamespacedTagKey(ns string) (*resourcemanagerpb.TagKey, error) {
-	b.mu.RLock("GetNamespacedTagKey")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetNamespacedTagKey")
+	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	for _, k := range b.tagKeys {
 		if b.keyNamespaceLocked(k) == ns {
@@ -240,6 +244,8 @@ func (b *InMemoryBackend) UpdateTagKey(in *resourcemanagerpb.UpdateTagKeyRequest
 	b.mu.Lock("UpdateTagKey")
 	defer b.mu.Unlock()
 
+	b.purgeLocked()
+
 	k, err := b.tagKeyLocked(tk.GetName())
 	if err != nil {
 		return nil, err
@@ -279,11 +285,11 @@ func checkEtag(name, supplied, current string) error {
 }
 
 // DeleteTagKey deletes a tag key that has no tag values.
-//
-//nolint:dupl // DeleteTagKey and DeleteTagValue mirror each other over different record types
 func (b *InMemoryBackend) DeleteTagKey(in *resourcemanagerpb.DeleteTagKeyRequest) (*longrunningpb.Operation, error) {
 	b.mu.Lock("DeleteTagKey")
 	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	k, err := b.tagKeyLocked(in.GetName())
 	if err != nil {
@@ -330,6 +336,8 @@ func (b *InMemoryBackend) CreateTagValue(in *resourcemanagerpb.CreateTagValueReq
 	b.mu.Lock("CreateTagValue")
 	defer b.mu.Unlock()
 
+	b.purgeLocked()
+
 	k, err := b.tagKeyLocked(tv.GetParent())
 	if err != nil {
 		return nil, err
@@ -365,8 +373,10 @@ func (b *InMemoryBackend) CreateTagValue(in *resourcemanagerpb.CreateTagValueReq
 
 // GetTagValue returns a tag value.
 func (b *InMemoryBackend) GetTagValue(name string) (*resourcemanagerpb.TagValue, error) {
-	b.mu.RLock("GetTagValue")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTagValue")
+	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	v, err := b.tagValueLocked(name)
 	if err != nil {
@@ -378,8 +388,10 @@ func (b *InMemoryBackend) GetTagValue(name string) (*resourcemanagerpb.TagValue,
 
 // GetNamespacedTagValue finds a tag value by "{org or project id}/{key}/{value}".
 func (b *InMemoryBackend) GetNamespacedTagValue(ns string) (*resourcemanagerpb.TagValue, error) {
-	b.mu.RLock("GetNamespacedTagValue")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetNamespacedTagValue")
+	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	for _, v := range b.tagValues {
 		if b.valueNamespaceLocked(v) == ns {
@@ -442,6 +454,8 @@ func (b *InMemoryBackend) UpdateTagValue(in *resourcemanagerpb.UpdateTagValueReq
 	b.mu.Lock("UpdateTagValue")
 	defer b.mu.Unlock()
 
+	b.purgeLocked()
+
 	v, err := b.tagValueLocked(tv.GetName())
 	if err != nil {
 		return nil, err
@@ -459,13 +473,13 @@ func (b *InMemoryBackend) UpdateTagValue(in *resourcemanagerpb.UpdateTagValueReq
 }
 
 // DeleteTagValue deletes a tag value that is not bound to any resource.
-//
-//nolint:dupl // DeleteTagValue and DeleteTagKey mirror each other over different record types
 func (b *InMemoryBackend) DeleteTagValue(in *resourcemanagerpb.DeleteTagValueRequest) (
 	*longrunningpb.Operation, error,
 ) {
 	b.mu.Lock("DeleteTagValue")
 	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	v, err := b.tagValueLocked(in.GetName())
 	if err != nil {
@@ -483,6 +497,10 @@ func (b *InMemoryBackend) DeleteTagValue(in *resourcemanagerpb.DeleteTagValueReq
 				in.GetName(),
 			)
 		}
+	}
+
+	if b.holdsOfLocked(v.ID) {
+		return nil, errPrecondition("Tag value %s has tag holds; delete them first.", in.GetName())
 	}
 
 	view := v.view(b.valueNamespaceLocked(v))
@@ -604,6 +622,8 @@ func (b *InMemoryBackend) DeleteTagBinding(in *resourcemanagerpb.DeleteTagBindin
 ) {
 	b.mu.Lock("DeleteTagBinding")
 	defer b.mu.Unlock()
+
+	b.purgeLocked()
 
 	rec, ok := b.bindings[in.GetName()]
 	if !ok {

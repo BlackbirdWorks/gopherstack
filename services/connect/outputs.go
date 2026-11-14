@@ -3,7 +3,8 @@ package connect
 import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
 
 type (
-	empty struct{}
+	// EmptyOutput is an empty JSON object response.
+	EmptyOutput struct{}
 
 	// instPath binds the InstanceId path label.
 	instPath struct {
@@ -91,7 +92,8 @@ type (
 		UseCaseID  string `json:"UseCaseId"`
 	}
 
-	contactIDOut struct {
+	// ContactIDOut is a response carrying a contact ID and ARN.
+	ContactIDOut struct {
 		ContactID string `json:"ContactId"`
 	}
 

@@ -114,3 +114,9 @@ type HubRef struct {
 	Namespace string
 	Hub       string
 }
+
+// RuleScope is an authorization rule with the hub it is scoped to ("" for the namespace).
+type RuleScope struct {
+	Hub  string
+	Rule Rule
+}

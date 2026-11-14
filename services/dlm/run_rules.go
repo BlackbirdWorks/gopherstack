@@ -69,6 +69,12 @@ func (b *InMemoryBackend) enableFastRestore(ctx context.Context, sched map[strin
 	}
 
 	zones := policyDetailsStringSlice(rule, "AvailabilityZones")
+	for _, id := range policyDetailsStringSlice(rule, "AvailabilityZoneIds") {
+		if name := zoneNameForID(b.region, id); name != "" && !slices.Contains(zones, name) {
+			zones = append(zones, name)
+		}
+	}
+
 	if len(zones) == 0 {
 		return
 	}

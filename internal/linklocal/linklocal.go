@@ -45,7 +45,11 @@ const (
 	startWait     = 10 * time.Second
 	pollEvery     = 100 * time.Millisecond
 	gwPriority    = -1
-	relayScript   = "printf '%s\\n' \"$LL_SCRIPT\" > /relay.sh && chmod +x /relay.sh && " +
+
+	// DefaultUpstreamNetwork is the network the relay also joins to reach the emulator on the Docker host.
+	DefaultUpstreamNetwork = "bridge"
+	upstreamGwPriority     = 1
+	relayScript            = "printf '%s\\n' \"$LL_SCRIPT\" > /relay.sh && chmod +x /relay.sh && " +
 		"exec nc -lk -p " + relayPort + " -e /relay.sh"
 )
 
@@ -74,6 +78,10 @@ type Spec struct {
 	// UpstreamHost and UpstreamPort are where the relay forwards, as seen from inside the network.
 	UpstreamHost string
 	UpstreamPort string
+	// UpstreamNetwork is a second network the relay joins so its upstream connections leave from an
+	// address the host can route back to. Over the link-local network alone the source is the proxy IP,
+	// and a cloud VM's own host route for 169.254.169.254 (EC2, Azure, GCP) sends the reply astray.
+	UpstreamNetwork string
 	// PathPrefix is prepended to every forwarded request path.
 	PathPrefix string
 	// OwnerLabel is the container label naming the owning entity, used to recover owners after a restart.
@@ -83,26 +91,28 @@ type Spec struct {
 // ECSSpec is the 169.254.170.2 task-credentials relay.
 func ECSSpec(image, host, port string) Spec {
 	return Spec{
-		Name:         "ecs",
-		Image:        image,
-		Subnet:       netip.MustParsePrefix("169.254.170.0/24"),
-		ProxyIP:      netip.MustParseAddr("169.254.170.2"),
-		UpstreamHost: host,
-		UpstreamPort: port,
+		Name:            "ecs",
+		Image:           image,
+		Subnet:          netip.MustParsePrefix("169.254.170.0/24"),
+		ProxyIP:         netip.MustParseAddr("169.254.170.2"),
+		UpstreamHost:    host,
+		UpstreamPort:    port,
+		UpstreamNetwork: DefaultUpstreamNetwork,
 	}
 }
 
 // IMDSSpec is the 169.254.169.254 instance-metadata relay.
 func IMDSSpec(image, host, port, ownerLabel string) Spec {
 	return Spec{
-		Name:         "imds",
-		Image:        image,
-		Subnet:       netip.MustParsePrefix("169.254.169.0/24"),
-		ProxyIP:      netip.MustParseAddr("169.254.169.254"),
-		UpstreamHost: host,
-		UpstreamPort: port,
-		PathPrefix:   IMDSPathPrefix,
-		OwnerLabel:   ownerLabel,
+		Name:            "imds",
+		Image:           image,
+		Subnet:          netip.MustParsePrefix("169.254.169.0/24"),
+		ProxyIP:         netip.MustParseAddr("169.254.169.254"),
+		UpstreamHost:    host,
+		UpstreamPort:    port,
+		UpstreamNetwork: DefaultUpstreamNetwork,
+		PathPrefix:      IMDSPathPrefix,
+		OwnerLabel:      ownerLabel,
 	}
 }
 
@@ -314,7 +324,31 @@ func (m *Manager) createRelay(ctx context.Context) error {
 		return fmt.Errorf("linklocal: relay create: %w", err)
 	}
 
+	if err = m.joinUpstream(ctx, created.ID); err != nil {
+		_, _ = m.api.ContainerRemove(
+			ctx, created.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
+
+		return err
+	}
+
 	return m.startRelay(ctx, created.ID)
+}
+
+func (m *Manager) joinUpstream(ctx context.Context, id string) error {
+	if m.spec.UpstreamNetwork == "" {
+		return nil
+	}
+
+	_, err := m.api.NetworkConnect(ctx, m.spec.UpstreamNetwork, mobyclient.NetworkConnectOptions{
+		Container:      id,
+		EndpointConfig: &mobynetwork.EndpointSettings{GwPriority: upstreamGwPriority},
+	})
+	if err != nil {
+		return fmt.Errorf("linklocal: relay join %s: %w", m.spec.UpstreamNetwork, err)
+	}
+
+	return nil
 }
 
 func (m *Manager) startRelay(ctx context.Context, id string) error {
@@ -488,7 +522,7 @@ func (m *Manager) Remove(ctx context.Context) error {
 
 func specHash(s Spec) string {
 	return hex.EncodeToString(hashStrings(s.Image, s.Subnet.String(), s.ProxyIP.String(),
-		s.UpstreamHost, s.UpstreamPort, s.PathPrefix, relaySource, relayScript))
+		s.UpstreamHost, s.UpstreamPort, s.UpstreamNetwork, s.PathPrefix, relaySource, relayScript))
 }
 
 func hashStrings(parts ...string) []byte {

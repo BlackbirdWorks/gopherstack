@@ -126,9 +126,11 @@ func TestSourceFailures(t *testing.T) {
 		{
 			name: "connected repository is not supported",
 			source: &cloudbuildpb.Source{Source: &cloudbuildpb.Source_ConnectedRepository{
-				ConnectedRepository: &cloudbuildpb.ConnectedRepository{Repository: "r"},
+				ConnectedRepository: &cloudbuildpb.ConnectedRepository{
+					Repository: "projects/p/locations/l/connections/c/repositories/r", Revision: "main",
+				},
 			}},
-			want: "failed to fetch source: only storageSource, gitSource and repoSource are supported",
+			want: "failed to fetch source: connectedRepository needs a Cloud Build repository connection",
 		},
 	}
 

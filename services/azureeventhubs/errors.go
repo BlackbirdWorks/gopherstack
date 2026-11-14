@@ -19,5 +19,7 @@ var (
 	ErrTooManyReceivers      = errors.New("azureeventhubs: too many concurrent receivers")
 	ErrInvalidSelector       = errors.New("azureeventhubs: invalid selector filter")
 	ErrNilAppContext         = errors.New("azureeventhubs: nil app context")
+	errInvalidKeyType        = errors.New("azureeventhubs: keyType must be PrimaryKey or SecondaryKey")
+	errInvalidKey            = errors.New("azureeventhubs: key is too long")
 	errNoSuchRights          = errors.New("azureeventhubs: invalid rights")
 )

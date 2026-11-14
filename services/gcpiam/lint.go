@@ -2,7 +2,9 @@ package gcpiam
 
 import (
 	"strings"
+	"sync"
 
+	"cel.dev/cel-go/cel"
 	"cloud.google.com/go/iam/admin/apiv1/adminpb"
 )
 
@@ -13,7 +15,7 @@ const (
 	unitSyntax            = "lintValidationUnits/ConditionSyntaxCheck"
 )
 
-// LintPolicy checks a condition expression: non-empty, balanced brackets/quotes, size and operator limits.
+// LintPolicy checks a condition expression: non-empty, CEL syntax, size and operator limits.
 func (b *InMemoryBackend) LintPolicy(req *adminpb.LintPolicyRequest) (*adminpb.LintPolicyResponse, error) {
 	if req.GetFullResourceName() == "" {
 		return nil, errInvalid("full_resource_name must be specified.")
@@ -58,46 +60,40 @@ func (b *InMemoryBackend) LintPolicy(req *adminpb.LintPolicyRequest) (*adminpb.L
 	return &adminpb.LintPolicyResponse{LintResults: results}, nil
 }
 
-// syntaxProblem reports the first unbalanced bracket or unterminated string literal.
+//nolint:gochecknoglobals // lazy: eager CEL setup costs memory
+var celParseEnv = sync.OnceValues(func() (*cel.Env, error) {
+	return cel.NewEnv()
+})
+
+// syntaxProblem parses expr as CEL and reports the first syntax error with its byte offset.
 func syntaxProblem(expr string) (int, string) {
-	var stack []rune
-
-	var quote rune
-
-	for i, r := range expr {
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			}
-
-			continue
-		}
-
-		switch r {
-		case '\'', '"':
-			quote = r
-		case '(', '[', '{':
-			stack = append(stack, r)
-		case ')', ']', '}':
-			if len(stack) == 0 || !matches(stack[len(stack)-1], r) {
-				return i, "Unbalanced '" + string(r) + "' in the condition expression."
-			}
-
-			stack = stack[:len(stack)-1]
-		}
+	env, err := celParseEnv()
+	if err != nil {
+		return 0, ""
 	}
 
-	if quote != 0 {
-		return len(expr), "Unterminated string literal in the condition expression."
+	_, iss := env.Parse(expr)
+	if iss == nil || iss.Err() == nil {
+		return 0, ""
 	}
 
-	if len(stack) > 0 {
-		return len(expr), "Unclosed '" + string(stack[len(stack)-1]) + "' in the condition expression."
-	}
+	first := iss.Errors()[0]
 
-	return 0, ""
+	return offsetOf(expr, first.Location.Line(), first.Location.Column()), first.Message
 }
 
-func matches(open, closing rune) bool {
-	return (open == '(' && closing == ')') || (open == '[' && closing == ']') || (open == '{' && closing == '}')
+// offsetOf converts a 1-based line and 0-based column into a byte offset.
+func offsetOf(expr string, line, col int) int {
+	off := 0
+
+	for l := 1; l < line; l++ {
+		nl := strings.IndexByte(expr[off:], '\n')
+		if nl < 0 {
+			return len(expr)
+		}
+
+		off += nl + 1
+	}
+
+	return min(off+col, len(expr))
 }

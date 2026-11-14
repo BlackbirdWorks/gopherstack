@@ -176,15 +176,18 @@ func TestEngineVolumes(t *testing.T) {
 func TestAdopt(t *testing.T) {
 	t.Parallel()
 
+	const outsidePool = 50000
+
 	tests := []struct {
-		ports    map[int]int
 		name     string
-		wantPort int
+		inPool   bool
+		noAPI    bool
 		wantErr  bool
+		wantPort int
 	}{
-		{name: "running node", ports: map[int]int{k3sengine.APIPort: 42010}, wantPort: 42010},
-		{name: "no api port published", ports: map[int]int{80: 42011}, wantErr: true},
-		{name: "port outside the pool", ports: map[int]int{k3sengine.APIPort: 50000}, wantPort: 50000},
+		{name: "running node", inPool: true},
+		{name: "no api port published", noAPI: true, wantErr: true},
+		{name: "port outside the pool", wantPort: outsidePool},
 	}
 
 	for _, tt := range tests {
@@ -193,7 +196,21 @@ func TestAdopt(t *testing.T) {
 
 			e, ports := newEngine(t, &runtime{}, nil)
 
-			inst, err := e.Adopt(container.ManagedContainer{ID: "old", Ports: tt.ports})
+			port := tt.wantPort
+			if tt.inPool {
+				var err error
+
+				port, err = ports.Acquire("probe")
+				require.NoError(t, err)
+				require.NoError(t, ports.Release(port))
+			}
+
+			published := map[int]int{k3sengine.APIPort: port}
+			if tt.noAPI {
+				published = map[int]int{80: port}
+			}
+
+			inst, err := e.Adopt(container.ManagedContainer{ID: "old", Ports: published})
 			if tt.wantErr {
 				require.ErrorIs(t, err, k3sengine.ErrNotAdoptable)
 
@@ -202,16 +219,20 @@ func TestAdopt(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "old", inst.ContainerID)
-			assert.Equal(t, tt.wantPort, inst.Port)
-			assert.Contains(t, ports.Reserved(), tt.wantPort, "the adopted port must not be handed out again")
+			assert.Equal(t, port, inst.Port)
+			assert.Contains(t, ports.Reserved(), port, "the adopted port must not be handed out again")
 		})
 	}
 
-	e, _ := newEngine(t, &runtime{}, nil)
-	_, err := e.Adopt(container.ManagedContainer{ID: "a", Ports: map[int]int{k3sengine.APIPort: 42020}})
+	e, ports := newEngine(t, &runtime{}, nil)
+	dup, err := ports.Acquire("probe")
+	require.NoError(t, err)
+	require.NoError(t, ports.Release(dup))
+
+	_, err = e.Adopt(container.ManagedContainer{ID: "a", Ports: map[int]int{k3sengine.APIPort: dup}})
 	require.NoError(t, err)
 
-	_, err = e.Adopt(container.ManagedContainer{ID: "b", Ports: map[int]int{k3sengine.APIPort: 42020}})
+	_, err = e.Adopt(container.ManagedContainer{ID: "b", Ports: map[int]int{k3sengine.APIPort: dup}})
 	require.ErrorIs(t, err, k3sengine.ErrNotAdoptable, "a port already in use cannot be adopted twice")
 }
 

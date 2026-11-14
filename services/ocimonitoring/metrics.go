@@ -283,11 +283,11 @@ type group struct {
 }
 
 // collectGroups selects the streams a query covers and merges them per group; the caller holds the lock.
-func (b *InMemoryBackend) collectGroups(q *MQL, namespace, compartment, rg string) []*group {
+func (b *InMemoryBackend) collectGroups(q *MQL, namespace, compartment, rg string, subtree bool) []*group {
 	byKey := map[string]*group{}
 
 	for _, s := range b.streams {
-		if s.Namespace != namespace || s.CompartmentID != compartment || s.Name != q.Metric ||
+		if s.Namespace != namespace || !b.inCompartment(s.CompartmentID, compartment, subtree) || s.Name != q.Metric ||
 			s.ResourceGroup != rg || !q.matches(s.Dimensions) {
 			continue
 		}
@@ -441,6 +441,7 @@ type SummarizeIn struct {
 	Namespace     string     `json:"namespace"`
 	Query         string     `json:"query"`
 	Resolution    string     `json:"resolution"`
+	Subtree       bool       `json:"-"`
 }
 
 type aggregatedWire struct {
@@ -500,7 +501,11 @@ func (b *InMemoryBackend) SummarizeMetricsData(compartment string, in SummarizeI
 		return nil, aerr
 	}
 
-	groups := b.collectGroups(q, in.Namespace, compartment, rgOf(in.ResourceGroup))
+	if aerr = b.checkSubtree(compartment, in.Subtree, "compartmentIdInSubtree"); aerr != nil {
+		return nil, aerr
+	}
+
+	groups := b.collectGroups(q, in.Namespace, compartment, rgOf(in.ResourceGroup), in.Subtree)
 	if int(end.Sub(start)/resolution)*len(groups) > maxReturnedPoints {
 		return nil, errParam("the query would return more than 100000 data points; narrow the time range")
 	}
@@ -585,6 +590,7 @@ type ListMetricsIn struct {
 	SortBy           string            `json:"sortBy"`
 	SortOrder        string            `json:"sortOrder"`
 	GroupBy          []string          `json:"groupBy"`
+	Subtree          bool              `json:"-"`
 }
 
 // MetricWire is one ListMetrics item.
@@ -628,8 +634,12 @@ func (b *InMemoryBackend) ListMetrics(
 
 	seen := map[string]MetricWire{}
 
+	if aerr := b.checkSubtree(compartment, in.Subtree, "compartmentIdInSubtree"); aerr != nil {
+		return page.Page[MetricWire]{}, aerr
+	}
+
 	for _, s := range b.streams {
-		if s.CompartmentID != compartment || !in.selects(s) {
+		if !b.inCompartment(s.CompartmentID, compartment, in.Subtree) || !in.selects(s) {
 			continue
 		}
 
@@ -724,6 +734,8 @@ func (h *Handler) summarizeMetricsData(q *req) error {
 		return err
 	}
 
+	in.Subtree = strings.EqualFold(q.query("compartmentIdInSubtree"), "true")
+
 	out, err := h.Backend.SummarizeMetricsData(q.query("compartmentId"), in)
 	if err != nil {
 		return err
@@ -752,6 +764,8 @@ func (h *Handler) listMetrics(q *req) error {
 
 		limit = n
 	}
+
+	in.Subtree = strings.EqualFold(q.query("compartmentIdInSubtree"), "true")
 
 	pg, err := h.Backend.ListMetrics(q.query("compartmentId"), in, q.query("page"), limit)
 

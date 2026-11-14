@@ -3,8 +3,8 @@
 // Supported: MATCH, OPTIONAL MATCH, WHERE, CREATE, MERGE (ON CREATE/ON MATCH SET), SET, REMOVE, DELETE,
 // DETACH DELETE, WITH, UNWIND, RETURN with DISTINCT, ORDER BY, SKIP, LIMIT, parameters, variable-length
 // relationships, CASE, list/map expressions, the common scalar functions and the count, collect, sum, avg,
-// min and max aggregates. Not supported: CALL, UNION, FOREACH, LOAD CSV, pattern predicates in WHERE,
-// list comprehensions, shortestPath, constraints and indexes.
+// min and max aggregates, read-only UNION / UNION ALL, pattern predicates, size() of a pattern and list
+// comprehensions. Not supported (as in Neptune): CALL, FOREACH, LOAD CSV, shortestPath, constraints and indexes.
 package opencypher
 
 import (
@@ -297,6 +297,9 @@ func (t *Tx) Execute(ctx context.Context, src string, params map[string]any) (*R
 
 	return t.g.runLocked(ctx, q, params)
 }
+
+// Store exposes the transaction's graph for other query languages; valid until Commit or Rollback.
+func (t *Tx) Store() *Store { return &Store{g: t.g} }
 
 // Commit keeps the transaction's writes and releases the graph.
 func (t *Tx) Commit() {

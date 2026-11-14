@@ -1,0 +1,17 @@
+{
+  "Resources": {
+    "ResourceMissingTypeShouldBeAccepted": {
+      "Properties": {
+        "DefinitionUri": "s3://sam-demo-bucket/webpage_swagger.json",
+        "StageName": "Prod"
+      }
+    },
+    "UnknownTypeShouldBeAccepted": {
+      "Properties": {
+        "DefinitionUri": "s3://sam-demo-bucket/webpage_swagger.json",
+        "StageName": "Prod"
+      },
+      "Type": "AWS::Other::ABCD"
+    }
+  }
+}

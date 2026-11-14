@@ -109,6 +109,14 @@ func (b *InMemoryBackend) putVectors(sc scope, in *putVectorsIn) (any, error) {
 		return nil, err
 	}
 
+	if err = b.checkKeyLocked(ix); err != nil {
+		return nil, err
+	}
+
+	if err = b.admitWriteLocked(ix, len(in.Vectors)); err != nil {
+		return nil, err
+	}
+
 	staged := make([]*Vector, 0, len(in.Vectors))
 
 	for i, v := range in.Vectors {
@@ -171,9 +179,9 @@ type keysIn struct {
 	ReturnMetadata bool     `json:"returnMetadata"`
 }
 
-func validateKeys(keys []string) error {
-	if n := len(keys); n < 1 || n > maxKeyBatch {
-		return invalid("keys must contain between 1 and %d items", maxKeyBatch)
+func validateKeys(keys []string, limit int) error {
+	if n := len(keys); n < 1 || n > limit {
+		return invalid("keys must contain between 1 and %d items", limit)
 	}
 
 	for _, k := range keys {
@@ -199,7 +207,7 @@ func outputOf(v *Vector, withData, withMeta bool) outVector {
 }
 
 func (b *InMemoryBackend) getVectors(sc scope, in *keysIn) (any, error) {
-	if err := validateKeys(in.Keys); err != nil {
+	if err := validateKeys(in.Keys, maxGetBatch); err != nil {
 		return nil, err
 	}
 
@@ -208,6 +216,10 @@ func (b *InMemoryBackend) getVectors(sc scope, in *keysIn) (any, error) {
 
 	_, ix, err := b.resolveIndex(sc, in.indexRef)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = b.checkKeyLocked(ix); err != nil {
 		return nil, err
 	}
 
@@ -227,7 +239,7 @@ func (b *InMemoryBackend) getVectors(sc scope, in *keysIn) (any, error) {
 }
 
 func (b *InMemoryBackend) deleteVectors(sc scope, in *keysIn) (any, error) {
-	if err := validateKeys(in.Keys); err != nil {
+	if err := validateKeys(in.Keys, maxDeleteBatch); err != nil {
 		return nil, err
 	}
 
@@ -236,6 +248,14 @@ func (b *InMemoryBackend) deleteVectors(sc scope, in *keysIn) (any, error) {
 
 	_, ix, err := b.resolveIndex(sc, in.indexRef)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = b.checkKeyLocked(ix); err != nil {
+		return nil, err
+	}
+
+	if err = b.admitWriteLocked(ix, len(in.Keys)); err != nil {
 		return nil, err
 	}
 

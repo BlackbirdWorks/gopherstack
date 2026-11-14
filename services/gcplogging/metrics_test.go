@@ -3,6 +3,7 @@ package gcplogging_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
@@ -203,4 +204,45 @@ func TestMetricUpsertOnUpdate(t *testing.T) {
 		MetricName: proj + "/metrics/new", Metric: &loggingpb.LogMetric{Name: "other", Filter: "a=b"},
 	})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestCounterMetricPerMinuteWindows(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, true)
+	require.NoError(t, e.admin(t).CreateMetric(t.Context(),
+		&logadmin.Metric{ID: "errors", Filter: "severity>=ERROR"}))
+
+	base := e.clk.now().Truncate(time.Minute)
+
+	for _, step := range []struct {
+		at time.Time
+		n  int
+	}{{base, 2}, {base.Add(time.Minute), 1}, {base.Add(2*time.Minute + 5*time.Second), 3}} {
+		e.clk.advance(step.at.Sub(e.clk.now()))
+
+		for range step.n {
+			e.write(t, textEntry("m", "x", ltype.LogSeverity_ERROR, step.at))
+		}
+	}
+
+	snap := e.handler.Backend.Snapshot(t.Context())
+	dst := newEnv(t, true)
+	require.NoError(t, dst.handler.Backend.Restore(t.Context(), snap))
+
+	for _, b := range []*gcplogging.InMemoryBackend{e.handler.Backend, dst.handler.Backend} {
+		pts, err := b.MetricPoints(proj + "/metrics/errors")
+		require.NoError(t, err)
+		require.Len(t, pts, 1)
+		require.Len(t, pts[0].Windows, 3)
+
+		counts := make([]int64, 0, len(pts[0].Windows))
+
+		for i, w := range pts[0].Windows {
+			counts = append(counts, w.Count)
+			assert.Equal(t, base.Add(time.Duration(i)*time.Minute), w.Start)
+		}
+
+		assert.Equal(t, []int64{2, 1, 3}, counts)
+	}
 }

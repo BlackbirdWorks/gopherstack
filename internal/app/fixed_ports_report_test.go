@@ -8,19 +8,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 func TestFixedServicePorts_AllReported(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
+		name string
+		span int
 	}{
-		{"default pool", 10000, 10100},
-		{"pool containing fixed ports", 4000, 9100},
+		{"small pool", 10},
+		{"large pool", 100},
 	}
 
 	for _, tt := range tests {
@@ -36,8 +35,7 @@ func TestFixedServicePorts_AllReported(t *testing.T) {
 
 			cli := root.Serve
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc := portalloctest.New(t, tt.span)
 
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 

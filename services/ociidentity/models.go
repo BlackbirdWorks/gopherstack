@@ -223,7 +223,8 @@ type wrResourceWire struct {
 	EntityURI  string `json:"entityUri,omitempty"`
 }
 
-type workRequestWire struct {
+// WorkRequestWire is the work request wire shape.
+type WorkRequestWire struct {
 	TimeAccepted    time.Time        `json:"timeAccepted"`
 	TimeStarted     *time.Time       `json:"timeStarted,omitempty"`
 	TimeFinished    *time.Time       `json:"timeFinished,omitempty"`

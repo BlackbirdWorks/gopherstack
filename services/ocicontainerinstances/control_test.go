@@ -19,7 +19,7 @@ func TestCreateValidation(t *testing.T) {
 
 	manyContainers := func(d *ci.CreateContainerInstanceDetails) {
 		d.Containers = nil
-		for range 33 {
+		for range 61 {
 			d.Containers = append(d.Containers, ci.CreateContainerDetails{ImageUrl: new("alpine")})
 		}
 	}

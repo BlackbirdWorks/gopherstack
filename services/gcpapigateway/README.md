@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 25 (15 ok, 10 partial) |
 | Feature families | 11 (6 ok, 5 partial) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -21,7 +21,6 @@
 - Whether OpenAPI 2.0 documents without any x-google-backend are rejected at config creation is undocumented (oasv2 page: only address is Required inside the block); the emulator rejects them as it does 3.x. The 3.x docs example gives address without a scheme (myapp.run.app), the emulator requires http(s). The 3.x quota limit unit is undocumented; limits are taken as per project per minute.
 - Data-plane texts not in a primary source: the detail after 429 RESOURCE_EXHAUSTED (from Service Control), 502 for refused destinations (emulator-only), the Gateway-not-found and not-ready answers, and the Envoy JWT messages for header/payload parse failures (jwt_verify_lib has distinct strings; only the three-section case is distinguished).
 - Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule) have no primary text: googleapis apigateway.proto only says ids 'must be unique within scope of the parent resource'.
-- No dashboard page or proxy.
 
 ## More
 

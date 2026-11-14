@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -18,7 +19,9 @@ type InMemoryBackend struct {
 	datasets map[string]*Dataset
 	jobs     map[string]*Job
 	objects  ObjectStore
-	seq      int64
+	// Audit records Cloud Audit Logs entries for dataset, table and job changes.
+	Audit gcpaudit.Emitter
+	seq   int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -120,7 +123,7 @@ func (c catalog) Table(ref bqsql.TableRef) (*bqsql.TableData, bool) {
 		return nil, false
 	}
 
-	t, ok := ds.Tables[ref.Table]
+	t, ok := ds.live(ref.Table)
 	if !ok {
 		return nil, false
 	}

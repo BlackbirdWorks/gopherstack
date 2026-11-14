@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -76,4 +78,92 @@ func (a *athenaS3TablesAdapter) CommitMetadataLocation(region, bucket, namespace
 	}
 
 	return nil
+}
+
+func (a *athenaS3TablesAdapter) CreateTable(
+	region, bucket, namespace, table string,
+) (*athenabackend.S3TableInfo, error) {
+	bk := a.handler.BackendFor(region)
+
+	arn := bk.TableBucketARN(bucket)
+
+	t, err := bk.CreateTable(arn, []string{namespace}, table, "ICEBERG", s3tablesbackend.CreateTableOptions{})
+	if err != nil {
+		switch {
+		case errors.Is(err, s3tablesbackend.ErrTableAlreadyExists):
+			return nil, fmt.Errorf("%w: %w", athenabackend.ErrCatalogEntityExists, err)
+		case errors.Is(err, s3tablesbackend.ErrNamespaceNotFound),
+			errors.Is(err, s3tablesbackend.ErrTableBucketNotFound):
+			return nil, fmt.Errorf("%w: %w", athenabackend.ErrCatalogEntityNotFound, err)
+		}
+
+		return nil, err
+	}
+
+	return &athenabackend.S3TableInfo{MetadataLocation: t.MetadataLocation, Location: t.WarehouseLocation}, nil
+}
+
+func (a *athenaS3TablesAdapter) DeleteTable(region, bucket, namespace, table string) error {
+	bk := a.handler.BackendFor(region)
+
+	return bk.DeleteTable(bk.TableBucketARN(bucket), []string{namespace}, table, "")
+}
+
+func (a *athenaS3TablesAdapter) ListNamespaces(region, bucket string) ([]string, error) {
+	bk := a.handler.BackendFor(region)
+
+	var (
+		out   []string
+		token string
+	)
+
+	for {
+		pg, err := bk.ListNamespaces(
+			bk.TableBucketARN(bucket),
+			s3tablesbackend.ListNamespacesParams{ContinuationToken: token},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, ns := range pg.Data {
+			out = append(out, strings.Join(ns.Namespace, "."))
+		}
+
+		if pg.Next == "" {
+			return out, nil
+		}
+
+		token = pg.Next
+	}
+}
+
+func (a *athenaS3TablesAdapter) ListTables(region, bucket, namespace string) ([]string, error) {
+	bk := a.handler.BackendFor(region)
+
+	var (
+		out   []string
+		token string
+	)
+
+	for {
+		pg, err := bk.ListTables(
+			bk.TableBucketARN(bucket),
+			namespace,
+			s3tablesbackend.ListTablesParams{ContinuationToken: token},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, t := range pg.Data {
+			out = append(out, t.Name)
+		}
+
+		if pg.Next == "" {
+			return out, nil
+		}
+
+		token = pg.Next
+	}
 }

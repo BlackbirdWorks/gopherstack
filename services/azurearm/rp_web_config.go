@@ -107,12 +107,12 @@ func configDefaultProps(name string, s *storedWebSite) map[string]any {
 		return map[string]any{
 			acrWebhookEnabled:             false,
 			"runtimeVersion":              "~1",
-			"unauthenticatedClientAction": "RedirectToLoginPage",
+			"unauthenticatedClientAction": acaActionRedirect,
 		}
 	case "authsettingsV2":
 		return map[string]any{
 			"platform":         map[string]any{acrWebhookEnabled: false, "runtimeVersion": "~1"},
-			"globalValidation": map[string]any{"unauthenticatedClientAction": "RedirectToLoginPage"},
+			"globalValidation": map[string]any{"unauthenticatedClientAction": acaActionRedirect},
 		}
 	case "logs":
 		return map[string]any{
@@ -253,6 +253,13 @@ func (p *WebProvider) PutConfig(
 
 		maps.Copy(cur, props)
 		s.Configs[canon] = cur
+
+		if canon == webConfigConn {
+			err = p.syncConnStrings(s)
+			if err != nil {
+				err = badWebRequest(err)
+			}
+		}
 	}
 
 	if err != nil {
@@ -297,8 +304,12 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 
 func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error {
 	cur := mergeWebConfig(s.Configs[webConfigWeb], props)
+	if err := p.checkAlwaysOn(s, cur); err != nil {
+		return err
+	}
 
-	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb]), siteAppConfig(s.Kind, cur)
+	flex := mapOf(s.Extra[webFieldFlexConfig])
+	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb], flex), siteAppConfig(s.Kind, cur, flex)
 
 	if oldCfg != newCfg {
 		if _, err := p.dataPlane.PutApp(s.dpName(), newCfg); err != nil {

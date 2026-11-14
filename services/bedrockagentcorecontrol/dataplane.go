@@ -1,7 +1,9 @@
 package bedrockagentcorecontrol
 
 import (
+	"context"
 	"encoding/json/v2"
+	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
@@ -37,7 +39,10 @@ func (d dataSeam) Runtime(sc dataplane.Scope, ref, qualifier string) (dataplane.
 
 	for _, v := range rt.Versions {
 		if v.ID == live {
-			return runtimeInfo(rt.ID, v.Doc), nil
+			info := runtimeInfo(rt.ID, v.Doc)
+			info.Authorize = b.runtimeAuthorizer(v.Doc)
+
+			return info, nil
 		}
 	}
 
@@ -197,4 +202,23 @@ func mustMarshal(v any) []byte {
 	out, _ := json.Marshal(v, jsonx.V1())
 
 	return out
+}
+
+// runtimeAuthorizer enforces the runtime's customJWTAuthorizer on inbound calls; nil when none is configured.
+func (b *InMemoryBackend) runtimeAuthorizer(
+	doc map[string]any,
+) func(context.Context, *http.Request) *dataplane.AuthFailure {
+	cfg := deepCopy(objOf(objOf(doc, "authorizerConfiguration"), "customJWTAuthorizer"))
+	if cfg == nil {
+		return nil
+	}
+
+	return func(ctx context.Context, r *http.Request) *dataplane.AuthFailure {
+		f := b.authorizeJWT(ctx, r, cfg)
+		if f == nil {
+			return nil
+		}
+
+		return &dataplane.AuthFailure{Status: f.status, Challenge: f.challenge, Message: f.message}
+	}
 }

@@ -290,7 +290,7 @@ func (s *createTableSpec) finish(external bool) {
 }
 
 // parseGlueCreateTable parses CREATE [EXTERNAL] TABLE ... LOCATION 's3://...'
-// (non-CTAS). It returns errNotGlueDDL for statements without a LOCATION.
+// (non-CTAS). The LOCATION may be absent; callers decide whether that is allowed.
 func parseGlueCreateTable(sql string) (*createTableSpec, error) {
 	toks, err := tokenize(sql)
 	if err != nil {
@@ -331,7 +331,7 @@ func parseGlueCreateTable(sql string) (*createTableSpec, error) {
 		spec.def.PartitionKeys = nil
 	}
 
-	if spec.def.Location == "" || (len(spec.def.Columns) == 0 && tt != tableTypeDelta) {
+	if len(spec.def.Columns) == 0 && tt != tableTypeDelta {
 		return nil, errNotGlueDDL
 	}
 

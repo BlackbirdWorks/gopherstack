@@ -237,7 +237,7 @@ func TestDecodeReaderItems(t *testing.T) {
 		},
 		{
 			name:    "items_pointer_not_an_array",
-			cfg:     &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/data"},
+			cfg:     &asl.ReaderConfig{InputType: "JSON", ItemsPointer: "/data/id"},
 			data:    []byte(`{"data":{"id":1}}`),
 			wantErr: true,
 		},

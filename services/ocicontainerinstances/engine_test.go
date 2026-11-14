@@ -36,12 +36,14 @@ type pullCall struct {
 // fakeRuntime is a scripted container runtime: containers run until the test (or Kill) ends them.
 type fakeRuntime struct {
 	pullErr error
-	exits   map[string]chan int
-	logs    map[string]string
-	pulls   []pullCall
-	specs   []container.Spec
-	removed []string
-	mu      sync.Mutex
+	// pullErrFor fails pulls that carry the credential of the given user.
+	pullErrFor map[string]error
+	exits      map[string]chan int
+	logs       map[string]string
+	pulls      []pullCall
+	specs      []container.Spec
+	removed    []string
+	mu         sync.Mutex
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -53,6 +55,12 @@ func (f *fakeRuntime) Pull(_ context.Context, ref string, cred *svc.Credential) 
 	defer f.mu.Unlock()
 
 	f.pulls = append(f.pulls, pullCall{ref: ref, cred: cred})
+
+	if cred != nil {
+		if err := f.pullErrFor[cred.Username]; err != nil {
+			return err
+		}
+	}
 
 	return f.pullErr
 }

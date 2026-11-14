@@ -38,7 +38,7 @@ const scriptHead = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAut
 	` && { [ -s ` + tlsDir + `/server-ca.crt ] && [ -s ` + tlsDir + `/server-ca.key ] || {` +
 	` printf '%s\n' "$` + envCACert + `" > ` + tlsDir + `/server-ca.crt` +
 	` && printf '%s\n' "$` + envCAKey + `" > ` + tlsDir + `/server-ca.key; }; }` +
-	` && unset ` + envCAKey + ` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
+	` && unset ` + envCAKey + ` && umask 022 && exec /bin/k3s server --tls-san "$` + envHost + `"` +
 	` --disable traefik${` + envNodeName + `:+ --node-name "$` + envNodeName + `"}`
 
 const scriptTail = ` --disable metrics-server --kube-apiserver-arg=token-auth-file=` + tokenFileName

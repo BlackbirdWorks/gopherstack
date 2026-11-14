@@ -29,6 +29,7 @@ const (
 	maxProbeBody      = 1 << 20
 	probeWorkers      = 8
 	statusClassDiv    = 100
+	checkerUserAgent  = "GoogleStackdriverMonitoring-UptimeChecks(https://cloud.google.com/monitoring)"
 )
 
 var (
@@ -191,6 +192,8 @@ func (b *InMemoryBackend) probeHTTP(
 		return fmt.Errorf("build request: %w", err)
 	}
 
+	req.Header.Set("User-Agent", checkerUserAgent)
+
 	for k, v := range h.GetHeaders() {
 		req.Header.Set(k, v)
 	}
@@ -250,7 +253,7 @@ func matchContent(ms []*uptimeMatcher, body []byte) error {
 	text := string(body)
 
 	for _, m := range ms {
-		if !contentMatches(m, text) {
+		if !contentMatches(m, text, body) {
 			return fmt.Errorf("%w (%s)", errContentMismatch, m.GetMatcher())
 		}
 	}
@@ -258,7 +261,7 @@ func matchContent(ms []*uptimeMatcher, body []byte) error {
 	return nil
 }
 
-func contentMatches(m *uptimeMatcher, text string) bool {
+func contentMatches(m *uptimeMatcher, text string, body []byte) bool {
 	switch m.GetMatcher() {
 	case monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_CONTAINS_STRING:
 		return !strings.Contains(text, m.GetContent())
@@ -266,10 +269,12 @@ func contentMatches(m *uptimeMatcher, text string) bool {
 		return regexp.MustCompile(m.GetContent()).MatchString(text)
 	case monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_MATCHES_REGEX:
 		return !regexp.MustCompile(m.GetContent()).MatchString(text)
+	case monitoringpb.UptimeCheckConfig_ContentMatcher_MATCHES_JSON_PATH:
+		return jsonPathMatches(m, body)
+	case monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_MATCHES_JSON_PATH:
+		return !jsonPathMatches(m, body)
 	case monitoringpb.UptimeCheckConfig_ContentMatcher_CONTENT_MATCHER_OPTION_UNSPECIFIED,
-		monitoringpb.UptimeCheckConfig_ContentMatcher_CONTAINS_STRING,
-		monitoringpb.UptimeCheckConfig_ContentMatcher_MATCHES_JSON_PATH,
-		monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_MATCHES_JSON_PATH:
+		monitoringpb.UptimeCheckConfig_ContentMatcher_CONTAINS_STRING:
 		return strings.Contains(text, m.GetContent())
 	}
 
@@ -279,7 +284,8 @@ func contentMatches(m *uptimeMatcher, text string) bool {
 type dueCheck struct {
 	when time.Time
 	cfg  *monitoringpb.UptimeCheckConfig
-	res  probeResult
+	locs []string
+	res  []probeResult
 }
 
 // runUptimeChecks probes every check whose period elapsed on the backend clock and records the metrics.
@@ -293,7 +299,9 @@ func (b *InMemoryBackend) runUptimeChecks(ctx context.Context) {
 		rec := b.uptime[name]
 		if rec.lastRun.IsZero() || now.Sub(rec.lastRun) >= rec.pb.GetPeriod().AsDuration() {
 			rec.lastRun = now
-			due = append(due, &dueCheck{cfg: cloneUptime(rec.pb), when: now})
+			cfg := cloneUptime(rec.pb)
+			locs := locationsFor(cfg.GetSelectedRegions())
+			due = append(due, &dueCheck{cfg: cfg, when: now, locs: locs, res: make([]probeResult, len(locs))})
 		}
 	}
 
@@ -317,15 +325,17 @@ func (b *InMemoryBackend) probeAll(ctx context.Context, due []*dueCheck) {
 	sem := make(chan struct{}, probeWorkers)
 
 	for _, d := range due {
-		sem <- struct{}{}
+		for i := range d.locs {
+			sem <- struct{}{}
 
-		wg.Add(1)
+			wg.Add(1)
 
-		go func() {
-			defer func() { <-sem; wg.Done() }()
+			go func() {
+				defer func() { <-sem; wg.Done() }()
 
-			d.res = b.probe(ctx, d.cfg)
-		}()
+				d.res[i] = b.probe(ctx, d.cfg)
+			}()
+		}
 	}
 
 	wg.Wait()
@@ -340,13 +350,14 @@ func (b *InMemoryBackend) recordUptimeLocked(ctx context.Context, d *dueCheck) {
 
 	batch := make([]*monitoringpb.TimeSeries, 0, len(checkerLocations)*seriesPerLocation)
 
-	for _, loc := range locationsFor(d.cfg.GetSelectedRegions()) {
+	for i, loc := range d.locs {
+		r := d.res[i]
 		labels := map[string]string{labelCheckID: id, labelCheckerLoc: loc}
 		batch = append(batch,
-			uptimeSeries(uptimeCheckPassed, labels, res, vtBool, boolValue(d.res.passed), d.when),
+			uptimeSeries(uptimeCheckPassed, labels, res, vtBool, boolValue(r.passed), d.when),
 			uptimeSeries(uptimeCheckLatency, labels, res, vtDist,
 				&monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_DistributionValue{
-					DistributionValue: latencyDistribution(float64(d.res.latency) / float64(time.Millisecond)),
+					DistributionValue: latencyDistribution(float64(r.latency) / float64(time.Millisecond)),
 				}}, d.when),
 		)
 	}

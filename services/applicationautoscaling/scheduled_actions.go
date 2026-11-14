@@ -193,7 +193,7 @@ type DescribeScheduledActionsFilter struct {
 func (b *InMemoryBackend) DescribeScheduledActions(
 	f DescribeScheduledActionsFilter,
 ) ([]*ScheduledAction, string, error) {
-	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+	if err := validateDescribeFilter(f.ServiceNamespace, f.ScalableDimension, f.ResourceID != ""); err != nil {
 		return nil, "", err
 	}
 

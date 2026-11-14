@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -20,9 +21,10 @@ type kmsKeyIn struct {
 
 // CreatePoolIn is the CreateStreamPool request body.
 type CreatePoolIn struct {
-	Kafka   *KafkaSettings   `json:"kafkaSettings"`
-	Key     *kmsKeyIn        `json:"customEncryptionKeyDetails"`
-	Private *PrivateEndpoint `json:"privateEndpointDetails"`
+	RetryToken string           `json:"-"`
+	Kafka      *KafkaSettings   `json:"kafkaSettings"`
+	Key        *kmsKeyIn        `json:"customEncryptionKeyDetails"`
+	Private    *PrivateEndpoint `json:"privateEndpointDetails"`
 	Tags
 	Name        string `json:"name"`
 	Compartment string `json:"compartmentId"`
@@ -69,18 +71,14 @@ type poolSummaryWire struct {
 	IsPrivate      bool                      `json:"isPrivate"`
 }
 
-func poolView(p *Pool, shown, host string) poolWire {
-	if shown == "" {
-		shown = p.State
-	}
-
+func poolView(p *Pool, host string) poolWire {
 	key := keyWire{KeyState: "NONE"}
 	if p.KMSKeyID != "" {
 		key = keyWire{KmsKeyID: &p.KMSKeyID, KeyState: "ACTIVE"}
 	}
 
 	w := poolWire{
-		ID: p.ID, CompartmentID: p.CompartmentID, Name: p.Name, LifecycleState: shown, TimeCreated: p.TimeCreated,
+		ID: p.ID, CompartmentID: p.CompartmentID, Name: p.Name, LifecycleState: p.State, TimeCreated: p.TimeCreated,
 		Kafka: p.Kafka, Key: key, IsPrivate: p.Private, Endpoint: p.Endpoint,
 		FreeformTags: p.Tags.FreeformTags, DefinedTags: p.Tags.DefinedTags, SecurityAttr: p.Tags.SecurityAttributes,
 	}
@@ -181,6 +179,21 @@ func (b *InMemoryBackend) CreatePool(in CreatePoolIn, host string) (poolWire, st
 	b.mu.Lock("CreatePool")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateStreamPool", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+
+		p, live := b.pools[id]
+		if !live || p.State == stateDeleting || p.State == stateDeleted {
+			return poolWire{}, "", "", errInvalidatedToken()
+		}
+
+		return poolView(p, host), p.Etag, wr, nil
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return poolWire{}, "", "", aerr
+	}
+
 	p := &Pool{
 		ID: newOCID("streampool"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating,
 		TimeCreated: b.nowUTC(), TransitionAt: b.transitionAt(), Kafka: kafka, Tags: in.Tags,
@@ -203,7 +216,9 @@ func (b *InMemoryBackend) CreatePool(in CreatePoolIn, host string) (poolWire, st
 	wr := b.newWR("CREATE_STREAM_POOL", p.CompartmentID, "streampool", p.ID, "CREATED",
 		"/streampools/"+p.ID, *p.TransitionAt)
 
-	return poolView(p, "", host), p.Etag, wr, nil
+	b.retry.Remember("CreateStreamPool", in.RetryToken, ociretry.Join(p.ID, wr), b.nowUTC())
+
+	return poolView(p, host), p.Etag, wr, nil
 }
 
 // GetPool returns one pool.
@@ -216,7 +231,7 @@ func (b *InMemoryBackend) GetPool(id, host string) (poolWire, string, error) {
 		return poolWire{}, "", errNotFound(id)
 	}
 
-	return poolView(p, "", host), p.Etag, nil
+	return poolView(p, host), p.Etag, nil
 }
 
 // ListPools lists the pools of a compartment.
@@ -269,15 +284,19 @@ func (b *InMemoryBackend) UpdatePool(id, ifMatch, host string, in UpdatePoolIn) 
 		return poolWire{}, "", "", aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return poolWire{}, "", "", aerr
+	}
+
 	if aerr = b.applyPoolUpdate(p, in); aerr != nil {
 		return poolWire{}, "", "", aerr
 	}
 
-	p.Etag = newEtag()
+	p.State, p.TransitionAt, p.Etag = stateUpdating, b.transitionAt(), newEtag()
 	wr := b.newWR("UPDATE_STREAM_POOL", p.CompartmentID, "streampool", p.ID, "UPDATED",
-		"/streampools/"+p.ID, b.nowUTC())
+		"/streampools/"+p.ID, *p.TransitionAt)
 
-	return poolView(p, "", host), p.Etag, wr, nil
+	return poolView(p, host), p.Etag, wr, nil
 }
 
 func (b *InMemoryBackend) applyPoolUpdate(p *Pool, in UpdatePoolIn) *APIError {
@@ -372,10 +391,10 @@ func (b *InMemoryBackend) ChangePoolCompartment(id, ifMatch, compartment string)
 		return "", aerr
 	}
 
-	p.CompartmentID, p.Etag = compartment, newEtag()
+	p.CompartmentID, p.State, p.TransitionAt, p.Etag = compartment, stateUpdating, b.transitionAt(), newEtag()
 
 	return b.newWR("UPDATE_STREAM_POOL", compartment, "streampool", p.ID, "UPDATED",
-		"/streampools/"+p.ID, b.nowUTC()), nil
+		"/streampools/"+p.ID, *p.TransitionAt), nil
 }
 
 // defaultPool returns the compartment's DefaultPool, creating it on first use.
@@ -401,6 +420,8 @@ func (h *Handler) createPool(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	p, etag, wr, err := h.Backend.CreatePool(in, hostOf(q.endpoint()))
 

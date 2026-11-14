@@ -111,7 +111,9 @@ func TestUnmanagedInstanceGroup(t *testing.T) {
 		want  int
 		code  int
 	}{
-		{"RUNNING", 1, http.StatusOK}, {"ALL", 2, http.StatusOK}, {"", 2, http.StatusOK},
+		{"RUNNING", 1, http.StatusOK},
+		{"ALL", 2, http.StatusOK},
+		{"", 2, http.StatusOK},
 		{"BOGUS", 0, http.StatusBadRequest},
 	} {
 		code, body := rawDo(t, e, http.MethodPost, listPath, `{"instanceState":"`+c.state+`"}`)

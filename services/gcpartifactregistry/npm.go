@@ -264,10 +264,7 @@ func npmTime(t interface{ Format(string) string }) string {
 }
 
 func baseURL(r *http.Request, route string, rc repoCtx) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	scheme := requestScheme(r)
 
 	return scheme + "://" + r.Host + repoPrefix(isPkgHost(r), route, rc)
 }
@@ -303,7 +300,7 @@ func (b *InMemoryBackend) serveNPMPackument(w http.ResponseWriter, r *http.Reque
 
 	writeJSONBody(w, http.StatusOK, map[string]any{
 		"_id": pkg, "_rev": fmt.Sprintf("%d-%x", len(versions), rev.Sum(nil)[:8]), "name": pkg,
-		"dist-tags": b.npmTags(rc, pkg), "versions": docs, "time": times,
+		npmDistTags: b.npmTags(rc, pkg), "versions": docs, "time": times,
 	})
 }
 
@@ -335,7 +332,7 @@ func (b *InMemoryBackend) serveNPMTarball(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if b.packageDenied(r.Context(), rc, pkg) {
+	if b.packageDenied(r.Context(), rc, pkg, f.Owner) {
 		writeNPMError(w, http.StatusForbidden, "A download rule denies access to this package.")
 
 		return
@@ -434,7 +431,7 @@ func (b *InMemoryBackend) putNPMTag(
 	}
 
 	b.setNPMTags(rc, pkg, map[string]string{tag: version}, false)
-	writeJSONBody(w, http.StatusOK, map[string]any{"ok": true, "id": pkg, "dist-tags": b.npmTags(rc, pkg)})
+	writeJSONBody(w, http.StatusOK, map[string]any{"ok": true, "id": pkg, npmDistTags: b.npmTags(rc, pkg)})
 }
 
 func (b *InMemoryBackend) deleteNPMTag(w http.ResponseWriter, rc repoCtx, pkg, tag string) {

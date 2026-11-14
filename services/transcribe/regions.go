@@ -19,6 +19,7 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackendForRegion(region)
 		nb.SetAppConfig(home.appConfigValue())
+		nb.shareRuntime(home)
 
 		return NewHandler(nb)
 	})
@@ -56,6 +57,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	home := h.homeHandler()
 
 	return func(c *echo.Context) error {
+		if isManagedOutputRequest(c.Request()) {
+			return h.ServeManagedOutput(c)
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.homeHandler()(c)
 		}
@@ -88,5 +93,14 @@ func (h *Handler) Reset() {
 
 	for _, p := range h.peers.Drain() {
 		p.resetHome()
+	}
+}
+
+// Shutdown stops in-flight recognition runs in every region.
+func (h *Handler) Shutdown(ctx context.Context) {
+	for _, b := range h.RegionBackends() {
+		if s, ok := b.(interface{ Shutdown(context.Context) }); ok {
+			s.Shutdown(ctx)
+		}
 	}
 }

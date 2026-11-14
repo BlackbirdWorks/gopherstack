@@ -56,7 +56,7 @@ func randomAPIKeyID() string {
 // documented 1-365-day bounds, returning ErrAPIKeyValidityOutOfBounds if it
 // falls outside them.
 func resolveAPIKeyExpiry(expires int64) (int64, error) {
-	now := time.Now()
+	now := time.Now().UTC()
 
 	if expires <= 0 {
 		return now.AddDate(0, 0, defaultAPIKeyExpiryDays).Unix(), nil

@@ -20,7 +20,9 @@ import (
 func (e *env) createSink(t *testing.T, sink *loggingpb.LogSink) *loggingpb.LogSink {
 	t.Helper()
 
-	out, err := e.config(t).CreateSink(t.Context(), &loggingpb.CreateSinkRequest{Parent: proj, Sink: sink})
+	out, err := e.config(t).CreateSink(t.Context(), &loggingpb.CreateSinkRequest{
+		Parent: proj, Sink: sink, UniqueWriterIdentity: true,
+	})
 	require.NoError(t, err)
 
 	return out
@@ -51,7 +53,12 @@ func TestSinkAdminLifecycle(t *testing.T) {
 	assert.Equal(t, "severity>=ERROR", got.Filter)
 
 	got.Filter = "severity>=WARNING"
-	updated, err := admin.UpdateSink(t.Context(), got)
+	_, err = admin.UpdateSink(t.Context(), got)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err), "a unique writer identity cannot revert to the shared one")
+
+	updated, err := admin.UpdateSinkOpt(t.Context(), got, logadmin.SinkOptions{
+		UniqueWriterIdentity: true, UpdateFilter: true,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "severity>=WARNING", updated.Filter)
 
@@ -158,9 +165,10 @@ func TestSinkUpdateMask(t *testing.T) {
 			t.Parallel()
 
 			got, err := e.config(t).UpdateSink(t.Context(), &loggingpb.UpdateSinkRequest{
-				SinkName:   proj + "/sinks/m",
-				Sink:       &loggingpb.LogSink{Filter: "severity>=INFO", Disabled: true},
-				UpdateMask: &fieldmaskpb.FieldMask{Paths: tt.mask},
+				SinkName:             proj + "/sinks/m",
+				UniqueWriterIdentity: true,
+				Sink:                 &loggingpb.LogSink{Filter: "severity>=INFO", Disabled: true},
+				UpdateMask:           &fieldmaskpb.FieldMask{Paths: tt.mask},
 			})
 			assert.Equal(t, tt.code, status.Code(err))
 
@@ -352,4 +360,54 @@ func TestExclusions(t *testing.T) {
 	)
 	gone := cfg.DeleteExclusion(t.Context(), &loggingpb.DeleteExclusionRequest{Name: proj + "/exclusions/drop-debug"})
 	assert.Equal(t, codes.NotFound, status.Code(gone))
+}
+
+func TestSinkWriterIdentityRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		parent   string
+		dest     string
+		wantCode codes.Code
+		unique   bool
+		wantSA   bool
+	}{
+		{
+			name:     "same project",
+			parent:   proj,
+			dest:     "pubsub.googleapis.com/projects/test-project/topics/t",
+			wantCode: codes.OK,
+		},
+		{name: "other project shared", parent: proj, dest: "pubsub.googleapis.com/projects/other/topics/t",
+			wantCode: codes.InvalidArgument},
+		{name: "other project unique", parent: proj, dest: "bigquery.googleapis.com/projects/other/datasets/d",
+			unique: true, wantCode: codes.OK, wantSA: true},
+		{name: "bucket in other project", parent: proj,
+			dest:     "logging.googleapis.com/projects/other/locations/global/buckets/b",
+			wantCode: codes.InvalidArgument},
+		{name: "folder is always unique", parent: "folders/1", dest: "storage.googleapis.com/b",
+			wantCode: codes.OK, wantSA: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, false)
+			got, err := e.config(t).CreateSink(t.Context(), &loggingpb.CreateSinkRequest{
+				Parent: tt.parent, UniqueWriterIdentity: tt.unique,
+				Sink: &loggingpb.LogSink{Name: "s", Destination: tt.dest},
+			})
+			assert.Equal(t, tt.wantCode, status.Code(err))
+
+			if err == nil {
+				assert.Equal(
+					t,
+					tt.wantSA,
+					strings.HasSuffix(got.GetWriterIdentity(), "@gcp-sa-logging.iam.gserviceaccount.com"),
+				)
+			}
+		})
+	}
 }

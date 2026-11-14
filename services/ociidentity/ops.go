@@ -84,6 +84,11 @@ func tagOps() map[string]opFunc {
 		opCreateTagDefault: (*Handler).createTagDefault, opGetTagDefault: (*Handler).getTagDefault,
 		opListTagDefaults: (*Handler).listTagDefaults, opUpdateTagDefault: (*Handler).updateTagDefault,
 		opDeleteTagDefault: (*Handler).deleteTagDefault,
+		opChangeTagNSComp:  (*Handler).changeTagNamespaceCompartment,
+		opCascadeDeleteNS:  (*Handler).cascadeDeleteTagNamespace,
+		opGetTaggingWR:     (*Handler).getTaggingWorkRequest, opListTaggingWR: (*Handler).listTaggingWorkRequests,
+		opListTaggingWRErr: (*Handler).listTaggingWorkRequestErrors,
+		opListTaggingWRLog: (*Handler).listTaggingWorkRequestLogs,
 	}
 }
 

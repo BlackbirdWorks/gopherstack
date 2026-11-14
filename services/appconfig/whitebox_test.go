@@ -188,3 +188,36 @@ func TestDeploymentTimers_DrainToZero(t *testing.T) {
 		assert.Equal(t, 0, deploymentTimerCount(), "every deployment timer must drain once its deployment completes")
 	})
 }
+
+func TestReconcileDeployments_AdvancesOnlyDueAtSharedNow(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	appID, envID, profileID, _ := seedDeployableConfig(t, b, []byte("v"))
+
+	strategy, err := b.CreateDeploymentStrategy("slow", "", 5, 0, 50, "LINEAR", "NONE", nil)
+	require.NoError(t, err)
+
+	_, err = b.StartDeployment(appID, envID, profileID, strategy.ID, "1", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	b.mu.Lock("test.reconcile")
+	defer b.mu.Unlock()
+
+	require.Len(t, b.deploymentTimers, 1)
+
+	var due time.Time
+
+	for _, timer := range b.deploymentTimers {
+		due = timer.nextAt
+	}
+
+	b.reconcileDeploymentsLocked(due.Add(-time.Nanosecond))
+
+	d, ok := b.deployments.Get(deploymentKey(appID, envID, 1))
+	require.True(t, ok)
+	assert.Zero(t, d.PercentageComplete)
+
+	b.reconcileDeploymentsLocked(due)
+	assert.InDelta(t, 50, d.PercentageComplete, 0)
+}

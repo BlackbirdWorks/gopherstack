@@ -368,8 +368,8 @@ func TestInMemoryBackend_AdminGetUserAuthFactors(t *testing.T) {
 				_, err = b.VerifySoftwareToken(tokens.AccessToken, "", code)
 				require.NoError(t, err)
 
-				_, err = b.CompleteWebAuthnRegistration(tokens.AccessToken, "admin-factor-cred", "", nil)
-				require.NoError(t, err)
+				enablePasskeys(t, b, pool.ID)
+				registerPasskey(t, b, tokens.AccessToken)
 
 				return pool.ID, "factors-user-2"
 			},

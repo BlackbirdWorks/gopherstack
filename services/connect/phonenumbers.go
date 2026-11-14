@@ -307,7 +307,7 @@ func (b *Backend) UpdatePhoneNumber(in *UpdatePhoneNumberInput) (*phoneOut, erro
 }
 
 // UpdatePhoneNumberMetadata changes the description of a claimed number.
-func (b *Backend) UpdatePhoneNumberMetadata(in *UpdatePhoneNumberInput) (*empty, error) {
+func (b *Backend) UpdatePhoneNumberMetadata(in *UpdatePhoneNumberInput) (*EmptyOutput, error) {
 	if in.PhoneNumberDescription == nil {
 		return nil, invalidParamErr("PhoneNumberDescription is required")
 	}
@@ -326,11 +326,11 @@ func (b *Backend) UpdatePhoneNumberMetadata(in *UpdatePhoneNumberInput) (*empty,
 
 	p.Phone.PhoneNumberDescription = *in.PhoneNumberDescription
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // ReleasePhoneNumber returns a number to the pool.
-func (b *Backend) ReleasePhoneNumber(id string) (*empty, error) {
+func (b *Backend) ReleasePhoneNumber(id string) (*EmptyOutput, error) {
 	b.mu.Lock("ReleasePhoneNumber")
 	defer b.mu.Unlock()
 
@@ -347,7 +347,7 @@ func (b *Backend) ReleasePhoneNumber(id string) (*empty, error) {
 
 	b.phoneNumbers.Delete(id)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) filteredPhones(instanceID string, types, countries []string, prefix string) []*phoneNumberRec {
@@ -444,7 +444,7 @@ func (b *Backend) ListPhoneNumbersV2(in *ListPhoneNumbersV2Input) (*listPhonesOu
 }
 
 // AssociatePhoneNumberContactFlow routes calls to a number through a contact flow.
-func (b *Backend) AssociatePhoneNumberContactFlow(in *PhoneFlowInput) (*empty, error) {
+func (b *Backend) AssociatePhoneNumberContactFlow(in *PhoneFlowInput) (*EmptyOutput, error) {
 	b.mu.Lock("AssociatePhoneNumberContactFlow")
 	defer b.mu.Unlock()
 
@@ -468,11 +468,11 @@ func (b *Backend) AssociatePhoneNumberContactFlow(in *PhoneFlowInput) (*empty, e
 
 	p.FlowID = in.ContactFlowID
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // DisassociatePhoneNumberContactFlow removes the flow of a number.
-func (b *Backend) DisassociatePhoneNumberContactFlow(in *PhoneFlowInput) (*empty, error) {
+func (b *Backend) DisassociatePhoneNumberContactFlow(in *PhoneFlowInput) (*EmptyOutput, error) {
 	b.mu.Lock("DisassociatePhoneNumberContactFlow")
 	defer b.mu.Unlock()
 
@@ -496,5 +496,5 @@ func (b *Backend) DisassociatePhoneNumberContactFlow(in *PhoneFlowInput) (*empty
 
 	p.FlowID = ""
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

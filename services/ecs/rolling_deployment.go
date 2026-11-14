@@ -240,6 +240,7 @@ func (b *InMemoryBackend) stopServiceTask(clusterName, taskArn, reason string) e
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
+		b.releaseTaskVolumesLocked(task)
 		delete(b.lifecycle, task.TaskArn)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {

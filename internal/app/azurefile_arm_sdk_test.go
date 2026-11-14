@@ -28,6 +28,7 @@ const (
 
 type afStack struct {
 	fileServices *armstorage.FileServicesClient
+	fileShares   *armstorage.FileSharesClient
 	shares       *service.Client
 	h            *azurefile.Handler
 }
@@ -80,7 +81,12 @@ func newAFStack(t *testing.T) *afStack {
 	shares, err := service.NewClientWithSharedKeyCredential(fileSrv.URL+"/"+afAccount+"/", cred, nil)
 	require.NoError(t, err)
 
-	return &afStack{fileServices: factory.NewFileServicesClient(), shares: shares, h: fileH}
+	return &afStack{
+		fileServices: factory.NewFileServicesClient(),
+		fileShares:   factory.NewFileSharesClient(),
+		shares:       shares,
+		h:            fileH,
+	}
 }
 
 func (s *afStack) setRetention(t *testing.T, enabled bool, days int32) error {

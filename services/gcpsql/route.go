@@ -21,6 +21,12 @@ const (
 	opPromoteReplica     = "PromoteReplica"
 	opStartReplica       = "StartReplica"
 	opStopReplica        = "StopReplica"
+	opFailover           = "Failover"
+	opTruncateLog        = "TruncateLog"
+	opResetSslConfig     = "ResetSslConfig"
+	opAddServerCa        = "AddServerCa"
+	opListServerCas      = "ListServerCas"
+	opRotateServerCa     = "RotateServerCa"
 	opLatestRecovery     = "GetLatestRecoveryTime"
 	opExportInstance     = "ExportInstance"
 	opImportInstance     = "ImportInstance"
@@ -185,6 +191,12 @@ func subCollectionOp(method, sub string) string {
 		"promoteReplica":        {http.MethodPost: opPromoteReplica},
 		"startReplica":          {http.MethodPost: opStartReplica},
 		"stopReplica":           {http.MethodPost: opStopReplica},
+		"failover":              {http.MethodPost: opFailover},
+		"truncateLog":           {http.MethodPost: opTruncateLog},
+		"resetSslConfig":        {http.MethodPost: opResetSslConfig},
+		"addServerCa":           {http.MethodPost: opAddServerCa},
+		"listServerCas":         {http.MethodGet: opListServerCas},
+		"rotateServerCa":        {http.MethodPost: opRotateServerCa},
 		"getLatestRecoveryTime": {http.MethodGet: opLatestRecovery},
 		"export":                {http.MethodPost: opExportInstance},
 		"import":                {http.MethodPost: opImportInstance},

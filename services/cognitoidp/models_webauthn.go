@@ -1,15 +1,21 @@
 package cognitoidp
 
-import "time"
+import (
+	"time"
+
+	"github.com/go-webauthn/webauthn/webauthn"
+)
 
 // WebAuthnCredential represents a registered passkey/WebAuthn credential for a user.
 type WebAuthnCredential struct {
-	CreatedAt               time.Time `json:"createdAt"`
-	CredentialID            string    `json:"credentialID,omitempty"`
-	FriendlyName            string    `json:"friendlyName,omitempty"`
-	RelyingPartyID          string    `json:"relyingPartyID,omitempty"`
-	AuthenticatorAttachment string    `json:"authenticatorAttachment,omitempty"`
-	AuthenticatorTransports []string  `json:"authenticatorTransports,omitempty"`
+	// Credential is the verified WebAuthn credential record (public key, sign counter, flags).
+	Credential              *webauthn.Credential `json:"credential,omitempty"`
+	CreatedAt               time.Time            `json:"createdAt"`
+	CredentialID            string               `json:"credentialID,omitempty"`
+	FriendlyName            string               `json:"friendlyName,omitempty"`
+	RelyingPartyID          string               `json:"relyingPartyID,omitempty"`
+	AuthenticatorAttachment string               `json:"authenticatorAttachment,omitempty"`
+	AuthenticatorTransports []string             `json:"authenticatorTransports,omitempty"`
 }
 
 type completeWebAuthnRegistrationInput struct {

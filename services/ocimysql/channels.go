@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -39,6 +40,7 @@ type ChannelTargetIn struct {
 
 // CreateChannelIn is the CreateChannel body.
 type CreateChannelIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	IsEnabled     *bool           `json:"isEnabled"`
 	Source        ChannelSourceIn `json:"source"`
@@ -194,6 +196,24 @@ func (b *InMemoryBackend) CreateChannel(in CreateChannelIn) (Doc, string, string
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
+	id, rwr, hit, rerr := b.replayCreate("CreateChannel", in.RetryToken, func(id string) (string, bool) {
+		c, ok := b.channels[id]
+		if !ok {
+			return "", false
+		}
+
+		return c.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		c := b.channels[id]
+
+		return b.channelDoc(c), c.Etag, rwr, nil
+	}
+
 	src, aerr := b.channelSource(in.Source, nil)
 	tgt, aerr2 := b.channelTarget(in.Target, nil)
 
@@ -241,6 +261,7 @@ func (b *InMemoryBackend) CreateChannel(in CreateChannelIn) (Doc, string, string
 
 	b.channels[c.ID] = c
 	wr := b.newWR(wrCreateChannel, compartment, entityChannel, c.ID, actionCreated, c.TransitionAt)
+	b.retry.Remember("CreateChannel", in.RetryToken, ociretry.Join(c.ID, wr), b.nowUTC())
 
 	return b.channelDoc(c), c.Etag, wr, nil
 }
@@ -340,9 +361,13 @@ type UpdateChannelIn struct {
 }
 
 // UpdateChannel updates a channel and returns its work request.
-func (b *InMemoryBackend) UpdateChannel(id, ifMatch string, in UpdateChannelIn) (string, error) {
+func (b *InMemoryBackend) UpdateChannel(id, ifMatch, token string, in UpdateChannelIn) (string, error) {
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("UpdateChannel/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	c, aerr := b.channelFor(id, ifMatch)
 	if aerr != nil {
@@ -379,7 +404,10 @@ func (b *InMemoryBackend) UpdateChannel(id, ifMatch string, in UpdateChannelIn) 
 	c.Source, c.Target = src, tgt
 	c.Tags.merge(in.Tags)
 
-	return b.channelTransition(c, wrUpdateChannel, enabledState(c.Enabled)), nil
+	wr := b.channelTransition(c, wrUpdateChannel, enabledState(c.Enabled))
+	b.retry.Remember("UpdateChannel/"+id, token, wr, b.nowUTC())
+
+	return wr, nil
 }
 
 func enabledState(on bool) string {
@@ -391,9 +419,13 @@ func enabledState(on bool) string {
 }
 
 // ResumeChannel enables a channel.
-func (b *InMemoryBackend) ResumeChannel(id, ifMatch string) (string, error) {
+func (b *InMemoryBackend) ResumeChannel(id, ifMatch, token string) (string, error) {
 	b.mu.Lock("ResumeChannel")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("ResumeChannel/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	c, aerr := b.channelFor(id, ifMatch)
 	if aerr != nil {
@@ -408,13 +440,20 @@ func (b *InMemoryBackend) ResumeChannel(id, ifMatch string) (string, error) {
 
 	c.Enabled = true
 
-	return b.channelTransition(c, wrResumeChannel, stateActive), nil
+	wr := b.channelTransition(c, wrResumeChannel, stateActive)
+	b.retry.Remember("ResumeChannel/"+id, token, wr, b.nowUTC())
+
+	return wr, nil
 }
 
 // ResetChannel resets a channel's replication state.
-func (b *InMemoryBackend) ResetChannel(id, ifMatch string) (string, error) {
+func (b *InMemoryBackend) ResetChannel(id, ifMatch, token string) (string, error) {
 	b.mu.Lock("ResetChannel")
 	defer b.mu.Unlock()
+
+	if v, ok := b.retry.Lookup("ResetChannel/"+id, token, b.nowUTC()); ok {
+		return v, nil
+	}
 
 	c, aerr := b.channelFor(id, ifMatch)
 	if aerr != nil {
@@ -427,7 +466,10 @@ func (b *InMemoryBackend) ResetChannel(id, ifMatch string) (string, error) {
 		)
 	}
 
-	return b.channelTransition(c, wrResetChannel, enabledState(c.Enabled)), nil
+	wr := b.channelTransition(c, wrResetChannel, enabledState(c.Enabled))
+	b.retry.Remember("ResetChannel/"+id, token, wr, b.nowUTC())
+
+	return wr, nil
 }
 
 // DeleteChannel deletes a channel.
@@ -455,6 +497,8 @@ func (h *Handler) createChannel(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, wr, err := h.Backend.CreateChannel(in)
 	if err != nil {
@@ -493,19 +537,19 @@ func (h *Handler) updateChannel(q *req) error {
 		return err
 	}
 
-	wr, err := h.Backend.UpdateChannel(q.param("channelId"), q.ifMatch(), in)
+	wr, err := h.Backend.UpdateChannel(q.param("channelId"), q.ifMatch(), q.r.Header.Get(headerRetry), in)
 
 	return acceptedWR(q, wr, err)
 }
 
 func (h *Handler) resumeChannel(q *req) error {
-	wr, err := h.Backend.ResumeChannel(q.param("channelId"), q.ifMatch())
+	wr, err := h.Backend.ResumeChannel(q.param("channelId"), q.ifMatch(), q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }
 
 func (h *Handler) resetChannel(q *req) error {
-	wr, err := h.Backend.ResetChannel(q.param("channelId"), q.ifMatch())
+	wr, err := h.Backend.ResetChannel(q.param("channelId"), q.ifMatch(), q.r.Header.Get(headerRetry))
 
 	return acceptedWR(q, wr, err)
 }

@@ -61,6 +61,7 @@ type Column struct {
 // AddFile is an active data file.
 type AddFile struct {
 	PartitionValues map[string]*string
+	DeletionVector  *DeletionVector
 	Path            string
 	Size            int64
 }
@@ -82,9 +83,9 @@ type action struct {
 }
 
 type addAction struct {
+	DeletionVector  *DeletionVector    `json:"deletionVector"`
 	PartitionValues map[string]*string `json:"partitionValues"`
 	Path            string             `json:"path"`
-	DeletionVector  jsontext.Value     `json:"deletionVector"`
 	Size            int64              `json:"size"`
 }
 
@@ -308,24 +309,43 @@ func (s *state) applyCommit(body []byte) error {
 func (s *state) apply(a action) error {
 	switch {
 	case a.Protocol != nil:
-		if a.Protocol.MinReaderVersion > maxReaderVersion {
-			return fmt.Errorf("%w: reader version %d", ErrUnsupported, a.Protocol.MinReaderVersion)
-		}
+		return checkProtocol(a.Protocol)
 	case a.MetaData != nil:
 		s.meta = a.MetaData
 	case a.Add != nil:
-		if len(a.Add.DeletionVector) > 0 && string(a.Add.DeletionVector) != "null" {
-			return fmt.Errorf("%w: deletion vectors", ErrUnsupported)
-		}
-
 		p := decodePath(a.Add.Path)
 		if _, seen := s.files[p]; !seen {
 			s.order = append(s.order, p)
 		}
 
-		s.files[p] = AddFile{Path: p, Size: a.Add.Size, PartitionValues: a.Add.PartitionValues}
+		s.files[p] = AddFile{
+			Path: p, Size: a.Add.Size, PartitionValues: a.Add.PartitionValues, DeletionVector: a.Add.DeletionVector,
+		}
 	case a.Remove != nil:
 		delete(s.files, decodePath(a.Remove.Path))
+	}
+
+	return nil
+}
+
+func supportedReaderFeature(f string) bool {
+	switch f {
+	case "columnMapping", "deletionVectors", "timestampNtz", "vacuumProtocolCheck":
+		return true
+	default:
+		return false
+	}
+}
+
+func checkProtocol(p *protocolAction) error {
+	if p.MinReaderVersion > maxReaderVersion {
+		return fmt.Errorf("%w: reader version %d", ErrUnsupported, p.MinReaderVersion)
+	}
+
+	for _, f := range p.ReaderFeatures {
+		if !supportedReaderFeature(f) {
+			return fmt.Errorf("%w: reader feature %s", ErrUnsupported, f)
+		}
 	}
 
 	return nil

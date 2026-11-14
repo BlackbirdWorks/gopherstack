@@ -20,14 +20,17 @@ type TranscriptionJob struct {
 	OutputBucketName          string                        `json:"outputBucketName,omitempty"`
 	OutputKey                 string                        `json:"outputKey,omitempty"`
 	OutputEncryptionKMSKeyID  string                        `json:"outputEncryptionKMSKeyId,omitempty"`
-	TranscriptText            string                        `json:"transcriptText"`
 	JobName                   string                        `json:"jobName"`
 	FailureReason             string                        `json:"failureReason,omitempty"`
 	LanguageOptions           []string                      `json:"languageOptions,omitempty"`
 	ToxicityDetection         []ToxicityDetectionSettings   `json:"toxicityDetection,omitempty"`
 	LanguageCodes             []LanguageCodeItem            `json:"languageCodes,omitempty"`
 	LanguageIDSettings        map[string]LanguageIDSettings `json:"languageIdSettings,omitempty"`
-	TranscriptJSON            []byte                        `json:"-"`
+	ManagedOutputs            map[string][]byte             `json:"managedOutputs,omitempty"`
+	TranscriptFileURI         string                        `json:"transcriptFileUri,omitempty"`
+	RedactedTranscriptURI     string                        `json:"redactedTranscriptFileUri,omitempty"`
+	ManagedToken              string                        `json:"managedToken,omitempty"`
+	TranscriptJSON            []byte                        `json:"transcriptJson,omitempty"`
 	MediaSampleRateHertz      int32                         `json:"mediaSampleRateHertz,omitempty"`
 	IdentifiedLanguageScore   float32                       `json:"identifiedLanguageScore,omitempty"`
 	IdentifyLanguage          bool                          `json:"identifyLanguage,omitempty"`
@@ -108,7 +111,11 @@ type CallAnalyticsJob struct {
 	CallAnalyticsJobName    string                 `json:"callAnalyticsJobName"`
 	OutputLocation          string                 `json:"outputLocation,omitempty"`
 	ChannelDefinitions      []ChannelDefinition    `json:"channelDefinitions,omitempty"`
-	TranscriptJSON          []byte                 `json:"-"`
+	ManagedOutputs          map[string][]byte      `json:"managedOutputs,omitempty"`
+	TranscriptFileURI       string                 `json:"transcriptFileUri,omitempty"`
+	RedactedTranscriptURI   string                 `json:"redactedTranscriptFileUri,omitempty"`
+	ManagedToken            string                 `json:"managedToken,omitempty"`
+	TranscriptJSON          []byte                 `json:"transcriptJson,omitempty"`
 	IdentifiedLanguageScore float32                `json:"identifiedLanguageScore,omitempty"`
 	MediaSampleRateHertz    int32                  `json:"mediaSampleRateHertz,omitempty"`
 }
@@ -149,7 +156,10 @@ type MedicalTranscriptionJob struct {
 	TranscriptionJobStatus           string                        `json:"transcriptionJobStatus"`
 	MedicalContentIdentificationType string                        `json:"medicalContentIdentificationType,omitempty"`
 	MedicalTranscriptionJobName      string                        `json:"medicalTranscriptionJobName"`
-	TranscriptJSON                   []byte                        `json:"-"`
+	ManagedOutputs                   map[string][]byte             `json:"managedOutputs,omitempty"`
+	TranscriptFileURI                string                        `json:"transcriptFileUri,omitempty"`
+	ManagedToken                     string                        `json:"managedToken,omitempty"`
+	TranscriptJSON                   []byte                        `json:"transcriptJson,omitempty"`
 	MediaSampleRateHertz             int32                         `json:"mediaSampleRateHertz,omitempty"`
 }
 

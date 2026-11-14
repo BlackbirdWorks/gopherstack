@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -318,7 +319,7 @@ func (d *dataPlane) available(lb *LoadBalancer, bs *BackendSet, be Backend) bool
 		limit = bs.BackendMaxConnections
 	}
 
-	return limit == nil || d.counter(healthKey(lb.ID, bs.Name, be.Name)).Load() < int64(*limit)
+	return limit == nil || *limit == 0 || d.counter(healthKey(lb.ID, bs.Name, be.Name)).Load() < int64(*limit)
 }
 
 // choose picks a backend: the session-persistent one if usable, otherwise per the set policy among healthy
@@ -534,6 +535,7 @@ func (d *dataPlane) acceptTCP(ctx context.Context, p *portListener, ln net.Liste
 		p.wg.Go(func() {
 			defer d.untrack(p, c)
 			defer c.Close()
+			defer logger.Recover(ctx, "ociloadbalancer.tcp", nil)
 
 			d.handleTCP(ctx, p.spec, c)
 		})
@@ -566,7 +568,7 @@ func (d *dataPlane) handleTCP(ctx context.Context, s portSpec, c net.Conn) {
 
 	defer ch.release()
 
-	up, err := d.dialBackend(ctx, lb, bs, ch.be)
+	up, err := d.dialBackend(ctx, lb, bs, ch.be, proxyPreface(ctx, l.Connection, c))
 	if err != nil {
 		return
 	}
@@ -579,8 +581,10 @@ func (d *dataPlane) handleTCP(ctx context.Context, s portSpec, c net.Conn) {
 	pipe(c, up, time.Duration(idle)*time.Second)
 }
 
-func (d *dataPlane) dialBackend(ctx context.Context, lb *LoadBalancer, bs *BackendSet, be Backend) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+func (d *dataPlane) dialBackend(
+	ctx context.Context, lb *LoadBalancer, bs *BackendSet, be Backend, preface []byte,
+) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, d.dialTimeout())
 	defer cancel()
 
 	conn, err := d.dialer.DialContext(ctx, "tcp", net.JoinHostPort(be.IPAddress, itoa(be.Port)))
@@ -588,16 +592,23 @@ func (d *dataPlane) dialBackend(ctx context.Context, lb *LoadBalancer, bs *Backe
 		return nil, fmt.Errorf("dial backend: %w", err)
 	}
 
+	if len(preface) > 0 {
+		if _, err = conn.Write(preface); err != nil {
+			_ = conn.Close()
+
+			return nil, fmt.Errorf("write proxy header: %w", err)
+		}
+	}
+
 	if bs.SSL == nil {
 		return conn, nil
 	}
 
 	d.b.mu.RLock("dialBackend")
-	cfg := d.b.backendTLS(lb, bs.SSL)
+	base := d.b.backendTLS(lb, bs.SSL)
 	d.b.mu.RUnlock()
 
-	cfg.ServerName = be.IPAddress
-	tc := tls.Client(conn, cfg)
+	tc := tls.Client(conn, backendTLSFor(base, bs.SSL, be.IPAddress))
 
 	if err = tc.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()

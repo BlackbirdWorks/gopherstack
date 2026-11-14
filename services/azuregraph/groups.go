@@ -152,7 +152,7 @@ func (b *Backend) DeleteGroup(r Ref) error {
 		return err
 	}
 
-	b.removeObject(g.ID)
+	b.deleteObject(g.ID)
 
 	return nil
 }

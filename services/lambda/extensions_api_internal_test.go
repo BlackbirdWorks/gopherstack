@@ -424,7 +424,7 @@ func TestExtensionInitGate(t *testing.T) {
 	t.Parallel()
 
 	h := newExtHarness(t)
-	h.srv.exts.setExpected(2)
+	h.srv.exts.setExternal([]string{"a", "b"})
 
 	released := make(chan struct{})
 
@@ -433,8 +433,15 @@ func TestExtensionInitGate(t *testing.T) {
 		close(released)
 	}()
 
-	h.register(t, "a")
-	h.register(t, "b")
+	for _, name := range []string{"a", "b"} {
+		id := h.register(t, name)
+
+		go func() {
+			_, _, _, _ = h.doRaw(t.Context(), http.MethodGet, "/2020-01-01/extension/event/next",
+				map[string]string{headerExtensionID: id}, "")
+		}()
+	}
+
 	<-released
 
 	status, _, _ := h.do(t, http.MethodPost, "/2020-01-01/extension/register",
@@ -446,8 +453,13 @@ func TestExtensionInitErrorFailsInvocationAndOpensGate(t *testing.T) {
 	t.Parallel()
 
 	h := newExtHarness(t)
-	h.srv.exts.setExpected(1)
+	h.srv.exts.setExternal([]string{"bad"})
 	id := h.register(t, "bad", "INVOKE")
+
+	go func() {
+		_, _, _, _ = h.doRaw(t.Context(), http.MethodGet, "/2020-01-01/extension/event/next",
+			map[string]string{headerExtensionID: id}, "")
+	}()
 
 	type res struct {
 		err     error

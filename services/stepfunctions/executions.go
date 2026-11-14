@@ -350,7 +350,7 @@ type startedExecution struct {
 // interpreter asynchronously. Must be called with b.mu unlocked; it takes the
 // write lock itself.
 func (b *InMemoryBackend) startExecutionLocked(
-	stateMachineArn, name, input string,
+	stateMachineArn, name, input, traceHeader string,
 ) (*startedExecution, error) {
 	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
 
@@ -410,7 +410,9 @@ func (b *InMemoryBackend) startExecutionLocked(
 	if sm.Type != "EXPRESS" {
 		if existing, ok := b.executions.Get(execArn); ok {
 			if existing.Status == statusRunning && existing.Input == input {
+				b.historyMu.RLock()
 				cp := *existing
+				b.historyMu.RUnlock()
 
 				return &startedExecution{exec: &cp, execArn: execArn, reused: true}, nil
 			}
@@ -436,6 +438,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 	exec := b.initializeExecutionRecord(
 		baseSMArn, name, execArn, input, definition, now, resolved.VersionArn, resolved.AliasArn,
 	)
+	exec.TraceHeader = traceHeader
 
 	// Register the execution in the SM→executions index and store a cancel fn
 	// so StopExecution and DeleteStateMachine can cancel the goroutine.
@@ -445,8 +448,12 @@ func (b *InMemoryBackend) startExecutionLocked(
 	ctx, cancel := context.WithCancel(b.execContext(execArn))
 	b.cancelFns[execArn] = cancel
 
+	b.historyMu.RLock()
+	handedOut := *exec
+	b.historyMu.RUnlock()
+
 	return &startedExecution{
-		exec:            exec,
+		exec:            &handedOut,
 		execArn:         execArn,
 		parsedSM:        parsedSM,
 		integrations:    b.integrationsWithMockLocked(mockRun),
@@ -483,7 +490,7 @@ func (b *InMemoryBackend) StartExecutionWithTraceContext(
 		}
 	}
 
-	started, err := b.startExecutionLocked(stateMachineArn, name, input)
+	started, err := b.startExecutionLocked(stateMachineArn, name, input, traceHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -493,10 +500,6 @@ func (b *InMemoryBackend) StartExecutionWithTraceContext(
 	// execution, goroutine, or state mutation.
 	if started.reused {
 		return started.exec, nil
-	}
-
-	if traceHeader != "" {
-		started.exec.TraceHeader = traceHeader
 	}
 
 	// Run the ASL interpreter asynchronously.

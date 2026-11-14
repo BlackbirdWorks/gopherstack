@@ -241,6 +241,10 @@ func (p *AppConfigProvider) putStore(ctx context.Context, id ResourceID, body ma
 		return nil, badAppConfigRequest(err)
 	}
 
+	if err = p.dataPlane.SetRevisionRetention(rec.name, acRetentionDays(rec.sku)); err != nil {
+		return nil, badAppConfigRequest(err)
+	}
+
 	rec.createdAt = created
 	p.res[acKey(id.ResourceGroup, acKindStore, rec.name)] = rec
 
@@ -473,7 +477,7 @@ func providerErrorDetails(err error) (errorEntry, bool) {
 	for _, lookup := range []func(error) (errorEntry, bool){
 		cosmosErrorDetails, eventHubErrorDetails, eventGridErrorDetails,
 		appConfigErrorDetails, acrErrorDetails, redisErrorDetails, sqlErrorDetails, flexErrorDetails, webErrorDetails,
-		monitorErrorDetails, aciErrorDetails, netErrorDetails, apimErrorDetails,
+		monitorErrorDetails, aciErrorDetails, netErrorDetails, apimErrorDetails, logicErrorDetails, searchErrorDetails,
 	} {
 		if e, ok := lookup(err); ok {
 			return e, true

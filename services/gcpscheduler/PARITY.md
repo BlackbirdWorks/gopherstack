@@ -31,8 +31,11 @@ items_still_open:
   - "Job state DISABLED and UPDATE_FAILED are never produced (updates are applied atomically); ResumeJob and PauseJob refuse them if they appear."
   - "CreateJob does not validate the location against the supported-region catalog or the project against any registry."
   - "Persisted in-flight attempts are not resumed mid-flight; after a restore the next cron slot or the persisted retry time applies."
-  - "Cloud Scheduler job-level max_doublings default (5) follows the documentation; the value the live service echoes was not verified."
+  - "Cloud Scheduler job-level max_doublings default is 5 (schedulerpb RetryConfig); whether the live service echoes that default on unset retry configs is not published (checked schedulerpb job.pb.go RetryConfig)"
 leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}
 ---
 
 Initial implementation (2026-10-18): google.cloud.scheduler.v1 CloudScheduler and google.cloud.location.Locations gRPC verified against cloud.google.com/go/scheduler v1.17.0 through the official client in the package tests; cron firing, retry spacing and attempt deadlines covered with a fake clock and testing/synctest runs of the real ticker loop.
+
+## Primary-source checks (2026-11-13)
+- gcpscheduler: schedulerpb job.pb.go RetryConfig documents the max_doublings default of 5.

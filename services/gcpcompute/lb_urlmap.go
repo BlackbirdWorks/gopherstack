@@ -509,3 +509,40 @@ func (b *InMemoryBackend) schemeMismatchLocked(m *computeapi.UrlMap, schemes []s
 
 	return ""
 }
+
+func validInvalidationPath(path string) bool {
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+
+	i := strings.Index(path, "*")
+
+	return i < 0 || i == len(path)-1
+}
+
+func (b *InMemoryBackend) invalidateURLMapCache(
+	c lbCtx, name string, rule *computeapi.CacheInvalidationRule,
+) (*computeapi.Operation, error) {
+	if rule.Path == "" && len(rule.CacheTags) == 0 {
+		return nil, errRequired("cacheInvalidationRuleResource.path")
+	}
+
+	if rule.Path != "" && !validInvalidationPath(rule.Path) {
+		return nil, errField("cacheInvalidationRuleResource.path", rule.Path,
+			"The path must start with '/' and may contain '*' only as its last character.")
+	}
+
+	b.mu.Lock("InvalidateUrlMapCache")
+	defer b.mu.Unlock()
+
+	m, ok := b.urlMaps[key(c.project, c.locKey(), name)]
+	if !ok {
+		return nil, errNotFound(relPath(c.project, c.scope, c.loc, collURLMaps, name))
+	}
+
+	return b.newOpLocked(
+		opPrefix+collURLMaps+".invalidateCache",
+		lbTargetOf(c, collURLMaps, name, m.Id),
+		b.timing.Done,
+	), nil
+}

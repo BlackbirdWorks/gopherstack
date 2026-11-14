@@ -58,6 +58,7 @@ type InMemoryBackend struct {
 	migrationsByApp            *store.Index[Migration]
 	workspaces                 *store.Table[Workspace]
 	workspacesByApp            *store.Index[Workspace]
+	securityConfigs            *store.Table[SecurityConfig]
 	registry                   *store.Registry
 	mu                         *lockmetrics.RWMutex
 	now                        func() time.Time

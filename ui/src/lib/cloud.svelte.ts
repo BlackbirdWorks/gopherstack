@@ -105,3 +105,8 @@ export function isRouteDisabled(routeId: string): boolean {
   const id = routeKey(routeId);
   return backend.disabled.some((name) => routeKey(name) === id);
 }
+
+/** True once the backend answered and EC2 (the source of the region catalog) is not disabled. */
+export function regionCatalogAvailable(): boolean {
+  return backend.loaded && !isRouteDisabled("ec2");
+}

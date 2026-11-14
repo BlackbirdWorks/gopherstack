@@ -528,8 +528,8 @@ func TestCallAnalyticsJobIncludesTranscriptURI(t *testing.T) {
 
 			uri, _ := transcript["TranscriptFileUri"].(string)
 			assert.NotEmpty(t, uri, "TranscriptFileUri must be non-empty")
-			assert.True(t, strings.HasPrefix(uri, "s3://"),
-				"TranscriptFileUri must be an S3 URI, got: %s", uri)
+			assert.True(t, strings.HasPrefix(uri, "s3://") || strings.Contains(uri, "/_gopherstack/transcribe/output/"),
+				"TranscriptFileUri must be an S3 URI or managed URL, got: %s", uri)
 			assert.Contains(t, uri, jobName,
 				"TranscriptFileUri must include the job name")
 		})

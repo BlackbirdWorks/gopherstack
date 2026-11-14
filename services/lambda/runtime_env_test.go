@@ -20,13 +20,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 const (
-	runtimeEnvPortBase = 20700
-	testRoleArn        = "arn:aws:iam::000000000000:role/exec"
+	testRoleArn = "arn:aws:iam::000000000000:role/exec"
 )
 
 var errIssuerDown = errors.New("issuer down")
@@ -125,36 +125,42 @@ func envMap(env []string) map[string]string {
 	return out
 }
 
-func newEnvBackend(t *testing.T, portBase int, api *envCapturingAPI) *lambda.InMemoryBackend {
+func newEnvBackend(t *testing.T, api *envCapturingAPI) *lambda.InMemoryBackend {
 	t.Helper()
 
-	pa, err := portalloc.New(portBase, portBase+9)
-	require.NoError(t, err)
+	b, _ := newEnvBackendAt(t, api)
+
+	return b
+}
+
+func newEnvBackendAt(t *testing.T, api *envCapturingAPI) (*lambda.InMemoryBackend, *portalloc.Allocator) {
+	t.Helper()
+
+	pa := portalloctest.New(t, 10)
 
 	rt := gophercontainer.NewDockerRuntimeWithAPI(api, gophercontainer.Config{PoolSize: 3, IdleTimeout: time.Minute})
 	b := lambda.NewInMemoryBackend(rt, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 	closeBackend(t, b)
 
-	return b
+	return b, pa
 }
 
 func TestContainerEnv(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		want       map[string]string
-		fn         *lambda.FunctionConfiguration
-		issuer     *fakeIssuer
-		name       string
-		endpoint   string
-		absent     []string
-		portOffset int
+		want     map[string]string
+		fn       *lambda.FunctionConfiguration
+		issuer   *fakeIssuer
+		name     string
+		endpoint string
+		absent   []string
 	}{
 		{
-			name:       "injected",
-			portOffset: 0,
-			endpoint:   "http://172.17.0.1:8000",
-			issuer:     &fakeIssuer{expires: time.Hour},
+			name: "injected",
+
+			endpoint: "http://172.17.0.1:8000",
+			issuer:   &fakeIssuer{expires: time.Hour},
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "env-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				MemorySize: 256, Timeout: 30,
@@ -178,9 +184,9 @@ func TestContainerEnv(t *testing.T) {
 			absent: []string{"AWS_EXECUTION_ENV", "_HANDLER"},
 		},
 		{
-			name:       "handler_set",
-			portOffset: 1,
-			issuer:     &fakeIssuer{expires: time.Hour},
+			name: "handler_set",
+
+			issuer: &fakeIssuer{expires: time.Hour},
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "zip-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				Runtime: "python3.12", Handler: "index.handler", Timeout: 30,
@@ -189,9 +195,9 @@ func TestContainerEnv(t *testing.T) {
 			absent: []string{"AWS_ENDPOINT_URL"},
 		},
 		{
-			name:       "custom_log_group",
-			portOffset: 2,
-			issuer:     &fakeIssuer{expires: time.Hour},
+			name: "custom_log_group",
+
+			issuer: &fakeIssuer{expires: time.Hour},
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "log-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				Timeout: 30, LoggingConfig: &lambda.LoggingConfig{LogGroup: "/custom/group"},
@@ -199,10 +205,10 @@ func TestContainerEnv(t *testing.T) {
 			want: map[string]string{"AWS_LAMBDA_LOG_GROUP_NAME": "/custom/group"},
 		},
 		{
-			name:       "user_overrides_unreserved_and_reserved_dropped",
-			portOffset: 3,
-			endpoint:   "http://172.17.0.1:8000",
-			issuer:     &fakeIssuer{expires: time.Hour},
+			name: "user_overrides_unreserved_and_reserved_dropped",
+
+			endpoint: "http://172.17.0.1:8000",
+			issuer:   &fakeIssuer{expires: time.Hour},
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "user-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				Timeout: 30,
@@ -221,8 +227,8 @@ func TestContainerEnv(t *testing.T) {
 			},
 		},
 		{
-			name:       "no_issuer_no_credentials",
-			portOffset: 4,
+			name: "no_issuer_no_credentials",
+
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "nocred-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				Timeout: 30,
@@ -230,9 +236,9 @@ func TestContainerEnv(t *testing.T) {
 			absent: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"},
 		},
 		{
-			name:       "issuer_error_no_credentials",
-			portOffset: 5,
-			issuer:     &fakeIssuer{err: errIssuerDown},
+			name: "issuer_error_no_credentials",
+
+			issuer: &fakeIssuer{err: errIssuerDown},
 			fn: &lambda.FunctionConfiguration{
 				FunctionName: "err-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Role: testRoleArn,
 				Timeout: 30,
@@ -246,7 +252,7 @@ func TestContainerEnv(t *testing.T) {
 			t.Parallel()
 
 			api := &envCapturingAPI{}
-			b := newEnvBackend(t, runtimeEnvPortBase+tt.portOffset*10, api)
+			b := newEnvBackend(t, api)
 
 			if tt.issuer != nil {
 				b.SetRoleCredentialIssuer(tt.issuer)
@@ -293,7 +299,7 @@ func TestContainerEnvZipFunction(t *testing.T) {
 	require.NoError(t, zw.Close())
 
 	api := &envCapturingAPI{}
-	b := newEnvBackend(t, runtimeEnvPortBase+100, api)
+	b := newEnvBackend(t, api)
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "zip-fn", PackageType: lambda.PackageTypeZip, Runtime: "python3.12", Handler: "index.handler",
 		ZipData: buf.Bytes(), Timeout: 30,
@@ -318,12 +324,11 @@ func TestContainerCredentialRefresh(t *testing.T) {
 	tests := []struct {
 		name        string
 		expires     time.Duration
-		portOffset  int
 		wantStarts  int
 		wantStopped int
 	}{
-		{name: "fresh_reused", expires: time.Hour, portOffset: 0, wantStarts: 1, wantStopped: 0},
-		{name: "expiring_recycled", expires: time.Minute, portOffset: 1, wantStarts: 2, wantStopped: 1},
+		{name: "fresh_reused", expires: time.Hour, wantStarts: 1, wantStopped: 0},
+		{name: "expiring_recycled", expires: time.Minute, wantStarts: 2, wantStopped: 1},
 	}
 
 	for _, tt := range tests {
@@ -331,7 +336,7 @@ func TestContainerCredentialRefresh(t *testing.T) {
 			t.Parallel()
 
 			api := &envCapturingAPI{}
-			b := newEnvBackend(t, runtimeEnvPortBase+200+tt.portOffset*10, api)
+			b := newEnvBackend(t, api)
 			b.SetRoleCredentialIssuer(&fakeIssuer{expires: tt.expires})
 
 			fn := &lambda.FunctionConfiguration{
@@ -363,21 +368,19 @@ func TestRuntimeTraceHeader(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		mode       string
-		portOffset int
-		wantTrace  bool
+		name      string
+		mode      string
+		wantTrace bool
 	}{
-		{name: "active", mode: "Active", portOffset: 0, wantTrace: true},
-		{name: "passthrough", mode: "PassThrough", portOffset: 1, wantTrace: false},
+		{name: "active", mode: "Active", wantTrace: true},
+		{name: "passthrough", mode: "PassThrough", wantTrace: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			base := runtimeEnvPortBase + 300 + tt.portOffset*10
-			b := newEnvBackend(t, base, &envCapturingAPI{})
+			b, pa := newEnvBackendAt(t, &envCapturingAPI{})
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "trace-fn", PackageType: lambda.PackageTypeImage, ImageURI: "x:1", Timeout: 30,
 				TracingConfig: &lambda.TracingConfig{Mode: tt.mode},
@@ -386,6 +389,13 @@ func TestRuntimeTraceHeader(t *testing.T) {
 
 			_, _, err := b.InvokeFunction(t.Context(), "trace-fn", lambda.InvocationTypeEvent, []byte(`{}`))
 			require.NoError(t, err)
+
+			var base int
+			for p := range pa.Allocated() {
+				base = p
+			}
+
+			require.NotZero(t, base)
 
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
 				fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", base), nil)

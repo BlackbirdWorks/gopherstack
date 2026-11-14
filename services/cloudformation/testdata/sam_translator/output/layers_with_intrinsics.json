@@ -1,0 +1,166 @@
+{
+  "Parameters": {
+    "CompatibleArchitecturesList": {
+      "Default": "arm64,x86_64",
+      "Type": "CommaDelimitedList"
+    },
+    "CompatibleArchitecturesRef": {
+      "Default": "arm64",
+      "Type": "String"
+    },
+    "LayerLicenseInfo": {
+      "Default": "MIT-0 License",
+      "Type": "String"
+    },
+    "LayerNameParam": {
+      "Default": "SomeLayerName",
+      "Type": "String"
+    },
+    "LayerRuntimeList": {
+      "Type": "CommaDelimitedList"
+    },
+    "LayerRuntimeRefString": {
+      "Default": "SomeRuntimeName",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "LayerWithArchitecturesIntrinsicb79067ee69": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "CompatibleArchitectures": {
+          "Ref": "CompatibleArchitecturesList"
+        },
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithArchitecturesIntrinsic"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithLicenseIntrinsic965c8d0c9b": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithLicenseIntrinsic",
+        "LicenseInfo": "MIT-0 License"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithMixedListRefRuntimesIntrinsic71fd80f592": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "CompatibleRuntimes": [
+          {
+            "Ref": "LayerRuntimeString"
+          },
+          "SomeRuntimeNameString"
+        ],
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithMixedListRefRuntimesIntrinsic"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithNameIntrinsiccf8baed8b9": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "SomeLayerName"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithRefNameIntrinsicRegion32bf7198a5": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "ap-southeast-1"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithRuntimesIntrinsic1a006faa85": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "CompatibleRuntimes": {
+          "Ref": "LayerRuntimeList"
+        },
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithRuntimesIntrinsic"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithSingleListRefArchitecturesIntrinsicf8a2807636": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "CompatibleArchitectures": [
+          {
+            "Ref": "CompatibleArchitecturesRef"
+          }
+        ],
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithSingleListRefArchitecturesIntrinsic"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithSingleListRefRuntimesIntrinsic9d7a72f24a": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "CompatibleRuntimes": [
+          {
+            "Ref": "LayerRuntimeRefString"
+          }
+        ],
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": "LayerWithSingleListRefRuntimesIntrinsic"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithSubNameIntrinsic6e9b477102": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": {
+          "Fn::Sub": "layer-SomeLayerName"
+        }
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "LayerWithSubNameIntrinsicRegiond71326de24": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "layer.zip"
+        },
+        "LayerName": {
+          "Fn::Sub": "layer-ap-southeast-1"
+        }
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    }
+  }
+}

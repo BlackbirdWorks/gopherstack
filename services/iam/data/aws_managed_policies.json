@@ -1674,6 +1674,28 @@
    }
   },
   {
+   "name": "AWSAppSyncPushToCloudWatchLogs",
+   "path": "/service-role/",
+   "defaultVersionId": "v1",
+   "createDate": "2018-04-09T19:38:00Z",
+   "updateDate": "2018-04-09T19:38:00Z",
+   "approximate": false,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+     }
+    ]
+   }
+  },
+  {
    "name": "AWSLambdaBasicExecutionRole",
    "path": "/service-role/",
    "defaultVersionId": "v1",
@@ -1695,6 +1717,30 @@
     ]
    },
    "policyId": "ANPAJNCQGXC42545SKXIK"
+  },
+  {
+   "name": "AWSLambdaBasicDurableExecutionRolePolicy",
+   "path": "/service-role/",
+   "defaultVersionId": "v3",
+   "createDate": "2025-12-02T15:04:00Z",
+   "updateDate": "2026-02-12T18:01:00Z",
+   "approximate": false,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents",
+       "lambda:CheckpointDurableExecution",
+       "lambda:GetDurableExecutionState"
+      ],
+      "Resource": "*"
+     }
+    ]
+   }
   },
   {
    "name": "AWSLambdaVPCAccessExecutionRole",
@@ -2526,6 +2572,89 @@
        "sns:SetTopicAttributes",
        "sns:Subscribe",
        "sns:Unsubscribe"
+      ],
+      "Resource": "*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "AWSCodeDeployRoleForLambda",
+   "path": "/service-role/",
+   "defaultVersionId": "v1",
+   "createDate": "2018-03-14T00:00:00Z",
+   "updateDate": "2018-03-14T00:00:00Z",
+   "approximate": true,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "cloudwatch:DescribeAlarms",
+       "lambda:UpdateAlias",
+       "lambda:GetAlias",
+       "lambda:GetProvisionedConcurrencyConfig",
+       "sns:Publish"
+      ],
+      "Resource": "*"
+     },
+     {
+      "Effect": "Allow",
+      "Action": [
+       "s3:GetObject",
+       "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::*/CodeDeploy/*"
+     },
+     {
+      "Effect": "Allow",
+      "Action": [
+       "s3:GetObject",
+       "s3:GetObjectVersion"
+      ],
+      "Resource": "*",
+      "Condition": {
+       "StringEquals": {
+        "s3:ExistingObjectTag/UseWithCodeDeploy": "true"
+       }
+      }
+     },
+     {
+      "Effect": "Allow",
+      "Action": [
+       "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:*:*:function:CodeDeployHook_*"
+     }
+    ]
+   }
+  },
+  {
+   "name": "AWSLambdaMSKExecutionRole",
+   "path": "/service-role/",
+   "defaultVersionId": "v1",
+   "createDate": "2020-05-11T00:00:00Z",
+   "updateDate": "2020-05-11T00:00:00Z",
+   "approximate": true,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "kafka:DescribeCluster",
+       "kafka:DescribeClusterV2",
+       "kafka:GetBootstrapBrokers",
+       "ec2:CreateNetworkInterface",
+       "ec2:DescribeNetworkInterfaces",
+       "ec2:DescribeVpcs",
+       "ec2:DeleteNetworkInterface",
+       "ec2:DescribeSubnets",
+       "ec2:DescribeSecurityGroups",
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents"
       ],
       "Resource": "*"
      }

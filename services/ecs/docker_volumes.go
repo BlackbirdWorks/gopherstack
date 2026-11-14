@@ -10,6 +10,8 @@ import (
 	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 )
 
+const labelEBSVolume = "gopherstack.ecs.ebs-volume"
+
 const (
 	volumeScopeTask   = "task"
 	volumeScopeShared = "shared"
@@ -56,7 +58,12 @@ func (r *realDockerRunner) resolveVolumes(ctx context.Context, task *Task, td *T
 
 			plan.specs[v.Name] = spec
 		case v.ConfiguredAtLaunch:
-			return nil, fmt.Errorf("%w: volume %q is configuredAtLaunch", errUnsupportedVolume, v.Name)
+			spec, err := ebsVolumeSpec(task, v, plan)
+			if err != nil {
+				return nil, err
+			}
+
+			plan.specs[v.Name] = spec
 		case v.DockerVolumeConfig != nil:
 			spec, err := r.dockerVolumeSpec(ctx, task, v, plan)
 			if err != nil {
@@ -185,3 +192,25 @@ func applyVolumeIdentity(
 		}
 	}
 }
+
+// ebsVolumeSpec mounts the EBS volume ECS created for a configuredAtLaunch volume as a named Docker volume,
+// deleted with the task when the volume's terminationPolicy deletes it.
+func ebsVolumeSpec(task *Task, v Volume, plan *volumePlan) (volumeSpec, error) {
+	m, ok := task.ebsVolumes[v.Name]
+	if !ok {
+		return volumeSpec{}, fmt.Errorf("%w: volume %q is configuredAtLaunch but no EBS volume was provisioned",
+			errUnsupportedVolume, v.Name)
+	}
+
+	name := ebsDockerVolumeName(m.volumeID)
+	if m.deleteOnTermination {
+		plan.taskVols = append(plan.taskVols, name)
+	}
+
+	return volumeSpec{mount: mount.Mount{
+		Type: mount.TypeVolume, Source: name,
+		VolumeOptions: &mount.VolumeOptions{Labels: map[string]string{labelEBSVolume: m.volumeID}},
+	}}, nil
+}
+
+func ebsDockerVolumeName(volumeID string) string { return "gopherstack-ecs-ebs-" + volumeID }

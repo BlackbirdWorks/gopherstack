@@ -22,7 +22,24 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 	h.securityExtraOps(ops)
 	h.dataTableOps(ops)
 	h.emailOps(ops)
+	h.metricDefinitionOps(ops)
+	h.attachedFileOps(ops)
+	h.notificationOps(ops)
+	h.testCaseOps(ops)
 	h.workspaceOps(ops)
+	h.extractionOps(ops)
+	h.analyticsOps(ops)
+}
+
+func (h *Handler) analyticsOps(ops map[string]restroute.OpFunc) {
+	b := h.Backend
+
+	ops["AssociateAnalyticsDataSet"] = typed(b.AssociateAnalyticsDataSet)
+	ops["DisassociateAnalyticsDataSet"] = typed(b.DisassociateAnalyticsDataSet)
+	ops["BatchAssociateAnalyticsDataSet"] = typed(b.BatchAssociateAnalyticsDataSet)
+	ops["BatchDisassociateAnalyticsDataSet"] = typed(b.BatchDisassociateAnalyticsDataSet)
+	ops["ListAnalyticsDataAssociations"] = typed(b.ListAnalyticsDataAssociations)
+	ops["GetPromptFile"] = typedCtx(b.GetPromptFile)
 }
 
 func (h *Handler) ruleOps(ops map[string]restroute.OpFunc) {
@@ -174,7 +191,9 @@ func (h *Handler) versionOps(ops map[string]restroute.OpFunc, kind, label, arnKe
 
 		return &map[string]any{arnKey: out.Arn, "Version": out.Version}, nil
 	})
-	ops["Delete"+label+"Version"] = typed(func(in *VersionInput) (*empty, error) { return b.deleteVersion(kind, in) })
+	ops["Delete"+label+"Version"] = typed(
+		func(in *VersionInput) (*EmptyOutput, error) { return b.deleteVersion(kind, in) },
+	)
 	ops["List"+label+"Versions"] = typed(func(in *VersionInput) (*map[string]any, error) {
 		items, next, err := b.listVersions(kind, in)
 
@@ -201,10 +220,10 @@ func (h *Handler) aliasOps(ops map[string]restroute.OpFunc, kind, label, arnKey 
 
 		return &map[string]any{label + "Alias": info}, nil
 	})
-	ops["Update"+label+"Alias"] = typedCtx(func(ctx context.Context, in *AliasInput) (*empty, error) {
+	ops["Update"+label+"Alias"] = typedCtx(func(ctx context.Context, in *AliasInput) (*EmptyOutput, error) {
 		return b.updateAlias(ctx, kind, in)
 	})
-	ops["Delete"+label+"Alias"] = typed(func(in *AliasInput) (*empty, error) { return b.deleteAlias(kind, in) })
+	ops["Delete"+label+"Alias"] = typed(func(in *AliasInput) (*EmptyOutput, error) { return b.deleteAlias(kind, in) })
 	ops["List"+label+"Aliases"] = typed(func(in *AliasInput) (*map[string]any, error) {
 		items, next, err := b.listAliases(kind, in)
 
@@ -281,6 +300,9 @@ func (h *Handler) searchOps(ops map[string]restroute.OpFunc) {
 		"SearchWorkspaces":                b.SearchWorkspaces,
 		"SearchEvaluationForms":           b.SearchEvaluationForms,
 		"SearchHoursOfOperationOverrides": b.SearchHoursOfOperationOverrides,
+		"SearchMetrics":                   b.SearchMetrics,
+		"SearchNotifications":             b.SearchNotifications,
+		"SearchTestCases":                 b.SearchTestCases,
 		"SearchHoursOfOperations":         b.SearchHoursOfOperations,
 		"SearchPredefinedAttributes":      b.SearchPredefinedAttributes,
 		"SearchPrompts":                   b.SearchPrompts,

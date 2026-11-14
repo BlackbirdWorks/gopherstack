@@ -34,7 +34,7 @@ items_still_open:
   - PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
   - DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
   - BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
-  - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted
+  - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted API_TimeRange.html and API_GetAppMonitorData.html (checked 2026-11-13) give Long values with no unit.
   - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
 gaps: []
 structural_gaps:

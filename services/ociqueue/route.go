@@ -28,6 +28,11 @@ const (
 	opDeleteMessages    = "DeleteMessages"
 	opGetStats          = "GetStats"
 	opListChannels      = "ListChannels"
+	opCreateGroup       = "CreateConsumerGroup"
+	opGetGroup          = "GetConsumerGroup"
+	opListGroups        = "ListConsumerGroups"
+	opUpdateGroup       = "UpdateConsumerGroup"
+	opDeleteGroup       = "DeleteConsumerGroup"
 	opAdminKeys         = "ManageAPIKeys"
 	opUnknown           = "Unknown"
 	adminPrefix         = "_gopherstack"
@@ -35,6 +40,7 @@ const (
 	queuePath           = base + "/queues/{queueId}"
 	workRequestPath     = base + "/workRequests/{workRequestId}"
 	messagesPath        = queuePath + "/messages"
+	groupPath           = base + "/consumerGroups/{consumerGroupId}"
 )
 
 //nolint:gochecknoglobals // immutable route table
@@ -46,6 +52,11 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodDelete, Path: queuePath, Op: opDeleteQueue},
 	{Method: http.MethodPost, Path: queuePath + "/actions/changeCompartment", Op: opChangeQueueComp},
 	{Method: http.MethodPost, Path: queuePath + "/actions/purge", Op: opPurgeQueue},
+	{Method: http.MethodPost, Path: base + "/consumerGroups", Op: opCreateGroup},
+	{Method: http.MethodGet, Path: base + "/consumerGroups", Op: opListGroups},
+	{Method: http.MethodGet, Path: groupPath, Op: opGetGroup},
+	{Method: http.MethodPut, Path: groupPath, Op: opUpdateGroup},
+	{Method: http.MethodDelete, Path: groupPath, Op: opDeleteGroup},
 	{Method: http.MethodGet, Path: base + "/workRequests", Op: opListWorkRequests},
 	{Method: http.MethodGet, Path: workRequestPath, Op: opGetWorkRequest},
 	{Method: http.MethodGet, Path: workRequestPath + "/errors", Op: opListWorkReqErrors},

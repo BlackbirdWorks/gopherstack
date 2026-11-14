@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
@@ -20,7 +21,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-const defaultPageSize = 100
+const (
+	defaultPageSize = 1000
+	maxPageSize     = 1000
+)
 
 // Runner is the slice of the container runtime that functions need.
 type Runner = gcpserve.Runner
@@ -78,6 +82,7 @@ type InMemoryBackend struct {
 	evCancel       context.CancelFunc
 	evWG           *sync.WaitGroup
 	wg             *sync.WaitGroup
+	iam            *gcpiampolicy.Store
 	functions      map[string]*fnRec
 	uploads        map[string]*uploadRec
 	startupTimeout time.Duration
@@ -116,6 +121,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.functions = make(map[string]*fnRec)
 	b.uploads = make(map[string]*uploadRec)
+	b.iam = gcpiampolicy.NewStore()
 }
 
 // Reset stops every function and clears all state.

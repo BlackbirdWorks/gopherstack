@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/logging/apiv2/loggingpb"
+
 	eventarc "cloud.google.com/go/eventarc/apiv1"
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
@@ -24,6 +26,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
+	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	"github.com/blackbirdworks/gopherstack/services/gcplogging"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/gcpworkflows"
@@ -47,6 +51,76 @@ type env struct {
 	gcsBack  *gcpstorage.InMemoryBackend
 	dest     *destination
 	wf       *gcpworkflows.InMemoryBackend
+	logs     *gcplogging.InMemoryBackend
+	fs       *gcpfirestore.InMemoryBackend
+	now      *testClock
+}
+
+// testClock is a manually advanced timer source standing in for time.AfterFunc.
+type testClock struct {
+	timers []*fakeTimer
+	mu     sync.Mutex
+}
+
+type fakeTimer struct {
+	f       func()
+	d       time.Duration
+	stopped bool
+}
+
+func (c *testClock) after(d time.Duration, f func()) func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	tm := &fakeTimer{f: f, d: d}
+	c.timers = append(c.timers, tm)
+
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		tm.stopped = true
+	}
+}
+
+// fireNext runs the oldest live timer and returns the delay it was set with.
+func (c *testClock) fireNext(t *testing.T) time.Duration {
+	t.Helper()
+
+	c.mu.Lock()
+
+	var tm *fakeTimer
+
+	for len(c.timers) > 0 && tm == nil {
+		cand := c.timers[0]
+		c.timers = c.timers[1:]
+
+		if !cand.stopped {
+			tm = cand
+		}
+	}
+
+	c.mu.Unlock()
+
+	require.NotNil(t, tm, "no pending timer")
+	tm.f()
+
+	return tm.d
+}
+
+func (c *testClock) pending() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	n := 0
+
+	for _, tm := range c.timers {
+		if !tm.stopped {
+			n++
+		}
+	}
+
+	return n
 }
 
 // request is one delivery received by a destination.
@@ -170,6 +244,7 @@ func newEnv(t *testing.T) *env {
 	h := gcpeventarc.NewHandler(gcpeventarc.NewInMemoryBackend())
 	h.Port = 0
 	h.Backend.SetRetryBackoff(time.Second, time.Second)
+	h.Backend.SetOperationDelay(0)
 	dest := newDestination(t)
 	wf := gcpworkflows.NewInMemoryBackend()
 	t.Cleanup(wf.Close)
@@ -181,6 +256,17 @@ func newEnv(t *testing.T) *env {
 	gcsBack.ObserveObjects(func(ev gcpstorage.ObjectEvent) {
 		h.Backend.HandleStorageEvent(gcpeventarc.StorageEvent{
 			Type: string(ev.Type), Bucket: ev.Object.Bucket, Name: ev.Object.Name, Data: ev.Data(), Time: ev.Time,
+		})
+	})
+
+	logs := gcplogging.NewInMemoryBackend()
+	gcsBack.Audit.SetSink(logs)
+	logs.ObserveEntries(h.Backend.HandleLogEntry)
+
+	fs := gcpfirestore.NewInMemoryBackend()
+	fs.ObserveDocuments(func(ev gcpfirestore.DocumentEvent) {
+		h.Backend.HandleDocumentEvent(gcpeventarc.DocumentEvent{
+			Kind: string(ev.Kind), Old: ev.Old, New: ev.New, UpdateMask: ev.UpdateMask, Time: ev.Time,
 		})
 	})
 
@@ -197,7 +283,7 @@ func newEnv(t *testing.T) *env {
 
 	return &env{
 		handler: h, conn: conn, client: client, pubsub: ps, psClient: psClient,
-		gcs: gcs, gcsBack: gcsBack, dest: dest, wf: wf,
+		gcs: gcs, gcsBack: gcsBack, dest: dest, wf: wf, logs: logs, fs: fs, now: &testClock{},
 	}
 }
 
@@ -279,4 +365,11 @@ func opRequest(name string) *longrunningpb.GetOperationRequest {
 
 func opListRequest(name string) *longrunningpb.ListOperationsRequest {
 	return &longrunningpb.ListOperationsRequest{Name: name}
+}
+
+func listAuditRequest() *loggingpb.ListLogEntriesRequest {
+	return &loggingpb.ListLogEntriesRequest{
+		ResourceNames: []string{"projects/" + project},
+		Filter:        `protoPayload.serviceName="storage.googleapis.com"`,
+	}
 }

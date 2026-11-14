@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -18,6 +19,7 @@ type backendSnapshot struct {
 	Signatures   map[string]*Signature       `json:"signatures"`
 	GenericRepos map[string]*GenericRepo     `json:"genericRepos"`
 	Artifacts    map[string]*GenericArtifact `json:"artifacts"`
+	Retry        map[string]ociretry.Entry   `json:"retryTokens"`
 	ConfigEtag   string                      `json:"configEtag"`
 	Auth         []ociauth.KeyRecord         `json:"authKeys"`
 	Version      int                         `json:"version"`
@@ -35,7 +37,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ociartifacts", backendSnapshot{
 		Version: snapshotVersion, Repos: b.repos, Images: b.images, Signatures: b.sigs, GenericRepos: b.gens,
-		Artifacts: b.arts, ConfigEtag: b.configEtag, Auth: keys, Seq: b.seq, CreateOnPush: b.createOnPush,
+		Artifacts: b.arts, ConfigEtag: b.configEtag, Retry: b.retry.Entries(), Auth: keys, Seq: b.seq,
+		CreateOnPush: b.createOnPush,
 	})
 }
 
@@ -72,6 +75,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.images, b.sigs = map[string]*Image{}, map[string]*Signature{}
 	}
 
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

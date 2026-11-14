@@ -363,7 +363,7 @@ func stepGroup(x *exec, s *Step, in []*trav) ([]*trav, error) {
 
 func isReducing(name string) bool {
 	switch name {
-	case "count", stepSum, "min", "max", "mean", "fold", "groupCount", "group":
+	case "count", stepSum, opMin, opMax, "mean", "fold", "groupCount", "group":
 		return true
 	}
 
@@ -458,14 +458,26 @@ func stepAggregate(x *exec, s *Step, in []*trav) ([]*trav, error) {
 
 func stepCap(x *exec, s *Step, _ []*trav) ([]*trav, error) {
 	labels := stringArgs(s.Args)
-	if len(labels) != 1 {
+	if len(labels) == 0 {
 		return nil, invalidArg("cap() takes a side-effect key")
 	}
 
-	v, ok := x.side[labels[0]]
-	if !ok {
-		v = []any{}
+	if len(labels) == 1 {
+		return []*trav{rootTrav()[0].next(x.sideValue(labels[0]))}, nil
 	}
 
-	return []*trav{rootTrav()[0].next(v)}, nil
+	out := NewMap()
+	for _, l := range labels {
+		out.Put(l, x.sideValue(l))
+	}
+
+	return []*trav{rootTrav()[0].next(out)}, nil
+}
+
+func (x *exec) sideValue(key string) any {
+	if v, ok := x.side[key]; ok {
+		return v
+	}
+
+	return []any{}
 }

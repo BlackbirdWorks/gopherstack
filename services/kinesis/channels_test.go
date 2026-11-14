@@ -288,6 +288,27 @@ func TestCreateChannel_DuplicateName(t *testing.T) {
 	require.ErrorAs(t, err, &riu)
 }
 
+func TestCreateChannel_ARNUsesChannelID(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamARN := createOnDemandStream(t, client, "arn-id-stream")
+
+	out, err := client.CreateChannel(t.Context(), &kinesissdk.CreateChannelInput{
+		ChannelName:                aws.String("arn-id-channel"),
+		ServiceExecutionRoleARN:    aws.String(channelTestServiceRoleARN),
+		StreamConfigurationList:    minimalStreamConfigList(streamARN),
+		S3DestinationConfiguration: minimalS3DestinationConfig(),
+	})
+	require.NoError(t, err)
+
+	assert.Regexp(t,
+		`^arn:aws:kinesis:[a-z0-9-]+:\d{12}:channel/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+		aws.ToString(out.ChannelDescription.ChannelARN))
+}
+
 // TestChannelOps_NotFound covers Describe/Update/Delete against an unknown
 // ChannelARN.
 func TestChannelOps_NotFound(t *testing.T) {

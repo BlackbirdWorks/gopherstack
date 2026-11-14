@@ -200,6 +200,9 @@ func TestDynamicGroups(t *testing.T) {
 		{"empty group", "ANY {}", true},
 		{"no operator", "ANY {instance.id 'x'}", true},
 		{"not a variable", "ANY {id = 'x'}", true},
+		{"unsupported variable", "ANY {instance.shape = 'x'}", true},
+		{"unsupported tag form", "ANY {tag.Ops.Cost = 'x'}", true},
+		{"resource id", "ANY {resource.id = 'x', resource.compartment.id = 'y'}", false},
 		{"trailing", "ANY {instance.id = 'x'} extra", true},
 	}
 

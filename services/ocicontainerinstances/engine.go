@@ -16,7 +16,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -299,20 +298,47 @@ func (e *Engine) spec(r *run, c *Container) container.Spec {
 	return sp
 }
 
-func credentialFor(ref string, creds []Credential) *Credential {
-	host := strs.Fold(registryauth.HostOf(ref))
+// credentialsFor returns the credentials whose registryEndpoint is a prefix of the image reference, in
+// imagePullSecrets order (docs vault-secrets-image-authorization.htm: multiple matches are allowed).
+func credentialsFor(ref string, creds []Credential) []Credential {
+	img := strs.Fold(ref)
+
+	var out []Credential
 
 	for _, c := range creds {
-		if strs.Fold(strings.TrimSuffix(c.Endpoint, "/")) == host {
-			return &c
+		ep := strs.Fold(strings.TrimSuffix(c.Endpoint, "/"))
+		if _, rest, ok := strings.Cut(ep, "://"); ok {
+			ep = rest
+		}
+
+		if strings.HasPrefix(img, ep) {
+			out = append(out, c)
 		}
 	}
 
-	return nil
+	return out
+}
+
+// pullImage tries each matching credential in sequence until a pull succeeds.
+func (e *Engine) pullImage(r *run, ref string) error {
+	matches := credentialsFor(ref, r.creds)
+	if len(matches) == 0 {
+		return r.rt.Pull(r.ctx, ref, nil)
+	}
+
+	var err error
+
+	for i := range matches {
+		if err = r.rt.Pull(r.ctx, ref, &matches[i]); err == nil || r.ctx.Err() != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
 func (e *Engine) launchOne(r *run, c *Container) (string, error) {
-	if err := r.rt.Pull(r.ctx, c.ImageURL, credentialFor(c.ImageURL, r.creds)); err != nil {
+	if err := e.pullImage(r, c.ImageURL); err != nil {
 		return "", fmt.Errorf("pull image %q: %w", c.ImageURL, err)
 	}
 

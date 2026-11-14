@@ -85,9 +85,12 @@ type TaskConfig struct {
 	Mappings      Mappings
 	PingBackoff   time.Duration
 	SourceFamily  Family
+	// TargetFamily gates target-specific rules such as add-before-image-columns; FamilyOther skips the check.
+	TargetFamily Family
 }
 
 type planned struct {
+	filter *TableFilter
 	src    Table
 	target TargetTable
 	stat   TableStat
@@ -212,18 +215,36 @@ func (t *Task) setup(ctx context.Context) error {
 		state = tableBeforeLoad
 	}
 
-	for _, st := range t.cfg.Mappings.Select(all) {
+	selected, err := t.cfg.Mappings.SelectFiltered(all)
+	if err != nil {
+		return err
+	}
+
+	for _, sel := range selected {
+		st := sel.Table
+
+		target, perr := t.cfg.Mappings.Plan(st, t.cfg.SourceFamily, t.cfg.Settings.TargetSchema)
+		if perr != nil {
+			return perr
+		}
+
+		if target.HasBeforeImage && !beforeImageTarget(t.cfg.TargetFamily) {
+			return fmt.Errorf("%w: add-before-image-columns is supported for Kinesis and S3 targets only", ErrMapping)
+		}
+
 		pl := &planned{
-			src:    st,
-			target: t.cfg.Mappings.Plan(st, t.cfg.SourceFamily, t.cfg.Settings.TargetSchema),
-			active: true,
-			stat:   TableStat{Schema: st.Schema, Name: st.Name, State: state},
+			src: st, filter: sel.Filter, target: target, active: true,
+			stat: TableStat{Schema: st.Schema, Name: st.Name, State: state},
 		}
 		t.plans[st.Key()] = pl
 		t.order = append(t.order, pl)
 	}
 
 	return nil
+}
+
+func beforeImageTarget(f Family) bool {
+	return f == FamilyOther || f == FamilyS3 || f == FamilyKinesis
 }
 
 func (t *Task) fullLoad(ctx context.Context) error {
@@ -294,14 +315,16 @@ func (t *Task) copyTable(ctx context.Context, pl *planned, mode PrepMode, reload
 		return nil
 	}
 
-	err := t.cfg.Source.Scan(ctx, pl.src, func(r Row) error {
-		batch = append(batch, pl.target.Project(r))
+	add := func(r Row) error {
+		batch = append(batch, pl.target.ProjectWith(r, ProjectCtx{Full: true, Now: t.cfg.Now()}))
 		if len(batch) >= cap(batch) {
 			return flush()
 		}
 
 		return nil
-	})
+	}
+
+	err := t.scan(ctx, pl, add)
 	if err == nil {
 		err = flush()
 	}
@@ -318,6 +341,29 @@ func (t *Task) copyTable(ctx context.Context, pl *planned, mode PrepMode, reload
 	t.notify()
 
 	return nil
+}
+
+// FilteredScanner is implemented by sources that push a selection filter into the full-load query.
+type FilteredScanner interface {
+	ScanWhere(ctx context.Context, t Table, f *TableFilter, fn func(Row) error) error
+}
+
+func (t *Task) scan(ctx context.Context, pl *planned, fn func(Row) error) error {
+	if pl.filter == nil {
+		return t.cfg.Source.Scan(ctx, pl.src, fn)
+	}
+
+	if fs, ok := t.cfg.Source.(FilteredScanner); ok {
+		return fs.ScanWhere(ctx, pl.src, pl.filter, fn)
+	}
+
+	return t.cfg.Source.Scan(ctx, pl.src, func(r Row) error {
+		if !pl.filter.Match(r) {
+			return nil
+		}
+
+		return fn(r)
+	})
 }
 
 // Reload re-copies tables while change capture keeps running.
@@ -455,8 +501,14 @@ func (t *Task) apply(ctx context.Context, c Change) error {
 		return nil
 	}
 
+	c, ok := filterChange(pl.filter, c)
+	if !ok {
+		return nil
+	}
+
+	pc := ProjectCtx{Op: c.Op, Time: c.Time, Now: t.cfg.Now(), Position: c.Position, Before: c.Before}
 	tc := c
-	tc.Before, tc.After = pl.target.Project(c.Before), pl.target.Project(c.After)
+	tc.Before, tc.After = pl.target.ProjectWith(c.Before, pc), pl.target.ProjectWith(c.After, pc)
 
 	if err := t.cfg.Target.Apply(ctx, pl.target, tc); err != nil {
 		if ctx.Err() != nil {
@@ -480,6 +532,47 @@ func (t *Task) apply(ctx context.Context, c Change) error {
 	})
 
 	return nil
+}
+
+// filterChange applies a selection filter to a change: rows entering the filter are inserted, rows leaving it are
+// deleted, and rows that never matched are dropped.
+func filterChange(f *TableFilter, c Change) (Change, bool) {
+	if f == nil {
+		return c, true
+	}
+
+	switch c.Op {
+	case OpInsert:
+		return c, f.Match(c.After)
+	case OpDelete:
+		return c, c.Before == nil || f.Match(c.Before)
+	case OpUpdate:
+		return filterUpdate(f, c)
+	}
+
+	return c, true
+}
+
+func filterUpdate(f *TableFilter, c Change) (Change, bool) {
+	switch {
+	case f.Match(c.After):
+		if c.Before != nil && !f.Match(c.Before) {
+			c.Op = OpInsert
+		}
+
+		return c, true
+	case c.Before == nil || f.Match(c.Before):
+		c.Op = OpDelete
+		if c.Before == nil {
+			c.Before = c.After
+		}
+
+		c.After = nil
+
+		return c, true
+	}
+
+	return c, false
 }
 
 func rowWidth(src Table, c Change) string {

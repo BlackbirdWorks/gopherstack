@@ -3,10 +3,14 @@
 	import { toast } from 'svelte-sonner';
 	import { Radio, Send, Inbox } from 'lucide-svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
+	import RevealKeys from '#lib/components/azure/RevealKeys.svelte';
 	import { attempt, GCP_INPUT, GCP_MINI, GCP_PRIMARY } from '#lib/gcp-action.ts';
 	import { describeGcpError } from '#lib/gcprest.ts';
 	import {
 		listNamespaces,
+		listPolicies,
+		revealPolicyKeys,
+		type EhPolicy,
 		listPartitions,
 		peekEvents,
 		sendEvent,
@@ -22,6 +26,7 @@
 	let partitions = $state<EhPartition[]>([]);
 	let peeked = $state('');
 	let events = $state<EhEvent[]>([]);
+	let policies = $state<EhPolicy[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
 	let sending = $state(false);
@@ -53,6 +58,7 @@
 	async function loadPartitions() {
 		peeked = '';
 		events = [];
+		policies = nsName ? await listPolicies(nsName) : [];
 		partitions = nsName && hubName ? await listPartitions(nsName, hubName) : [];
 	}
 
@@ -160,6 +166,25 @@
 					{/each}
 				</section>
 			{/if}
+
+			<section data-testid="eventhubs-policies">
+				<h2 class="mb-2 font-semibold">Shared access policies</h2>
+				<div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+					<table class="w-full text-sm">
+						<thead class="text-left text-gray-500 dark:text-gray-400"><tr><th class="px-4 py-2">Policy</th><th class="px-4 py-2">Scope</th><th class="px-4 py-2">Rights</th><th class="px-4 py-2">Keys</th></tr></thead>
+						<tbody>
+							{#each policies as p (p.hub + '/' + p.name)}
+								<tr class="border-t border-gray-100 dark:border-gray-800" data-testid="eventhubs-policy">
+									<td class="px-4 py-2 font-mono">{p.name}</td>
+									<td class="px-4 py-2">{p.hub ? `hub ${p.hub}` : 'namespace'}</td>
+									<td class="px-4 py-2">{p.rights.join(', ')}</td>
+									<td class="px-4 py-2"><RevealKeys testid="eventhubs-policy-keys" fetchKeys={async () => { const k = await revealPolicyKeys(nsName, p); return [{ label: 'Primary', value: k.primaryKey }, { label: 'Secondary', value: k.secondaryKey }]; }} /></td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
 
 			<form class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700" onsubmit={send} data-testid="eventhubs-send-form">
 				<h2 class="font-semibold">Send event</h2>

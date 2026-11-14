@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
@@ -17,7 +18,8 @@ import (
 
 const (
 	maxClientTokenLen   = 64
-	maxPolicyBytes      = 20 * 1024
+	maxPolicyChars      = 20000
+	maxFileSystems      = 1000
 	maxPrefixLen        = 1024
 	maxExpirationDays   = 365
 	defaultPageSize     = 100
@@ -95,6 +97,10 @@ func (b *InMemoryBackend) CreateFileSystem(
 
 	if err = b.checkFileSystemDeps(ctx, in); err != nil {
 		return nil, false, err
+	}
+
+	if b.liveFileSystemCount(region) >= maxFileSystems {
+		return nil, false, quotaExceeded("The account already has the maximum of 1000 file systems")
 	}
 
 	id := awsid.New("fs-")
@@ -285,8 +291,8 @@ func (b *InMemoryBackend) PutFileSystemPolicy(ctx context.Context, ref, policy s
 }
 
 func validatePolicy(policy string) error {
-	if policy == "" || len(policy) > maxPolicyBytes {
-		return validation("Policy must be between 1 and 20480 bytes")
+	if policy == "" || utf8.RuneCountInString(policy) > maxPolicyChars {
+		return validation("Policy must be between 1 and 20000 characters")
 	}
 
 	var doc map[string]jsontext.Value
@@ -426,4 +432,16 @@ func (b *InMemoryBackend) GetSynchronizationConfiguration(ctx context.Context, r
 	cp.ExpirationDataRules = slices.Clone(fs.Sync.ExpirationDataRules)
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) liveFileSystemCount(region string) int {
+	n := 0
+
+	for _, fs := range b.fileSystems.All() {
+		if _, gone := b.state(&fs.Lifecycle); fs.Region == region && !gone {
+			n++
+		}
+	}
+
+	return n
 }

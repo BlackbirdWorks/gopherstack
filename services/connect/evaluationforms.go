@@ -24,12 +24,12 @@ const (
 )
 
 func formQuestionTypes() []string {
-	return []string{"TEXT", "SINGLESELECT", "NUMERIC", "MULTISELECT", "DATETIME"}
+	return []string{"TEXT", qtSingle, qtNumeric, qtMulti, "DATETIME"}
 }
 
 // questionProperty maps a question type to the QuestionTypeProperties member it requires.
 var questionProperty = map[string]string{ //nolint:gochecknoglobals // immutable lookup table
-	"NUMERIC": "Numeric", "SINGLESELECT": "SingleSelect", "MULTISELECT": "MultiSelect",
+	qtNumeric: "Numeric", qtSingle: "SingleSelect", qtMulti: "MultiSelect",
 }
 
 // FormFinding is one validation finding.
@@ -617,8 +617,8 @@ func (b *Backend) DeactivateEvaluationForm(ctx context.Context, in *FormRequest)
 }
 
 // DeleteEvaluationForm deletes one inactive version, or the whole form when no version is given.
-func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*empty, error) {
-	return writeInstance(b, "DeleteEvaluationForm", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteEvaluationForm", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.formByID(inst, in.FormID)
 		if err != nil {
 			return nil, err
@@ -646,7 +646,7 @@ func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*empty, error) {
 			return nil, b.evalForms.del(inst, in.FormID)
 		}
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 

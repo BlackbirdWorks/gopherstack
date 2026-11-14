@@ -9,25 +9,24 @@
 | --- | --- |
 | PARITY entries audited | 171 (171 ok) |
 | Feature families | 14 (14 ok) |
-| Known gaps | 12 |
+| Known gaps | 11 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
+- Gateway MCP endpoint: Smithy model, API Gateway and connector targets expose no tools, and the SEMANTIC search tool is not served
+- Gateway targets: OAuth targets using AUTHORIZATION_CODE never reach a PENDING_AUTH status (their tool calls return an error result), and CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
+- Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized
+- Gateway and runtime challenges advertise a resource_metadata URL (/.well-known/oauth-protected-resource) but the emulator serves no protected-resource metadata document (GetRuntimeProtectedResourceMetadata and the gateway well-known path); MCP protocol version 2026-07-28 (Mcp-Method header and per-request _meta version fields, gateway-using-mcp-list.html) is not served, the defaults being 2025-11-25, 2025-06-18 and 2025-03-26; not published: checked gateway-using-mcp-list, gateway-add-target-lambda and API_CustomJWTAuthorizerConfiguration, which give no tools/list page size (emulator 100), no Lambda result wrapping rule (emulator wraps as text content) and no OpenAPI parameter and body flattening rule
 - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
 - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
-- Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
+- Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles are checked for ARN shape only
 - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
-- Gateway targets: SynchronizeGatewayTargets only stamps lastSynchronizedAt; Lambda, OpenAPI and MCP tool discovery never runs and OAuth targets never reach a PENDING_AUTH status
 - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-- Authorizers: JWT and IAM authorizer configuration is stored, not enforced
-- GetMemory: the view query parameter is accepted and ignored
-- Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
-- Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence
-- Quotas: no per-account resource limits are enforced
+- GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
+- Quotas: resource-count limits are enforced as listed on bedrock-agentcore-limits.html, but request-rate limits (TPS throttling), the per-memory strategy count, memory/gateway payload sizes and the "active" concurrency limits (batch evaluation, AB tests, recommendations) are not; no ThrottlingException is ever returned.
 
 ### Structural gaps
 

@@ -55,7 +55,7 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 		clientID = user
 	}
 
-	oid, authErr := h.authenticateClient(r, clientID, form)
+	oid, authErr := h.authenticateClient(r, tenant, clientID, form)
 	if authErr != nil {
 		return h.writeClientAuthError(c, authErr)
 	}

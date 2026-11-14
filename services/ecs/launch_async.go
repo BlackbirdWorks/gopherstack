@@ -42,6 +42,7 @@ func (b *InMemoryBackend) markRunningLocked(task *Task, now time.Time) {
 	task.StartedAt = &now
 	task.Connectivity = connectivityConnected
 	task.ConnectivityAt = &now
+	markTaskVolumesAttachedLocked(task)
 	syncContainerStatuses(task, nil)
 }
 
@@ -230,6 +231,7 @@ func (b *InMemoryBackend) completeLaunch(ctx context.Context, w taskWork, cluste
 
 		if runErr == nil {
 			b.applyRuntimeContainerIDs(task)
+			b.applyRuntimeAddress(task)
 			b.markRunningLocked(task, now)
 			b.emitTaskStateLocked(task)
 
@@ -267,6 +269,8 @@ func (b *InMemoryBackend) failLaunchLocked(task *Task, clusterName string, runEr
 		task.StoppedReason = launchErr.Reason
 	}
 
+	b.releaseTaskVolumesLocked(task)
+
 	exitCode := 1
 	syncContainerStatuses(task, &exitCode)
 	b.emitTaskStateLocked(task)
@@ -298,6 +302,7 @@ func (b *InMemoryBackend) stopCancelledLaunchLocked(task *Task, clusterName stri
 	task.StoppedAt = &now
 	task.StopCode = stopCodeTaskFailedToStart
 	task.StoppedReason = "Task launch cancelled: the backend is shutting down"
+	b.releaseTaskVolumesLocked(task)
 	syncContainerStatuses(task, nil)
 	b.emitTaskStateLocked(task)
 

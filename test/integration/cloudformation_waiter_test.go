@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,52 @@ const cfTestTemplate = `{
 		}
 	}
 }`
+
+const (
+	cfnWaitMax      = 30 * time.Second
+	cfnWaitMinDelay = 50 * time.Millisecond
+	cfnWaitMaxDelay = 200 * time.Millisecond
+)
+
+// waitStackCreated blocks until the stack is CREATE_COMPLETE; the SDK's default
+// 30s poll delay is shortened because gopherstack's provisioning window is sub-second.
+func waitStackCreated(t *testing.T, client *cloudformationsdk.Client, name string) {
+	t.Helper()
+
+	err := cloudformationsdk.NewStackCreateCompleteWaiter(client).Wait(
+		t.Context(), &cloudformationsdk.DescribeStacksInput{StackName: aws.String(name)}, cfnWaitMax,
+		func(o *cloudformationsdk.StackCreateCompleteWaiterOptions) {
+			o.MinDelay, o.MaxDelay = cfnWaitMinDelay, cfnWaitMaxDelay
+		},
+	)
+	require.NoError(t, err, "stack %s should reach CREATE_COMPLETE", name)
+}
+
+// waitStackUpdated blocks until the stack is UPDATE_COMPLETE.
+func waitStackUpdated(t *testing.T, client *cloudformationsdk.Client, name string) {
+	t.Helper()
+
+	err := cloudformationsdk.NewStackUpdateCompleteWaiter(client).Wait(
+		t.Context(), &cloudformationsdk.DescribeStacksInput{StackName: aws.String(name)}, cfnWaitMax,
+		func(o *cloudformationsdk.StackUpdateCompleteWaiterOptions) {
+			o.MinDelay, o.MaxDelay = cfnWaitMinDelay, cfnWaitMaxDelay
+		},
+	)
+	require.NoError(t, err, "stack %s should reach UPDATE_COMPLETE", name)
+}
+
+// waitStackDeleted blocks until the stack is DELETE_COMPLETE or gone.
+func waitStackDeleted(t *testing.T, client *cloudformationsdk.Client, name string) {
+	t.Helper()
+
+	err := cloudformationsdk.NewStackDeleteCompleteWaiter(client).Wait(
+		t.Context(), &cloudformationsdk.DescribeStacksInput{StackName: aws.String(name)}, cfnWaitMax,
+		func(o *cloudformationsdk.StackDeleteCompleteWaiterOptions) {
+			o.MinDelay, o.MaxDelay = cfnWaitMinDelay, cfnWaitMaxDelay
+		},
+	)
+	require.NoError(t, err, "stack %s should be deleted", name)
+}
 
 // TestIntegration_CloudFormation_StackCreateCompleteWaiter verifies that
 // StackCreateCompleteWaiter succeeds immediately after CreateStack completes.
@@ -44,13 +91,17 @@ func TestIntegration_CloudFormation_StackCreateCompleteWaiter(t *testing.T) {
 		_, _ = client.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 
-	waiter := cloudformationsdk.NewStackCreateCompleteWaiter(client)
-	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
-	elapsed := time.Since(start)
+	first, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)})
+	require.NoError(t, err)
+	require.Len(t, first.Stacks, 1)
+	assert.Contains(t,
+		[]cftypes.StackStatus{cftypes.StackStatusCreateInProgress, cftypes.StackStatusCreateComplete},
+		first.Stacks[0].StackStatus,
+	)
 
-	require.NoError(t, err, "StackCreateCompleteWaiter should succeed after CreateStack")
-	assert.Less(t, elapsed, 3*time.Second, "StackCreateCompleteWaiter should complete quickly, took %v", elapsed)
+	start := time.Now()
+	waitStackCreated(t, client, stackName)
+	assert.Less(t, time.Since(start), 5*time.Second, "StackCreateCompleteWaiter should complete quickly")
 }
 
 // TestIntegration_CloudFormation_StackUpdateCompleteWaiter verifies that
@@ -90,19 +141,17 @@ func TestIntegration_CloudFormation_StackUpdateCompleteWaiter(t *testing.T) {
 			}
 		}
 	}`
+	waitStackCreated(t, client, stackName)
+
 	_, err = client.UpdateStack(ctx, &cloudformationsdk.UpdateStackInput{
 		StackName:    aws.String(stackName),
 		TemplateBody: aws.String(updatedTemplate),
 	})
 	require.NoError(t, err)
 
-	waiter := cloudformationsdk.NewStackUpdateCompleteWaiter(client)
 	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
-	elapsed := time.Since(start)
-
-	require.NoError(t, err, "StackUpdateCompleteWaiter should succeed after UpdateStack")
-	assert.Less(t, elapsed, 3*time.Second, "StackUpdateCompleteWaiter should complete quickly, took %v", elapsed)
+	waitStackUpdated(t, client, stackName)
+	assert.Less(t, time.Since(start), 5*time.Second, "StackUpdateCompleteWaiter should complete quickly")
 }
 
 // TestIntegration_CloudFormation_StackDeleteCompleteWaiter verifies that
@@ -121,15 +170,12 @@ func TestIntegration_CloudFormation_StackDeleteCompleteWaiter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Delete the stack
+	waitStackCreated(t, client, stackName)
+
 	_, err = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	require.NoError(t, err)
 
-	waiter := cloudformationsdk.NewStackDeleteCompleteWaiter(client)
 	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
-	elapsed := time.Since(start)
-
-	require.NoError(t, err, "StackDeleteCompleteWaiter should succeed after DeleteStack")
-	assert.Less(t, elapsed, 3*time.Second, "StackDeleteCompleteWaiter should complete quickly, took %v", elapsed)
+	waitStackDeleted(t, client, stackName)
+	assert.Less(t, time.Since(start), 5*time.Second, "StackDeleteCompleteWaiter should complete quickly")
 }

@@ -1,7 +1,6 @@
 package cloudformation
 
 import (
-	"os"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -325,8 +324,11 @@ type PropertyValidationConfig interface {
 	GetCloudFormationValidateProperties() bool
 }
 
-// provisioningDelayEnv opts into async stack provisioning (e.g. "2s").
-const provisioningDelayEnv = "GOPHERSTACK_CFN_PROVISIONING_DELAY"
+// ProvisioningDelayConfig is the optional config extension that sets how long
+// each stack step stays *_IN_PROGRESS; zero completes stacks instantly.
+type ProvisioningDelayConfig interface {
+	GetCloudFormationProvisioningDelay() time.Duration
+}
 
 // Init initializes the CloudFormation service backend and handler.
 //
@@ -354,8 +356,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	creator := NewResourceCreator(backends)
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
-	if d, err := time.ParseDuration(os.Getenv(provisioningDelayEnv)); err == nil {
-		backend.SetProvisioningDelay(d)
+	if dc, ok := ctx.Config.(ProvisioningDelayConfig); ok {
+		backend.SetProvisioningDelay(dc.GetCloudFormationProvisioningDelay())
 	}
 
 	if pc, ok := ctx.Config.(PropertyValidationConfig); ok {

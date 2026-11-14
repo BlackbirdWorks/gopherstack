@@ -419,8 +419,8 @@ func (b *Backend) UpdateDataTableMetadata(ctx context.Context, in *UpdateDataTab
 }
 
 // DeleteDataTable removes a data table with its attributes and values.
-func (b *Backend) DeleteDataTable(inst, ref string) (*empty, error) {
-	return writeInstance(b, "DeleteDataTable", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteDataTable(inst, ref string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteDataTable", inst, func(inst string) (*EmptyOutput, error) {
 		r, err := b.tableLocked(inst, ref)
 		if err != nil {
 			return nil, err

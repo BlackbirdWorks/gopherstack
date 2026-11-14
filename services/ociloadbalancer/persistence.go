@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -14,12 +15,13 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	LoadBalancers map[string]*LoadBalancer `json:"loadBalancers"`
-	WorkReqs      map[string]*WorkRequest  `json:"workRequests"`
-	Auth          []ociauth.KeyRecord      `json:"authKeys"`
-	Version       int                      `json:"version"`
-	Seq           int64                    `json:"seq"`
-	IPSeq         int64                    `json:"ipSeq"`
+	LoadBalancers map[string]*LoadBalancer  `json:"loadBalancers"`
+	WorkReqs      map[string]*WorkRequest   `json:"workRequests"`
+	Retry         map[string]ociretry.Entry `json:"retryTokens"`
+	Auth          []ociauth.KeyRecord       `json:"authKeys"`
+	Version       int                       `json:"version"`
+	Seq           int64                     `json:"seq"`
+	IPSeq         int64                     `json:"ipSeq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys. TLS private keys are never persisted.
@@ -31,6 +33,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ociloadbalancer", backendSnapshot{
 		Version: snapshotVersion, LoadBalancers: b.lbs, WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, IPSeq: b.ipSeq,
+		Retry: b.retry.Entries(),
 	})
 }
 
@@ -58,6 +61,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	b.lbs, b.workReqs, b.seq, b.ipSeq = snap.LoadBalancers, snap.WorkReqs, snap.Seq, snap.IPSeq
 	b.keys = map[string]*tls.Certificate{}
+	b.retry.Load(snap.Retry)
 	b.mu.Unlock()
 	b.Auth.Load(snap.Auth)
 	b.dp.sync()

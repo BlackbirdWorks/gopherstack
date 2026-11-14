@@ -109,7 +109,7 @@ func crud(base, idParam, create, get, list, update, del string) []restroute.Rout
 	return routes
 }
 
-const routeCap = 96
+const routeCap = 104
 
 func routeTable() []restroute.Route {
 	routes := make([]restroute.Route, 0, routeCap)
@@ -137,6 +137,12 @@ func routeTable() []restroute.Route {
 		rt(http.MethodPut, "/tagNamespaces/{tagNamespaceId}/tags/{tagName}", opUpdateTag),
 		rt(http.MethodDelete, "/tagNamespaces/{tagNamespaceId}/tags/{tagName}", opDeleteTag),
 		rt(http.MethodGet, "/workRequests", opListWorkRequests),
+		rt(http.MethodPost, "/tagNamespaces/{tagNamespaceId}/actions/changeCompartment", opChangeTagNSComp),
+		rt(http.MethodPost, "/tagNamespaces/{tagNamespaceId}/actions/cascadeDelete", opCascadeDeleteNS),
+		rt(http.MethodGet, "/taggingWorkRequests", opListTaggingWR),
+		rt(http.MethodGet, "/taggingWorkRequests/{workRequestId}", opGetTaggingWR),
+		rt(http.MethodGet, "/taggingWorkRequests/{workRequestId}/errors", opListTaggingWRErr),
+		rt(http.MethodGet, "/taggingWorkRequests/{workRequestId}/logs", opListTaggingWRLog),
 		rt(http.MethodGet, "/workRequests/{workRequestId}", opGetWorkRequest),
 	)
 

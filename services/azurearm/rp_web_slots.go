@@ -141,9 +141,9 @@ func tierFromSKUName(name string) string {
 
 	switch {
 	case strings.HasPrefix(name, "f"):
-		return "free"
+		return acSkuFree
 	case strings.HasPrefix(name, "d"):
-		return "shared"
+		return webTierShared
 	case strings.HasPrefix(name, "b"):
 		return "basic"
 	case strings.HasPrefix(name, "s"):
@@ -241,9 +241,17 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	rec := &storedWebSite{
-		Name: parent.Name, Slot: slot, ResourceGroup: parent.ResourceGroup, Location: parent.Location,
-		Kind: parent.Kind, Created: time.Now().UTC(), Tags: stringTags(body[fieldTags]),
-		Managed: ident, Configs: map[string]map[string]any{}, Extra: webSiteExtra(props),
+		Name:          parent.Name,
+		Sub:           id.SubscriptionID,
+		Slot:          slot,
+		ResourceGroup: parent.ResourceGroup,
+		Location:      parent.Location,
+		Kind:          parent.Kind,
+		Created:       time.Now().UTC(),
+		Tags:          stringTags(body[fieldTags]),
+		Managed:       ident,
+		Configs:       map[string]map[string]any{},
+		Extra:         webSiteExtra(props),
 	}
 	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
 
@@ -265,13 +273,19 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	info, err := p.dataPlane.PutApp(rec.dpName(), siteAppConfig(rec.Kind, rec.Configs[webConfigWeb]))
+	info, err := p.dataPlane.PutApp(rec.dpName(), siteAppConfig(rec.Kind, rec.Configs[webConfigWeb], nil))
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
 
 	if settings != nil {
 		if err = p.dataPlane.SetSettings(rec.dpName(), settings); err != nil {
+			return nil, badWebRequest(err)
+		}
+	}
+
+	if len(rec.Configs[webConfigConn]) > 0 {
+		if err = p.syncConnStrings(rec); err != nil {
 			return nil, badWebRequest(err)
 		}
 	}
@@ -334,28 +348,19 @@ func (p *WebProvider) applySlotProps(
 	var settings map[string]string
 
 	if clone := mapOf(props[webFieldCloning]); create && clone[webFieldCloneSrc] != nil {
-		src, err := p.cloneSource(clone)
-		if err != nil {
+		var err error
+		if settings, err = p.cloneSlotConfig(rec, clone); err != nil {
 			return nil, err
-		}
-
-		for k, v := range src.Configs {
-			rec.Configs[k] = cloneAnyMap(v)
-		}
-
-		if settings, err = p.dataPlane.Settings(src.dpName()); err != nil {
-			return nil, badWebRequest(err)
-		}
-
-		for k, v := range mapOf(clone[webFieldCloneOver]) {
-			if str, isStr := v.(string); isStr {
-				settings[k] = str
-			}
 		}
 	}
 
 	siteCfg := mapOf(props[webFieldSiteConfig])
-	rec.Configs[webConfigWeb] = mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
+	merged, err := p.mergedWebConfig(rec, parent, siteCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.Configs[webConfigWeb] = merged
 
 	if fx, _ := rec.Configs[webConfigWeb][webFieldLinuxFx].(string); fx == "" && isFunctionAppKind(rec.Kind) {
 		if parentFx, found := parent.Configs[webConfigWeb][webFieldLinuxFx]; found {
@@ -369,6 +374,31 @@ func (p *WebProvider) applySlotProps(
 		}
 
 		maps.Copy(settings, nameValueSettings(raw))
+	}
+
+	return settings, nil
+}
+
+// cloneSlotConfig copies the clone source's configuration into rec and returns its settings with the overrides.
+func (p *WebProvider) cloneSlotConfig(rec *storedWebSite, clone map[string]any) (map[string]string, error) {
+	src, err := p.cloneSource(clone)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range src.Configs {
+		rec.Configs[k] = cloneAnyMap(v)
+	}
+
+	settings, err := p.dataPlane.Settings(src.dpName())
+	if err != nil {
+		return nil, badWebRequest(err)
+	}
+
+	for k, v := range mapOf(clone[webFieldCloneOver]) {
+		if str, isStr := v.(string); isStr {
+			settings[k] = str
+		}
 	}
 
 	return settings, nil
@@ -559,7 +589,11 @@ func (p *WebProvider) prepareSwap(ctx context.Context, sd *slotSides) error {
 	sd.source.Configs[webConfigConn] = mixAny(
 		sd.source.Pending.ConnStrings, sd.target.Configs[webConfigConn], sd.connSticky, true)
 
-	if err = p.dataPlane.SetSettings(sd.source.dpName(), next); err == nil {
+	if err = p.syncConnStrings(sd.source); err == nil {
+		err = p.dataPlane.SetSettings(sd.source.dpName(), next)
+	}
+
+	if err == nil {
 		err = p.dataPlane.WarmUp(ctx, sd.source.dpName())
 	}
 
@@ -584,6 +618,10 @@ func (p *WebProvider) revertSource(src *storedWebSite) error {
 
 	if len(pend.ConnStrings) == 0 {
 		delete(src.Configs, webConfigConn)
+	}
+
+	if err := p.syncConnStrings(src); err != nil {
+		return err
 	}
 
 	return p.dataPlane.SetSettings(src.dpName(), pend.Settings)
@@ -677,9 +715,9 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 	}{{tgt, tgtWeb, tgtState.web}, {src, srcWeb, srcState.web}}
 
 	for i, st := range steps {
-		if _, err = p.dataPlane.PutApp(st.rec.dpName(), siteAppConfig(st.rec.Kind, st.cfg)); err != nil {
+		if _, err = p.dataPlane.PutApp(st.rec.dpName(), siteAppConfig(st.rec.Kind, st.cfg, nil)); err != nil {
 			for _, done := range steps[:i] {
-				_, _ = p.dataPlane.PutApp(done.rec.dpName(), siteAppConfig(done.rec.Kind, done.old))
+				_, _ = p.dataPlane.PutApp(done.rec.dpName(), siteAppConfig(done.rec.Kind, done.old, nil))
 			}
 
 			_ = p.revertSource(src)
@@ -704,7 +742,11 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 		rec *storedWebSite
 		set map[string]string
 	}{{src, newSrc}, {tgt, newTgt}} {
-		if err = p.dataPlane.SetSettings(step.rec.dpName(), step.set); err != nil {
+		if err = p.syncConnStrings(step.rec); err == nil {
+			err = p.dataPlane.SetSettings(step.rec.dpName(), step.set)
+		}
+
+		if err != nil {
 			return badWebRequest(err)
 		}
 	}

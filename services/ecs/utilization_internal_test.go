@@ -94,7 +94,7 @@ func TestDockerRunner_TaskUsage(t *testing.T) {
 		"memory_stats": {"usage": 314572800, "stats": {"inactive_file": 46137344}}
 	}`
 
-	fake := &fakeDockerClient{stats: map[string]string{"aaaaaaaaaaaa01": sample}}
+	fake := &fakeDockerClient{stats: map[string]string{"aaaaaaaaaaaa02": sample}}
 	runner := newDockerRunnerWithClient(t.Context(), fake)
 	b := NewInMemoryBackend("123456789012", "us-east-1", runner)
 

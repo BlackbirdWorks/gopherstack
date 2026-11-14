@@ -15,6 +15,7 @@ const (
 	statusActive   = "ACTIVE"
 	statusUpdating = "UPDATING"
 	statusDeleting = "DELETING"
+	statusFailed   = "FAILED"
 )
 
 // Stream status values, matching aws-sdk-go-v2/service/dsql/types.StreamStatus.

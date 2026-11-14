@@ -26,6 +26,8 @@ func clonePolicyStoreAlias(a *PolicyStoreAlias) *PolicyStoreAlias {
 	return &cp
 }
 
+const maxAliasesPerPolicyStore = 10
+
 // CreatePolicyStoreAlias creates an alias pointing at policyStoreID.
 //
 // Real AWS semantics (this op is new to the SDK; verified against the API
@@ -64,6 +66,11 @@ func (b *InMemoryBackend) CreatePolicyStoreAlias(aliasName, policyStoreID string
 		}
 
 		return nil, fmt.Errorf("%w: policy store alias %s already exists", ErrConflict, aliasName)
+	}
+
+	if len(b.policyStoreAliasesByStore.Get(policyStoreID)) >= maxAliasesPerPolicyStore {
+		return nil, fmt.Errorf("%w: policy store %s already has %d aliases",
+			ErrAliasQuotaExceeded, policyStoreID, maxAliasesPerPolicyStore)
 	}
 
 	a := &PolicyStoreAlias{

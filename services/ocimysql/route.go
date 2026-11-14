@@ -17,12 +17,20 @@ const (
 	opStartDBSystem     = "StartDbSystem"
 	opStopDBSystem      = "StopDbSystem"
 	opRestartDBSystem   = "RestartDbSystem"
+	opAddHeatWave       = "AddHeatWaveCluster"
+	opGetHeatWave       = "GetHeatWaveCluster"
+	opUpdateHeatWave    = "UpdateHeatWaveCluster"
+	opDeleteHeatWave    = "DeleteHeatWaveCluster"
+	opStartHeatWave     = "StartHeatWaveCluster"
+	opStopHeatWave      = "StopHeatWaveCluster"
+	opRestartHeatWave   = "RestartHeatWaveCluster"
 	opCreateBackup      = "CreateBackup"
 	opGetBackup         = "GetBackup"
 	opListBackups       = "ListBackups"
 	opUpdateBackup      = "UpdateBackup"
 	opDeleteBackup      = "DeleteBackup"
 	opChangeBackupComp  = "ChangeBackupCompartment"
+	opCancelBackupDel   = "CancelBackupDeletion"
 	opCreateChannel     = "CreateChannel"
 	opGetChannel        = "GetChannel"
 	opListChannels      = "ListChannels"
@@ -55,6 +63,7 @@ const (
 const (
 	keyCompartment = "compartmentId"
 	keyDisplayName = "displayName"
+	keyShapeName   = "shapeName"
 	keyTimeCreated = "timeCreated"
 	keyTimeUpdated = "timeUpdated"
 	keyLifecycle   = "lifecycleState"
@@ -73,12 +82,20 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPost, Path: dbSystemPath + "/actions/start", Op: opStartDBSystem},
 	{Method: http.MethodPost, Path: dbSystemPath + "/actions/stop", Op: opStopDBSystem},
 	{Method: http.MethodPost, Path: dbSystemPath + "/actions/restart", Op: opRestartDBSystem},
+	{Method: http.MethodPost, Path: dbSystemPath + "/heatWaveCluster/actions/add", Op: opAddHeatWave},
+	{Method: http.MethodGet, Path: dbSystemPath + "/heatWaveCluster", Op: opGetHeatWave},
+	{Method: http.MethodPut, Path: dbSystemPath + "/heatWaveCluster", Op: opUpdateHeatWave},
+	{Method: http.MethodDelete, Path: dbSystemPath + "/heatWaveCluster", Op: opDeleteHeatWave},
+	{Method: http.MethodPost, Path: dbSystemPath + "/heatWaveCluster/actions/start", Op: opStartHeatWave},
+	{Method: http.MethodPost, Path: dbSystemPath + "/heatWaveCluster/actions/stop", Op: opStopHeatWave},
+	{Method: http.MethodPost, Path: dbSystemPath + "/heatWaveCluster/actions/restart", Op: opRestartHeatWave},
 	{Method: http.MethodPost, Path: base + "/backups", Op: opCreateBackup},
 	{Method: http.MethodGet, Path: base + "/backups", Op: opListBackups},
 	{Method: http.MethodGet, Path: backupPath, Op: opGetBackup},
 	{Method: http.MethodPut, Path: backupPath, Op: opUpdateBackup},
 	{Method: http.MethodDelete, Path: backupPath, Op: opDeleteBackup},
 	{Method: http.MethodPost, Path: backupPath + "/actions/changeCompartment", Op: opChangeBackupComp},
+	{Method: http.MethodPost, Path: backupPath + "/actions/cancelDeletion", Op: opCancelBackupDel},
 	{Method: http.MethodPost, Path: base + "/channels", Op: opCreateChannel},
 	{Method: http.MethodGet, Path: base + "/channels", Op: opListChannels},
 	{Method: http.MethodGet, Path: channelPath, Op: opGetChannel},

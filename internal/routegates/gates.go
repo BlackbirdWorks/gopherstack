@@ -143,7 +143,8 @@ func AltGates() map[string]service.AltGate {
 				"/.well-known/jwks.json", "/.well-known/openid-configuration", "/saml2/metadata",
 			},
 		},
-		"Lambda": {Target: []string{"AWSLambda"}, Path: []string{"/20"}, Host: []string{".lambda-url."}},
+		"Lambda":    {Target: []string{"AWSLambda"}, Path: []string{"/20"}, Host: []string{".lambda-url."}},
+		"LambdaWeb": {Path: []string{"/2025-03-07/"}, Host: []string{".lambda-web."}},
 		"EventBridge": {
 			Target: []string{"AmazonEventBridge.", "AWSEvents.", "AWSSchemas."}, Path: []string{"/v1"},
 		},

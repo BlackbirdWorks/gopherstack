@@ -35,7 +35,7 @@ var (
 func isWriteProp(k string) bool {
 	switch k {
 	case propFormat, "external_location", "partitioned_by", "field_delimiter",
-		propWriteCompression, "compression", "parquet_compression", "orc_compression", "is_external":
+		propWriteCompression, propCompression, propParquetComp, "orc_compression", propIsExternal:
 		return true
 	default:
 		return false
@@ -60,22 +60,24 @@ type outCol struct {
 
 // writePlan is the write side of a CTAS, INSERT or UNLOAD.
 type writePlan struct {
-	cat            GlueTableCatalog
 	put            S3Storer
 	list           S3Lister
 	get            S3Getter
+	cat            GlueTableCatalog
+	ice            *icebergTable
 	now            func() time.Time
 	def            *GlueTableDef
 	stmt           *writeStmt
-	catalog        string
+	target         *planTable
 	db             string
 	table          string
-	ice            *icebergTable
+	catalog        string
 	queryID        string
 	outputLocation string
 	location       string
 	partitionBy    []string
 	format         outFormat
+	iceCTAS        bool
 	s3tables       bool
 }
 
@@ -118,9 +120,19 @@ func (b *InMemoryBackend) planWrite(
 		wp.catalog, wp.db, wp.table = catalog, db, table
 	}
 
+	if isDMLKind(w.kind) {
+		if out := wp.prepareDML(get); out.failed {
+			return nil, out, true
+		}
+	}
+
 	plan, unresolved, err := b.buildPlan(w.body, qctx, get, list)
 	if err != nil {
 		return nil, planFailure(err), true
+	}
+
+	if isDMLKind(w.kind) {
+		wp.bindTarget(plan)
 	}
 
 	if len(plan.tables) == 0 && len(unresolved) > 0 {
@@ -143,11 +155,11 @@ func (b *InMemoryBackend) planWrite(
 
 func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 	switch p.stmt.kind {
-	case writeInsert:
+	case writeInsert, writeDelete, writeUpdate, writeMerge, writeOptimize:
 		return stmtOK()
 	case writeCTAS:
 		if p.s3tables {
-			return stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error())
+			break
 		}
 
 		if _, err := b.glueSource.GetDatabase(p.db); err != nil {
@@ -162,6 +174,10 @@ func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 func (p *writePlan) validateProps() statementOutcome {
 	props := p.stmt.props
 
+	if p.isIcebergCTAS() {
+		return p.validateIcebergCTAS()
+	}
+
 	for k := range props {
 		if !isWriteProp(k) {
 			return stmtFail(athenaErrTypeSyntax,
@@ -175,11 +191,11 @@ func (p *writePlan) validateProps() statementOutcome {
 	}
 
 	switch name {
-	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet:
-	case "ORC", "AVRO":
+	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet, fmtNameAvro:
+	case "ORC":
 		return stmtFail(athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format %s is not supported by the embedded SQL engine; use PARQUET, TEXTFILE, CSV or JSON",
-			name)
+			"NOT_SUPPORTED: format ORC is not supported by the embedded SQL engine; "+
+				"use PARQUET, AVRO, TEXTFILE, CSV or JSON")
 	default:
 		return stmtFail(athenaErrTypeSyntax, "INVALID_TABLE_PROPERTY: line 1:1: invalid format '%s'", name)
 	}
@@ -189,6 +205,8 @@ func (p *writePlan) validateProps() statementOutcome {
 		p.format.kind = fmtJSON
 	case fmtNameParquet:
 		p.format.kind = fmtParquet
+	case fmtNameAvro:
+		p.format.kind = fmtAvro
 	case fmtNameCSV:
 		p.format.kind, p.format.delim = fmtCSVSerde, csvDefaultDelim
 	default:
@@ -211,7 +229,7 @@ func (p *writePlan) validateProps() statementOutcome {
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
 	c := strings.ToUpper(orDefault(firstProp(props, propWriteCompression),
-		orDefault(firstProp(props, "compression"), firstProp(props, "parquet_compression"))))
+		orDefault(firstProp(props, propCompression), firstProp(props, propParquetComp))))
 
 	if out := p.checkCompression(c); out.failed {
 		return out
@@ -226,9 +244,21 @@ func (p *writePlan) validateCompression() statementOutcome {
 }
 
 func (p *writePlan) checkCompression(c string) statementOutcome {
+	if p.format.kind == fmtAvro {
+		switch c {
+		case "", compressionNone, codecDeflate, codecSnappy:
+			p.format.codec = c
+
+			return stmtOK()
+		default:
+			return stmtFail(athenaErrTypeSyntax,
+				"NOT_SUPPORTED: compression %s is not supported for AVRO; use SNAPPY, DEFLATE or NONE", c)
+		}
+	}
+
 	if p.format.kind == fmtParquet {
 		switch c {
-		case "", "SNAPPY", compressionGzip, "ZSTD", "LZ4", compressionNone:
+		case "", codecSnappy, compressionGzip, "ZSTD", "LZ4", compressionNone:
 			p.format.codec = c
 
 			return stmtOK()
@@ -272,6 +302,8 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 	switch p.stmt.kind {
 	case writeInsert:
 		return p.precheckInsert(ctx), false
+	case writeDelete, writeUpdate, writeMerge, writeOptimize:
+		return stmtOK(), false
 	case writeUnload:
 		p.location = withSlash(p.stmt.location)
 	default:
@@ -282,6 +314,10 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 
 			return stmtFail(athenaErrTypeEntityFound,
 				"TABLE_ALREADY_EXISTS: line 1:1: Table '%s' already exists", p.display()), false
+		}
+
+		if p.s3tables {
+			return stmtOK(), false
 		}
 
 		loc, err := p.ctasLocation()
@@ -297,6 +333,9 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 
 func (p *writePlan) ctasLocation() (string, error) {
 	loc := firstProp(p.stmt.props, "external_location")
+	if p.iceCTAS {
+		loc = firstProp(p.stmt.props, propLocation)
+	}
 
 	switch {
 	case loc != "":
@@ -364,11 +403,17 @@ func (p *writePlan) precheckInsert(ctx context.Context) statementOutcome {
 
 // apply writes the SELECT result and registers the Glue table or partitions.
 func (p *writePlan) apply(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	if out := rejectIntervalColumns(res); out.failed {
+		return out
+	}
+
 	switch p.stmt.kind {
 	case writeInsert:
 		return p.applyInsert(ctx, res, limits)
 	case writeUnload:
 		return p.applyUnload(ctx, res, limits)
+	case writeDelete, writeUpdate, writeMerge, writeOptimize:
+		return p.applyIcebergDML(ctx, res, limits)
 	default:
 		return p.applyCTAS(ctx, res, limits)
 	}
@@ -395,6 +440,10 @@ func (p *writePlan) applyUnload(ctx context.Context, res *sqlResult, limits Engi
 }
 
 func (p *writePlan) applyCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	if p.iceCTAS {
+		return p.applyIcebergCTAS(ctx, res, limits)
+	}
+
 	all := resultOutCols(res)
 	seen := map[string]bool{}
 
@@ -450,6 +499,10 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 		def.InputFormat = parquetInputFmt
 		def.OutputFormat = parquetOutFmt
 		def.SerdeParameters = map[string]string{serdeParamFmtKey: "1"}
+	case fmtAvro:
+		def.SerdeLibrary = avroSerdeLib
+		def.InputFormat = avroInputFmt
+		def.OutputFormat = avroOutputFmt
 	case fmtJSON:
 		def.SerdeLibrary = jsonSerdeLib
 	case fmtCSVSerde:
@@ -785,6 +838,8 @@ func (p *writePlan) encodeGroup(res *sqlResult, g *rowGroup, data []outCol) ([]b
 	switch p.format.kind {
 	case fmtParquet:
 		return encodeParquetRows(res, g.rows, data, p.format.codec)
+	case fmtAvro:
+		return encodeAvroRows(res, g.rows, data, p.format.codec)
 	case fmtJSON:
 		body = encodeJSONLines(res, g.rows, data)
 	case fmtCSVSerde:
@@ -818,6 +873,8 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 	switch {
 	case p.format.kind == fmtParquet:
 		name += ".parquet"
+	case p.format.kind == fmtAvro:
+		name += ".avro"
 	case p.format.gzip:
 		name += ".gz"
 	}
@@ -828,6 +885,16 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 	if err != nil {
 		return stmtFail(athenaErrTypeSyntax, "HIVE_WRITER_CLOSE_ERROR: cannot write s3://%s/%s%s: %s",
 			bucket, locPrefix, name, err)
+	}
+
+	return stmtOK()
+}
+
+func rejectIntervalColumns(res *sqlResult) statementOutcome {
+	for _, c := range res.columns {
+		if strings.HasPrefix(c.typ, "interval ") {
+			return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: Unsupported Hive type: %s", c.typ)
+		}
 	}
 
 	return stmtOK()

@@ -100,6 +100,15 @@ type authRequest struct {
 	CustomAttributes  *string        `json:"customAttributes"`
 	PhotoURL          *string        `json:"photoUrl"`
 	ContinueURI       string         `json:"continueUri"`
+	SessionInfo       string         `json:"sessionInfo"`
+	Code              string         `json:"code"`
+	TemporaryProof    string         `json:"temporaryProof"`
+	RecaptchaToken    string         `json:"recaptchaToken"`
+	CaptchaResponse   string         `json:"captchaResponse"`
+	PlayIntegrity     string         `json:"playIntegrityToken"`
+	SafetyNetToken    string         `json:"safetyNetToken"`
+	IOSReceipt        string         `json:"iosReceipt"`
+	IOSSecret         string         `json:"iosSecret"`
 	NewPassword       string         `json:"newPassword"`
 	ProviderID        string         `json:"providerId"`
 	Identifier        string         `json:"identifier"`

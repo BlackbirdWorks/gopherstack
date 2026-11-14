@@ -2363,7 +2363,7 @@ func (e *Executor) selectMapItems(state *State, items []any) ([]any, error) {
 	case state.jx != nil:
 		return e.jxItemSelector(state, items)
 	default:
-		return applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, items, e.varFn())
+		return applyMapItemSelector(&state.itemSelTmpl, state.ItemSelector, unwrapMapPairs(items), e.varFn())
 	}
 }
 
@@ -2716,6 +2716,13 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 	return items, nil
 }
 
+// readerMaxItemsLimit is the documented ceiling after which a Distributed Map
+// stops reading items (input-output-itemreader.html, MaxItems note).
+const readerMaxItemsLimit = 100_000_000
+
+// ErrItemReaderVersionIDUnsupported is returned for VersionId with InputType PARQUET.
+var ErrItemReaderVersionIDUnsupported = errors.New("ItemReader: VersionId is not supported for InputType PARQUET")
+
 // ErrMaxItemsPathNotNumber is returned when ReaderConfig.MaxItemsPath does
 // not resolve to a number.
 var ErrMaxItemsPathNotNumber = errors.New("MaxItemsPath: value is not a number")
@@ -2743,6 +2750,8 @@ func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput 
 
 		maxItems = int(f)
 	}
+
+	maxItems = min(maxItems, readerMaxItemsLimit)
 
 	if maxItems > 0 && len(items) > maxItems {
 		items = items[:maxItems]
@@ -2785,6 +2794,12 @@ func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *Item
 
 	bucket, _ := reader.Parameters["Bucket"].(string)
 	key, _ := reader.Parameters[fieldKey].(string)
+
+	if cfg := reader.ReaderConfig; cfg != nil && strings.EqualFold(cfg.InputType, "PARQUET") {
+		if _, hasVersion := reader.Parameters["VersionId"]; hasVersion {
+			return nil, ErrItemReaderVersionIDUnsupported
+		}
+	}
 
 	data, err := e.getS3Object(ctx, bucket, key)
 	if err != nil {
@@ -3076,6 +3091,12 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 // back to the pre-existing JSON-array-then-JSON-lines auto-detection.
 func decodeJSONItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	if cfg == nil || cfg.ItemsPointer == "" {
+		if cfg != nil && strings.EqualFold(cfg.InputType, "JSON") {
+			if pairs, ok := decodeJSONObjectPairs(data); ok {
+				return pairs, nil
+			}
+		}
+
 		return decodeJSONAuto(data)
 	}
 
@@ -3089,10 +3110,14 @@ func decodeJSONItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 		return nil, err
 	}
 
+	if obj, isObj := val.(map[string]any); isObj {
+		return objectPairs(obj), nil
+	}
+
 	arr, ok := val.([]any)
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: ItemsPointer %q does not reference a JSON array",
+			"%w: ItemsPointer %q does not reference a JSON array or object",
 			ErrItemReaderInvalidData, cfg.ItemsPointer,
 		)
 	}
@@ -3153,6 +3178,17 @@ func stepJSONPointer(cur any, tok string) (any, error) {
 	default:
 		return nil, errJSONPointerNotFound
 	}
+}
+
+// decodeJSONObjectPairs reads a JSON file whose top level is an object as one
+// pair per key (docs: "The JSON file must contain an array or JSON object").
+func decodeJSONObjectPairs(data []byte) ([]any, bool) {
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj, jsonx.V1()); err != nil || obj == nil {
+		return nil, false
+	}
+
+	return objectPairs(obj), true
 }
 
 func decodeJSONAuto(data []byte) ([]any, error) {

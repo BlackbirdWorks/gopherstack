@@ -7,13 +7,14 @@ import (
 
 // Lifecycle states.
 const (
-	stateCreating = "CREATING"
-	stateActive   = "ACTIVE"
-	stateInactive = "INACTIVE"
-	stateUpdating = "UPDATING"
-	stateDeleting = "DELETING"
-	stateDeleted  = "DELETED"
-	stateFailed   = "FAILED"
+	stateCreating        = "CREATING"
+	stateActive          = "ACTIVE"
+	stateInactive        = "INACTIVE"
+	stateUpdating        = "UPDATING"
+	stateDeleting        = "DELETING"
+	stateDeleted         = "DELETED"
+	stateDeleteScheduled = "DELETE_SCHEDULED"
+	stateFailed          = "FAILED"
 )
 
 // Configuration types.
@@ -70,6 +71,7 @@ type DBSystem struct {
 	Tags           Tags                      `json:"tags"`
 	TransitionAt   *time.Time                `json:"transitionAt,omitempty"`
 	Source         *Source                   `json:"source,omitempty"`
+	HeatWave       *HeatWaveCluster          `json:"heatWaveCluster,omitempty"`
 	Extra          map[string]jsontext.Value `json:"extra,omitempty"`
 	Maintenance    map[string]any            `json:"maintenance,omitempty"`
 	FD             string                    `json:"faultDomain"`
@@ -113,6 +115,8 @@ type Backup struct {
 	TimeCreated   time.Time  `json:"timeCreated"`
 	TimeUpdated   time.Time  `json:"timeUpdated"`
 	TransitionAt  *time.Time `json:"transitionAt,omitempty"`
+	ScheduledAt   *time.Time `json:"scheduledAt,omitempty"`
+	RetainFrom    *time.Time `json:"retainFrom,omitempty"`
 	Snapshot      *DBSystem  `json:"snapshot,omitempty"`
 	Tags          Tags       `json:"tags"`
 	ID            string     `json:"id"`

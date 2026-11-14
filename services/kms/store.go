@@ -18,6 +18,11 @@ import (
 // regionContextKey is the context key type for the per-request AWS region.
 type regionContextKey struct{}
 
+// WithRegion returns ctx carrying the AWS Region KMS calls resolve keys in.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // getRegion extracts the region from ctx, falling back to defaultRegion.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if v, ok := ctx.Value(regionContextKey{}).(string); ok && v != "" {

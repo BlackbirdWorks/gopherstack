@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1037,6 +1038,11 @@ func TestDescribeScheduledQuery_LastRunSummaryFullFields(t *testing.T) {
 
 	h := newTestHandler()
 	backend := timestreamquery.ExportBackend(h)
+
+	var ticks atomic.Int64
+
+	base := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	backend.SetClock(func() time.Time { return base.Add(time.Duration(ticks.Add(1)) * 5 * time.Millisecond) })
 
 	sq := &timestreamquery.ScheduledQuery{
 		Arn:                "arn:aws:timestream:us-east-1:123:scheduled-query/run-test",

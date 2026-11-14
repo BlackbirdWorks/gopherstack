@@ -78,7 +78,7 @@ gaps: []
 items_still_open:
   - "DescribePackageVersion displayName is set for npm only (the one format the SDK documents: '@vue/ui'); the SDK says only that displayName 'varies depending on the package version's format', and summary/homePage/sourceCodeRepository/licenses key mapping beyond npm package.json is undocumented."
   - "GetRepositoryEndpoint validates endpointType (ipv4|dualstack) but returns the same hostname for both: API_GetRepositoryEndpoint gives the enum and no dualstack hostname."
-  - "Error codes for blocked publishes and the undeletable root group are inferred: PublishPackageVersion blocked by a package or package-group PUBLISH restriction and DeletePackageGroup on '/*' return ValidationException (the only 400 in each op's modeled errors); the AWS docs state the behavior but not the code."
+  - "Error codes for blocked publishes and the undeletable root group are not published: API_PublishPackageVersion and API_DeletePackageGroup model AccessDeniedException 403, ConflictException 409 and ValidationException 400 without saying which applies, and package-group-origin-controls describes the PUBLISH BLOCK setting without an error; the emulator returns ValidationException for a PUBLISH restriction and for DeletePackageGroup on '/*'"
 structural_gaps:
   - "Package-group weak-match confusable-character normalization needs the full Unicode confusables table (external data, go.mod is fixed); such packages match neither STRONG nor WEAK."
   - "GetPackageVersionReadme/ListPackageVersionDependencies and DescribePackageVersion's summary/homePage/sourceCodeRepository/licenses only read a standalone package.json asset: archive ingestion belongs to the native npm/maven clients, whose wire protocols are not emulated."
@@ -399,3 +399,6 @@ FIXED: ListPackageVersionAssets pages by max-results/next-token and ListPackageV
 - Domain names must be 2-50 chars (`[a-z][a-z0-9-]*[a-z0-9]`), repository names 2-100 chars (`[A-Za-z0-9][A-Za-z0-9._-]*`), descriptions <= 1000, encryptionKey a KMS key ARN, format one of the eight PackageFormat values, external connections one of the documented `public:` names, and upstream repositories must exist (`TestRealism_Errors`).
 - Error messages no longer start with the exception name.
 - No asynchronous lifecycle exists in CodeArtifact (domains and repositories are created Active), so no delay setter is added.
+
+## Primary-source checks (2026-11-13)
+- codeartifact: PUBLISH BLOCK semantics match package-group-origin-controls (versions cannot be published directly to any repository).

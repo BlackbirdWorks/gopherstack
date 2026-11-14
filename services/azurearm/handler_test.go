@@ -558,13 +558,13 @@ func doRequestList(t *testing.T, h *azurearm.Handler, path string) (int, map[str
 func TestHandler_StartWorker_BindsServesHTTPS(t *testing.T) {
 	t.Parallel()
 
-	port := freeEphemeralPort(t)
-
 	h := newTestHandler(t)
-	h.Port = port
+	h.Port = 0
 
 	ctx := t.Context()
 	require.NoError(t, h.StartWorker(ctx))
+
+	port := h.Port
 
 	t.Cleanup(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -634,9 +634,8 @@ func TestHandler_StartWorker_TLSCertOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := freeEphemeralPort(t)
 			h := newTestHandler(t)
-			h.Port = port
+			h.Port = 0
 			h.Settings.TLSCertFile = tt.certFile
 			h.Settings.TLSKeyFile = tt.keyFile
 
@@ -650,6 +649,8 @@ func TestHandler_StartWorker_TLSCertOverride(t *testing.T) {
 			}
 
 			require.NoError(t, startErr)
+
+			port := h.Port
 			t.Cleanup(func() {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -717,19 +718,6 @@ func TestHandler_RouteMatcherAndMetadata(t *testing.T) {
 	assert.Equal(t, 0, h.MatchPriority())
 	assert.Equal(t, "AzureARM", h.Name())
 	assert.NotEmpty(t, h.GetSupportedOperations())
-}
-
-func freeEphemeralPort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	require.NoError(t, l.Close())
-
-	return addr.Port
 }
 
 func reserveEphemeralPort(t *testing.T) int {

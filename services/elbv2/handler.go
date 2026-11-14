@@ -61,6 +61,13 @@ func (h *Handler) Name() string { return "ELBv2" }
 func (h *Handler) Shutdown(_ context.Context) {
 	h.closePeers()
 	h.closeBackend()
+	h.closeIdleConns()
+}
+
+// closeIdleConns drops pooled keep-alive connections of the data-plane proxy and the shared health prober.
+func (h *Handler) closeIdleConns() {
+	h.dp.client.CloseIdleConnections()
+	probeClient.CloseIdleConnections()
 }
 
 func (h *Handler) closeBackend() {

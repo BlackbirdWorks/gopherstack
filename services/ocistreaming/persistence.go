@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,14 +14,15 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Pools     map[string]*Pool        `json:"pools"`
-	Streams   map[string]*Stream      `json:"streams"`
-	Harnesses map[string]*Harness     `json:"harnesses"`
-	Groups    map[string]*Group       `json:"groups"`
-	WorkReqs  map[string]*WorkRequest `json:"workRequests"`
-	Auth      []ociauth.KeyRecord     `json:"authKeys"`
-	Version   int                     `json:"version"`
-	Seq       int64                   `json:"seq"`
+	Pools     map[string]*Pool          `json:"pools"`
+	Streams   map[string]*Stream        `json:"streams"`
+	Harnesses map[string]*Harness       `json:"harnesses"`
+	Groups    map[string]*Group         `json:"groups"`
+	WorkReqs  map[string]*WorkRequest   `json:"workRequests"`
+	Retry     map[string]ociretry.Entry `json:"retryTokens"`
+	Auth      []ociauth.KeyRecord       `json:"authKeys"`
+	Version   int                       `json:"version"`
+	Seq       int64                     `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -32,7 +34,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ocistreaming", backendSnapshot{
 		Version: snapshotVersion, Pools: b.pools, Streams: b.streams, Harnesses: b.harnesses, Groups: b.groups,
-		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq,
+		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, Retry: b.retry.Entries(),
 	})
 }
 
@@ -61,6 +63,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.pools, b.streams, b.harnesses, b.groups, b.workReqs, b.seq =
 		snap.Pools, snap.Streams, snap.Harnesses, snap.Groups, snap.WorkReqs, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

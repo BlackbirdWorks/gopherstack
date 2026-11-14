@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/labstack/echo/v5"
+	"google.golang.org/genproto/googleapis/cloud/location"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -71,6 +72,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateJob", "GetJob", "ListJobs", "UpdateJob", "DeleteJob", "RunJob",
 		"GetExecution", "ListExecutions", "DeleteExecution", "CancelExecution",
 		"GetTask", "ListTasks",
+		"CreateWorkerPool", "GetWorkerPool", "ListWorkerPools", "UpdateWorkerPool", "DeleteWorkerPool",
+		"CreateInstance", "GetInstance", "ListInstances", "DeleteInstance", "StopInstance", "StartInstance",
+		"SubmitBuild", "GetLocation", "ListLocations",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
 	}
 }
@@ -135,6 +139,10 @@ func (h *Handler) registerServers(srv *grpc.Server) {
 	runpb.RegisterJobsServer(srv, &jobsServer{b: h.Backend})
 	runpb.RegisterExecutionsServer(srv, &executionsServer{b: h.Backend})
 	runpb.RegisterTasksServer(srv, &tasksServer{b: h.Backend})
+	runpb.RegisterWorkerPoolsServer(srv, &workerPoolsServer{b: h.Backend})
+	runpb.RegisterInstancesServer(srv, &instancesServer{b: h.Backend})
+	runpb.RegisterBuildsServer(srv, &buildsServer{b: h.Backend})
+	location.RegisterLocationsServer(srv, &locationsServer{})
 	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
 }
 

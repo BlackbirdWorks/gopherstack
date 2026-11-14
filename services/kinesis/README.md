@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Channel S3-delivery details are inferences, not verified against AWS: object-key suffix placement, delivered byte layout, dead-letter JSON schema/prefix, channel ARN format (checked data-delivery-s3-key-template and the SDK; neither states them). (gopherstack-s781r)
+- Channel S3-delivery details not published (checked data-delivery-s3-about, data-delivery-s3-key-template and the SDK): where the automatic unique suffix sits in the object key, the delivered byte layout per record format and compression, and the dead-letter JSON schema and default error prefix (gopherstack-s781r)
 
 ### Structural gaps
 

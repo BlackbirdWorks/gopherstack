@@ -32,6 +32,14 @@ const (
 
 	pathInstance = "/instance"
 
+	methodAPI      = "API"
+	methodFlow     = "FLOW"
+	methodOutbound = "OUTBOUND"
+	endpointPhone  = "TELEPHONE_NUMBER"
+	endpointFlow   = "CONTACT_FLOW"
+	maxMonitorCaps = 2
+	reasonAPI      = "API"
+
 	statusForbidden = http.StatusForbidden
 	statusConflict  = http.StatusConflict
 	statusNotFound  = http.StatusNotFound

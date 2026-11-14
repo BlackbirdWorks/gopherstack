@@ -20,6 +20,7 @@ const (
 	tokenJTIHex  = 24
 	scopeParts   = 3
 	scopeCatalog = "registry"
+	scopeRepo    = "repository"
 )
 
 // NullUsername is the username registry clients send with a refresh token as the password.

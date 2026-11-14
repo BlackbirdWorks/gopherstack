@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
@@ -59,6 +60,7 @@ type InMemoryBackend struct {
 	workflows map[string]*workflowRec
 	execs     map[string]*execRec
 	callbacks map[string]*callback
+	keys      cmek.Checker
 	mu        *lockmetrics.RWMutex
 	wg        *sync.WaitGroup
 	pushBase  string

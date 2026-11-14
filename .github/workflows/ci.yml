@@ -913,6 +913,35 @@ jobs:
           GOPHERSTACK_TEST_IMAGE: gopherstack:tc-local
         run: go test -count=1 -timeout 10m ./...
 
+  helm-tests:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Download binary
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: gopherstack-binary
+          path: bin/
+
+      - name: Lint, render and install the Helm chart on k3s
+        env:
+          GOPHERSTACK_TEST_DOCKER: "1"
+        run: |
+          chmod +x bin/gopherstack-linux
+          go test -count=1 -timeout 15m -v ./test/helm/
+
   integration:
     runs-on: ubuntu-latest
     needs: [integration-tests]

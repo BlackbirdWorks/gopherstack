@@ -85,7 +85,8 @@ func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.P
 	return gcpiampolicy.View(rec.policy, version), nil
 }
 
-// SetIamPolicy replaces a service account's policy; a non-empty etag must match the stored one.
+// SetIamPolicy updates a service account's policy for the fields of update_mask (default bindings and etag); a
+// non-empty etag must match the stored one.
 func (b *InMemoryBackend) SetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
 	if err := gcpiampolicy.Validate(req.GetPolicy()); err != nil {
 		return nil, err
@@ -103,7 +104,12 @@ func (b *InMemoryBackend) SetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.P
 		return nil, err
 	}
 
-	next, err := gcpiampolicy.Apply(rec.policy, req.GetPolicy(), b.nextEtag)
+	merged, err := gcpiampolicy.MergeMask(rec.policy, req.GetPolicy(), req.GetUpdateMask())
+	if err != nil {
+		return nil, err
+	}
+
+	next, err := gcpiampolicy.Apply(rec.policy, merged, b.nextEtag)
 	if err != nil {
 		return nil, err
 	}

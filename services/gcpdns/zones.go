@@ -438,6 +438,7 @@ func (b *InMemoryBackend) DeleteZone(project, name string) error {
 	}
 
 	delete(b.zones, key(project, name))
+	b.iam.Drop(key(project, name))
 
 	return nil
 }

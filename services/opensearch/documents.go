@@ -3,6 +3,7 @@ package opensearch
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -410,7 +411,156 @@ func compileQuery(query map[string]any) (docPredicate, error) {
 		return matchPredicate(field, want), nil
 	}
 
+	if raw, ok := query[queryKeyBool]; ok {
+		return compileBool(raw)
+	}
+
+	if raw, ok := query["terms"]; ok {
+		return compileTerms(raw)
+	}
+
+	if raw, ok := query["exists"]; ok {
+		clause, isMap := raw.(map[string]any)
+		field, _ := clause["field"].(string)
+
+		if !isMap || field == "" {
+			return nil, fmt.Errorf("%w: exists clause requires a field", ErrValidation)
+		}
+
+		return func(doc map[string]any) bool { return doc[field] != nil }, nil
+	}
+
 	return nil, fmt.Errorf("%w: unsupported query clause", ErrValidation)
+}
+
+// compileTerms implements {"terms": {field: [v1, v2]}}.
+func compileTerms(raw any) (docPredicate, error) {
+	field, want, err := singleFieldClause(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	values, ok := want.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: terms clause requires an array", ErrValidation)
+	}
+
+	return func(doc map[string]any) bool {
+		return slices.ContainsFunc(values, func(v any) bool { return termEqual(doc[field], v) })
+	}, nil
+}
+
+// compileClauseList compiles a bool clause member given as one query object or an array of them.
+func compileClauseList(raw any) ([]docPredicate, error) {
+	var items []any
+
+	switch t := raw.(type) {
+	case nil:
+		return nil, nil
+	case []any:
+		items = t
+	default:
+		items = []any{t}
+	}
+
+	preds := make([]docPredicate, 0, len(items))
+
+	for _, it := range items {
+		q, ok := it.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%w: bool clause members must be query objects", ErrValidation)
+		}
+
+		p, err := compileQuery(q)
+		if err != nil {
+			return nil, err
+		}
+
+		preds = append(preds, p)
+	}
+
+	return preds, nil
+}
+
+// boolClauses holds the compiled members of a bool query.
+type boolClauses struct {
+	must      []docPredicate
+	mustNot   []docPredicate
+	should    []docPredicate
+	minShould int
+}
+
+func parseBoolClauses(clause map[string]any) (boolClauses, error) {
+	var (
+		bc  boolClauses
+		err error
+	)
+
+	for _, key := range []string{"must", queryKeyFilter} {
+		var ps []docPredicate
+		if ps, err = compileClauseList(clause[key]); err != nil {
+			return boolClauses{}, err
+		}
+
+		bc.must = append(bc.must, ps...)
+	}
+
+	if bc.mustNot, err = compileClauseList(clause["must_not"]); err != nil {
+		return boolClauses{}, err
+	}
+
+	if bc.should, err = compileClauseList(clause["should"]); err != nil {
+		return boolClauses{}, err
+	}
+
+	if len(bc.should) > 0 && len(bc.must) == 0 {
+		bc.minShould = 1
+	}
+
+	if v, has := clause["minimum_should_match"].(float64); has {
+		bc.minShould = int(v)
+	}
+
+	return bc, nil
+}
+
+func (bc boolClauses) matches(doc map[string]any) bool {
+	for _, p := range bc.must {
+		if !p(doc) {
+			return false
+		}
+	}
+
+	for _, p := range bc.mustNot {
+		if p(doc) {
+			return false
+		}
+	}
+
+	matched := 0
+
+	for _, p := range bc.should {
+		if p(doc) {
+			matched++
+		}
+	}
+
+	return matched >= bc.minShould
+}
+
+// compileBool implements {"bool": {must, filter, should, must_not, minimum_should_match}}.
+func compileBool(raw any) (docPredicate, error) {
+	clause, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: bool clause must be an object", ErrValidation)
+	}
+
+	bc, err := parseBoolClauses(clause)
+	if err != nil {
+		return nil, err
+	}
+
+	return bc.matches, nil
 }
 
 // unwrapClauseValue returns the scalar of a term/match clause given in either

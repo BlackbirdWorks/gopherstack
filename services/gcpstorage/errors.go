@@ -8,6 +8,7 @@ import (
 
 // APIError is an error carrying the HTTP status and Google error reason.
 type APIError struct {
+	XMLCode string
 	Reason  string
 	Message string
 	Status  int

@@ -279,7 +279,8 @@ func (pl *plan) truth(e expr, row map[string]any) bool {
 		found := false
 
 		for _, c := range x.list {
-			if r, ok := compareVals(v, pl.value(c, row)); ok && r == 0 {
+			lv, rv := pl.alignTimestamps(x.e, c, v, pl.value(c, row))
+			if r, ok := compareVals(lv, rv); ok && r == 0 {
 				found = true
 			}
 		}
@@ -305,6 +306,8 @@ func (pl *plan) evalBin(x *binExpr, row map[string]any) bool {
 		return false
 	}
 
+	l, r = pl.alignTimestamps(x.l, x.r, l, r)
+
 	c, ok := compareVals(l, r)
 	if !ok {
 		return x.op == "!="
@@ -324,6 +327,45 @@ func (pl *plan) evalBin(x *binExpr, row map[string]any) bool {
 	}
 
 	return c >= 0
+}
+
+// timestampPrec reports the precision when e is a top-level TIMESTAMP column.
+func (pl *plan) timestampPrec(e expr) (int, bool) {
+	p, ok := e.(*pathExpr)
+	if !ok || len(p.steps) != 1 {
+		return 0, false
+	}
+
+	i, found := pl.sv.lookup(p.steps[0].key)
+	if !found || pl.sv.types[i].kind != kTimestamp {
+		return 0, false
+	}
+
+	return pl.sv.types[i].prec, true
+}
+
+// alignTimestamps rewrites the other operand of a TIMESTAMP column comparison into the column's stored form,
+// so equivalent instants compare equal whatever literal form or precision they were written in.
+func (pl *plan) alignTimestamps(le, re expr, l, r any) (any, any) {
+	if prec, ok := pl.timestampPrec(le); ok {
+		return l, normTimestamp(r, prec)
+	}
+
+	if prec, ok := pl.timestampPrec(re); ok {
+		return normTimestamp(l, prec), r
+	}
+
+	return l, r
+}
+
+func normTimestamp(v any, prec int) any {
+	if s, ok := v.(string); ok {
+		if t, parsed := parseTimestamp(s); parsed {
+			return formatTimestamp(t, prec)
+		}
+	}
+
+	return v
 }
 
 func cmpNilFirst(a, b any) int {

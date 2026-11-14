@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GKE_PROXY_BASE,
   deleteCluster,
+  getKubeconfig,
   getPoolSizes,
   isBusy,
   listClusters,
@@ -159,5 +160,16 @@ describe("client", () => {
       httpStatus: 400,
       code: "FAILED_PRECONDITION",
     });
+  });
+});
+
+describe("kubeconfig", () => {
+  it("posts the :kubeconfig verb and parses the reply", async () => {
+    const f = vi.fn(() => Promise.resolve(json({ kubeconfig: "apiVersion: v1", hasToken: true })));
+    const out = await getKubeconfig("projects/p/locations/l/clusters/c", asFetch(f));
+    expect(out).toEqual({ yaml: "apiVersion: v1", hasToken: true });
+    const calls = f.mock.calls as unknown as [string, RequestInit][];
+    expect(calls[0][0]).toBe(`${GKE_PROXY_BASE}/projects/p/locations/l/clusters/c:kubeconfig`);
+    expect(calls[0][1].method).toBe("POST");
   });
 });

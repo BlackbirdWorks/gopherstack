@@ -175,7 +175,17 @@ func (h *Handler) registerMIGActions(scope string) {
 		return opResult(h.Backend.setMIGTargetPools(rq.rt.project, scope, rq.rt.loc, rq.rt.name, *in))
 	})
 
+	h.reg(collMIG, scope, "applyUpdatesToInstances", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[applyUpdatesRequest](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.applyMIGUpdates(rq.rt.project, scope, rq.rt.loc, rq.rt.name, *in))
+	})
+
 	h.registerMIGMemberOps(scope)
+	h.registerMIGStateOps(scope)
 }
 
 func (h *Handler) registerMIGMemberOps(scope string) {

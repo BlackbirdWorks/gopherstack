@@ -321,10 +321,12 @@ func TestLifecycleStartCreatesContainer(t *testing.T) {
 			assert.Equal(t, wantPorts, spec.Ports)
 
 			if tt.mount {
+				assert.Equal(t, "0:0", spec.User)
 				require.Len(t, spec.Mounts, 1)
 				assert.True(t, strings.HasSuffix(spec.Mounts[0], ":/data"))
 				assert.True(t, strings.HasPrefix(spec.Mounts[0], filepath.Join(dir, "data-n1")))
 			} else {
+				assert.Empty(t, spec.User)
 				assert.Empty(t, spec.Mounts)
 			}
 

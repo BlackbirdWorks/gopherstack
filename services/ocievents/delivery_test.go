@@ -58,93 +58,93 @@ func TestFilterMatching(t *testing.T) {
 	const create = "com.oraclecloud.objectstorage.createbucket"
 
 	tests := []struct {
+		event     ocievents.Event
 		name      string
 		condition string
-		event     ocievents.Event
 		want      bool
 	}{
-		{"empty matches all", `{}`, eventAt(testCompartment, create, "b"), true},
-		{"exact type", `{"eventType":"` + create + `"}`, eventAt(testCompartment, create, "b"), true},
+		{eventAt(testCompartment, create, "b"), "empty matches all", `{}`, true},
+		{eventAt(testCompartment, create, "b"), "exact type", `{"eventType":"` + create + `"}`, true},
 		{
+			eventAt(testCompartment, create, "b"),
 			"other type",
 			`{"eventType":"com.oraclecloud.objectstorage.deletebucket"}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
-		{"type list", `{"eventType":["x.y","` + create + `"]}`, eventAt(testCompartment, create, "b"), true},
-		{"type list miss", `{"eventType":["x.y","z.w"]}`, eventAt(testCompartment, create, "b"), false},
+		{eventAt(testCompartment, create, "b"), "type list", `{"eventType":["x.y","` + create + `"]}`, true},
+		{eventAt(testCompartment, create, "b"), "type list miss", `{"eventType":["x.y","z.w"]}`, false},
 		{
+			eventAt(testCompartment, create, "b"),
 			"mid wildcard",
 			`{"eventType":"com.oraclecloud.objectstorage.*bucket"}`,
-			eventAt(testCompartment, create, "b"),
 			true,
 		},
-		{"suffix wildcard", `{"eventType":"com.oraclecloud.*"}`, eventAt(testCompartment, create, "b"), true},
-		{"prefix wildcard", `{"eventType":"*.createbucket"}`, eventAt(testCompartment, create, "b"), true},
+		{eventAt(testCompartment, create, "b"), "suffix wildcard", `{"eventType":"com.oraclecloud.*"}`, true},
+		{eventAt(testCompartment, create, "b"), "prefix wildcard", `{"eventType":"*.createbucket"}`, true},
 		{
+			eventAt(testCompartment, create, "b"),
 			"wildcard miss",
 			`{"eventType":"com.oraclecloud.objectstorage.*object"}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
 		{
+			eventAt(testCompartment, create, "my_bucket"),
 			"data resourceName",
 			`{"data":{"resourceName":"my_bucket"}}`,
-			eventAt(testCompartment, create, "my_bucket"),
 			true,
 		},
 		{
+			eventAt(testCompartment, create, "my_bucket_2"),
 			"data resourceName prefix",
 			`{"data":{"resourceName":"my_bucket*"}}`,
-			eventAt(testCompartment, create, "my_bucket_2"),
 			true,
 		},
 		{
+			eventAt(testCompartment, create, "other"),
 			"data resourceName miss",
 			`{"data":{"resourceName":"my_bucket"}}`,
-			eventAt(testCompartment, create, "other"),
 			false,
 		},
-		{"data list", `{"data":{"resourceName":["a","b","c"]}}`, eventAt(testCompartment, create, "b"), true},
+		{eventAt(testCompartment, create, "b"), "data list", `{"data":{"resourceName":["a","b","c"]}}`, true},
 		{
+			eventAt(testCompartment, create, "b"),
 			"nested detail",
 			`{"data":{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}}`,
-			eventAt(testCompartment, create, "b"),
 			true,
 		},
 		{
+			eventAt(testCompartment, create, "b"),
 			"nested detail miss",
 			`{"data":{"additionalDetails":{"publicAccessType":"PublicAccess"}}}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
 		{
+			eventAt(testCompartment, create, "b"),
 			"star matches value",
 			`{"data":{"additionalDetails":{"publicAccessType":"*"}}}`,
-			eventAt(testCompartment, create, "b"),
 			true,
 		},
 		{
+			eventAt(testCompartment, create, "b"),
 			"star does not match null",
 			`{"data":{"additionalDetails":{"archivalState":"*"}}}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
-		{"missing field", `{"data":{"additionalDetails":{"nope":"*"}}}`, eventAt(testCompartment, create, "b"), false},
+		{eventAt(testCompartment, create, "b"), "missing field", `{"data":{"additionalDetails":{"nope":"*"}}}`, false},
 		{
+			eventAt(testCompartment, create, "b"),
 			"wrong nesting",
 			`{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
 		{
+			eventAt(testCompartment, create, "b"),
 			"and across fields",
 			`{"eventType":"` + create + `","data":{"resourceName":"zzz"}}`,
-			eventAt(testCompartment, create, "b"),
 			false,
 		},
-		{"envelope source", `{"source":"objectstorage"}`, eventAt(testCompartment, create, "b"), true},
-		{"other compartment", `{}`, eventAt(otherCompart, create, "b"), false},
+		{eventAt(testCompartment, create, "b"), "envelope source", `{"source":"objectstorage"}`, true},
+		{eventAt(otherCompart, create, "b"), "other compartment", `{}`, false},
 	}
 
 	for _, tt := range tests {
@@ -529,4 +529,30 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.Len(t, fn.invoked(), 1)
 
 	require.Error(t, ocievents.NewHandler(other).Restore(t.Context(), []byte(`{"rules":{"x":null},"version":1}`)))
+}
+
+func TestEnvelopeCarriesCompartmentNameAndTags(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	fn := &fakeFunctions{}
+	e.backend.SetFunctionInvoker(fn)
+	e.backend.SetCompartmentNamer(func(id string) string {
+		if id == testCompartment {
+			return "my_compartment"
+		}
+
+		return ""
+	})
+	e.createRule(t, "r", `{"data":{"freeFormTags":{"Department":"Finance"},"compartmentName":"my_*"}}`, faasAction())
+
+	ev := eventAt(testCompartment, "com.oraclecloud.objectstorage.createbucket", "b")
+	ev.FreeformTags = map[string]string{"Department": "Finance"}
+	e.backend.Emit(ev)
+	e.backend.Emit(eventAt(testCompartment, "com.oraclecloud.objectstorage.createbucket", "b"))
+
+	got := fn.invoked()
+	require.Len(t, got, 1)
+	assert.Contains(t, got[0], `"compartmentName":"my_compartment"`)
+	assert.Contains(t, got[0], `"freeFormTags":{"Department":"Finance"}`)
 }

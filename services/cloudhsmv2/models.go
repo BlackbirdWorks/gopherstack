@@ -9,6 +9,7 @@ const (
 	stateInitialized          = "INITIALIZED"
 	stateActive               = "ACTIVE"
 	stateModifyInProgress     = "MODIFY_IN_PROGRESS"
+	stateRollbackInProgress   = "ROLLBACK_IN_PROGRESS"
 	stateDeleteInProgress     = "DELETE_IN_PROGRESS"
 	stateDeleted              = "DELETED"
 	stateReady                = "READY"
@@ -28,7 +29,8 @@ const (
 	minRetentionDays     = 7
 	maxRetentionDays     = 379
 	backupRecoveryWindow = 7 * 24 * time.Hour
-	rollbackWindow       = 7 * 24 * time.Hour
+	rollbackWindow       = 24 * time.Hour
+	autoBackupInterval   = 24 * time.Hour
 )
 
 // Cluster is a stored CloudHSM cluster.
@@ -38,6 +40,7 @@ type Cluster struct {
 	InitUntil      time.Time         `json:"initUntil"`
 	ModifyUntil    time.Time         `json:"modifyUntil"`
 	RollbackExpiry time.Time         `json:"rollbackExpiry"`
+	LastBackup     time.Time         `json:"lastBackup,omitzero"`
 	DeletedAt      time.Time         `json:"deletedAt"`
 	DeleteUntil    time.Time         `json:"deleteUntil"`
 	SubnetMapping  map[string]string `json:"subnetMapping"`
@@ -59,6 +62,7 @@ type Cluster struct {
 	MfrHwCert      string            `json:"mfrHwCert,omitempty"`
 	RetentionDays  int               `json:"retentionDays"`
 	Initialized    bool              `json:"initialized"`
+	RollingBack    bool              `json:"rollingBack,omitempty"`
 }
 
 // Hsm is a stored HSM.
@@ -75,6 +79,7 @@ type Hsm struct {
 	SubnetID    string    `json:"subnetId"`
 	EniID       string    `json:"eniId"`
 	EniIP       string    `json:"eniIp"`
+	EniIPv6     string    `json:"eniIpv6,omitempty"`
 	HsmType     string    `json:"hsmType"`
 }
 
@@ -105,5 +110,5 @@ func (b *Backup) expiresAt() time.Time {
 		return time.Time{}
 	}
 
-	return b.Created.AddDate(0, 0, b.RetentionDays)
+	return b.Created.UTC().AddDate(0, 0, b.RetentionDays)
 }

@@ -215,17 +215,21 @@ type AliasSummary struct {
 // AliasInfo is the described form of a flow alias; the parent ARN and ID keys depend on the kind.
 type AliasInfo map[string]any
 
-type versionOut struct {
+// VersionOut is the CreateFlowVersion and CreateModuleVersion response.
+type VersionOut struct {
 	Arn     string `json:"-"`
+	Sha     string `json:"-"`
 	Version int64  `json:"Version"`
 }
 
-type aliasOut struct {
-	Arn string `json:"-"`
-	ID  string `json:"Id"`
+// AliasOut is the alias-creation response.
+type AliasOut struct {
+	Arn      string `json:"-"`
+	AliasArn string `json:"-"`
+	ID       string `json:"Id"`
 }
 
-func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInput) (*versionOut, error) {
+func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInput) (*VersionOut, error) {
 	parent := in.parent(kind)
 	sha := in.FlowContentSha256
 
@@ -237,7 +241,7 @@ func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInp
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateContactFlowVersion", in.InstanceID, func(inst string) (*versionOut, error) {
+	return writeInstance(b, "CreateContactFlowVersion", in.InstanceID, func(inst string) (*VersionOut, error) {
 		p, err := b.versionedParent(kind, inst, parent)
 		if err != nil {
 			return nil, err
@@ -269,11 +273,11 @@ func (b *Backend) createVersion(ctx context.Context, kind string, in *VersionInp
 		b.snapshotVersion(ctx, inst, kind, parent, p, next, in.Description)
 		*p.version = next
 
-		return &versionOut{Arn: p.arn, Version: next}, nil
+		return &VersionOut{Arn: p.arn, Sha: p.sha, Version: next}, nil
 	})
 }
 
-func (b *Backend) deleteVersion(kind string, in *VersionInput) (*empty, error) {
+func (b *Backend) deleteVersion(kind string, in *VersionInput) (*EmptyOutput, error) {
 	parent := in.parent(kind)
 
 	raw := in.PathVersion
@@ -286,7 +290,7 @@ func (b *Backend) deleteVersion(kind string, in *VersionInput) (*empty, error) {
 		return nil, invalidParamErr("version must be an integer")
 	}
 
-	return writeInstance(b, "DeleteContactFlowVersion", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DeleteContactFlowVersion", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		if _, err = b.versionedParent(kind, inst, parent); err != nil {
 			return nil, err
 		}
@@ -303,7 +307,7 @@ func (b *Backend) deleteVersion(kind string, in *VersionInput) (*empty, error) {
 
 		b.flowVersions.table.Delete(inst + "/" + versionKey(kind, parent, v))
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -335,7 +339,7 @@ func (b *Backend) listVersions(kind string, in *VersionInput) ([]VersionSummary,
 	return paged(all, in.NextToken, in.MaxResults)
 }
 
-func (b *Backend) createAlias(ctx context.Context, kind string, in *AliasInput) (*aliasOut, error) {
+func (b *Backend) createAlias(ctx context.Context, kind string, in *AliasInput) (*AliasOut, error) {
 	parent := in.parent(kind)
 	ver := in.version(kind)
 
@@ -350,7 +354,7 @@ func (b *Backend) createAlias(ctx context.Context, kind string, in *AliasInput) 
 		return nil, invalidParamErr("a version is required")
 	}
 
-	return writeInstance(b, "CreateContactFlowAlias", in.InstanceID, func(inst string) (*aliasOut, error) {
+	return writeInstance(b, "CreateContactFlowAlias", in.InstanceID, func(inst string) (*AliasOut, error) {
 		p, err := b.versionedParent(kind, inst, parent)
 		if err != nil {
 			return nil, err
@@ -370,7 +374,7 @@ func (b *Backend) createAlias(ctx context.Context, kind string, in *AliasInput) 
 		}
 		b.flowAliases.put(rec)
 
-		return &aliasOut{Arn: p.arn, ID: rec.AliasID}, nil
+		return &AliasOut{Arn: p.arn, AliasArn: rec.Arn, ID: rec.AliasID}, nil
 	})
 }
 
@@ -438,14 +442,14 @@ func (b *Backend) describeAlias(kind string, in *AliasInput) (AliasInfo, error) 
 	})
 }
 
-func (b *Backend) updateAlias(ctx context.Context, kind string, in *AliasInput) (*empty, error) {
+func (b *Backend) updateAlias(ctx context.Context, kind string, in *AliasInput) (*EmptyOutput, error) {
 	parent := in.parent(kind)
 
 	if err := checkOptDescription(in.Description); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateContactFlowAlias", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateContactFlowAlias", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		a, err := b.aliasOf(inst, kind, parent, in.AliasID)
 		if err != nil {
 			return nil, err
@@ -476,12 +480,12 @@ func (b *Backend) updateAlias(ctx context.Context, kind string, in *AliasInput) 
 		setIf(&a.Description, in.Description)
 		a.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
-func (b *Backend) deleteAlias(kind string, in *AliasInput) (*empty, error) {
-	return writeInstance(b, "DeleteContactFlowAlias", in.InstanceID, func(inst string) (*empty, error) {
+func (b *Backend) deleteAlias(kind string, in *AliasInput) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteContactFlowAlias", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		a, err := b.aliasOf(inst, kind, in.parent(kind), in.AliasID)
 		if err != nil {
 			return nil, err
@@ -531,4 +535,44 @@ func (b *Backend) snapshotInitial(ctx context.Context, inst, kind, id, status st
 	if p, err := b.versionedParent(kind, inst, id); err == nil {
 		b.snapshotVersion(ctx, inst, kind, id, p, 1, "")
 	}
+}
+
+// CreateFlowVersion publishes a version of a flow.
+func (b *Backend) CreateFlowVersion(ctx context.Context, in *VersionInput) (*VersionOut, error) {
+	return b.createVersion(ctx, kindFlow, in)
+}
+
+// DeleteFlowVersion deletes a flow version that no alias uses.
+func (b *Backend) DeleteFlowVersion(in *VersionInput) (*EmptyOutput, error) {
+	return b.deleteVersion(kindFlow, in)
+}
+
+// CreateModuleVersion publishes a version of a flow module.
+func (b *Backend) CreateModuleVersion(ctx context.Context, in *VersionInput) (*VersionOut, error) {
+	return b.createVersion(ctx, kindModule, in)
+}
+
+// DeleteModuleVersion deletes a flow module version that no alias uses.
+func (b *Backend) DeleteModuleVersion(in *VersionInput) (*EmptyOutput, error) {
+	return b.deleteVersion(kindModule, in)
+}
+
+// CreateModuleAlias names a version of a flow module.
+func (b *Backend) CreateModuleAlias(ctx context.Context, in *AliasInput) (*AliasOut, error) {
+	return b.createAlias(ctx, kindModule, in)
+}
+
+// UpdateModuleAlias renames or repoints a flow module alias.
+func (b *Backend) UpdateModuleAlias(ctx context.Context, in *AliasInput) (*EmptyOutput, error) {
+	return b.updateAlias(ctx, kindModule, in)
+}
+
+// DeleteModuleAlias deletes a flow module alias.
+func (b *Backend) DeleteModuleAlias(in *AliasInput) (*EmptyOutput, error) {
+	return b.deleteAlias(kindModule, in)
+}
+
+// ListModuleAliases lists the aliases of a flow module.
+func (b *Backend) ListModuleAliases(in *AliasInput) ([]AliasSummary, string, error) {
+	return b.listAliases(kindModule, in)
 }

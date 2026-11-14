@@ -44,16 +44,23 @@ func (b *InMemoryBackend) startEngineLocked(c *Cluster) error {
 }
 
 // stopEngine closes the cluster's server and releases its port.
-func stopEngine(c *Cluster) {
+func (b *InMemoryBackend) stopEngine(c *Cluster) {
 	c.engine.Close()
 	c.engine = nil
 	c.authUsers = nil
+	b.releaseDockLocked(c)
 }
 
 // startAllEnginesLocked (re)starts servers for every cluster, used after Restore. Must hold b.mu.
 func (b *InMemoryBackend) startAllEnginesLocked() {
 	for _, t := range b.clusters {
 		for _, c := range t.All() {
+			if b.docker != nil {
+				b.relaunchDockerLocked(c)
+
+				continue
+			}
+
 			_ = b.startEngineLocked(c)
 		}
 	}
@@ -63,7 +70,7 @@ func (b *InMemoryBackend) startAllEnginesLocked() {
 func (b *InMemoryBackend) stopAllEnginesLocked() {
 	for _, t := range b.clusters {
 		for _, c := range t.All() {
-			stopEngine(c)
+			b.stopEngine(c)
 		}
 	}
 }
@@ -80,6 +87,8 @@ func (b *InMemoryBackend) syncAllAuthLocked() {
 // syncAuthLocked mirrors the cluster ACL's password users into the server's AUTH
 // table. Only the first password per user is enforced, and access strings are not. Must hold b.mu.
 func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
+	b.syncDockerACLLocked(c)
+
 	if c.engine == nil || c.engine.Mini == nil {
 		return
 	}
@@ -113,6 +122,12 @@ func (b *InMemoryBackend) syncAuthLocked(c *Cluster) {
 
 // dataEndpoint returns the real server address for the cluster, or nil when none is running.
 func (c *Cluster) dataEndpoint() *endpointObject {
+	if len(c.endpoints) > 0 && len(c.endpoints[0]) > 0 {
+		ep := c.endpoints[0][0]
+
+		return &endpointObject{Address: ep.Host, Port: int32(ep.Port)} //nolint:gosec // TCP port fits int32
+	}
+
 	if c.engine == nil || c.engine.Mini == nil {
 		return nil
 	}

@@ -139,5 +139,5 @@ func cancelQuery(w http.ResponseWriter, t *queryTracker, id string) {
 	}
 
 	q.cancel(errQueryCancelled)
-	writeCypherJSON(w, http.StatusOK, map[string]any{"status": "200 OK", "payload": true})
+	writeCypherJSON(w, http.StatusOK, map[string]any{keyStatus: statusOK200, keyPayload: true})
 }

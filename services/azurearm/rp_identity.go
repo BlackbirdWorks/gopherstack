@@ -42,6 +42,18 @@ type identityService struct {
 	tenant string
 }
 
+// defaultSub is the subscription of records stored before they carried one.
+func (s *identityService) defaultSub() string {
+	if s == nil || s.msi == nil {
+		return ""
+	}
+
+	s.msi.mu.RLock("defaultSub")
+	defer s.msi.mu.RUnlock()
+
+	return s.msi.defaultSub
+}
+
 func newIdentityService(msi *ManagedIdentityProvider, tenant string) *identityService {
 	if tenant == "" {
 		tenant = DefaultTenantID

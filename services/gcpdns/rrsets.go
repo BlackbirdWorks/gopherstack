@@ -3,9 +3,11 @@ package gcpdns
 import (
 	"encoding/json/v2"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/miekg/dns"
 	dnsapi "google.golang.org/api/dns/v1"
@@ -276,13 +278,57 @@ func (b *InMemoryBackend) GetRRSet(project, zone, name, typ string) (*dnsapi.Res
 	return clone(rr), nil
 }
 
+// RRFilter restricts ListRRSets by owner name (exact, or by domain suffix) and type.
+type RRFilter struct {
+	Name   string
+	Type   string
+	Suffix bool
+}
+
+var rrFilterRe = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs memory
+	return regexp.MustCompile("^\\s*`?name`?\\s*=\\s*(?:\"([^\"]*)\"|`?has_suffix`?\\(\\s*\"([^\"]*)\"\\s*\\))" +
+		"(?:\\s+AND\\s+`?type`?\\s*=\\s*\"([^\"]*)\")?\\s*$")
+})
+
+// ParseRRFilter reads the AIP-160 subset rrsets.list documents: name="d" or name=has_suffix("d"), optionally
+// AND type="T".
+func ParseRRFilter(expr string) (RRFilter, error) {
+	m := rrFilterRe().FindStringSubmatch(expr)
+	if m == nil {
+		return RRFilter{}, errInvalidValue("filter", expr)
+	}
+
+	if m[2] != "" {
+		return RRFilter{Name: m[2], Type: m[3], Suffix: true}, nil
+	}
+
+	return RRFilter{Name: m[1], Type: m[3]}, nil
+}
+
+func (f RRFilter) matches(rr *dnsapi.ResourceRecordSet) bool {
+	if f.Type != "" && rr.Type != strings.ToUpper(f.Type) {
+		return false
+	}
+
+	if f.Name == "" {
+		return true
+	}
+
+	want := canon(f.Name)
+	if !f.Suffix {
+		return rr.Name == want
+	}
+
+	return rr.Name == want || strings.HasSuffix(rr.Name, "."+want)
+}
+
 // ListRRSets returns a page of record sets in canonical order, optionally filtered by name and type.
 func (b *InMemoryBackend) ListRRSets(
-	project, zone, name, typ, token string, limit int,
+	project, zone string, f RRFilter, token string, limit int,
 ) (page.Page[*dnsapi.ResourceRecordSet], error) {
 	var none page.Page[*dnsapi.ResourceRecordSet]
 
-	if typ != "" && name == "" {
+	if f.Type != "" && f.Name == "" {
 		return none, errInvalid("Invalid value for 'type': name must be specified when type is specified")
 	}
 
@@ -301,7 +347,7 @@ func (b *InMemoryBackend) ListRRSets(
 	var all []*dnsapi.ResourceRecordSet
 
 	for _, rr := range rec.RRSets {
-		if name != "" && rr.Name != canon(name) || typ != "" && rr.Type != strings.ToUpper(typ) {
+		if !f.matches(rr) {
 			continue
 		}
 

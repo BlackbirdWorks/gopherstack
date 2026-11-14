@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 
 	oke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 )
@@ -94,8 +95,7 @@ type engineEnv struct {
 func newEngineEnv(t *testing.T, mod func(cfg *oke.EngineConfig, rt *fakeRuntime)) *engineEnv {
 	t.Helper()
 
-	ports, err := portalloc.New(42000, 42100)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 100)
 
 	rt, g := &fakeRuntime{}, &gate{open: make(chan struct{})}
 	cfg := oke.EngineConfig{Runtime: rt, Ports: ports, Probe: g.probe, Token: testToken, StartTimeout: engineMax}
@@ -167,7 +167,7 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	}, engineMax, engineGap)
 
 	c := e.cluster(t, id).Cluster
-	assert.Regexp(t, `^127\.0\.0\.1:42\d{3}$`, *c.Endpoints.PrivateEndpoint)
+	assert.Regexp(t, `^127\.0\.0\.1:\d+$`, *c.Endpoints.PrivateEndpoint)
 	assert.Equal(t, *c.Endpoints.PrivateEndpoint, *c.Endpoints.PublicEndpoint)
 	assert.Equal(t, testToken, e.backend.EngineToken())
 

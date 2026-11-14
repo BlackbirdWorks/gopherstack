@@ -20,6 +20,7 @@ const (
 	eventHubsDefaultPeek      = 20
 	eventHubsMaxPeek          = 100
 	eventHubsMaxKeyLen        = 128
+	eventHubsNamespacesSeg    = "/namespaces"
 )
 
 type eventHubsHubJSON struct {
@@ -69,13 +70,27 @@ func (h *DashboardHandler) registerAzureEventHubsRoutes() {
 	}
 
 	r := h.SubRouter
-	r.Add(http.MethodGet, azureEventHubsProxyPrefix+"/namespaces", api.guard(api.namespaces))
-	r.Add(http.MethodGet, azureEventHubsProxyPrefix+"/namespaces/:ns/hubs/:hub/partitions", api.guard(api.partitions))
+	r.Add(http.MethodGet, azureEventHubsProxyPrefix+eventHubsNamespacesSeg, api.guard(api.namespaces))
 	r.Add(
-		http.MethodGet, azureEventHubsProxyPrefix+"/namespaces/:ns/hubs/:hub/partitions/:pid/events",
+		http.MethodGet,
+		azureEventHubsProxyPrefix+eventHubsNamespacesSeg+"/:ns/hubs/:hub/partitions",
+		api.guard(api.partitions),
+	)
+	r.Add(
+		http.MethodGet, azureEventHubsProxyPrefix+eventHubsNamespacesSeg+"/:ns/hubs/:hub/partitions/:pid/events",
 		api.guard(api.events),
 	)
-	r.Add(http.MethodPost, azureEventHubsProxyPrefix+"/namespaces/:ns/hubs/:hub/events", api.guard(api.send))
+	r.Add(
+		http.MethodPost,
+		azureEventHubsProxyPrefix+eventHubsNamespacesSeg+"/:ns/hubs/:hub/events",
+		api.guard(api.send),
+	)
+	r.Add(http.MethodGet, azureEventHubsProxyPrefix+eventHubsNamespacesSeg+"/:ns/policies", api.guard(api.policies))
+	r.Add(
+		http.MethodPost,
+		azureEventHubsProxyPrefix+eventHubsNamespacesSeg+"/:ns/policies/reveal",
+		api.guard(api.revealPolicy),
+	)
 }
 
 type azureEventHubsAPI struct {

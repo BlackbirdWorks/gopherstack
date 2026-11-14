@@ -170,7 +170,7 @@ func (b *InMemoryBackend) expireBackupsLocked(now time.Time) {
 			continue
 		}
 
-		if now.After(bk.CreatedAt.AddDate(0, 0, int(bk.RetentionDays))) {
+		if now.After(bk.CreatedAt.UTC().AddDate(0, 0, int(bk.RetentionDays))) {
 			bk.Pending = b.pend(statusDeleting, false)
 			removeDir(b.backupDirLocked(bk.ID))
 		}

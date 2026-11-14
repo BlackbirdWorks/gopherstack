@@ -21,8 +21,8 @@ const (
 )
 
 type notice struct {
-	topic, title, body string
-	asJSON             bool
+	topic, stream, title, body string
+	asJSON                     bool
 }
 
 type firing struct {
@@ -52,7 +52,13 @@ func (b *InMemoryBackend) evaluateAll(now time.Time) []notice {
 
 // breaching returns the metric streams whose aggregate over the last interval satisfies the alarm condition.
 func (b *InMemoryBackend) breaching(a *Alarm, q *MQL, now time.Time) []firing {
-	groups := b.collectGroups(q, a.Namespace, a.MetricCompartmentID, a.ResourceGroup)
+	groups := b.collectGroups(
+		q,
+		a.Namespace,
+		a.MetricCompartmentID,
+		a.ResourceGroup,
+		a.InSubtree != nil && *a.InSubtree,
+	)
 	if q.Stat == statAbsent && len(groups) == 0 {
 		return []firing{{dims: map[string]string{}, value: 1}}
 	}
@@ -90,7 +96,14 @@ func (b *InMemoryBackend) evaluate(a *Alarm, now time.Time) []notice {
 	}
 
 	hits := b.breaching(a, q, now)
+	prev := firingDims(a)
+	out := b.step(a, hits, prev, now)
+	b.updateDimStates(a, q, hits, now)
 
+	return out
+}
+
+func (b *InMemoryBackend) step(a *Alarm, hits []firing, prev []map[string]string, now time.Time) []notice {
 	switch {
 	case a.Status == statusOK && len(hits) > 0:
 		if a.PendingSince == nil {
@@ -101,7 +114,7 @@ func (b *InMemoryBackend) evaluate(a *Alarm, now time.Time) []notice {
 			return nil
 		}
 
-		return b.transition(a, statusFiring, noticeTypeFiring, now, hits)
+		return b.transition(a, statusFiring, noticeTypeFiring, now, hits, prev)
 	case a.Status == statusOK:
 		a.PendingSince = nil
 
@@ -109,20 +122,26 @@ func (b *InMemoryBackend) evaluate(a *Alarm, now time.Time) []notice {
 	case len(hits) == 0:
 		a.PendingSince = nil
 
-		return b.transition(a, statusOK, noticeTypeOK, now, nil)
+		return b.transition(a, statusOK, noticeTypeOK, now, nil, prev)
 	}
 
 	if repeat, ok := parseISODuration(
 		a.RepeatNotification,
 	); ok && a.LastNotified != nil &&
 		now.Sub(*a.LastNotified) >= repeat {
-		return b.notices(a, noticeTypeRepeat, now, hits)
+		return b.notices(a, noticeTypeRepeat, now, hits, prev)
 	}
 
 	return nil
 }
 
-func (b *InMemoryBackend) transition(a *Alarm, to, kind string, now time.Time, hits []firing) []notice {
+func (b *InMemoryBackend) transition(
+	a *Alarm,
+	to, kind string,
+	now time.Time,
+	hits []firing,
+	prev []map[string]string,
+) []notice {
 	triggered := now
 	if to == statusFiring && a.PendingSince != nil {
 		triggered = *a.PendingSince
@@ -138,11 +157,23 @@ func (b *InMemoryBackend) transition(a *Alarm, to, kind string, now time.Time, h
 
 	a.Status, a.StatusSince, a.PendingSince = to, now, nil
 
-	return b.notices(a, kind, now, hits)
+	return b.notices(a, kind, now, hits, prev)
 }
 
-func (b *InMemoryBackend) notices(a *Alarm, kind string, now time.Time, hits []firing) []notice {
+func (b *InMemoryBackend) notices(
+	a *Alarm,
+	kind string,
+	now time.Time,
+	hits []firing,
+	prev []map[string]string,
+) []notice {
 	if a.suppressedAt(now) {
+		return nil
+	}
+
+	var quiet bool
+
+	if hits, quiet = b.applySuppressions(a, kind, now, hits, prev); quiet {
 		return nil
 	}
 
@@ -155,6 +186,8 @@ func (b *InMemoryBackend) notices(a *Alarm, kind string, now time.Time, hits []f
 	for _, d := range a.Destinations {
 		if strings.HasPrefix(d, destTopicPrefix) {
 			out = append(out, notice{topic: d, title: title, body: body, asJSON: asJSON})
+		} else if strings.HasPrefix(d, destStreamPrefix) {
+			out = append(out, notice{stream: d, title: title, body: body})
 		}
 	}
 
@@ -246,15 +279,52 @@ func renderNotice(a *Alarm, kind string, now time.Time, hits []firing) (string, 
 }
 
 // deliver publishes the notices outside the backend lock.
-func deliver(ctx context.Context, pub Publisher, ns []notice) {
-	if pub == nil {
-		return
-	}
-
+func deliver(ctx context.Context, pub Publisher, streamPub StreamPublisher, ns []notice) {
 	for _, n := range ns {
+		if n.stream != "" {
+			if streamPub == nil {
+				continue
+			}
+
+			if err := streamPub(ctx, n.stream, []byte(n.body)); err != nil {
+				logger.Load(ctx).WarnContext(ctx, "ocimonitoring: alarm message not delivered to stream",
+					"stream", n.stream, "error", err)
+			}
+
+			continue
+		}
+
+		if pub == nil {
+			continue
+		}
+
 		if err := pub(ctx, n.topic, n.title, n.body, n.asJSON); err != nil {
 			logger.Load(ctx).WarnContext(ctx, "ocimonitoring: alarm notification not delivered",
 				"topic", n.topic, "error", err)
 		}
 	}
+}
+
+// applySuppressions drops the streams that an active suppression covers; quiet means nothing is left to notify.
+func (b *InMemoryBackend) applySuppressions(
+	a *Alarm,
+	kind string,
+	now time.Time,
+	hits []firing,
+	prev []map[string]string,
+) ([]firing, bool) {
+	sups := b.activeFor(a, now)
+	if len(sups) == 0 {
+		return hits, false
+	}
+
+	if kind == noticeTypeOK {
+		return hits, len(prev) > 0 && !slices.ContainsFunc(prev, func(d map[string]string) bool {
+			return !suppresses(sups, d)
+		}) || slices.ContainsFunc(sups, func(s *AlarmSuppression) bool { return s.Level == levelAlarm })
+	}
+
+	kept := slices.DeleteFunc(slices.Clone(hits), func(h firing) bool { return suppresses(sups, h.dims) })
+
+	return kept, len(kept) == 0
 }

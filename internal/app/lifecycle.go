@@ -50,6 +50,7 @@ import (
 	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
@@ -249,6 +250,14 @@ func applyFIS(reg service.Registerable, l cliconfig.LifecycleSettings) {
 			if d := l.Effective(l.FIS); d > 0 {
 				bk.SetLifecycleDelay(d)
 			}
+		}
+	}
+}
+
+func applyLambdaWeb(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*lambdawebbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*lambdawebbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.Effective(l.LambdaWeb))
 		}
 	}
 }
@@ -780,6 +789,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"AppStream":           applyAppStream,
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
+		"LambdaWeb":           applyLambdaWeb,
 		"GlobalAccelerator":   applyGlobalAccelerator,
 		"CodeGuruReviewer":    applyCodeGuruReviewer,
 		"Connect":             applyConnect,

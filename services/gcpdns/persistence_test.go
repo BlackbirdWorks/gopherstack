@@ -38,11 +38,22 @@ func TestSnapshotRestore(t *testing.T) {
 	}).Context(t.Context()).Do()
 	require.NoError(t, err)
 
+	_, err = src.svc.ManagedZones.SetIamPolicy("projects/"+project+"/managedZones/sec",
+		&dnsapi.GoogleIamV1SetIamPolicyRequest{Policy: &dnsapi.GoogleIamV1Policy{
+			Bindings: []*dnsapi.GoogleIamV1Binding{{Role: "roles/dns.admin", Members: []string{"user:a@example.com"}}},
+		}}).Context(t.Context()).Do()
+	require.NoError(t, err)
+
 	data := src.backend.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	dst := gcpdns.NewInMemoryBackend()
 	require.NoError(t, dst.Restore(t.Context(), data))
+
+	pol, err := dst.GetIAMPolicy(project, "sec", 0)
+	require.NoError(t, err)
+	require.Len(t, pol.GetBindings(), 1)
+	assert.Equal(t, "roles/dns.admin", pol.GetBindings()[0].GetRole())
 
 	got, err := dst.GetZone(project, "sec")
 	require.NoError(t, err)

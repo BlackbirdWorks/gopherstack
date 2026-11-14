@@ -20,7 +20,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		purgeTable(ctx, t, cutoff, clusterKeyFn,
 			func(c *Cluster) time.Time { return c.CreatedAt },
 			func(c *Cluster) {
-				stopEngine(c)
+				b.stopEngine(c)
 				delete(b.arnToResource[region], c.ARN)
 			},
 		)

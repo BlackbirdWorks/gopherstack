@@ -70,6 +70,7 @@ func (p *AppConfigProvider) PurgeDeletedStore(_ context.Context, location, name 
 	}
 
 	delete(p.deleted, key)
+	p.dataPlane.PurgeStore(d.name)
 
 	return nil
 }

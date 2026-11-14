@@ -373,7 +373,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		},
 		Files: []testcontainers.ContainerFile{
 			{HostFilePath: certPEMPath, ContainerFilePath: containerCertPath, FileMode: 0o444},
-			{HostFilePath: keyPEMPath, ContainerFilePath: containerKeyPath, FileMode: 0o400},
+			{HostFilePath: keyPEMPath, ContainerFilePath: containerKeyPath, FileMode: 0o444},
 		},
 		WaitingFor: wait.ForListeningPort("10006/tcp").WithStartupTimeout(60 * time.Second),
 	}

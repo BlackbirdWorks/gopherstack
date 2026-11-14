@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -72,26 +71,23 @@ func TestReserveFixedServicePorts_GCPRedis(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 8100, 8200, true},
-		{"port outside pool range", 10000, 10100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, gcpredisbackend.DefaultPort)
 
-			cli := CLI{GCPRedis: gcpredisbackend.Settings{Port: gcpredisbackend.DefaultPort}}
+			cli := CLI{GCPRedis: gcpredisbackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(gcpredisbackend.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }

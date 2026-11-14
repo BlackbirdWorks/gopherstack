@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/eventarc/publishing/apiv1/publishingpb"
+
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
@@ -65,6 +67,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateChannelConnection", "GetChannelConnection", "ListChannelConnections", "DeleteChannelConnection",
 		"GetProvider", "ListProviders", "GetGoogleChannelConfig", "UpdateGoogleChannelConfig",
 		"GetLocation", "ListLocations", "GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
+		"CreateMessageBus", "GetMessageBus", "ListMessageBuses", "UpdateMessageBus", "DeleteMessageBus",
+		"ListMessageBusEnrollments", "CreateEnrollment", "GetEnrollment", "ListEnrollments", "UpdateEnrollment",
+		"DeleteEnrollment", "CreatePipeline", "GetPipeline", "ListPipelines", "UpdatePipeline", "DeletePipeline",
+		"CreateGoogleApiSource", "GetGoogleApiSource", "ListGoogleApiSources", "UpdateGoogleApiSource",
+		"DeleteGoogleApiSource", "Publish",
 		"GetOperation", "ListOperations", "DeleteOperation", "CancelOperation", "WaitOperation",
 	}
 }
@@ -120,7 +127,8 @@ func (h *Handler) registerServers(srv *grpc.Server) {
 	eventarcpb.RegisterEventarcServer(srv, &eventarcServer{b: h.Backend})
 	iampb.RegisterIAMPolicyServer(srv, &iamServer{b: h.Backend})
 	location.RegisterLocationsServer(srv, locationsServer{b: h.Backend})
-	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
+	publishingpb.RegisterPublisherServer(srv, &publisherServer{b: h.Backend})
+	longrunningpb.RegisterOperationsServer(srv, opsServer{Store: h.Backend.ops, b: h.Backend})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
@@ -194,5 +202,6 @@ func (h *Handler) Shutdown(ctx context.Context) {
 	}
 
 	h.wg.Wait()
+	h.Backend.Close()
 	h.Backend.CloseIdleConnections()
 }

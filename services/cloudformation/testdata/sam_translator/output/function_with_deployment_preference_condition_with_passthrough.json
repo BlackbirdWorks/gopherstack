@@ -1,0 +1,208 @@
+{
+  "Conditions": {
+    "AliasProvisionedConcurrencyEnabled": {
+      "Fn::Equals": [
+        {
+          "Ref": "EnableAliasProvisionedConcurrency"
+        },
+        true
+      ]
+    },
+    "FunctionCondition": {
+      "Fn::Equals": [
+        true,
+        true
+      ]
+    }
+  },
+  "Parameters": {
+    "EnableAliasProvisionedConcurrency": {
+      "AllowedValues": [
+        true,
+        false
+      ],
+      "Default": true,
+      "Type": "String"
+    },
+    "FnName": {
+      "Type": "String"
+    },
+    "ProvisionedConcurrency": {
+      "Default": 10,
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "CodeDeployServiceRole": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codedeploy.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalFunction": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalFunctionAliaslive": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "MinimalFunctionVersion640128d35d",
+            "Version"
+          ]
+        },
+        "Name": "live",
+        "ProvisionedConcurrencyConfig": {
+          "Fn::If": [
+            "AliasProvisionedConcurrencyEnabled",
+            {
+              "ProvisionedConcurrentExecutions": {
+                "Ref": "ProvisionedConcurrency"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Alias",
+      "UpdatePolicy": {
+        "CodeDeployLambdaAliasUpdate": {
+          "ApplicationName": {
+            "Ref": "ServerlessDeploymentApplication"
+          },
+          "DeploymentGroupName": {
+            "Ref": "MinimalFunctionDeploymentGroup"
+          }
+        }
+      }
+    },
+    "MinimalFunctionDeploymentGroup": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "ApplicationName": {
+          "Ref": "ServerlessDeploymentApplication"
+        },
+        "AutoRollbackConfiguration": {
+          "Enabled": true,
+          "Events": [
+            "DEPLOYMENT_FAILURE",
+            "DEPLOYMENT_STOP_ON_ALARM",
+            "DEPLOYMENT_STOP_ON_REQUEST"
+          ]
+        },
+        "DeploymentConfigName": {
+          "Fn::Sub": [
+            "CodeDeployDefault.Lambda${ConfigName}",
+            {
+              "ConfigName": "Linear10PercentEvery3Minutes"
+            }
+          ]
+        },
+        "DeploymentStyle": {
+          "DeploymentOption": "WITH_TRAFFIC_CONTROL",
+          "DeploymentType": "BLUE_GREEN"
+        },
+        "ServiceRoleArn": {
+          "Fn::GetAtt": [
+            "CodeDeployServiceRole",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::CodeDeploy::DeploymentGroup"
+    },
+    "MinimalFunctionRole": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalFunctionVersion640128d35d": {
+      "Condition": "FunctionCondition",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    },
+    "ServerlessDeploymentApplication": {
+      "Condition": "FunctionCondition",
+      "Properties": {
+        "ComputePlatform": "Lambda"
+      },
+      "Type": "AWS::CodeDeploy::Application"
+    }
+  }
+}

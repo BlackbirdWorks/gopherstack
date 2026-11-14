@@ -88,7 +88,7 @@ func normalizeRule(r Rule) (Rule, *APIError) {
 	case actHTTPHeader:
 		return normalizeHTTPHeader(r)
 	case actIPMaxConns:
-		return r, errUnsupported(actIPMaxConns)
+		return r, checkIPMaxConns(r)
 	default:
 		return r, errParam("unknown rule action " + r.Action)
 	}

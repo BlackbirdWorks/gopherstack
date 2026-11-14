@@ -7,11 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"cel.dev/cel-go/cel"
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
@@ -20,6 +23,8 @@ import (
 const (
 	maxRepositories = 256
 	defaultPage     = 100
+
+	registryNameParts = 4
 )
 
 type repoRec struct {
@@ -30,6 +35,8 @@ type repoRec struct {
 // InMemoryBackend holds all Artifact Registry state under one lock. Docker images live in one embedded
 // registry whose repositories are named <project>/<repository>/<image>.
 type InMemoryBackend struct {
+	// Audit records Cloud Audit Logs entries for repository and artifact changes.
+	Audit    gcpaudit.Emitter
 	now      func() time.Time
 	ctx      context.Context //nolint:containedctx // lifetime of the lazily built registry
 	mu       *lockmetrics.RWMutex
@@ -44,21 +51,38 @@ type InMemoryBackend struct {
 	vpcsc    map[string]*artifactregistrypb.VPCSCConfig
 	ledger   ociregistry.Ledger
 	ops      *gcplro.Store
+	celEnv   *cel.Env
+	sessions map[string]*uploadSession
+	pending  map[string]*pendingOp
+	signKeys map[string][]byte
+	secrets  SecretResolver
+	attach   map[string]*artifactregistrypb.Attachment
+	settleMu *lockmetrics.RWMutex
+	objects  ObjectStore
+	remote   remoteOptions
+	ticker   TickerFunc
 	raw      http.Handler
 	app      http.Handler
 	dataDir  string
 	host     string
 	hostPort string
+	opDelay  time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend that keeps images in memory.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		now: time.Now, ctx: context.Background(), mu: lockmetrics.New("gcpartifactregistry"),
-		repos: map[string]*repoRec{}, ledger: ociregistry.Ledger{}, ops: gcplro.New("gcpartifactregistry"),
-		host: DefaultRegistryHost,
+		now:      time.Now,
+		ctx:      context.Background(),
+		mu:       lockmetrics.New("gcpartifactregistry"),
+		settleMu: lockmetrics.New("gcpartifactregistry.settle"),
+		repos:    map[string]*repoRec{},
+		ledger:   ociregistry.Ledger{},
+		ops:      gcplro.New("gcpartifactregistry"),
+		host:     DefaultRegistryHost,
 	}
 
+	b.celEnv, _ = newRuleEnv()
 	b.resetExtras()
 
 	return b
@@ -71,6 +95,10 @@ func (b *InMemoryBackend) resetExtras() {
 	b.rules = map[string]*artifactregistrypb.Rule{}
 	b.settings = map[string]*artifactregistrypb.ProjectSettings{}
 	b.vpcsc = map[string]*artifactregistrypb.VPCSCConfig{}
+	b.sessions = map[string]*uploadSession{}
+	b.pending = map[string]*pendingOp{}
+	b.signKeys = map[string][]byte{}
+	b.attach = map[string]*artifactregistrypb.Attachment{}
 }
 
 // SetDataDir keeps image blobs and manifests under dir; empty keeps them in memory.
@@ -100,12 +128,16 @@ func (b *InMemoryBackend) SetRegistryAddress(host, port string) {
 func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.now()) }
 
 func (b *InMemoryBackend) registryURI(r repoRef) string {
+	if r.id == "gcr.io" || strings.HasSuffix(r.id, ".gcr.io") {
+		return r.id + "/" + r.project
+	}
+
 	host := b.host
 	if b.hostPort != "" {
 		host += ":" + b.hostPort
 	}
 
-	return host + "/" + r.dockerKey()
+	return host + "/" + r.clientPath()
 }
 
 // store returns the embedded registry, building it on first use. Must hold b.mu for writing.
@@ -139,13 +171,25 @@ func cloneRepo(pb *artifactregistrypb.Repository) *artifactregistrypb.Repository
 	return out
 }
 
-// repoByKey finds the repository owning a docker registry path (project/repository/...). Must hold b.mu.
-func (b *InMemoryBackend) repoByKey(project, id string) (string, *repoRec, bool) {
-	for name, rec := range b.repos {
+// repoByKey finds the repository of a project/repository pair. An empty location accepts any (the first by name
+// when several locations hold the id); a format of 0 accepts any format. Must hold b.mu.
+func (b *InMemoryBackend) repoByKey(
+	project, id, location string,
+	format artifactregistrypb.Repository_Format,
+) (string, *repoRec, bool) {
+	for _, name := range collections.SortedKeys(b.repos) {
+		rec := b.repos[name]
+
 		ref, err := parseRepo(name)
-		if err == nil && ref.project == project && ref.id == id {
-			return name, rec, true
+		if err != nil || ref.project != project || ref.id != id || (location != "" && ref.location != location) {
+			continue
 		}
+
+		if format != artifactregistrypb.Repository_FORMAT_UNSPECIFIED && rec.pb.GetFormat() != format {
+			continue
+		}
+
+		return name, rec, true
 	}
 
 	return "", nil, false
@@ -154,16 +198,18 @@ func (b *InMemoryBackend) repoByKey(project, id string) (string, *repoRec, bool)
 // DockerRepoInfo describes the repository a registry path belongs to.
 type DockerRepoInfo struct {
 	Location  string
+	Mode      artifactregistrypb.Repository_Mode
 	Immutable bool
 	Docker    bool
 }
 
-// LookupDockerRepo resolves project/repository to its location and format.
-func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, bool) {
+// LookupDockerRepo resolves project/repository to its location and format; an empty location takes the first
+// repository by name that has the id.
+func (b *InMemoryBackend) LookupDockerRepo(project, id, location string) (DockerRepoInfo, bool) {
 	b.mu.RLock("LookupDockerRepo")
 	defer b.mu.RUnlock()
 
-	name, rec, ok := b.repoByKey(project, id)
+	name, rec, ok := b.repoByKey(project, id, location, artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		return DockerRepoInfo{}, false
 	}
@@ -172,12 +218,13 @@ func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, 
 
 	return DockerRepoInfo{
 		Location:  ref.location,
+		Mode:      rec.pb.GetMode(),
 		Docker:    rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER,
 		Immutable: rec.pb.GetDockerConfig().GetImmutableTags(),
 	}, true
 }
 
-// RecordManifestPut notes a manifest stored through the Docker API.
+// RecordManifestPut notes a manifest stored through the Docker API; repo is the embedded registry name.
 func (b *InMemoryBackend) RecordManifestPut(repo, ref, digest string) {
 	b.mu.Lock("RecordManifestPut")
 	defer b.mu.Unlock()
@@ -190,7 +237,31 @@ func (b *InMemoryBackend) RecordManifestDelete(repo, ref string) {
 	b.mu.Lock("RecordManifestDelete")
 	defer b.mu.Unlock()
 
+	b.dropDeletedManifestLocked(repo, ref)
 	b.ledger.RecordDelete(repo, ref)
+}
+
+// dropDeletedManifestLocked removes the attachments of a manifest about to leave the ledger, and of its
+// package once its last manifest goes. Must hold b.mu for writing.
+func (b *InMemoryBackend) dropDeletedManifestLocked(repo, ref string) {
+	parts := strings.SplitN(repo, "/", registryNameParts)
+	entry, ok := b.ledger[repo]
+
+	if len(parts) != registryNameParts || !ok || !ociregistry.IsDigest(ref) {
+		return
+	}
+
+	if _, isManifest := entry.Manifests[ref]; !isManifest {
+		return
+	}
+
+	rr := repoRef{project: parts[0], location: parts[1], id: parts[2]}
+	b.dropAttachmentsOfTargetLocked(rr.packageName(parts[3]) + "/versions/" + ref)
+	b.dropAttachmentFileLocked(rr.fileName(ref))
+
+	if len(entry.Manifests) == 1 {
+		b.dropAttachmentsOfTargetLocked(rr.packageName(parts[3]))
+	}
 }
 
 // TagExists reports whether tag already points at a manifest in repo.
@@ -208,12 +279,12 @@ func (b *InMemoryBackend) TagExists(repo, tag string) bool {
 	return ok
 }
 
-// ImageNames lists the images in the repository at registry path prefix project/repository, sorted.
-func (b *InMemoryBackend) ImageNames(project, id string) []string {
-	b.mu.RLock("ImageNames")
+// imageNames lists the images in a Docker repository, sorted.
+func (b *InMemoryBackend) imageNames(ref repoRef) []string {
+	b.mu.RLock("imageNames")
 	defer b.mu.RUnlock()
 
-	return b.imagesLocked(repoRef{project: project, id: id})
+	return b.imagesLocked(ref)
 }
 
 func (b *InMemoryBackend) imagesLocked(r repoRef) []string {

@@ -73,6 +73,18 @@ func addMathUDFs(d map[string]udfDef) {
 	}
 	d["smul"] = udfDef{n: argc2, fn: safeArith(mulChecked, func(a, b float64) float64 { return a * b })}
 	d["sneg"] = udfDef{n: 1, fn: udfSafeNeg}
+	d["cadd"] = udfDef{
+		n:  argc2,
+		fn: checkedArith("+", func(a, b int64) (int64, bool) { return a + b, !addOverflow(a, b) }),
+	}
+	d["csub"] = udfDef{
+		n: argc2,
+		fn: checkedArith(
+			"-",
+			func(a, b int64) (int64, bool) { return a - b, !addOverflow(a, -b) && b != math.MinInt64 },
+		),
+	}
+	d["cmul"] = udfDef{n: argc2, fn: checkedArith("*", mulChecked)}
 	d["greatest"] = udfDef{n: -1, fn: extreme(1)}
 	d["least"] = udfDef{n: -1, fn: extreme(-1)}
 	d["is_nan"] = udfDef{n: 1, fn: floatPred(math.IsNaN)}
@@ -388,6 +400,31 @@ func safeArith(ints func(a, b int64) (int64, bool), floats func(a, b float64) fl
 		y, _ := toFloat(a[1])
 
 		return floats(x, y), nil
+	}
+}
+
+func checkedArith(op string, ints func(a, b int64) (int64, bool)) udfFn {
+	return func(a []driver.Value) (driver.Value, error) {
+		if anyNull(a) {
+			return nil, nil
+		}
+
+		x, err := toInt(a[0])
+		if err != nil {
+			return nil, err
+		}
+
+		y, err := toInt(a[1])
+		if err != nil {
+			return nil, err
+		}
+
+		r, ok := ints(x, y)
+		if !ok {
+			return nil, errBQ("int64 overflow: %d %s %d", x, op, y)
+		}
+
+		return r, nil
 	}
 }
 

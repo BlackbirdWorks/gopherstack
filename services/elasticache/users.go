@@ -57,6 +57,7 @@ func (b *InMemoryBackend) CreateUserWithAuth(
 ) (*User, error) {
 	b.mu.Lock("CreateUserWithAuth")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	tbl := b.usersStore(region)
@@ -128,6 +129,7 @@ func (b *InMemoryBackend) AddUserInternal(u *User) {
 func (b *InMemoryBackend) DeleteUser(ctx context.Context, userID string) (*User, error) {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	tbl := b.usersStore(region)
@@ -205,6 +207,7 @@ func (b *InMemoryBackend) ModifyUserWithAuth(
 ) (*User, error) {
 	b.mu.Lock("ModifyUserWithAuth")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	u, ok := b.usersStore(region).Get(userID)

@@ -263,6 +263,7 @@ func TestLifecycleDockerSocketMount(t *testing.T) {
 			}
 
 			assert.Contains(t, spec.Mounts, tt.wantMount)
+			assert.Equal(t, "0:0", spec.User)
 			assert.Contains(t, spec.Env, "DOCKER_HOST=unix:///var/run/docker.sock")
 			assert.Contains(t, out.String(), "root-equivalent")
 		})

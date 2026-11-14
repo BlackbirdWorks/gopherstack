@@ -3,11 +3,58 @@ package opencypher
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
 
 func (x *exec) run(q *query) (*Result, error) {
+	res, err := x.runPart(q)
+	if err != nil || q.union == nil {
+		return res, err
+	}
+
+	for part := q; part.union != nil; part = part.union {
+		next, nerr := x.runPart(part.union)
+		if nerr != nil {
+			return nil, nerr
+		}
+
+		if !slices.Equal(res.Columns, next.Columns) {
+			return nil, malformed("All sub queries in an UNION must have the same return column names")
+		}
+
+		res.Rows = append(res.Rows, next.Rows...)
+	}
+
+	if !q.unionAll {
+		res.Rows = distinctResultRows(res.Rows)
+	}
+
+	return res, nil
+}
+
+func distinctResultRows(rows [][]any) [][]any {
+	seen := map[string]bool{}
+	out := rows[:0:0]
+
+	for _, r := range rows {
+		var sb strings.Builder
+		for _, v := range r {
+			sb.WriteString(valueKey(v) + "|")
+		}
+
+		if k := sb.String(); !seen[k] {
+			seen[k] = true
+
+			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
+func (x *exec) runPart(q *query) (*Result, error) {
 	rows := []row{{}}
 	res := &Result{}
 

@@ -3,7 +3,6 @@ package dsql
 import (
 	"maps"
 	"sort"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -41,7 +40,7 @@ func (b *InMemoryBackend) CreateCluster(accountID, region string, in CreateClust
 	}
 
 	identifier := newIdentifier()
-	now := time.Now().UTC()
+	now := b.now().UTC()
 
 	tags := make(map[string]string, len(in.Tags))
 	maps.Copy(tags, in.Tags)
@@ -66,6 +65,7 @@ func (b *InMemoryBackend) CreateCluster(accountID, region string, in CreateClust
 	}
 
 	b.clusters.Put(c)
+	b.startUnitLocked(c)
 
 	return c.clone(), nil
 }
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) ListClusters(nextToken string, maxResults int) ([]*Clu
 	for _, c := range all {
 		b.advanceClusterLocked(c)
 
-		if c.Status == statusDeleting && time.Now().After(c.PendingUntil) {
+		if c.Status == statusDeleting && b.now().After(c.PendingUntil) {
 			b.removeClusterLocked(c.Identifier)
 
 			continue
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) UpdateCluster(identifier string, in UpdateClusterInput
 		c.KmsEncryptionKey = in.KmsEncryptionKey
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	c.Status = statusUpdating
 	c.PendingUntil = now.Add(b.dwell(clusterActivationDelay))
 	b.activatePeersLocked(c, c.PendingUntil)
@@ -182,9 +182,10 @@ func (b *InMemoryBackend) DeleteCluster(identifier string) (*Cluster, error) {
 		return nil, ErrDeletionProtected
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	c.Status = statusDeleting
 	c.PendingUntil = now.Add(b.dwell(clusterDeletionDelay))
+	b.reapUnitLocked(identifier)
 	b.unlinkPeersLocked(c)
 
 	return c.clone(), nil

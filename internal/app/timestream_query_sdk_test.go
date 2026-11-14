@@ -387,15 +387,23 @@ func TestTimestreamQuery_SDK_PagingAndCancel(t *testing.T) {
 	assert.Len(t, all, 9)
 	assert.True(t, sortedByTime(all))
 
-	// a token is good for five uses (one already spent paging above)
-	for range 4 {
+	// a token is good for five uses
+	reuse, err := env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(q), MaxRows: aws.Int32(4)})
+	require.NoError(t, err)
+	require.NotNil(t, reuse.NextToken)
+
+	for range 5 {
 		_, rErr := env.query.Query(
 			t.Context(),
-			&tqsdk.QueryInput{QueryString: aws.String(q), NextToken: first.NextToken},
+			&tqsdk.QueryInput{QueryString: aws.String(q), NextToken: reuse.NextToken},
 		)
 		require.NoError(t, rErr)
 	}
 
+	_, err = env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(q), NextToken: reuse.NextToken})
+	require.ErrorContains(t, err, "Invalid pagination token")
+
+	// a newer token invalidates the older ones
 	_, err = env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(q), NextToken: first.NextToken})
 	require.ErrorContains(t, err, "Invalid pagination token")
 

@@ -56,9 +56,20 @@ families:
 items_still_open:
   - "Auth tokens are not validated: OCI Identity discards them after CreateAuthToken, so any non-empty token with a <namespace>/<user> login is accepted, and the user part is not checked against Identity users. IAM policies, repository policies, resource principals and instance principals are not applied; only API-key signatures are verified on the control plane."
   - "Registry hostnames are not modelled: one host:port serves every region key and the namespace is the first path segment, as OCIR paths are (<region-key>.ocir.io/<namespace>/<repo>). The generic artifact content API is served on the control-plane listener instead of generic.artifacts.<region>.oci.oraclecloud.com. No TLS (docker treats localhost registries as insecure)."
-  - "Unverified, chosen by the emulator: 409 Conflict for duplicate repository names, identical signatures and immutable generic overwrites; 409 TAG_INVALID for immutable tag overwrites; isRepositoryCreatedOnFirstPush defaulting to true; billableSizeInGBs as whole GB rounded up; DeleteRepository cascading to artifacts; the 256 MiB artifact cap; one-hour registry token lifetime; the unversioned image displayName form."
-  - "Repositories and images have no DELETING window: deletes are immediate (images soft-delete to DELETED until restored; repositories vanish). OCI's deletion retention, repository quotas and per-image limits are not modelled, and blobs of deleted images are not garbage collected."
+  - "Not published (checked artifacts/overview.htm, Registry registrycreatingarepository.htm and the artifacts SDK doc comments): 409 Conflict for immutable generic overwrites; 409 TAG_INVALID for immutable tag overwrites; the isRepositoryCreatedOnFirstPush default (emulator: true); billableSizeInGBs as whole GB rounded up; DeleteRepository cascading to artifacts; the 256 MiB artifact cap; one-hour registry token lifetime (all emulator choices)"
+  - "Repositories and images have no DELETING window: deletes are immediate (images soft-delete to DELETED until restored; repositories vanish). OCI's deletion retention and the documented limits (500 repositories and 500 GB per region, 100,000 images per repository; docs.oracle.com Registry/Concepts/registryoverview.htm) are not modelled, and blobs of deleted images are not garbage collected."
   - "createdBy on images and versions is the registry login user name rather than a user OCID; signatures and repositories created through the API use the signing user OCID."
   - "pullCount counts GET manifest requests only, including ones the registry then rejects; blob pulls and HEAD requests do not count. Image scanning, vulnerability reports and replication are not provided."
-  - "opc-retry-token idempotency and compartmentIdInSubtree outside OCI Identity are not applied; systemTags are always empty."
+  - "compartmentIdInSubtree is not applied outside OCI Identity; systemTags are always empty."
 ---
+
+## Verified against Oracle documentation
+
+- Duplicate container repository and identical signature creates return 409 NotAuthorizedOrResourceAlreadyExists (create-only code): https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm.
+
+## 2026-11-13 verification
+
+SDK `artifacts` v65.126.2 `ContainerImage.DisplayName` documents the `repo:lastVersion@digest` and `unknown` forms for an image without versions, matching `imageName`. RemoveContainerVersion, RestoreContainerImage, ChangeRepositoryCompartment and ChangeContainerRepositoryCompartment carry `opc-retry-token` in the SDK and replay the first answer for 24 hours.
+
+## Primary-source checks (2026-11-13)
+- ociartifacts: Registry registrycreatingarepository.htm confirms an on-first-push repository is a private standard repository in the root compartment.

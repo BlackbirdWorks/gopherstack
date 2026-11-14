@@ -3,6 +3,7 @@ package memorydb
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
@@ -16,6 +17,8 @@ import (
 // pre-existing instant-available behavior by default.
 type Cluster struct {
 	engine      *redisengine.Engine
+	dock        *dockState
+	endpoints   [][]redisdocker.Endpoint
 	authUsers   []string
 	CreatedAt   time.Time `json:"createdAt"`
 	AvailableAt time.Time `json:"availableAt"`

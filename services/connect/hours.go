@@ -191,7 +191,7 @@ func (b *Backend) ListHoursOfOperations(inst, token string, maxResults int32) ([
 }
 
 // UpdateHoursOfOperation changes the supplied settings of a schedule.
-func (b *Backend) UpdateHoursOfOperation(ctx context.Context, in *UpdateHoursOfOperationInput) (*empty, error) {
+func (b *Backend) UpdateHoursOfOperation(ctx context.Context, in *UpdateHoursOfOperationInput) (*EmptyOutput, error) {
 	if in.TimeZone != nil {
 		if err := checkTimeZone(*in.TimeZone); err != nil {
 			return nil, err
@@ -236,7 +236,7 @@ func (b *Backend) UpdateHoursOfOperation(ctx context.Context, in *UpdateHoursOfO
 
 	h.Hours.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func setIf[T any](dst *T, src *T) {
@@ -246,7 +246,7 @@ func setIf[T any](dst *T, src *T) {
 }
 
 // DeleteHoursOfOperation removes a schedule that no queue uses.
-func (b *Backend) DeleteHoursOfOperation(inst, id string) (*empty, error) {
+func (b *Backend) DeleteHoursOfOperation(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteHoursOfOperation")
 	defer b.mu.Unlock()
 

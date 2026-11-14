@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -514,10 +514,7 @@ func TestEnableClusters_RejectsUnsafeConfig(t *testing.T) {
 func TestDockerCluster_ReleasesProxyPortWhenActivationLosesRace(t *testing.T) {
 	t.Parallel()
 
-	const lo, hi = 24100, 24103
-
-	ports, err := portalloc.New(lo, hi)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 3)
 
 	rt := &fakeClusterRuntime{}
 
@@ -533,7 +530,7 @@ func TestDockerCluster_ReleasesProxyPortWhenActivationLosesRace(t *testing.T) {
 
 	total := ports.Available()
 
-	_, err = b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return ports.Available() == total && len(rt.removedIDs()) >= 1 },

@@ -1,0 +1,201 @@
+---
+# Source: gopherstack/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rel-gopherstack
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: gopherstack/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rel-gopherstack
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+  PORT: "8000"
+  REGION: "us-east-1"
+  ACCOUNT_ID: "000000000000"
+  LOG_LEVEL: "info"
+  GOPHERSTACK_ENGINES: "docker"
+  GOPHERSTACK_ENFORCE_IAM: "false"
+  GOPHERSTACK_LOCALSTACK_COMPAT: "false"
+  CONTAINER_RUNTIME: "kubernetes"
+  CONTAINER_K8S_NAMESPACE: "ns"
+  CONTAINER_K8S_FETCH_IMAGE: "busybox:1.37.0"
+  CONTAINER_K8S_CODE_PORT: "4599"
+---
+# Source: gopherstack/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rel-gopherstack-pods
+  namespace: ns
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+# Source: gopherstack/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rel-gopherstack-pods
+  namespace: ns
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rel-gopherstack-pods
+subjects:
+  - kind: ServiceAccount
+    name: rel-gopherstack
+    namespace: ns
+---
+# Source: gopherstack/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rel-gopherstack
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+---
+# Source: gopherstack/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rel-gopherstack
+  labels:
+    helm.sh/chart: gopherstack-0.1.0
+    app.kubernetes.io/name: gopherstack
+    app.kubernetes.io/instance: rel
+    app.kubernetes.io/version: "1.9.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gopherstack
+      app.kubernetes.io/instance: rel
+  template:
+    metadata:
+      annotations:
+        checksum/config: a42f57e9c444e6c2170afb742615cda9453d3120b4aa0ec0d216b7302e934f6e
+      labels:
+        app.kubernetes.io/name: gopherstack
+        app.kubernetes.io/instance: rel
+    spec:
+      serviceAccountName: rel-gopherstack
+      automountServiceAccountToken: true
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gopherstack
+          image: "ghcr.io/blackbirdworks/gopherstack:1.9.1"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          envFrom:
+            - configMapRef:
+                name: rel-gopherstack
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: LAMBDA_DOCKER_HOST
+              value: $(POD_IP)
+            - name: CONTAINER_K8S_ADVERTISE_HOST
+              value: $(POD_IP)
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: fn-code
+              containerPort: 4599
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /_gopherstack/health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /_gopherstack/health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet:
+              path: /_gopherstack/health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 2
+            timeoutSeconds: 3
+          resources:
+            {}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

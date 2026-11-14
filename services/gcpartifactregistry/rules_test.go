@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	arapi "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/iterator"
 	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/grpc/codes"
@@ -203,11 +204,122 @@ func TestRulesDenyDockerPulls(t *testing.T) {
 	_, err := e.client.CreateRule(ctx, &artifactregistrypb.CreateRuleRequest{
 		Parent: parent, RuleId: "cond", Rule: &artifactregistrypb.Rule{
 			Action: artifactregistrypb.Rule_DENY, Operation: artifactregistrypb.Rule_DOWNLOAD, PackageId: "lib",
-			Condition: &expr.Expr{Expression: `tag_name == "v1"`},
+			Condition: &expr.Expr{Expression: `"v1" in resource.tags`},
 		},
 	})
 	require.NoError(t, err)
 
-	lib, _ = pull("lib")
-	assert.Equal(t, http.StatusOK, lib, "rules with a condition are stored but not evaluated")
+	lib, libBlob := pull("lib")
+	assert.Equal(t, http.StatusForbidden, lib, "the condition holds for the v1 manifest")
+	assert.NotEqual(t, http.StatusForbidden, libBlob, "blob reads carry no tags, so the condition does not hold")
+}
+
+func TestRuleConditions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "cel", dockerRepo())
+
+	c := e.docker(t)
+	pushTo(c, "cel", "app", "v1")
+
+	ctx, parent := t.Context(), repoName("cel")
+	accept := map[string]string{"Accept": "application/vnd.docker.distribution.manifest.v2+json"}
+	pull := func() int {
+		return c.Do(http.MethodGet, "/v2/"+project+"/cel/app/manifests/v1", nil, accept).Status
+	}
+
+	tests := []struct {
+		name string
+		expr string
+		want int
+		code codes.Code
+	}{
+		{
+			name: "future time does not apply",
+			expr: `request.time < timestamp("2000-01-01T00:00:00Z")`,
+			want: http.StatusOK,
+		},
+		{
+			name: "past time applies",
+			expr: `request.time > timestamp("2000-01-01T00:00:00Z")`,
+			want: http.StatusForbidden,
+		},
+		{name: "package match", expr: `resource.package == "app"`, want: http.StatusForbidden},
+		{name: "package mismatch", expr: `resource.package == "other"`, want: http.StatusOK},
+		{name: "pkg id", expr: `pkg.id == "app"`, want: http.StatusForbidden},
+		{name: "pkg id prefix", expr: `pkg.id.startsWith("ap")`, want: http.StatusForbidden},
+		{name: "pkg id mismatch", expr: `pkg.id.startsWith("lib")`, want: http.StatusOK},
+		{name: "pkg tag", expr: `pkg.version.tag == "v1"`, want: http.StatusForbidden},
+		{name: "pkg tag mismatch", expr: `pkg.version.tag in ["v2", "v3"]`, want: http.StatusOK},
+		{name: "syntax error", expr: `resource.package ==`, code: codes.InvalidArgument},
+		{name: "not a bool", expr: `resource.package`, code: codes.InvalidArgument},
+		{name: "undeclared", expr: `bogus == 1`, code: codes.InvalidArgument},
+	}
+
+	for i, tt := range tests {
+		id := "r" + string(rune('a'+i))
+
+		rule := &artifactregistrypb.Rule{
+			Action: artifactregistrypb.Rule_DENY, Operation: artifactregistrypb.Rule_DOWNLOAD,
+			Condition: &expr.Expr{Expression: tt.expr},
+		}
+
+		_, err := e.client.CreateRule(
+			ctx,
+			&artifactregistrypb.CreateRuleRequest{Parent: parent, RuleId: id, Rule: rule},
+		)
+		assert.Equal(t, tt.code, status.Code(err), tt.name)
+
+		if tt.code == codes.OK {
+			assert.Equal(t, tt.want, pull(), tt.name)
+			require.NoError(
+				t,
+				e.client.DeleteRule(ctx, &artifactregistrypb.DeleteRuleRequest{Name: parent + "/rules/" + id}),
+			)
+		}
+	}
+}
+
+func TestRuleConditionsSeeVersionAnnotations(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "ann", genericRepo())
+
+	svc := restService(t, e)
+
+	for _, v := range []string{"1", "2"} {
+		_, err := upload(t, svc, "ann", &arapi.UploadGenericArtifactRequest{
+			PackageId: "pkg", VersionId: v, Filename: "f",
+		}, []byte("v"+v))
+		require.NoError(t, err)
+	}
+
+	_, err := e.client.UpdateVersion(t.Context(), &artifactregistrypb.UpdateVersionRequest{
+		Version: &artifactregistrypb.Version{
+			Name: pkgName("ann", "pkg") + "/versions/2", Annotations: map[string]string{"quarantined": "true"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"annotations"}},
+	})
+	require.NoError(t, err)
+
+	for id, cond := range map[string]string{
+		"quarantine": `'quarantined' in pkg.version.annotations && pkg.version.annotations['quarantined'] == 'true'`,
+	} {
+		rule := ruleOf(artifactregistrypb.Rule_DENY, "pkg")
+		rule.Condition = &expr.Expr{Expression: cond}
+
+		_, err = e.client.CreateRule(t.Context(), &artifactregistrypb.CreateRuleRequest{
+			Parent: repoName("ann"), RuleId: id, Rule: rule,
+		})
+		require.NoError(t, err)
+	}
+
+	data, err := download(t, svc, fileName("ann", "pkg:1:f"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("v1"), data)
+
+	_, err = download(t, svc, fileName("ann", "pkg:2:f"))
+	assert.Equal(t, http.StatusForbidden, httpCode(err))
 }

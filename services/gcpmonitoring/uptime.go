@@ -80,6 +80,11 @@ func validateMatchers(ms []*uptimeMatcher) error {
 			if _, err := regexp.Compile(m.GetContent()); err != nil || len(m.GetContent()) > maxRegexLen {
 				return errInvalid("Field uptime_check_config.content_matchers had an invalid regular expression.")
 			}
+		case monitoringpb.UptimeCheckConfig_ContentMatcher_MATCHES_JSON_PATH,
+			monitoringpb.UptimeCheckConfig_ContentMatcher_NOT_MATCHES_JSON_PATH:
+			if err := validateJSONPathMatcher(m); err != nil {
+				return err
+			}
 		default:
 			return errInvalid("Field uptime_check_config.content_matchers had an invalid value: %s: %s.",
 				errUnsupportedM, m.GetMatcher())
@@ -394,4 +399,31 @@ func (b *InMemoryBackend) ListUptimeCheckIps() []*monitoringpb.UptimeCheckIp {
 	}
 
 	return out
+}
+
+const jsonRegexMatch = monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_REGEX_MATCH
+
+func validateJSONPathMatcher(m *uptimeMatcher) error {
+	jm := m.GetJsonPathMatcher()
+	if jm == nil {
+		return errInvalid("Field uptime_check_config.content_matchers.json_path_matcher is required for %s.",
+			m.GetMatcher())
+	}
+
+	if _, err := parseJSONPath(jm.GetJsonPath()); err != nil {
+		return errInvalid("Field uptime_check_config.content_matchers.json_path_matcher.json_path had an invalid "+
+			"value of %q.", jm.GetJsonPath())
+	}
+
+	switch jm.GetJsonMatcher() {
+	case monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_EXACT_MATCH:
+	case jsonRegexMatch:
+		if _, err := regexp.Compile(m.GetContent()); err != nil || len(m.GetContent()) > maxRegexLen {
+			return errInvalid("Field uptime_check_config.content_matchers had an invalid regular expression.")
+		}
+	case monitoringpb.UptimeCheckConfig_ContentMatcher_JsonPathMatcher_JSON_PATH_MATCHER_OPTION_UNSPECIFIED:
+		return errInvalid("Field uptime_check_config.content_matchers.json_path_matcher.json_matcher is required.")
+	}
+
+	return nil
 }

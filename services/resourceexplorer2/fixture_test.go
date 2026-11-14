@@ -47,7 +47,9 @@ func defaultResources() fakeSource {
 		{ARN: "arn:aws:s3:::alpha-bucket", Tags: map[string]string{"env": "prod", "team": "a"}},
 		{ARN: "arn:aws:sqs:us-east-1:" + a + ":orders-queue", Tags: map[string]string{"env": "dev"}},
 		{ARN: "arn:aws:lambda:us-east-1:" + a + ":function:hello"},
-		{ARN: "arn:aws:dynamodb:us-east-1:" + a + ":table/users", Tags: map[string]string{"env": "prod"}},
+		{ARN: "arn:aws:dynamodb:us-east-1:" + a + ":table/users", Tags: map[string]string{
+			"env": "prod", "awsApplication": "arn:aws:resource-groups:us-east-1:" + a + ":group/MyApp/abc123",
+		}},
 		{ARN: "arn:aws:ec2:us-west-2:" + a + ":instance/i-0123", Tags: map[string]string{"team": "b"}},
 		{ARN: "arn:aws:iam::" + a + ":role/admin"},
 		{ARN: "arn:aws:sns:us-east-1:999999999999:foreign-topic"},

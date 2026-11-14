@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"cloud.google.com/go/run/apiv2/runpb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 )
@@ -123,4 +125,37 @@ func automaticSecret() *secretmanagerpb.Secret {
 	return &secretmanagerpb.Secret{Replication: &secretmanagerpb.Replication{
 		Replication: &secretmanagerpb.Replication_Automatic_{Automatic: &secretmanagerpb.Replication_Automatic{}},
 	}}
+}
+
+func TestWireGCPRun_SubmitBuild(t *testing.T) {
+	t.Parallel()
+
+	run := gcprunbackend.NewHandler(gcprunbackend.NewInMemoryBackend())
+	cb := gcpcloudbuildbackend.NewHandler(gcpcloudbuildbackend.NewInMemoryBackend())
+	t.Cleanup(run.Backend.Close)
+	t.Cleanup(cb.Backend.Close)
+	cb.Backend.DisableEngine("no container engine in this test")
+
+	src := &runpb.StorageSource{Bucket: "b", Object: "o.tar.gz"}
+	req := &runpb.SubmitBuildRequest{
+		Parent:    "projects/p/locations/us-central1",
+		Source:    &runpb.SubmitBuildRequest_StorageSource{StorageSource: src},
+		ImageUri:  "us-central1-docker.pkg.dev/p/repo/app",
+		BuildType: &runpb.SubmitBuildRequest_DockerBuild_{DockerBuild: &runpb.SubmitBuildRequest_DockerBuild{}},
+	}
+
+	_, err := run.Backend.SubmitBuild(req)
+	require.Error(t, err, "no Cloud Build emulator wired")
+
+	wireGCPRun(map[string]service.Registerable{"GCPRun": run, "GCPCloudBuild": cb})
+
+	resp, err := run.Backend.SubmitBuild(req)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetBuildOperation().GetName())
+
+	builds, _, err := cb.Backend.ListBuilds(&cloudbuildpb.ListBuildsRequest{Parent: "projects/p/locations/us-central1"})
+	require.NoError(t, err)
+	require.Len(t, builds, 1)
+	assert.Equal(t, []string{req.GetImageUri()}, builds[0].GetImages())
+	assert.Equal(t, "gcr.io/cloud-builders/docker", builds[0].GetSteps()[0].GetName())
 }

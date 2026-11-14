@@ -1,0 +1,119 @@
+{
+  "Resources": {
+    "ImplicitApiFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "member_portal.zip"
+        },
+        "Handler": "index.gethtml",
+        "Role": {
+          "Fn::GetAtt": [
+            "ImplicitApiFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "ImplicitApiFunctionCognitoPermission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "ImplicitApiFunction"
+        },
+        "Principal": "cognito-idp.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "UserPool",
+            "Arn"
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "ImplicitApiFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "UserPool": {
+      "Properties": {
+        "LambdaConfig": {
+          "PostConfirmation": {
+            "Fn::GetAtt": [
+              "ImplicitApiFunction",
+              "Arn"
+            ]
+          },
+          "PreSignUp": {
+            "Fn::GetAtt": [
+              "ImplicitApiFunction",
+              "Arn"
+            ]
+          },
+          "VerifyAuthChallengeResponse": {
+            "Fn::GetAtt": [
+              "ImplicitApiFunction",
+              "Arn"
+            ]
+          }
+        },
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 8
+          }
+        },
+        "Schema": [
+          {
+            "AttributeDataType": "String",
+            "Name": "email",
+            "Required": false
+          }
+        ],
+        "UserAttributeUpdateSettings": {
+          "AttributesRequireVerificationBeforeUpdate": [
+            "email"
+          ]
+        },
+        "UserPoolName": "UserPoolName",
+        "UsernameAttributes": [
+          "email"
+        ]
+      },
+      "Type": "AWS::Cognito::UserPool"
+    }
+  }
+}

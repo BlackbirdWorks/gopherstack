@@ -73,6 +73,12 @@ ops:
   ListTagDefaults: {wire: ok, errors: ok, state: ok, persist: n/a, note: "id, compartmentId, tagDefinitionId filters."}
   UpdateTagDefault: {wire: ok, errors: ok, state: ok, persist: ok, note: "value and isRequired."}
   DeleteTagDefault: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
+  ChangeTagNamespaceCompartment: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /tagNamespaces/{id}/actions/changeCompartment, 200 with no body (the SDK response carries no work request); moves the namespace and its tag definitions at once, the target must be an ACTIVE compartment; opc-retry-token replays. isLockOverride is ignored (locks are not modelled)."}
+  CascadeDeleteTagNamespace: {wire: ok, errors: ok, state: ok, persist: ok, note: "202 with a DELETE_NON_EMPTY_TAG_NAMESPACE work request; the namespace must be retired first (409 Conflict); its tag definitions and their defaults go DELETING then DELETED together with the namespace."}
+  GetTaggingWorkRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "/taggingWorkRequests/{id}; only DELETE_TAG_DEFINITION and DELETE_NON_EMPTY_TAG_NAMESPACE work requests are visible."}
+  ListTaggingWorkRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required; resourceIdentifier filter; bare array."}
+  ListTaggingWorkRequestErrors: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Always empty: no tagging work request fails."}
+  ListTaggingWorkRequestLogs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "An accepted line, then a succeeded line once the transition passed."}
   GetWorkRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "IN_PROGRESS until the resource transition time, then SUCCEEDED."}
   ListWorkRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "compartmentId required (the tenancy lists all); resourceIdentifier filter."}
 families:
@@ -84,12 +90,17 @@ families:
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
 items_still_open:
   - "IAM policy enforcement is not implemented: policies and dynamic groups are stored and validated but never evaluated, so no request is authorised or denied by them; any verified principal may call any operation."
-  - "Identity domains (domains, SCIM-style users, MFA devices, OAuth2 client credentials, DB credentials, Swift passwords), identity providers and group mappings, network sources, authentication policy and the tenancy-level region subscription, tag namespace compartment moves and cascade delete, bulk tag operations, tag retire/reactivate as separate operations, standard tag templates, and IAM work request logs/errors are not implemented."
+  - "Identity domains (domains, SCIM-style users, MFA devices, OAuth2 client credentials, DB credentials, Swift passwords), identity providers and group mappings, network sources, authentication policy and the tenancy-level region subscription, bulk tag operations (BulkDeleteTags, BulkEditTags, ListBulkEditTagsResourceTypes), standard tag templates and the IAM work request operations (/iamWorkRequests, whose operation types in oci-go-sdk identity/iam_work_request.go are all identity-domain operations) are not implemented. Tag retire and reactivate are not separate SDK operations: they are isRetired on UpdateTag and UpdateTagNamespace (identity_client.go)."
   - "Customer secret keys, auth tokens, SMTP credentials and the UI password are generated and listed but not stored, so they cannot be used for S3-compatible, registry, SMTP or console authentication."
   - "DeleteCompartment only checks the IAM resources it owns; resources other emulated OCI services keep in a compartment do not block deletion."
   - "Statement subjects and locations are parsed but group, dynamic-group and compartment names are not resolved against existing resources, and variable and resource-type names are not checked against the documented lists."
-  - "Error codes and statuses for duplicate names, per-user credential limits and tenancy limits (400 LimitExceeded, 409 Conflict) and the MOVE_COMPARTMENT operation type are unverified against the live service."
-  - "Dynamic group matchingRule supports a single ANY or ALL group of simple comparisons; the documented variable set is not enforced."
+  - "Per-operation error mapping for duplicate names (409 Conflict), per-user credential limits and tenancy limits (400 LimitExceeded) is undocumented, and MOVE_COMPARTMENT is not among the SDK's work request operation types (DELETE_COMPARTMENT and DELETE_TAG_DEFINITION)."
   - "Access levels are not modelled: accessLevel is validated but every caller sees every compartment, and inactive states other than DELETING and DELETED are never produced."
-  - "opc-retry-token idempotency, resource principals and instance principals are not applied; only API-key signatures are verified."
+  - "opc-retry-token replay is not applied to credential creation (auth tokens, secret keys, SMTP credentials, API keys), whose replies carry secrets that are not stored; resource principals and instance principals are not applied and only API-key signatures are verified."
 ---
+
+## 2026-11-13 pass
+
+- Dynamic group matching rules accept `any|all {condition, ...}` over the documented variables only: instance.compartment.id, instance.id, resource.id, resource.compartment.id, resource.type and tag.<namespace>.<key>.value (https://docs.oracle.com/iaas/Content/Identity/dynamicgroups/Writing_Matching_Rules_to_Define_Dynamic_Groups.htm). The page documents `=` and `!=`; the emulator also accepts the other comparison operators shared with policy conditions.
+- CreateCompartment, CreateUser, CreateGroup, CreateDynamicGroup, CreatePolicy, CreateTagNamespace, CreateTag and CreateTagDefault replay on opc-retry-token for 24 hours (SDK request docs) and answer 409 InvalidatedRetryToken once the resource was deleted (https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm); tokens persist in the snapshot as retryTokens.
+- TagDefinition resolves a namespace and key (case-insensitive, documented in https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm) for the tag checks of OCI Streaming and OCI Queue; retired namespaces and keys are reported as retired.

@@ -2,21 +2,17 @@ package athena
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 )
 
-var (
-	dayTimeInterval  = regexp.MustCompile(`^([+-]?)(\d+) (\d{1,2}):(\d{1,2}):(\d{1,2})$`)
-	yearMonthInteval = regexp.MustCompile(`^([+-]?)(\d+)-(\d{1,2})$`)
-)
-
-const (
-	secondsPerMinute = 60
-	secondsPerHour   = 3600
-	secondsPerDay    = 86400
-)
+func isTypedLiteralWord(w string) bool {
+	switch strings.ToLower(w) {
+	case typeDate, typeTimestamp, "time":
+		return true
+	default:
+		return false
+	}
+}
 
 func singularUnit(w string) string { return strings.TrimSuffix(strings.ToLower(w), "s") }
 
@@ -29,77 +25,63 @@ func isIntervalUnit(w string) bool {
 	}
 }
 
-// intervalAmount converts an INTERVAL literal into a date_add unit and count.
-func intervalAmount(lit, from, to string) (string, int64, error) {
-	lit = strings.TrimSpace(lit)
-
-	switch {
-	case to == "":
-		n, err := strconv.ParseInt(lit, 10, 64)
-		if err != nil {
-			return "", 0, badInterval("Invalid INTERVAL value '%s'", lit)
-		}
-
-		return from, n, nil
-	case from == unitYear && to == unitMonth:
-		return yearMonthAmount(lit)
-	case from == unitDay && to == unitSecond:
-		return dayTimeAmount(lit)
-	default:
-		return "", 0, badInterval("INTERVAL %s TO %s is not supported", strings.ToUpper(from), strings.ToUpper(to))
-	}
-}
-
 func badInterval(format string, args ...any) error {
 	return &syntaxError{"line 1:1: " + fmt.Sprintf(format, args...)}
 }
 
-func signed(sign string, n int64) int64 {
-	if sign == "-" {
-		return -n
+// intervalLiteralAt reports the string token index when toks[i] starts `INTERVAL ['+'|'-'] 'text'`.
+func intervalLiteralAt(toks []token, i int) (int, string, bool) {
+	if !toks[i].isWord(kwInterval) {
+		return 0, "", false
 	}
 
-	return n
-}
+	j := nextSig(toks, i)
+	sign := ""
 
-func yearMonthAmount(lit string) (string, int64, error) {
-	m := yearMonthInteval.FindStringSubmatch(lit)
-	if m == nil {
-		return "", 0, badInterval("Invalid INTERVAL YEAR TO MONTH value '%s'", lit)
+	if j >= 0 && (toks[j].isPunct("-") || toks[j].isPunct("+")) {
+		sign = toks[j].text
+		j = nextSig(toks, j)
 	}
 
-	y, _ := strconv.ParseInt(m[2], 10, 64)
-	mo, _ := strconv.ParseInt(m[3], 10, 64)
-
-	return unitMonth, signed(m[1], y*monthsPerYear+mo), nil
-}
-
-func dayTimeAmount(lit string) (string, int64, error) {
-	m := dayTimeInterval.FindStringSubmatch(lit)
-	if m == nil {
-		return "", 0, badInterval("Invalid INTERVAL DAY TO SECOND value '%s'", lit)
+	if j < 0 || toks[j].kind != tkString {
+		return 0, "", false
 	}
 
-	d, _ := strconv.ParseInt(m[2], 10, 64)
-	h, _ := strconv.ParseInt(m[3], 10, 64)
-	mi, _ := strconv.ParseInt(m[4], 10, 64)
-	s, _ := strconv.ParseInt(m[5], 10, 64)
-
-	return unitSecond, signed(m[1], d*secondsPerDay+h*secondsPerHour+mi*secondsPerMinute+s), nil
+	return j, sign, true
 }
 
-// intervalSpec scans `'n' UNIT [TO UNIT]` after the INTERVAL word at toks[i].
-func intervalSpec(toks []token, i int) (int, string, string, int) {
-	lit := nextSig(toks, i)
-	end := lit
+// usesIntervals reports whether the statement can produce interval values.
+func usesIntervals(toks []token) bool {
+	for i, t := range toks {
+		if t.kind != tkWord {
+			continue
+		}
 
-	u := nextSig(toks, end)
+		if _, _, ok := intervalLiteralAt(toks, i); ok {
+			return true
+		}
+
+		if p := prevSig(toks, i); t.isWord(kwInterval) && p >= 0 && toks[p].isWord("as") {
+			return true
+		}
+
+		if n := nextSig(toks, i); n >= 0 && toks[n].isPunct("(") &&
+			(t.isWord("parse_duration") || t.isWord("to_milliseconds")) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// intervalSpec scans `UNIT [TO UNIT]` after the literal string at toks[lit].
+func intervalSpec(toks []token, lit int) (string, string, int) {
+	u := nextSig(toks, lit)
 	if u < 0 || toks[u].kind != tkWord || !isIntervalUnit(toks[u].text) {
-		return lit, "", "", end
+		return "", "", lit
 	}
 
-	from, to := singularUnit(toks[u].text), ""
-	end = u
+	from, to, end := singularUnit(toks[u].text), "", u
 
 	if t := nextSig(toks, end); t >= 0 && toks[t].isWord("to") {
 		if u2 := nextSig(toks, t); u2 >= 0 && toks[u2].kind == tkWord && isIntervalUnit(toks[u2].text) {
@@ -107,43 +89,328 @@ func intervalSpec(toks []token, i int) (int, string, string, int) {
 		}
 	}
 
-	return lit, from, to, end
+	return from, to, end
 }
 
-// interval rewrites `operand (+|-) INTERVAL 'n' UNIT [TO UNIT]` at toks[i] onto
-// athena_date_add; the operator and left operand are already in out.
-func (x *translator) interval(toks []token, i int, out []token) ([]token, int) {
-	lit, from, to, end := intervalSpec(toks, i)
-
-	opIdx := lastSig(out)
-	if from == "" || opIdx < 0 || (!out[opIdx].isPunct("+") && !out[opIdx].isPunct("-")) {
-		x.err = &syntaxError{"line 1:1: INTERVAL is only supported as the right operand of + or -"}
-
-		return out, end
+// rewriteIntervals turns INTERVAL literals into interval values and routes + - * / through
+// athena_iv_op so interval and temporal operands combine at run time; uses=false leaves toks alone.
+func rewriteIntervals(toks []token) ([]token, bool, error) {
+	if !usesIntervals(toks) {
+		return toks, false, nil
 	}
 
-	unit, n, err := intervalAmount(stringLiteral(toks[lit]), from, to)
+	toks, err := intervalLiterals(toks)
 	if err != nil {
-		x.err = err
-
-		return out, end
+		return nil, false, err
 	}
 
-	if out[opIdx].isPunct("-") {
-		n = -n
+	for _, ops := range []string{"*/", "+-"} {
+		toks = routeOperators(toks, ops)
 	}
 
-	left := out[:opIdx]
+	return toks, true, nil
+}
 
-	start := primaryStart(left)
-	if start < 0 {
-		x.err = &syntaxError{"line 1:1: INTERVAL arithmetic needs a date or timestamp operand"}
+func intervalLiterals(toks []token) ([]token, error) {
+	out := make([]token, 0, len(toks))
 
-		return out, end
+	for i := 0; i < len(toks); i++ {
+		lit, sign, ok := intervalLiteralAt(toks, i)
+		if !ok {
+			out = append(out, toks[i])
+
+			continue
+		}
+
+		from, to, end := intervalSpec(toks, lit)
+		if from == "" {
+			return nil, badInterval("INTERVAL requires a unit after '%s'", stringLiteral(toks[lit]))
+		}
+
+		kind, n, err := parseIntervalLiteral(sign+stringLiteral(toks[lit]), from, to)
+		if err != nil {
+			return nil, err
+		}
+
+		fn := "athena_iv_dt"
+		if kind == ivKindYM {
+			fn = "athena_iv_ym"
+		}
+
+		out = append(out, token{kind: tkWord, text: fmt.Sprintf("%s(%d)", fn, n)})
+		i = end
 	}
 
-	operand := strings.TrimSpace(joinTokens(left[start:]))
-	res := token{kind: tkWord, text: fmt.Sprintf("athena_date_add('%s', %d, %s)", unit, n, operand)}
+	return out, nil
+}
 
-	return append(left[:start:start], res), end
+func isOperandEnd(t token) bool {
+	switch t.kind {
+	case tkNumber, tkString, tkQuoted:
+		return true
+	case tkPunct:
+		return t.text == ")" || t.text == "]"
+	case tkWord:
+		return !isOperandKeyword(strings.ToLower(t.text))
+	default:
+		return false
+	}
+}
+
+func isBinaryOperator(toks []token, i int) bool {
+	p := prevSig(toks, i)
+
+	return p >= 0 && isOperandEnd(toks[p])
+}
+
+const ivWrapTokens = 8
+
+func routeOperators(toks []token, ops string) []token {
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.kind != tkPunct || !strings.Contains(ops, t.text) || !isBinaryOperator(toks, i) {
+			continue
+		}
+
+		l, r := operandStart(toks, prevSig(toks, i)), operandEnd(toks, i)
+		if l < 0 || r < 0 || bothNumbers(toks, l, i, r) {
+			continue
+		}
+
+		wrapped := make([]token, 0, r-l+ivWrapTokens)
+		wrapped = append(
+			wrapped,
+			token{kind: tkWord, text: "athena_iv_op"},
+			token{kind: tkPunct, text: "("},
+			token{
+				kind: tkString,
+				text: "'" + t.text + "'",
+			},
+			token{kind: tkPunct, text: ","},
+			token{kind: tkSpace, text: " "},
+		)
+		wrapped = append(wrapped, trimSpaceTokens(toks[l:i])...)
+		wrapped = append(wrapped, token{kind: tkPunct, text: ","}, token{kind: tkSpace, text: " "})
+		wrapped = append(wrapped, trimSpaceTokens(toks[i+1:r+1])...)
+		wrapped = append(wrapped, token{kind: tkPunct, text: ")"})
+
+		rest := append([]token(nil), toks[r+1:]...)
+		toks = append(append(toks[:l:l], wrapped...), rest...)
+		i = l + len(wrapped) - 1
+	}
+
+	return toks
+}
+
+func bothNumbers(toks []token, l, op, r int) bool {
+	left, right := significant(toks[l:op]), significant(toks[op+1:r+1])
+
+	return len(left) == 1 && len(right) == 1 && left[0].kind == tkNumber && right[0].kind == tkNumber
+}
+
+func isUnarySign(toks []token, i int) bool {
+	if !toks[i].isPunct("-") && !toks[i].isPunct("+") {
+		return false
+	}
+
+	p := prevSig(toks, i)
+
+	return p < 0 || !isOperandEnd(toks[p])
+}
+
+// operandStart finds where the primary expression ending at toks[end] begins, including a unary sign.
+func operandStart(toks []token, end int) int {
+	if end < 0 {
+		return -1
+	}
+
+	s := primaryBegin(toks, end)
+	if s < 0 {
+		return -1
+	}
+
+	if p := prevSig(toks, s); p >= 0 && isUnarySign(toks, p) {
+		return p
+	}
+
+	return s
+}
+
+func primaryBegin(toks []token, end int) int {
+	t := toks[end]
+
+	switch {
+	case t.isPunct(")"):
+		return callBegin(toks, end)
+	case t.isPunct("]"):
+		open := matchBackBracket(toks, end)
+		if open < 0 {
+			return -1
+		}
+
+		return primaryBegin(toks, prevSig(toks, open))
+	case t.kind == tkString:
+		return literalBegin(toks, end)
+	case t.isWord("end"):
+		return matchCaseBack(toks, end)
+	case t.kind == tkWord && !isOperandKeyword(strings.ToLower(t.text)), t.kind == tkQuoted, t.kind == tkNumber:
+		return chainStart(toks, end)
+	default:
+		return -1
+	}
+}
+
+func callBegin(toks []token, closeIdx int) int {
+	open := matchBackParen(toks, closeIdx)
+	if open < 0 {
+		return -1
+	}
+
+	if p := prevSig(toks, open); p >= 0 && toks[p].kind == tkWord &&
+		!isOperandKeyword(strings.ToLower(toks[p].text)) {
+		return chainStart(toks[:p+1], p)
+	}
+
+	return open
+}
+
+func literalBegin(toks []token, str int) int {
+	if p := prevSig(toks, str); p >= 0 && toks[p].kind == tkWord && isTypedLiteralWord(toks[p].text) {
+		return p
+	}
+
+	return str
+}
+
+func matchBackBracket(toks []token, closeIdx int) int {
+	depth := 0
+
+	for i := closeIdx; i >= 0; i-- {
+		switch {
+		case toks[i].isPunct("]"):
+			depth++
+		case toks[i].isPunct("["):
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+func matchCaseBack(toks []token, end int) int {
+	depth := 0
+
+	for i := end; i >= 0; i-- {
+		switch {
+		case toks[i].isWord("end"):
+			depth++
+		case toks[i].isWord("case"):
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+func matchCaseForward(toks []token, start int) int {
+	depth := 0
+
+	for i := start; i < len(toks); i++ {
+		switch {
+		case toks[i].isWord("case"):
+			depth++
+		case toks[i].isWord("end"):
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+// operandEnd returns the index of the last token of the primary expression right of toks[op].
+func operandEnd(toks []token, op int) int {
+	j := nextSig(toks, op)
+	for j >= 0 && (toks[j].isPunct("-") || toks[j].isPunct("+")) {
+		j = nextSig(toks, j)
+	}
+
+	if j < 0 {
+		return -1
+	}
+
+	end := baseEnd(toks, j)
+
+	for end >= 0 {
+		n := nextSig(toks, end)
+
+		switch {
+		case n >= 0 && toks[n].isPunct("["):
+			end = matchBracket(toks, n)
+		case n >= 0 && toks[n].isPunct(".") && nextSig(toks, n) >= 0 && isStructChainToken(toks[nextSig(toks, n)]):
+			end = chainTail(toks, nextSig(toks, n))
+		default:
+			return end
+		}
+	}
+
+	return -1
+}
+
+func chainTail(toks []token, name int) int {
+	if n := nextSig(toks, name); n >= 0 && toks[n].isPunct("(") {
+		return matchParen(toks, n)
+	}
+
+	return name
+}
+
+func baseEnd(toks []token, j int) int {
+	t := toks[j]
+
+	switch {
+	case t.isPunct("("):
+		return matchParen(toks, j)
+	case t.kind == tkNumber, t.kind == tkString:
+		return j
+	case t.isWord("case"):
+		return matchCaseForward(toks, j)
+	case t.kind == tkWord && isOperandKeyword(strings.ToLower(t.text)):
+		return -1
+	case t.kind == tkWord, t.kind == tkQuoted:
+		return nameEnd(toks, j)
+	default:
+		return -1
+	}
+}
+
+func nameEnd(toks []token, j int) int {
+	n := nextSig(toks, j)
+	if n < 0 {
+		return j
+	}
+
+	switch {
+	case toks[n].isPunct("("):
+		end := matchParen(toks, n)
+		if o := nextSig(toks, end); end >= 0 && o >= 0 && toks[o].isWord("over") {
+			if q := nextSig(toks, o); q >= 0 && toks[q].isPunct("(") {
+				return matchParen(toks, q)
+			}
+		}
+
+		return end
+	case toks[n].kind == tkString && isTypedLiteralWord(toks[j].text):
+		return n
+	default:
+		return j
+	}
 }

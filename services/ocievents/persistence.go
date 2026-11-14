@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,10 +14,11 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Rules   map[string]*Rule    `json:"rules"`
-	Auth    []ociauth.KeyRecord `json:"authKeys"`
-	Version int                 `json:"version"`
-	Seq     int64               `json:"seq"`
+	Rules   map[string]*Rule          `json:"rules"`
+	Retry   map[string]ociretry.Entry `json:"retryTokens"`
+	Auth    []ociauth.KeyRecord       `json:"authKeys"`
+	Version int                       `json:"version"`
+	Seq     int64                     `json:"seq"`
 }
 
 // Snapshot serialises the rules and registered API keys; the delivery log is not persisted.
@@ -27,7 +29,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocievents", backendSnapshot{
-		Version: snapshotVersion, Rules: b.rules, Auth: keys, Seq: b.seq,
+		Version: snapshotVersion, Rules: b.rules, Retry: b.retry.Entries(), Auth: keys, Seq: b.seq,
 	})
 }
 
@@ -61,6 +63,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.rules, b.seq, b.deliveries = snap.Rules, snap.Seq, nil
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil

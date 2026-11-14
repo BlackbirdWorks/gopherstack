@@ -18,7 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 // benchMockDockerAPI is a minimal container.APIClient that never talks to a
@@ -60,10 +60,7 @@ func (benchMockDockerAPI) Close() error                      { return nil }
 // already-running mocked runtime, isolating request-path cost from
 // container execution time.
 func BenchmarkInvokeFunction_Overhead(b *testing.B) {
-	pa, err := portalloc.New(19900, 19950)
-	if err != nil {
-		b.Fatalf("portalloc.New: %v", err)
-	}
+	pa := portalloctest.New(b, 50)
 
 	dc := gophercontainer.NewDockerRuntimeWithAPI(benchMockDockerAPI{}, gophercontainer.Config{
 		PoolSize: 3,

@@ -104,7 +104,10 @@ func applyPredefined(a *PredefinedAttribute, in *predefinedBody) {
 }
 
 // CreatePredefinedAttribute creates a predefined attribute.
-func (b *Backend) CreatePredefinedAttribute(ctx context.Context, in *CreatePredefinedAttributeInput) (*empty, error) {
+func (b *Backend) CreatePredefinedAttribute(
+	ctx context.Context,
+	in *CreatePredefinedAttributeInput,
+) (*EmptyOutput, error) {
 	if err := firstError(checkName("Name", in.Name, maxNameLen), checkPredefinedBody(&in.predefinedBody)); err != nil {
 		return nil, err
 	}
@@ -113,7 +116,7 @@ func (b *Backend) CreatePredefinedAttribute(ctx context.Context, in *CreatePrede
 		return nil, invalidParamErr("Values is required")
 	}
 
-	return writeInstance(b, "CreatePredefinedAttribute", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "CreatePredefinedAttribute", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		if b.predefined.has(inst, in.Name) {
 			return nil, duplicateErr("PredefinedAttribute", in.Name)
 		}
@@ -122,7 +125,7 @@ func (b *Backend) CreatePredefinedAttribute(ctx context.Context, in *CreatePrede
 		applyPredefined(&a, &in.predefinedBody)
 		b.predefined.put(&predefinedRec{InstanceID: inst, Attribute: a})
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
@@ -152,12 +155,15 @@ func (b *Backend) ListPredefinedAttributes(
 }
 
 // UpdatePredefinedAttribute changes the supplied settings of a predefined attribute.
-func (b *Backend) UpdatePredefinedAttribute(ctx context.Context, in *UpdatePredefinedAttributeInput) (*empty, error) {
+func (b *Backend) UpdatePredefinedAttribute(
+	ctx context.Context,
+	in *UpdatePredefinedAttributeInput,
+) (*EmptyOutput, error) {
 	if err := checkPredefinedBody(&in.predefinedBody); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdatePredefinedAttribute", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdatePredefinedAttribute", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		r, err := b.predefined.get(inst, in.Name)
 		if err != nil {
 			return nil, err
@@ -166,13 +172,13 @@ func (b *Backend) UpdatePredefinedAttribute(ctx context.Context, in *UpdatePrede
 		applyPredefined(&r.Attribute, &in.predefinedBody)
 		r.Attribute.Stamp = b.stamp(ctx)
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeletePredefinedAttribute removes a predefined attribute.
-func (b *Backend) DeletePredefinedAttribute(inst, name string) (*empty, error) {
-	return writeInstance(b, "DeletePredefinedAttribute", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeletePredefinedAttribute(inst, name string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeletePredefinedAttribute", inst, func(inst string) (*EmptyOutput, error) {
 		return nil, b.predefined.del(inst, name)
 	})
 }

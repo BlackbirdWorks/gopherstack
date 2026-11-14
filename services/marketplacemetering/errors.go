@@ -41,7 +41,7 @@ func errorTable() map[error]awserr.APIError {
 		ErrCustomerNotEntitled:        apiErr("CustomerNotEntitledException", http.StatusBadRequest),
 		ErrDuplicateRequest:           apiErr("DuplicateRequestException", http.StatusBadRequest),
 		ErrExpiredToken:               apiErr("ExpiredTokenException", http.StatusBadRequest),
-		ErrIdempotencyConflict:        apiErr("IdempotencyConflictException", http.StatusConflict),
+		ErrIdempotencyConflict:        apiErr("IdempotencyConflictException", http.StatusBadRequest),
 		ErrInternalServiceError:       apiErr("InternalServiceErrorException", http.StatusInternalServerError),
 		ErrInvalidCustomerIdentifier:  apiErr("InvalidCustomerIdentifierException", http.StatusBadRequest),
 		ErrInvalidProductCode:         apiErr("InvalidProductCodeException", http.StatusBadRequest),
@@ -53,7 +53,7 @@ func errorTable() map[error]awserr.APIError {
 		ErrTimestampOutOfBounds:       apiErr("TimestampOutOfBoundsException", http.StatusBadRequest),
 		ErrValidation:                 apiErr("ValidationException", http.StatusBadRequest),
 		ErrDryRunOperation:            apiErr("DryRunOperation", http.StatusBadRequest),
-		idempotency.ErrParamsMismatch: apiErr("IdempotencyConflictException", http.StatusConflict),
+		idempotency.ErrParamsMismatch: apiErr("IdempotencyConflictException", http.StatusBadRequest),
 		errUnknownOperation:           apiErr("ValidationException", http.StatusBadRequest),
 	}
 }

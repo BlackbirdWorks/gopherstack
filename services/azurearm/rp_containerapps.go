@@ -38,6 +38,12 @@ const (
 	acaKindReplica
 	acaKindJob
 	acaKindExecution
+	acaKindDapr
+	acaKindCert
+	acaKindJava
+	acaKindAuth
+	acaKindSource
+	acaKindPool
 )
 
 // acaTarget is what a ResourceID addresses: its kind, its names and whether it lists a collection.
@@ -67,6 +73,18 @@ func acaTargetOf(id ResourceID) acaTarget {
 		t.kind = acaKindRevision
 	case acaTypesAre(types, acaAppType, acaRevisionType, acaReplicaType):
 		t.kind = acaKindReplica
+	case acaTypesAre(types, acaEnvType, acaDaprType):
+		t.kind = acaKindDapr
+	case acaTypesAre(types, acaEnvType, acaCertType):
+		t.kind = acaKindCert
+	case acaTypesAre(types, acaEnvType, acaJavaType):
+		t.kind = acaKindJava
+	case acaTypesAre(types, acaAppType, acaAuthType):
+		t.kind = acaKindAuth
+	case acaTypesAre(types, acaAppType, acaSourceType):
+		t.kind = acaKindSource
+	case acaTypesAre(types, acaPoolType):
+		t.kind = acaKindPool
 	case acaTypesAre(types, acaJobType):
 		t.kind = acaKindJob
 	case acaTypesAre(types, acaJobType, acaExecutionType):
@@ -112,8 +130,12 @@ type ContainerAppsProvider struct {
 	envs    map[string]*storedACAEnv
 	apps    map[string]*storedACAApp
 	jobs    map[string]*storedACAJob
+	pools   map[string]*storedACAPool
 	hosts   map[string]acaHostTarget
 	rt      *acaRuntime
+	meters  ACAQueueMeters
+
+	lastPoll map[string]time.Time
 }
 
 // NewContainerAppsProvider creates a provider that runs replicas in engine. backend serves the Microsoft.App types
@@ -122,10 +144,19 @@ func NewContainerAppsProvider(
 	engine *ACIEngine, backend *InMemoryBackend, network *NetworkProvider, ids *identityService,
 ) *ContainerAppsProvider {
 	return &ContainerAppsProvider{
-		now: time.Now, backend: backend, net: network, ids: ids,
-		mu: lockmetrics.New("azurearm.containerapps"), opMu: lockmetrics.New("azurearm.containerapps.ops"),
-		envs: map[string]*storedACAEnv{}, apps: map[string]*storedACAApp{}, jobs: map[string]*storedACAJob{},
-		hosts: map[string]acaHostTarget{}, rt: newACARuntime(engine),
+		now:      time.Now,
+		backend:  backend,
+		net:      network,
+		ids:      ids,
+		mu:       lockmetrics.New("azurearm.containerapps"),
+		opMu:     lockmetrics.New("azurearm.containerapps.ops"),
+		envs:     map[string]*storedACAEnv{},
+		apps:     map[string]*storedACAApp{},
+		jobs:     map[string]*storedACAJob{},
+		pools:    map[string]*storedACAPool{},
+		hosts:    map[string]acaHostTarget{},
+		rt:       newACARuntime(engine),
+		lastPoll: map[string]time.Time{},
 	}
 }
 
@@ -140,8 +171,14 @@ func (p *ContainerAppsProvider) ResourceTypes() []ResourceTypeDef {
 
 	return []ResourceTypeDef{
 		{Type: acaEnvType, APIVersions: v, HasChildren: true},
+		{Type: acaEnvType + "/" + acaDaprType, APIVersions: v},
+		{Type: acaEnvType + "/" + acaCertType, APIVersions: v},
+		{Type: acaEnvType + "/" + acaJavaType, APIVersions: v},
 		{Type: acaAppType, APIVersions: v, HasChildren: true},
 		{Type: acaJobType, APIVersions: v, HasChildren: true},
+		{Type: acaAppType + "/" + acaAuthType, APIVersions: v},
+		{Type: acaAppType + "/" + acaSourceType, APIVersions: v},
+		{Type: acaPoolType, APIVersions: v},
 	}
 }
 
@@ -154,7 +191,10 @@ func (p *ContainerAppsProvider) SetKeyVaultSecrets(v KeyVaultSecrets) {
 }
 
 // SetClock replaces the clock that drives scale-to-zero; for tests.
-func (p *ContainerAppsProvider) SetClock(c ACAClock) { p.rt.setClock(c) }
+func (p *ContainerAppsProvider) SetClock(c ACAClock) {
+	p.rt.setClock(c)
+	p.now = c.Now
+}
 
 // SetTrafficPicker replaces the source of the 0..n-1 draw that splits traffic between revisions; for tests.
 func (p *ContainerAppsProvider) SetTrafficPicker(fn func(n int) int) { p.rt.setPick(fn) }
@@ -175,6 +215,12 @@ func (p *ContainerAppsProvider) Put(ctx context.Context, id ResourceID, body map
 		return p.putEnv(id, body)
 	case t.kind == acaKindStorage:
 		return p.putStorage(id, body)
+	case isACASubKind(t.kind):
+		return p.putSub(id, body)
+	case isACAAppSubKind(t.kind):
+		return p.putAppSub(id, body)
+	case t.kind == acaKindPool:
+		return p.putPool(id, body)
 	case t.kind == acaKindApp:
 		return p.putApp(ctx, id, body)
 	case t.kind == acaKindJob:
@@ -214,6 +260,14 @@ func (p *ContainerAppsProvider) getLocked(id ResourceID, t acaTarget) (map[strin
 		}
 	case acaKindStorage:
 		return p.storageGet(id, t)
+	case acaKindDapr, acaKindCert, acaKindJava:
+		return p.subGet(id, t)
+	case acaKindAuth, acaKindSource:
+		return p.appSubGet(id, t)
+	case acaKindPool:
+		if s, ok := p.pools[acaKey(id.ResourceGroup, t.names[0])]; ok {
+			return p.poolBody(id, s), nil
+		}
 	case acaKindApp:
 		if a, ok := p.apps[acaKey(id.ResourceGroup, t.names[0])]; ok {
 			return p.appBody(id, a), nil
@@ -243,6 +297,12 @@ func (p *ContainerAppsProvider) Delete(_ context.Context, id ResourceID) error {
 		return p.deleteEnv(id, t.names[0])
 	case t.kind == acaKindStorage:
 		return p.deleteStorage(id, t)
+	case isACASubKind(t.kind):
+		return p.deleteSub(id, t)
+	case isACAAppSubKind(t.kind):
+		return p.appSubDelete(id, t)
+	case t.kind == acaKindPool:
+		return p.deletePool(id)
 	case t.kind == acaKindApp:
 		return p.deleteApp(id, t.names[0])
 	case t.kind == acaKindJob:
@@ -274,6 +334,12 @@ func (p *ContainerAppsProvider) List(_ context.Context, id ResourceID) ([]map[st
 		return p.listJobs(id), nil
 	case acaKindStorage:
 		return p.listStorages(id)
+	case acaKindDapr, acaKindCert, acaKindJava:
+		return p.listSubs(id, t)
+	case acaKindAuth, acaKindSource:
+		return p.appSubList(id, t)
+	case acaKindPool:
+		return p.listPools(id), nil
 	case acaKindRevision, acaKindReplica:
 		return p.listRevisions(id, t)
 	case acaKindExecution:
@@ -291,6 +357,7 @@ func (p *ContainerAppsProvider) Reset() {
 
 	p.mu.Lock("Reset")
 	p.envs, p.apps, p.jobs = map[string]*storedACAEnv{}, map[string]*storedACAApp{}, map[string]*storedACAJob{}
+	p.pools = map[string]*storedACAPool{}
 	p.hosts = map[string]acaHostTarget{}
 	p.mu.Unlock()
 
@@ -324,6 +391,13 @@ func (p *ContainerAppsProvider) DeleteResourcesInGroup(_ context.Context, resour
 		}
 	}
 
+	for k, s := range p.pools {
+		if resourceGroupsEqual(s.ResourceGroup, resourceGroup) ||
+			envKeys[strings.ToLower(strOf(s.Props, fieldEnvironmentID))] {
+			delete(p.pools, k)
+		}
+	}
+
 	for k, j := range p.jobs {
 		if resourceGroupsEqual(j.ResourceGroup, resourceGroup) || envKeys[strings.ToLower(j.EnvironmentID)] {
 			jobKeys = append(jobKeys, p.executionKeys(j)...)
@@ -340,7 +414,10 @@ func (p *ContainerAppsProvider) DeleteResourcesInGroup(_ context.Context, resour
 }
 
 // Close stops every replica.
-func (p *ContainerAppsProvider) Close() { p.rt.closeAll() }
+func (p *ContainerAppsProvider) Close() {
+	p.rt.stop()
+	p.rt.closeAll()
+}
 
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
@@ -390,7 +467,12 @@ func (p *ContainerAppsProvider) etagOf(id ResourceID) (string, bool) {
 		if j, ok := p.jobs[key]; ok {
 			return acaEtag(j.Modified), true
 		}
-	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution:
+	case acaKindPool:
+		if s, ok := p.pools[key]; ok {
+			return acaEtag(s.Modified), true
+		}
+	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution, acaKindDapr, acaKindCert,
+		acaKindJava, acaKindAuth, acaKindSource:
 	}
 
 	return "", false

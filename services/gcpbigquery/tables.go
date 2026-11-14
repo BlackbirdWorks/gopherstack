@@ -3,7 +3,9 @@ package gcpbigquery
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
@@ -51,7 +53,7 @@ func (b *InMemoryBackend) tableLocked(project, ds, id string) (*Dataset, *Table,
 		return nil, nil, err
 	}
 
-	t, ok := d.Tables[id]
+	t, ok := d.live(id)
 	if !ok {
 		return nil, nil, errNotFound("Not found: Table %s:%s.%s", project, ds, id)
 	}
@@ -96,6 +98,17 @@ func tableIDFromBody(project, ds string, body map[string]any) (string, error) {
 
 // CreateTable implements tables.insert.
 func (b *InMemoryBackend) CreateTable(project, ds string, body map[string]any) (map[string]any, error) {
+	out, err := b.createTable(project, ds, body)
+	if err == nil {
+		id, _ := tableIDFromBody(project, ds, body)
+		b.auditCall("google.cloud.bigquery.v2.TableService.InsertTable",
+			"projects/"+project+"/datasets/"+ds+"/tables/"+id, project)
+	}
+
+	return out, err
+}
+
+func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (map[string]any, error) {
 	id, err := tableIDFromBody(project, ds, body)
 	if err != nil {
 		return nil, err
@@ -120,7 +133,7 @@ func (b *InMemoryBackend) CreateTable(project, ds string, body map[string]any) (
 		return nil, err
 	}
 
-	if _, ok := d.Tables[id]; ok {
+	if _, ok := d.live(id); ok {
 		return nil, errDuplicate("Already Exists: Table %s:%s.%s", project, ds, id)
 	}
 
@@ -135,6 +148,14 @@ func (b *InMemoryBackend) CreateTable(project, ds string, body map[string]any) (
 		Meta: metaFrom(body, tableManaged()), Schema: schema, Rows: [][]any{}, ViewQuery: view, Created: now,
 		Modified: now, Seq: b.nextSeq(),
 	}
+
+	if _, set := t.Meta["expirationTime"]; !set && view == "" {
+		raw := fmt.Sprint(d.Meta["defaultTableExpirationMs"])
+		if ttl, perr := strconv.ParseInt(raw, 10, 64); perr == nil && ttl > 0 {
+			t.Meta["expirationTime"] = msString(now + ttl)
+		}
+	}
+
 	d.Tables[id] = t
 
 	return tableWire(project, ds, id, t, d.Location), nil
@@ -259,6 +280,16 @@ func (t *Table) applySchema(next []bqsql.Field) error {
 
 // DeleteTable implements tables.delete.
 func (b *InMemoryBackend) DeleteTable(project, ds, id string) error {
+	err := b.deleteTable(project, ds, id)
+	if err == nil {
+		b.auditCall("google.cloud.bigquery.v2.TableService.DeleteTable",
+			"projects/"+project+"/datasets/"+ds+"/tables/"+id, project)
+	}
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteTable(project, ds, id string) error {
 	b.mu.Lock("DeleteTable")
 	defer b.mu.Unlock()
 
@@ -284,7 +315,9 @@ func (b *InMemoryBackend) ListTables(project, ds string, o ListOptions) (page.Pa
 
 	ids := make([]string, 0, len(d.Tables))
 	for id := range d.Tables {
-		ids = append(ids, id)
+		if _, ok := d.live(id); ok {
+			ids = append(ids, id)
+		}
 	}
 
 	sort.Strings(ids)

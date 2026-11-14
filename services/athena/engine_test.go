@@ -39,6 +39,15 @@ func (f *engineS3) PutObject(_ context.Context, in *sdk_s3.PutObjectInput) (*sdk
 	return &sdk_s3.PutObjectOutput{}, nil
 }
 
+func (f *engineS3) DeleteObject(_ context.Context, in *sdk_s3.DeleteObjectInput) (*sdk_s3.DeleteObjectOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	delete(f.objects, aws.ToString(in.Bucket)+"/"+aws.ToString(in.Key))
+
+	return &sdk_s3.DeleteObjectOutput{}, nil
+}
+
 func (f *engineS3) GetObject(ctx context.Context, in *sdk_s3.GetObjectInput) (*sdk_s3.GetObjectOutput, error) {
 	if f.blockGet {
 		<-ctx.Done()
@@ -321,7 +330,7 @@ func TestEngine_Failures(t *testing.T) {
 			name:       "avro",
 			sql:        "SELECT * FROM sales",
 			serde:      "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
-			wantReason: "NOT_SUPPORTED: unsupported data format: Avro",
+			wantReason: "HIVE_CURSOR_ERROR: invalid Avro file",
 		},
 		{
 			name:       "orc",

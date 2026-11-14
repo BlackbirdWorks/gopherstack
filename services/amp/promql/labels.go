@@ -22,8 +22,9 @@ type Labels map[string]string
 
 // Sample is one timestamped value; T is Unix milliseconds.
 type Sample struct {
-	T int64   `json:"t"`
-	V float64 `json:"v"`
+	H *FloatHistogram `json:"h,omitempty"`
+	T int64           `json:"t"`
+	V float64         `json:"v"`
 }
 
 // Series is a labelled run of samples ordered by time.

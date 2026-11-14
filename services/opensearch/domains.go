@@ -70,6 +70,12 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		AccessPolicies:              input.AccessPolicies,
 	}
 
+	if err := validateAdvancedSecurity(d, nil); err != nil {
+		d.Tags.Close()
+
+		return nil, err
+	}
+
 	if len(input.Tags) > 0 {
 		d.Tags.Merge(input.Tags)
 	}
@@ -82,6 +88,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 	b.beginProcessing(d, dpsCreating)
 
 	b.domains.Put(d)
+	b.finalizeAdvancedSecurityLocked(d, nil)
 
 	if b.dnsRegistrar != nil && b.endpoints.OpenSearch == "" {
 		b.dnsRegistrar.Register(endpoint)

@@ -319,6 +319,7 @@ func (b *InMemoryBackend) DeleteFile(_ context.Context, name string) (*longrunni
 	}
 
 	delete(b.genFiles, want)
+	b.dropAttachmentFileLocked(want)
 	b.mu.Unlock()
 
 	return b.done(fr.repo.parent(), &emptypb.Empty{})

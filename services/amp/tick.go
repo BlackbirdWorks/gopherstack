@@ -97,7 +97,15 @@ func (b *InMemoryBackend) managerFor(w *Workspace, now time.Time) *alertManager 
 		return old
 	}
 
+	files, err := alertManagerTemplateFiles(d.Data)
+	if err != nil {
+		return old
+	}
+
+	cfg.templates = files
+
 	m := newAlertManager(cfg, d.Data)
+	m.setSilences(b.workspaceSilencesLocked(w.ID))
 	if old != nil {
 		m.Receive(old.List(), now)
 	}
@@ -123,9 +131,18 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 		}
 	}
 
-	for _, m := range ams {
-		deliverNotifications(ctx, pub, m.Flush(now))
+	for wsID, m := range ams {
+		for _, f := range deliverNotifications(ctx, pub, m.Flush(now)) {
+			b.mu.Lock("Tick")
+			b.queueLogLocked(logEvent{
+				at: now, wsID: wsID, component: logComponentA, stream: logStreamA, level: logLevelError,
+				msg: "notification delivery failed", fields: map[string]string{"receiver": f.receiver, fieldErr: f.err},
+			})
+			b.mu.Unlock()
+		}
 	}
+
+	b.flushLogs(ctx)
 }
 
 // StartWorker evaluates rules and flushes alert managers every second until ctx ends.

@@ -40,13 +40,15 @@ type storedFederated struct {
 }
 
 type storedIdentity struct {
-	Tags        map[string]string  `json:"tags,omitempty"`
-	Name        string             `json:"name"`
-	ResourceGrp string             `json:"resourceGroup"`
-	Location    string             `json:"location"`
-	PrincipalID string             `json:"principalId"`
-	ClientID    string             `json:"clientId"`
-	Federated   []*storedFederated `json:"federated,omitempty"`
+	Tags           map[string]string  `json:"tags,omitempty"`
+	Name           string             `json:"name"`
+	Subscription   string             `json:"subscription,omitempty"`
+	ResourceGrp    string             `json:"resourceGroup"`
+	Location       string             `json:"location"`
+	PrincipalID    string             `json:"principalId"`
+	ClientID       string             `json:"clientId"`
+	IsolationScope string             `json:"isolationScope,omitempty"`
+	Federated      []*storedFederated `json:"federated,omitempty"`
 }
 
 // ManagedIdentityProvider implements ResourceProvider for Microsoft.ManagedIdentity user-assigned identities.
@@ -54,6 +56,7 @@ type ManagedIdentityProvider struct {
 	mu         *lockmetrics.RWMutex
 	identities map[string]*storedIdentity
 	tenantID   string
+	defaultSub string
 }
 
 var _ ResourceProvider = (*ManagedIdentityProvider)(nil)
@@ -63,6 +66,13 @@ func NewManagedIdentityProvider(tenantID string) *ManagedIdentityProvider {
 	return &ManagedIdentityProvider{
 		mu: lockmetrics.New("azurearm.msiprovider"), identities: map[string]*storedIdentity{}, tenantID: tenantID,
 	}
+}
+
+// SetDefaultSubscription names the subscription that identities restored from a snapshot without one belong to.
+func (p *ManagedIdentityProvider) SetDefaultSubscription(sub string) {
+	p.mu.Lock("SetDefaultSubscription")
+	p.defaultSub = sub
+	p.mu.Unlock()
 }
 
 // Namespace implements ResourceProvider.
@@ -102,7 +112,7 @@ func (p *ManagedIdentityProvider) DeleteResourcesInGroup(_ context.Context, reso
 	}
 }
 
-func msiKey(rg, name string) string { return strings.ToLower(rg + "/" + name) }
+func msiKey(sub, rg, name string) string { return strings.ToLower(sub + "/" + rg + "/" + name) }
 
 func msiKind(id ResourceID) (bool, bool) {
 	if len(id.Types) == 0 || !strings.EqualFold(id.Types[0], msiIdentitiesType) {
@@ -117,18 +127,39 @@ func msiKind(id ResourceID) (bool, bool) {
 }
 
 func (p *ManagedIdentityProvider) identityBody(id ResourceID, i *storedIdentity) map[string]any {
+	props := map[string]any{netFieldTenantID: p.tenantID, "principalId": i.PrincipalID, "clientId": i.ClientID}
+	if i.IsolationScope != "" {
+		props["isolationScope"] = i.IsolationScope
+	}
+
 	out := map[string]any{
-		netFieldID:    id.ARMID(),
-		fieldName:     i.Name,
-		fieldType:     namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType,
-		fieldLocation: i.Location,
-		fieldTags:     tagsOrEmpty(i.Tags),
-		fieldProperties: map[string]any{
-			netFieldTenantID: p.tenantID, "principalId": i.PrincipalID, "clientId": i.ClientID,
-		},
+		netFieldID:      id.ARMID(),
+		fieldName:       i.Name,
+		fieldType:       namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType,
+		fieldLocation:   i.Location,
+		fieldTags:       tagsOrEmpty(i.Tags),
+		fieldProperties: props,
 	}
 
 	return out
+}
+
+func msiIsolationScope(props map[string]any) (string, error) {
+	v, has := props["isolationScope"]
+	if !has || v == nil {
+		return "", nil
+	}
+
+	s, _ := v.(string)
+
+	for _, ok := range []string{apimVNetNone, "Regional"} {
+		if strings.EqualFold(s, ok) {
+			return ok, nil
+		}
+	}
+
+	return "", netErr(http.StatusBadRequest, msiCodeBad,
+		"The value '%v' of properties.isolationScope is not allowed. Allowed values are: None, Regional.", v)
 }
 
 func federatedBody(id ResourceID, f *storedFederated) map[string]any {
@@ -166,7 +197,7 @@ func (p *ManagedIdentityProvider) putIdentity(id ResourceID, body map[string]any
 				"start with a letter or digit.", name)
 	}
 
-	key := msiKey(id.ResourceGroup, name)
+	key := msiKey(id.SubscriptionID, id.ResourceGroup, name)
 	cur, exists := p.identities[key]
 	loc := normLocation(strOf(body, fieldLocation))
 
@@ -178,9 +209,15 @@ func (p *ManagedIdentityProvider) putIdentity(id ResourceID, body map[string]any
 		)
 	}
 
+	scope, err := msiIsolationScope(propsOf(body))
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &storedIdentity{
-		Name: name, ResourceGrp: id.ResourceGroup, Location: loc, Tags: stringTags(body[fieldTags]),
-		PrincipalID: uuid.NewString(), ClientID: uuid.NewString(),
+		Name: name, Subscription: id.SubscriptionID, ResourceGrp: id.ResourceGroup, Location: loc,
+		Tags: stringTags(body[fieldTags]), PrincipalID: uuid.NewString(), ClientID: uuid.NewString(),
+		IsolationScope: scope,
 	}
 
 	if exists {
@@ -197,7 +234,7 @@ func (p *ManagedIdentityProvider) putIdentity(id ResourceID, body map[string]any
 }
 
 func (p *ManagedIdentityProvider) putFederated(id ResourceID, body map[string]any) (map[string]any, error) {
-	parent, ok := p.identities[msiKey(id.ResourceGroup, id.Names[0])]
+	parent, ok := p.identities[msiKey(id.SubscriptionID, id.ResourceGroup, id.Names[0])]
 	if !ok {
 		return nil, ErrResourceNotFound
 	}
@@ -258,7 +295,7 @@ func (p *ManagedIdentityProvider) Get(_ context.Context, id ResourceID) (map[str
 	p.mu.RLock("Get")
 	defer p.mu.RUnlock()
 
-	parent, ok := p.identities[msiKey(id.ResourceGroup, firstName(id))]
+	parent, ok := p.identities[msiKey(id.SubscriptionID, id.ResourceGroup, firstName(id))]
 	if !ok || (!ident && !fed) {
 		return nil, ErrResourceNotFound
 	}
@@ -291,7 +328,7 @@ func (p *ManagedIdentityProvider) Delete(_ context.Context, id ResourceID) error
 	p.mu.Lock("Delete")
 	defer p.mu.Unlock()
 
-	key := msiKey(id.ResourceGroup, firstName(id))
+	key := msiKey(id.SubscriptionID, id.ResourceGroup, firstName(id))
 	parent, ok := p.identities[key]
 
 	switch {
@@ -323,7 +360,7 @@ func (p *ManagedIdentityProvider) List(_ context.Context, id ResourceID) ([]map[
 	out := []map[string]any{}
 
 	if fed {
-		parent, ok := p.identities[msiKey(id.ResourceGroup, id.Names[0])]
+		parent, ok := p.identities[msiKey(id.SubscriptionID, id.ResourceGroup, id.Names[0])]
 		if !ok {
 			return nil, ErrResourceNotFound
 		}
@@ -344,18 +381,20 @@ func (p *ManagedIdentityProvider) List(_ context.Context, id ResourceID) ([]map[
 	recs := make([]*storedIdentity, 0, len(p.identities))
 
 	for _, i := range p.identities {
-		if id.ResourceGroup == "" || resourceGroupsEqual(i.ResourceGrp, id.ResourceGroup) {
+		if strings.EqualFold(i.Subscription, id.SubscriptionID) &&
+			(id.ResourceGroup == "" || resourceGroupsEqual(i.ResourceGrp, id.ResourceGroup)) {
 			recs = append(recs, i)
 		}
 	}
 
 	sort.Slice(recs, func(a, b int) bool {
-		return msiKey(recs[a].ResourceGrp, recs[a].Name) < msiKey(recs[b].ResourceGrp, recs[b].Name)
+		return msiKey(recs[a].Subscription, recs[a].ResourceGrp, recs[a].Name) <
+			msiKey(recs[b].Subscription, recs[b].ResourceGrp, recs[b].Name)
 	})
 
 	for _, i := range recs {
 		iid := ResourceID{
-			SubscriptionID: id.SubscriptionID,
+			SubscriptionID: i.Subscription,
 			ResourceGroup:  i.ResourceGrp,
 			Namespace:      namespaceMicrosoftManagedIdentity,
 			Types:          []string{msiIdentitiesType},
@@ -376,7 +415,7 @@ func (p *ManagedIdentityProvider) PatchTags(id ResourceID, tags map[string]strin
 	p.mu.Lock("PatchTags")
 	defer p.mu.Unlock()
 
-	i, ok := p.identities[msiKey(id.ResourceGroup, id.Names[0])]
+	i, ok := p.identities[msiKey(id.SubscriptionID, id.ResourceGroup, id.Names[0])]
 	if !ok {
 		return nil, ErrResourceNotFound
 	}
@@ -397,7 +436,7 @@ func (p *ManagedIdentityProvider) lookupUserAssigned(idStr string) (string, stri
 	p.mu.RLock("lookupUserAssigned")
 	defer p.mu.RUnlock()
 
-	i, ok := p.identities[msiKey(rid.ResourceGroup, rid.Names[0])]
+	i, ok := p.identities[msiKey(rid.SubscriptionID, rid.ResourceGroup, rid.Names[0])]
 	if !ok {
 		return "", "", false
 	}

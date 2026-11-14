@@ -145,6 +145,7 @@ type NetworkProvider struct {
 	backend *InMemoryBackend
 	items   map[string]*netParent
 	lookup  func(context.Context, ResourceID) (map[string]any, error)
+	ops     map[string]map[string]any
 }
 
 var _ ResourceProvider = (*NetworkProvider)(nil)
@@ -152,7 +153,10 @@ var _ ResourceProvider = (*NetworkProvider)(nil)
 // NewNetworkProvider creates a provider; types it does not model fall through to backend's generic store.
 func NewNetworkProvider(backend *InMemoryBackend) *NetworkProvider {
 	return &NetworkProvider{
-		mu: lockmetrics.New("azurearm.networkprovider"), backend: backend, items: map[string]*netParent{},
+		mu:      lockmetrics.New("azurearm.networkprovider"),
+		backend: backend,
+		items:   map[string]*netParent{},
+		ops:     map[string]map[string]any{},
 	}
 }
 
@@ -162,7 +166,7 @@ func (p *NetworkProvider) Namespace() string { return namespaceMicrosoftNetwork 
 // ResourceTypes implements ResourceProvider.
 func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 	v := networkAPIVersions()
-	defs := make([]ResourceTypeDef, 0, 27+len(dnsRecordTypes)) //nolint:mnd // modelled type count
+	defs := make([]ResourceTypeDef, 0, 42+len(dnsRecordTypes)) //nolint:mnd // modelled type count
 
 	for _, t := range []string{
 		netVNets, netVNets + "/" + netSubnets, netVNets + "/" + netPeerings,
@@ -172,7 +176,10 @@ func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 		netZones, netZones + "/" + netLinks,
 		netLBs, netLBs + "/" + lbFrontends, netLBs + "/" + lbPools, netLBs + "/" + lbProbes, netLBs + "/" + lbRules,
 		netLBs + "/" + lbNATRules, netLBs + "/" + lbNATPools, netLBs + "/" + lbOutbound, netLBs + "/" + lbNICs,
-		netNATs, netPrefixes, netASGs, netPEs, netPEs + "/" + peZoneGroups, netNICs + "/" + nicLBs,
+		netNATs, netPrefixes, netASGs, netPEs, netPEs + "/" + peZoneGroups, netNICs + "/" + nicLBs, netDDoS,
+		netAGWs, netWAFs, netFWs, netFWPols, netFWPols + "/" + fpRCGs, netIPGroups,
+		netPLS, netRFs, netRFs + "/" + rfRules, netSEPs, netSEPs + "/" + sepDefs, netWatchers,
+		netWatchers + "/" + wFlowLogs, netTaps, netNICs + "/" + nicTapCfgs,
 	} {
 		defs = append(defs, ResourceTypeDef{Type: t, APIVersions: v, HasChildren: !strings.Contains(t, "/")})
 	}
@@ -193,6 +200,7 @@ func (p *NetworkProvider) ListKeys(context.Context, ResourceID) (map[string]any,
 func (p *NetworkProvider) Reset() {
 	p.mu.Lock("Reset")
 	p.items = map[string]*netParent{}
+	p.ops = map[string]map[string]any{}
 	p.mu.Unlock()
 }
 
@@ -383,7 +391,10 @@ func (p *NetworkProvider) modeled(typ string) bool {
 	switch strings.ToLower(typ) {
 	case strings.ToLower(netVNets), strings.ToLower(netNSGs), strings.ToLower(netPIPs), strings.ToLower(netNICs),
 		strings.ToLower(netRTs), strings.ToLower(netZones), strings.ToLower(netLBs), strings.ToLower(netNATs),
-		strings.ToLower(netPrefixes), strings.ToLower(netASGs), strings.ToLower(netPEs):
+		strings.ToLower(netPrefixes), strings.ToLower(netASGs), strings.ToLower(netPEs), strings.ToLower(netAGWs),
+		strings.ToLower(netWAFs), strings.ToLower(netFWs), strings.ToLower(netFWPols), strings.ToLower(netIPGroups),
+		strings.ToLower(netDDoS), strings.ToLower(netPLS), strings.ToLower(netRFs), strings.ToLower(netSEPs),
+		strings.ToLower(netWatchers), strings.ToLower(netTaps):
 		return true
 	}
 
@@ -393,6 +404,7 @@ func (p *NetworkProvider) modeled(typ string) bool {
 func canonicalTop(typ string) string {
 	for _, t := range []string{
 		netVNets, netNSGs, netPIPs, netNICs, netRTs, netZones, netLBs, netNATs, netPrefixes, netASGs, netPEs,
+		netAGWs, netWAFs, netFWs, netFWPols, netIPGroups, netDDoS, netPLS, netRFs, netSEPs, netWatchers, netTaps,
 	} {
 		if strings.EqualFold(t, typ) {
 			return t
@@ -404,9 +416,10 @@ func canonicalTop(typ string) string {
 
 func canonicalKid(parent, typ string) string {
 	cands := map[string][]string{
-		netVNets: {netSubnets, netPeerings}, netNSGs: {netRules, netDefRules}, netNICs: {netIPConfigs, nicLBs},
+		netVNets: {netSubnets, netPeerings}, netNSGs: {netRules, netDefRules},
+		netNICs: {netIPConfigs, nicLBs, nicTapCfgs}, netRFs: {rfRules}, netSEPs: {sepDefs}, netWatchers: {wFlowLogs},
 		netLBs: append(append([]string{}, lbKidTypes...), lbNICs), netPEs: {peZoneGroups},
-		netRTs: {netRoutes}, netZones: append([]string{netLinks}, dnsRecordTypes...),
+		netRTs: {netRoutes}, netFWPols: {fpRCGs}, netZones: append([]string{netLinks}, dnsRecordTypes...),
 	}
 
 	for _, t := range cands[parent] {
@@ -418,9 +431,16 @@ func canonicalKid(parent, typ string) string {
 	return ""
 }
 
+// genericWatcherChild reports whether id is a Network Watcher child other than flow logs, which stays in the
+// generic store.
+func genericWatcherChild(id ResourceID) bool {
+	return strings.EqualFold(firstType(id), netWatchers) && len(id.Types) >= 2 &&
+		!strings.EqualFold(id.Types[1], wFlowLogs)
+}
+
 func (p *NetworkProvider) put(id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	top := canonicalTop(firstType(id))
-	if top == "" {
+	if top == "" || genericWatcherChild(id) {
 		out, created, err := p.backend.putGenericResource(id, body)
 
 		return out, created, err
@@ -463,7 +483,7 @@ func firstType(id ResourceID) string {
 
 func (p *NetworkProvider) remove(id ResourceID) error {
 	top := canonicalTop(firstType(id))
-	if top == "" {
+	if top == "" || genericWatcherChild(id) {
 		return p.backend.deleteGenericResource(id)
 	}
 
@@ -492,7 +512,7 @@ func (p *NetworkProvider) remove(id ResourceID) error {
 
 func (p *NetworkProvider) getLocked(id ResourceID) (map[string]any, error) {
 	top := canonicalTop(firstType(id))
-	if top == "" {
+	if top == "" || genericWatcherChild(id) {
 		return p.backend.getGenericResource(id)
 	}
 
@@ -515,6 +535,10 @@ func (p *NetworkProvider) getLocked(id ResourceID) (map[string]any, error) {
 
 func (p *NetworkProvider) listLocked(id ResourceID) ([]map[string]any, error) {
 	top := canonicalTop(firstType(id))
+
+	if genericWatcherChild(id) {
+		return p.backend.listGenericResources(id), nil
+	}
 
 	if len(id.Names) == 0 {
 		out := []map[string]any{}
@@ -560,7 +584,7 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 	case netNSGs:
 		return p.putNSG(id, body)
 	case netPIPs:
-		return p.putPIP(id, body)
+		return p.putPIPChecked(id, body)
 	case netNICs:
 		return p.putNIC(id, body)
 	case netRTs:
@@ -571,10 +595,14 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 		return p.putNAT(id, body)
 	case netPrefixes:
 		return p.putPrefix(id, body)
-	case netASGs:
-		return p.putASG(id, body)
+	case netASGs, netDDoS:
+		return p.putPlainTop(top, id, body)
 	case netPEs:
 		return p.putPE(id, body)
+	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
+		return p.putGatewayTop(top, id, body)
+	case netPLS, netRFs, netSEPs, netWatchers, netTaps:
+		return p.putLinkTop(top, id, body)
 	default:
 		return p.putZone(id, body)
 	}
@@ -664,8 +692,14 @@ func (p *NetworkProvider) bodyTop(id ResourceID, it *netParent) map[string]any {
 		return p.bodyPrefix(id, it)
 	case netASGs:
 		return p.bodyASG(id, it)
+	case netDDoS:
+		return p.bodyDDoS(id, it)
 	case netPEs:
 		return p.bodyPE(id, it)
+	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
+		return p.bodyGatewayTop(id, it)
+	case netPLS, netRFs, netSEPs, netWatchers, netTaps:
+		return p.bodyLinkTop(id, it)
 	default:
 		return p.bodyZone(id, it)
 	}
@@ -693,6 +727,8 @@ func (p *NetworkProvider) putKid(top, kt string, id ResourceID, body map[string]
 		created, err = p.writeLBKid(parent, kt, id.Names[1], body)
 	case top == netPEs:
 		created, err = p.writeZoneGroup(parent, id.Names[1], body)
+	case top == netFWPols:
+		created, err = p.writeRCG(parent, id.Names[1], body)
 	default:
 		created, err = p.writeKidClassic(parent, top, kt, id, body)
 	}
@@ -723,6 +759,14 @@ func (p *NetworkProvider) writeKidClassic(
 		created, err = p.writeRule(parent, id.Names[1], body)
 	case netRoutes:
 		created, err = p.writeRoute(parent, id.Names[1], body)
+	case rfRules:
+		created, err = p.writeRFRule(parent, id.Names[1], body)
+	case sepDefs:
+		created, err = p.writeSEPDef(parent, id.Names[1], body)
+	case wFlowLogs:
+		created, err = p.writeFlowLog(parent, id.Names[1], body)
+	case nicTapCfgs:
+		created, err = p.writeTapCfg(parent, id.Names[1], body)
 	case netLinks:
 		created, err = p.writeLink(parent, id.Names[1], body)
 	case netDefRules, netIPConfigs:
@@ -821,6 +865,16 @@ func (p *NetworkProvider) bodyKid(parent *netParent, kt string, id ResourceID, k
 		return p.bodyLink(parent, id, k)
 	case peZoneGroups:
 		return p.bodyZoneGroup(parent, id, k)
+	case fpRCGs:
+		return p.bodyRCG(parent, k)
+	case rfRules:
+		return p.bodyRFRule(parent, id, k)
+	case sepDefs:
+		return p.bodySEPDef(id, k)
+	case wFlowLogs:
+		return p.bodyFlowLog(id, k)
+	case nicTapCfgs:
+		return p.bodyTapCfg(id, k)
 	default:
 		if parent.Type == netLBs {
 			return p.bodyLBKid(parent, kt, id, k)
@@ -849,7 +903,14 @@ func (p *NetworkProvider) removeTop(top string, id ResourceID) error {
 // PatchTags replaces the tags of a top-level resource, as the UpdateTags operations do.
 func (p *NetworkProvider) PatchTags(id ResourceID, tags map[string]string) (map[string]any, error) {
 	top := canonicalTop(firstType(id))
-	if top == "" || len(id.Types) != 1 || top == netZones {
+	if top == netWatchers && len(id.Types) == 2 && strings.EqualFold(id.Types[1], wFlowLogs) {
+		p.mu.Lock("PatchTags")
+		defer p.mu.Unlock()
+
+		return p.patchFlowLogTags(id, tags)
+	}
+
+	if top == "" || len(id.Types) != 1 || top == netZones || top == netPLS {
 		return nil, ErrResourceNotFound
 	}
 

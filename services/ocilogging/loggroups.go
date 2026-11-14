@@ -3,12 +3,14 @@ package ocilogging
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // CreateLogGroupIn is the CreateLogGroup request body.
 type CreateLogGroupIn struct {
 	Tags
+	RetryToken  string  `json:"-"`
 	Description *string `json:"description"`
 	Name        string  `json:"displayName"`
 	Compartment string  `json:"compartmentId"`
@@ -89,7 +91,7 @@ func (b *InMemoryBackend) CreateLogGroup(in CreateLogGroupIn) (string, error) {
 		return "", errMissing("compartmentId is required")
 	}
 
-	if aerr := firstErr(validateName(in.Name), validDescription(in.Description)); aerr != nil {
+	if aerr := firstErr(validResourceName(in.Name, true), validDescription(in.Description)); aerr != nil {
 		return "", aerr
 	}
 
@@ -97,6 +99,19 @@ func (b *InMemoryBackend) CreateLogGroup(in CreateLogGroupIn) (string, error) {
 	defer b.mu.Unlock()
 
 	b.settleAll()
+
+	if v, ok := b.retry.Lookup("CreateLogGroup", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if g, live := b.groups[id]; !live || g.State == stateDeleting || g.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
 
 	if b.groupNameTaken(in.Compartment, in.Name, "") {
 		return "", errConflict("A log group named " + in.Name + " already exists in the compartment")
@@ -114,7 +129,10 @@ func (b *InMemoryBackend) CreateLogGroup(in CreateLogGroupIn) (string, error) {
 
 	b.groups[g.ID] = g
 
-	return b.newWR("CREATE_LOG_GROUP", "loggroup", g.CompartmentID, g.ID, "CREATED", *g.TransitionAt), nil
+	wr := b.newWR("CREATE_LOG_GROUP", "loggroup", g.CompartmentID, g.ID, "CREATED", *g.TransitionAt)
+	b.retry.Remember("CreateLogGroup", in.RetryToken, ociretry.Join(g.ID, wr), now)
+
+	return wr, nil
 }
 
 // GetLogGroup returns one log group and its etag.
@@ -165,7 +183,7 @@ func (b *InMemoryBackend) ListLogGroups(compartment, name string, o ListOpts) (p
 // UpdateLogGroup changes the mutable fields of a log group; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateLogGroup(id, ifMatch string, in UpdateLogGroupIn) (string, error) {
 	if in.Name != nil {
-		if aerr := validateName(*in.Name); aerr != nil {
+		if aerr := validResourceName(*in.Name, true); aerr != nil {
 			return "", aerr
 		}
 	}
@@ -185,6 +203,10 @@ func (b *InMemoryBackend) UpdateLogGroup(id, ifMatch string, in UpdateLogGroupIn
 	}
 
 	if aerr = checkEtag(g.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
 		return "", aerr
 	}
 
@@ -271,6 +293,8 @@ func (h *Handler) createLogGroup(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateLogGroup(in)
 

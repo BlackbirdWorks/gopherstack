@@ -250,7 +250,7 @@ func TestFirewall_Lifecycle(t *testing.T) {
 				FirewallName: aws.String("other"), FirewallPolicyArn: aws.String(polARN),
 				NatGatewayMappings: []types.NatGatewayMapping{{NatGatewayId: aws.String("nat-1")}},
 			})
-			assert.Equal(t, "UnsupportedOperationException", errCode(t, err))
+			assert.Equal(t, "InvalidRequestException", errCode(t, err))
 
 			_, err = f.client.CreateFirewall(t.Context(), &sdk.CreateFirewallInput{
 				FirewallName: aws.String("other"), FirewallPolicyArn: aws.String(polARN + "-missing"),

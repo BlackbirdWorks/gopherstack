@@ -9,22 +9,29 @@ import (
 
 // Operation names, matching the OCI SDK operation names.
 const (
-	opCreateAlarm      = "CreateAlarm"
-	opGetAlarm         = "GetAlarm"
-	opListAlarms       = "ListAlarms"
-	opListAlarmsStatus = "ListAlarmsStatus"
-	opUpdateAlarm      = "UpdateAlarm"
-	opDeleteAlarm      = "DeleteAlarm"
-	opChangeAlarmComp  = "ChangeAlarmCompartment"
-	opGetAlarmHistory  = "GetAlarmHistory"
-	opPostMetricData   = "PostMetricData"
-	opListMetrics      = "ListMetrics"
-	opSummarizeMetrics = "SummarizeMetricsData"
-	opAdminKeys        = "ManageAPIKeys"
-	opUnknown          = "Unknown"
-	adminPrefix        = "_gopherstack"
-	base               = "/20180401"
-	alarmPath          = base + "/alarms/{alarmId}"
+	opCreateAlarm       = "CreateAlarm"
+	opGetAlarm          = "GetAlarm"
+	opListAlarms        = "ListAlarms"
+	opListAlarmsStatus  = "ListAlarmsStatus"
+	opUpdateAlarm       = "UpdateAlarm"
+	opDeleteAlarm       = "DeleteAlarm"
+	opChangeAlarmComp   = "ChangeAlarmCompartment"
+	opGetAlarmHistory   = "GetAlarmHistory"
+	opPostMetricData    = "PostMetricData"
+	opListMetrics       = "ListMetrics"
+	opSummarizeMetrics  = "SummarizeMetricsData"
+	opCreateSuppression = "CreateAlarmSuppression"
+	opGetSuppression    = "GetAlarmSuppression"
+	opListSuppressions  = "ListAlarmSuppressions"
+	opDeleteSuppression = "DeleteAlarmSuppression"
+	opRemoveSuppression = "RemoveAlarmSuppression"
+	opSuppressionHist   = "SummarizeAlarmSuppressionHistory"
+	opDimensionStates   = "RetrieveDimensionStates"
+	opAdminKeys         = "ManageAPIKeys"
+	opUnknown           = "Unknown"
+	adminPrefix         = "_gopherstack"
+	base                = "/20180401"
+	alarmPath           = base + "/alarms/{alarmId}"
 )
 
 //nolint:gochecknoglobals // immutable route table
@@ -37,6 +44,13 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodDelete, Path: alarmPath, Op: opDeleteAlarm},
 	{Method: http.MethodPost, Path: alarmPath + "/actions/changeCompartment", Op: opChangeAlarmComp},
 	{Method: http.MethodGet, Path: alarmPath + "/history", Op: opGetAlarmHistory},
+	{Method: http.MethodPost, Path: base + "/alarmSuppressions", Op: opCreateSuppression},
+	{Method: http.MethodGet, Path: base + "/alarmSuppressions", Op: opListSuppressions},
+	{Method: http.MethodGet, Path: base + "/alarmSuppressions/{alarmSuppressionId}", Op: opGetSuppression},
+	{Method: http.MethodDelete, Path: base + "/alarmSuppressions/{alarmSuppressionId}", Op: opDeleteSuppression},
+	{Method: http.MethodPost, Path: alarmPath + "/actions/removeSuppression", Op: opRemoveSuppression},
+	{Method: http.MethodPost, Path: alarmPath + "/actions/summarizeAlarmSuppressionHistory", Op: opSuppressionHist},
+	{Method: http.MethodPost, Path: alarmPath + "/actions/retrieveDimensionStates", Op: opDimensionStates},
 	{Method: http.MethodPost, Path: base + "/metrics", Op: opPostMetricData},
 	{Method: http.MethodPost, Path: base + "/metrics/actions/listMetrics", Op: opListMetrics},
 	{Method: http.MethodPost, Path: base + "/metrics/actions/summarizeMetricsData", Op: opSummarizeMetrics},

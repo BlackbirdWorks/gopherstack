@@ -1,7 +1,9 @@
 package gcpartifactregistry
 
 import (
+	"cmp"
 	"context"
+	"encoding/json/v2"
 	"sort"
 	"strconv"
 
@@ -9,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -126,6 +129,39 @@ func (b *InMemoryBackend) describe(ctx context.Context, ref repoRef, image, dige
 	info := c.Describe(ctx, repo, m)
 
 	return manifestInfo{mediaType: info.MediaType, size: info.Size}
+}
+
+// indexChildren returns the digests that a manifest list or OCI index of the image still references.
+func (b *InMemoryBackend) indexChildren(ctx context.Context, ref repoRef, s imageSnap) map[string]bool {
+	c := b.client()
+	repo := ref.dockerKey() + "/" + s.image
+	out := map[string]bool{}
+
+	for d := range s.manifests {
+		m, err := c.GetManifest(ctx, repo, d)
+		if err != nil {
+			continue
+		}
+
+		var doc struct {
+			MediaType string                   `json:"mediaType"`
+			Manifests []ociregistry.Descriptor `json:"manifests"`
+		}
+
+		if json.Unmarshal(m.Body, &doc, jsonx.V1()) != nil {
+			continue
+		}
+
+		if mt := cmp.Or(doc.MediaType, m.MediaType); !ociregistry.IsIndexType(mt) {
+			continue
+		}
+
+		for _, child := range doc.Manifests {
+			out[child.Digest] = true
+		}
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) repoSize(ref repoRef) int64 {

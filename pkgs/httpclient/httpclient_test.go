@@ -82,3 +82,21 @@ func TestNewTransportDistinct(t *testing.T) {
 	assert.NotSame(t, a, b)
 	assert.NotNil(t, a.Proxy)
 }
+
+func TestIsLoopbackHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"127.0.0.1", true}, {"::1", true}, {"localhost", false}, {"10.0.0.1", false}, {"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, httpclient.IsLoopbackHost(tt.host))
+		})
+	}
+}

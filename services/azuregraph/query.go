@@ -19,14 +19,17 @@ const (
 
 // listQuery is the parsed OData query of a collection request.
 type listQuery struct {
-	filter  *compiledFilter
-	search  func(map[string]any) bool
-	order   string
-	token   string
-	selects []string
-	top     int
-	desc    bool
-	count   bool
+	filter   *compiledFilter
+	search   func(map[string]any) bool
+	order    string
+	token    string
+	selects  []string
+	expand   []expandSpec
+	top      int
+	desc     bool
+	count    bool
+	eventual bool
+	single   bool
 }
 
 func eventual(r *http.Request) bool {
@@ -36,8 +39,8 @@ func eventual(r *http.Request) bool {
 // parseListQuery validates the OData system query options. fields is the set of declared properties of the
 // resource (nil skips property validation); resource names it in error messages.
 func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*listQuery, error) {
-	vals := r.URL.Query()
-	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken")}
+	vals := parseQueryValues(r.URL.RawQuery)
+	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken"), eventual: eventual(r)}
 
 	if err := q.parseCount(r, vals); err != nil {
 		return nil, err
@@ -51,9 +54,12 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 		return nil, err
 	}
 
-	if vals.Get("$expand") != "" {
-		return nil, unsupported("Expanding relationships with $expand is not supported by this emulator.")
+	exp, expErr := parseExpand(vals.Get("$expand"))
+	if expErr != nil {
+		return nil, expErr
 	}
+
+	q.expand = exp
 
 	if err := q.parseOrder(vals.Get("$orderby"), resource, fields); err != nil {
 		return nil, err
@@ -64,6 +70,13 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 	}
 
 	return q, q.parseSearch(r, vals.Get("$search"))
+}
+
+// parseQueryValues keeps ';' inside values; Go's parser would drop $expand=manager($levels=max;$select=id).
+func parseQueryValues(raw string) url.Values {
+	vals, _ := url.ParseQuery(strings.ReplaceAll(raw, ";", "%3B"))
+
+	return vals
 }
 
 func (q *listQuery) parsePaging(top string) error {
@@ -129,7 +142,7 @@ func (q *listQuery) parseFilter(r *http.Request, expr, resource string, fields m
 // userDefaultSelect is the property set Graph returns for a user when $select is absent.
 func userDefaultSelect() []string {
 	return []string{
-		"businessPhones", "displayName", "givenName", "jobTitle", "mail", "mobilePhone", "officeLocation",
+		"businessPhones", propDisplayName, "givenName", "jobTitle", "mail", "mobilePhone", "officeLocation",
 		"preferredLanguage", "surname", "userPrincipalName",
 	}
 }

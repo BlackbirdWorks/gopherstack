@@ -2,19 +2,22 @@ package ociapigateway
 
 import (
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
+func (i *createGatewayIn) setRetryToken(t string) { i.RetryToken = t }
+
 type createGatewayIn struct {
 	Tags
-	Locks         jsontext.Value `json:"locks"`
+	RetryToken    string         `json:"-"`
+	Locks         []lockIn       `json:"locks"`
 	CaBundles     jsontext.Value `json:"caBundles"`
 	ResponseCache jsontext.Value `json:"responseCacheDetails"`
 	DisplayName   string         `json:"displayName"`
@@ -23,6 +26,8 @@ type createGatewayIn struct {
 	SubnetID      string         `json:"subnetId"`
 	CertificateID string         `json:"certificateId"`
 	IPMode        string         `json:"ipMode"`
+	IPv4Config    *ipv4Config    `json:"ipv4AddressConfiguration"`
+	IPv6Config    *ipv6Config    `json:"ipv6AddressConfiguration"`
 	NSGs          []string       `json:"networkSecurityGroupIds"`
 }
 
@@ -37,15 +42,20 @@ type updateGatewayIn struct {
 
 type changeCompartmentIn struct {
 	CompartmentID string `json:"compartmentId"`
+	RetryToken    string `json:"-"`
 }
+
+func (i *changeCompartmentIn) setRetryToken(t string) { i.RetryToken = t }
 
 // GatewayWire is the wire form of a gateway.
 type GatewayWire struct {
+	IPv4Config     *ipv4Config               `json:"ipv4AddressConfiguration,omitempty"`
+	IPv6Config     *ipv6Config               `json:"ipv6AddressConfiguration,omitempty"`
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
-	Locks          jsontext.Value            `json:"locks,omitempty"`
+	Locks          []Lock                    `json:"locks,omitempty"`
 	CaBundles      jsontext.Value            `json:"caBundles,omitempty"`
 	ResponseCache  jsontext.Value            `json:"responseCacheDetails,omitempty"`
 	ID             string                    `json:"id"`
@@ -58,6 +68,11 @@ type GatewayWire struct {
 	IPMode         string                    `json:"ipMode,omitempty"`
 	LifecycleState string                    `json:"lifecycleState"`
 	NSGs           []string                  `json:"networkSecurityGroupIds,omitempty"`
+	IPAddresses    []ipAddressWire           `json:"ipAddresses,omitempty"`
+}
+
+type ipAddressWire struct {
+	IPAddress string `json:"ipAddress"`
 }
 
 func gatewayView(g *Gateway) GatewayWire {
@@ -66,8 +81,18 @@ func gatewayView(g *Gateway) GatewayWire {
 		FreeformTags: g.Tags.FreeformTags, Locks: g.Locks, CaBundles: g.CaBundles, ResponseCache: g.ResponseCache,
 		ID: g.ID, CompartmentID: g.CompartmentID, EndpointType: g.EndpointType, DisplayName: g.DisplayName,
 		SubnetID: g.SubnetID, Hostname: g.Hostname, CertificateID: g.CertificateID, IPMode: g.IPMode,
-		LifecycleState: g.State, NSGs: g.NSGs,
+		LifecycleState: g.State, NSGs: g.NSGs, IPAddresses: ipWires(g.IPs), IPv4Config: g.IPv4Config,
+		IPv6Config: g.IPv6Config,
 	}
+}
+
+func ipWires(ips []string) []ipAddressWire {
+	out := make([]ipAddressWire, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, ipAddressWire{IPAddress: ip})
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) liveGateway(id string) (*Gateway, *APIError) {
@@ -104,27 +129,23 @@ func (b *InMemoryBackend) validateGateway(in *createGatewayIn) *APIError {
 		return errMissing("subnetId is required")
 	}
 
-	if b.subnet != nil && !b.subnet(in.SubnetID) {
-		return errNotFound(in.SubnetID)
+	if err := b.checkSubnet(in); err != nil {
+		return err
 	}
 
-	if in.IPMode != "" && !slices.Contains([]string{"IPV4", "IPV6", "DUAL_STACK"}, in.IPMode) {
+	if in.IPMode != "" && !slices.Contains([]string{ipModeV4, ipModeV6, ipModeDual}, in.IPMode) {
 		return errParam("ipMode must be IPV4, IPV6 or DUAL_STACK")
 	}
 
-	if len(in.ResponseCache) > 0 && string(in.ResponseCache) != jsonNull && !jsonIsNoCache(in.ResponseCache) {
-		return errUnsupported("responseCacheDetails other than type NONE")
+	if err := b.checkAddressConfig(in); err != nil {
+		return err
+	}
+
+	if err := validateResponseCache(in.ResponseCache); err != nil {
+		return err
 	}
 
 	return b.checkCertificateRef(in.CertificateID)
-}
-
-func jsonIsNoCache(raw jsontext.Value) bool {
-	var d struct {
-		Type string `json:"type"`
-	}
-
-	return json.Unmarshal(raw, &d, jsonx.V1()) == nil && d.Type == "NONE"
 }
 
 func (b *InMemoryBackend) gatewayNameTaken(compartment, name, except string) bool {
@@ -143,11 +164,31 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	b.mu.Lock("CreateGateway")
 	defer b.mu.Unlock()
 
+	if v, ok := b.retry.Lookup("CreateGateway", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		g, live := b.gateways[id]
+		if !live || g.State == stateDeleting || g.State == stateDeleted {
+			return GatewayWire{}, "", "", errInvalidatedToken()
+		}
+
+		return gatewayView(g), wr, g.Etag, nil
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
+		return GatewayWire{}, "", "", err
+	}
+
 	if err := b.validateGateway(&in); err != nil {
 		return GatewayWire{}, "", "", err
 	}
 
 	now := b.nowUTC()
+
+	locks, lerr := newLocks(in.Locks, now)
+	if lerr != nil {
+		return GatewayWire{}, "", "", lerr
+	}
+
 	name := in.DisplayName
 
 	if name == "" {
@@ -155,18 +196,25 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	}
 
 	if b.gatewayNameTaken(in.CompartmentID, name, "") {
-		return GatewayWire{}, "", "", errConflict("a gateway named " + name + " already exists in this compartment")
+		return GatewayWire{}, "", "", errExists("a gateway named " + name + " already exists in this compartment")
+	}
+
+	alloc, ips, aerr := b.allocateAddresses(&in, name)
+	if aerr != nil {
+		return GatewayWire{}, "", "", aerr
 	}
 
 	g := &Gateway{
+		VnicID: alloc.VnicID, IPv4Config: in.IPv4Config, IPv6Config: in.IPv6Config,
 		ID: newOCID("apigateway"), CompartmentID: in.CompartmentID, EndpointType: in.EndpointType,
 		DisplayName: name, SubnetID: in.SubnetID, Hostname: newHostname(), CertificateID: in.CertificateID,
-		IPMode: in.IPMode, NSGs: in.NSGs, Locks: nullRaw(in.Locks), CaBundles: nullRaw(in.CaBundles),
+		IPMode: in.IPMode, NSGs: in.NSGs, Locks: locks, CaBundles: nullRaw(in.CaBundles),
 		ResponseCache: nullRaw(in.ResponseCache), State: stateCreating, TransitionAt: b.transitionAt(),
-		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
+		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags, IPs: ips,
 	}
 	b.gateways[g.ID] = g
 	wr := b.newWR(wrCreateGateway, g.CompartmentID, entityGateway, g.ID, actionCreated, *g.TransitionAt)
+	b.retry.Remember("CreateGateway", in.RetryToken, ociretry.Join(g.ID, wr), now)
 
 	return gatewayView(g), wr, g.Etag, nil
 }
@@ -239,6 +287,10 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 	b.mu.Lock("UpdateGateway")
 	defer b.mu.Unlock()
 
+	if err := b.checkTags(in.Tags); err != nil {
+		return "", err
+	}
+
 	g, err := b.liveGateway(id)
 	if err != nil {
 		return "", err
@@ -250,6 +302,10 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 
 	if err = checkEtag(g.Etag, ifMatch); err != nil {
 		return "", err
+	}
+
+	if lerr := checkLocked(g.Locks, false); lerr != nil {
+		return "", lerr
 	}
 
 	if in.CertificateID != nil {
@@ -276,8 +332,13 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 		g.CaBundles = nullRaw(in.CaBundles)
 	}
 
-	if len(in.ResponseCache) > 0 && !jsonIsNoCache(in.ResponseCache) && string(in.ResponseCache) != jsonNull {
-		return "", errUnsupported("responseCacheDetails other than type NONE")
+	if len(in.ResponseCache) > 0 {
+		if cerr := validateResponseCache(in.ResponseCache); cerr != nil {
+			return "", cerr
+		}
+
+		g.ResponseCache = nullRaw(in.ResponseCache)
+		b.forgetGatewayCache(g.ID)
 	}
 
 	g.Tags.merge(in.Tags)
@@ -310,11 +371,17 @@ func (b *InMemoryBackend) DeleteGateway(id, ifMatch string) (string, error) {
 		return "", err
 	}
 
+	if lerr := checkLocked(g.Locks, true); lerr != nil {
+		return "", lerr
+	}
+
 	for _, d := range b.deployments {
 		if d.GatewayID == id && d.State != stateDeleted {
 			return "", errConflict("gateway " + id + " still has API deployments")
 		}
 	}
+
+	b.releaseAddresses(g)
 
 	g.State, g.TransitionAt = stateDeleting, b.transitionAt()
 	g.TimeUpdated = b.nowUTC()
@@ -332,24 +399,17 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 		return "", err
 	}
 
-	if err = b.checkMove(g.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
+	return b.move(moveSpec{
+		id: id, op: wrUpdateGateway, entity: entityGateway, locks: g.Locks, compartment: &g.CompartmentID,
+		etag: &g.Etag, updated: &g.TimeUpdated,
+		conflict: func(target string) *APIError {
+			if b.gatewayNameTaken(target, g.DisplayName, g.ID) {
+				return errConflict("a gateway named " + g.DisplayName + " already exists in the target compartment")
+			}
 
-	if b.gatewayNameTaken(in.CompartmentID, g.DisplayName, g.ID) {
-		return "", errConflict("a gateway named " + g.DisplayName + " already exists in the target compartment")
-	}
-
-	g.CompartmentID, g.TimeUpdated, g.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(
-		wrUpdateGateway,
-		g.CompartmentID,
-		entityGateway,
-		id,
-		actionUpdated,
-		b.nowUTC().Add(b.transition),
-	), nil
+			return nil
+		},
+	}, ifMatch, in)
 }
 
 func (h *Handler) createGateway(q *req) error {

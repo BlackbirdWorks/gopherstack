@@ -1,0 +1,230 @@
+{
+  "Resources": {
+    "RestApiFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "todo_list.zip"
+        },
+        "Handler": "index.restapi",
+        "Role": {
+          "Fn::GetAtt": [
+            "RestApiFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "RestApiFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "RestApiFunctionSimpleCasePermission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "RestApiFunction"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/*",
+            {
+              "__ApiId__": {
+                "Ref": "ServerlessHttpApi"
+              },
+              "__Stage__": "*"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "ServerlessHttpApi": {
+      "Properties": {
+        "Body": {
+          "components": {
+            "securitySchemes": {
+              "oauth2Auth": {
+                "type": "oauth2",
+                "x-amazon-apigateway-authorizer": {
+                  "identitySource": "$request.querystring.param",
+                  "jwtConfiguration": {
+                    "audience": [
+                      "MyApi"
+                    ],
+                    "issuer": "https://www.example.com/v1/connect/oidc"
+                  },
+                  "type": "jwt"
+                }
+              }
+            }
+          },
+          "info": {
+            "title": {
+              "Ref": "AWS::StackName"
+            },
+            "version": "1.0"
+          },
+          "openapi": "3.0.1",
+          "paths": {
+            "$default": {
+              "x-amazon-apigateway-any-method": {
+                "isDefaultRoute": true,
+                "responses": {},
+                "security": [
+                  {
+                    "oauth2Auth": [
+                      "scope4"
+                    ]
+                  }
+                ],
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "payloadFormatVersion": "2.0",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RestApiFunction.Arn}/invocations"
+                  }
+                }
+              }
+            },
+            "/defaultauth": {
+              "post": {
+                "responses": {},
+                "security": [
+                  {
+                    "oauth2Auth": [
+                      "scope4"
+                    ]
+                  }
+                ],
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "payloadFormatVersion": "2.0",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RestApiFunction.Arn}/invocations"
+                  }
+                }
+              }
+            },
+            "/noneauth": {
+              "post": {
+                "responses": {},
+                "security": [
+                  {
+                    "NONE": []
+                  }
+                ],
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "payloadFormatVersion": "2.0",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RestApiFunction.Arn}/invocations"
+                  }
+                }
+              }
+            },
+            "/oauth2": {
+              "post": {
+                "responses": {},
+                "security": [
+                  {
+                    "oauth2Auth": [
+                      "scope4"
+                    ]
+                  }
+                ],
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "payloadFormatVersion": "2.0",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RestApiFunction.Arn}/invocations"
+                  }
+                }
+              }
+            },
+            "/scope3": {
+              "post": {
+                "responses": {},
+                "security": [
+                  {
+                    "oauth2Auth": [
+                      "scope3"
+                    ]
+                  }
+                ],
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "payloadFormatVersion": "2.0",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RestApiFunction.Arn}/invocations"
+                  }
+                }
+              }
+            }
+          },
+          "tags": [
+            {
+              "name": "httpapi:createdBy",
+              "x-amazon-apigateway-tag-value": "SAM"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Api"
+    },
+    "ServerlessHttpApiApiGatewayDefaultStage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "ServerlessHttpApi"
+        },
+        "AutoDeploy": true,
+        "StageName": "$default",
+        "Tags": {
+          "httpapi:createdBy": "SAM"
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Stage"
+    }
+  }
+}

@@ -18,20 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := guardduty.NewInMemoryBackend("000000000000", "us-east-1")
 	h := guardduty.NewHandler(backend)
 
-	notImplemented := []string{
-		"CreateCustomDetectionRuleAssociation",
-		"CreateCustomDetectionRuleOrgConfiguration",
-		"DeleteCustomDetectionRuleAssociation",
-		"DeleteCustomDetectionRuleOrgConfiguration",
-		"GetCustomDetectionRule",
-		"GetCustomDetectionRuleAssociation",
-		"GetCustomDetectionRuleOrgConfiguration",
-		"ListCustomDetectionRuleAssociations",
-		"ListCustomDetectionRuleOrgConfigurations",
-		"ListCustomDetectionRules",
-		"UpdateCustomDetectionRuleAssociation",
-		"UpdateCustomDetectionRuleOrgConfiguration",
-	}
-
-	sdkcheck.CheckCompleteness(t, &guarddutysdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(t, &guarddutysdk.Client{}, h.GetSupportedOperations(), nil)
 }

@@ -49,10 +49,12 @@ ops:
 gaps: []
 items_still_open:
   - "DeletePolicyStoreAlias never returns InvalidStateException: the SDK lists it for the op but the only documented trigger (InvalidStateException type doc) is DeletePolicyStore's deletion protection."
-  - "CreatePolicyStoreAlias never returns ServiceQuotaExceededException: AWS documents no numeric alias quota."
 structural_gaps: []
 deferred: []              # the one item deferred last pass (CreatePolicyStore ClientToken) is now implemented; see ops notes
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
+
+
+- **2026-11-13**: CreatePolicyStoreAlias returns ServiceQuotaExceededException past 10 aliases per policy store (docs.aws.amazon.com/verifiedpermissions/latest/userguide/quotas.html, "Policy store aliases per policy store: 10").
 
 ## Notes
 

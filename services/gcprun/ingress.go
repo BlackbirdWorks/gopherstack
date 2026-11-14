@@ -45,6 +45,18 @@ func (b *InMemoryBackend) serveIngress(w http.ResponseWriter, r *http.Request) {
 		tag, label = t, rest
 	}
 
+	if port, found := b.instancePort(label); found && tag == "" {
+		if port == 0 {
+			http.Error(w, "instance is not running or publishes no port", http.StatusServiceUnavailable)
+
+			return
+		}
+
+		b.proxy(port).ServeHTTP(w, r)
+
+		return
+	}
+
 	revName, err := b.route(label, tag)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -104,6 +116,27 @@ func (b *InMemoryBackend) proxy(port int) *httputil.ReverseProxy {
 			http.Error(w, "container unreachable: "+err.Error(), http.StatusBadGateway)
 		},
 	}
+}
+
+// instancePort finds the instance served under the DNS label and the host port its container is published on.
+func (b *InMemoryBackend) instancePort(label string) (int, bool) {
+	b.mu.RLock("instancePort")
+	defer b.mu.RUnlock()
+
+	for name, rec := range b.instances {
+		n, err := parseName(name, "instances")
+		if err != nil || hostLabel(n) != label {
+			continue
+		}
+
+		if rec.run == nil {
+			return 0, true
+		}
+
+		return rec.run.hostPort, true
+	}
+
+	return 0, false
 }
 
 // route returns the full revision name that should serve the next request for the service with the DNS label.

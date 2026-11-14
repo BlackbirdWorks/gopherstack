@@ -35,6 +35,8 @@ var resourceParams = []string{ //nolint:gochecknoglobals // immutable
 	"networkSecurityGroupId", "dhcpId", "localPeeringGatewayId", "publicIpId", "serviceId",
 	"instanceId", "imageId", "vnicAttachmentId", "vnicId", "privateIpId", "volumeId", "bootVolumeId",
 	"volumeAttachmentId", "bootVolumeAttachmentId", "volumeBackupId", "policyId", "policyAssignmentId",
+	"drgId", "drgAttachmentId", "drgRouteTableId", "drgRouteDistributionId", "workRequestId", "ipv6Id",
+	"blockVolumeReplicaId", "bootVolumeBackupId", "volumeGroupId", "volumeGroupBackupId", "dataRequestId",
 }
 
 func rt(method, path, op string) restroute.Route {

@@ -633,8 +633,15 @@ func (b *InMemoryBackend) associateTagsLocked(
 
 	for _, kv := range tagAssociations {
 		value := kv.Key + "=" + kv.Value
+		assoc := &ApplicationStatusCheckAssociation{
+			ApplicationStatusCheckID: checkID,
+			AssociationType:          appStatusAssocTypeTag,
+			TagKey:                   kv.Key,
+			TagValue:                 kv.Value,
+		}
+		existing := kv.Key != "" && b.applicationStatusCheckAssociations.Has(appStatusCheckAssociationKeyFn(assoc))
 
-		if tagCount >= maxApplicationStatusCheckTagAssociations {
+		if !existing && tagCount >= maxApplicationStatusCheckTagAssociations {
 			unsuccessful = append(unsuccessful, ApplicationStatusAssociationResult{
 				ApplicationStatusCheckID: checkID,
 				AssociationType:          appStatusAssocTypeTagWire,
@@ -659,13 +666,7 @@ func (b *InMemoryBackend) associateTagsLocked(
 			continue
 		}
 
-		assoc := &ApplicationStatusCheckAssociation{
-			ApplicationStatusCheckID: checkID,
-			AssociationType:          appStatusAssocTypeTag,
-			TagKey:                   kv.Key,
-			TagValue:                 kv.Value,
-		}
-		if !b.applicationStatusCheckAssociations.Has(appStatusCheckAssociationKeyFn(assoc)) {
+		if !existing {
 			tagCount++
 		}
 

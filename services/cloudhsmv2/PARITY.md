@@ -7,33 +7,29 @@ overall: B            # all 18 SDK operations are backed by real state and verif
 ops:
   CopyBackupToRegion: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY backups only, different valid region; the copy gets its own ID in the destination region (CopyTimestamp, SourceBackup/Cluster/Region set); source tags copied unless TagList is given"}
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATE_IN_PROGRESS until the lifecycle dwell (500ms) then UNINITIALIZED; subnets validated through EC2 (one per AZ, one VPC), security group created in the VPC; real X.509 CSR (ECDSA P-256) in Certificates.ClusterCsr; first CreateHsm adds HsmCertificate, AwsHardwareCertificate and ManufacturerHardwareCertificate (chain verifies); SourceBackupId (ID or shared ARN) restores an initialized cluster; mode defaults FIPS (hsm1.medium) / NON_FIPS (hsm2m.medium); quota 4 clusters per region"}
-  CreateHsm: {wire: ok, errors: ok, state: ok, persist: ok, note: "one HSM per cluster AZ; ENI (with optional IpAddress) created in the cluster subnet through EC2 and attached to the cluster security group; CREATE_IN_PROGRESS then ACTIVE; at most 28 per cluster"}
+  CreateHsm: {wire: ok, errors: ok, state: ok, persist: ok, note: "one HSM per cluster AZ; DUALSTACK clusters add EniIpV6 from the subnet IPv6 CIDR when the subnet has one; ENI (with optional IpAddress) created in the cluster subnet through EC2 and attached to the cluster security group; CREATE_IN_PROGRESS then ACTIVE; at most 28 per cluster"}
   DeleteBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY -> PENDING_DELETION with DeleteTimestamp 7 days out; DELETED and gone afterwards"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "refused (CloudHsmInvalidRequestException) while HSMs exist; DELETE_IN_PROGRESS then gone, releasing the security group"}
   DeleteHsm: {wire: ok, errors: ok, state: ok, persist: ok, note: "by HsmId, EniId or EniIp; DELETE_IN_PROGRESS then gone, releasing the ENI; deleting the last HSM of an initialized cluster takes a backup"}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "backups only; CloudHsmResourceNotFoundException when no policy is attached"}
-  DescribeBackups: {wire: ok, errors: ok, state: ok, persist: ok, note: "filters backupIds/sourceBackupIds/clusterIds/states/neverExpires/modes; Shared returns other accounts' backups whose resource policy grants the caller; SortAscending; paginated"}
+  DescribeBackups: {wire: ok, errors: ok, state: ok, persist: ok, note: "filters backupIds/sourceBackupIds/clusterIds/states/neverExpires/modes; Shared returns other accounts' backups whose resource policy or RAM share grants the caller; SortAscending; paginated"}
   DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "filters clusterIds/vpcIds/states; DELETED clusters are hidden; paginated"}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "backups only"}
   InitializeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "UNINITIALIZED only; the signed certificate must certify the stored CSR key and chain to a self-signed TrustAnchor (crypto/x509); then INITIALIZE_IN_PROGRESS, INITIALIZED, and ACTIVE once an HSM is ACTIVE"}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "clusters and backups by ID or ARN; paginated"}
   ModifyBackupAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "NeverExpires toggles exemption from the cluster retention policy captured at backup time"}
-  ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "BackupRetentionPolicy (7-379 days) and/or HsmType (hsm1.medium to hsm2m.medium, rollback inside the rollback window); MODIFY_IN_PROGRESS for the dwell"}
+  ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "BackupRetentionPolicy (7-379 days) and/or HsmType (hsm1.medium to hsm2m.medium, rollback inside the 24 hour window of hsm1-to-hsm2-migration.html, reported as HsmTypeRollbackExpiration); MODIFY_IN_PROGRESS (ROLLBACK_IN_PROGRESS for a rollback) for the dwell"}
   PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY backups only, JSON with a Statement; grants consumed by Shared DescribeBackups and cross-account CreateCluster SourceBackupId"}
   RestoreBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "cancels PENDING_DELETION inside the 7 day window; on a live backup it is a no-op that returns the backup"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "clusters and backups; 50 tags, aws: prefix reserved (CloudHsmTagException)"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "clusters and backups"}
 families:
   clusters: {status: ok, note: "lifecycle derived from the clock (CREATE_IN_PROGRESS, UNINITIALIZED, INITIALIZE_IN_PROGRESS, MODIFY_IN_PROGRESS, DELETE_IN_PROGRESS) plus HSM presence (INITIALIZED vs ACTIVE); EC2 subnet, security group and ENI wiring through internal/app/cloudhsmv2_wiring.go"}
-  backups: {status: ok, note: "taken when an initialized cluster gains its first HSM, when it initializes with an HSM, and when its last HSM is deleted; copies and cross-account sharing via resource policy"}
+  backups: {status: ok, note: "taken when an initialized cluster gains its first HSM, when it initializes with an HSM, and when its last HSM is deleted, and every 24 hours while an initialized cluster has an ACTIVE HSM (manage-backups: at least once every 24 hours; caught up lazily on the next backup call); copies and cross-account sharing via resource policy or an active RAM share"}
   tags: {status: ok, note: "cluster and backup tags; backups inherit the cluster tags at backup time"}
 items_still_open:
-  - Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; the EC2 backend assigns IPv6 addresses from a fixed 2001:db8:: prefix, not the subnet IPv6 CIDR, so none is allocated
-  - Backups: no daily automatic backups; only the lifecycle points listed in the backups family
-  - DescribeBackups Shared: only PutResourcePolicy grants are consulted; RAM resource shares are not
   - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
-  - ModifyCluster: the 7 day HsmTypeRollbackExpiration window is an assumption, the SDK does not state it
-  - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; no IAM is modeled
+  - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; API_ModifyCluster lists both without a trigger, and IAM denials come from the shared enforcement middleware as AccessDeniedException
   - "CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported"
 gaps: []
 structural_gaps:

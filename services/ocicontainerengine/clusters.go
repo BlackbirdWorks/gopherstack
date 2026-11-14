@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -29,6 +30,7 @@ var durationDaysRe = regexp.MustCompile(`^P(\d+)D$`)
 // CreateClusterIn is the CreateCluster request body.
 type CreateClusterIn struct {
 	Tags
+	RetryToken     string          `json:"-"`
 	VcnID          *string         `json:"vcnId"`
 	KmsKeyID       *string         `json:"kmsKeyId"`
 	EndpointConfig *EndpointConfig `json:"endpointConfig"`
@@ -370,7 +372,18 @@ func (b *InMemoryBackend) CreateCluster(in CreateClusterIn) (string, error) {
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if aerr := firstErr(b.checkCompartment(in.Compartment), validateName(in.Name)); aerr != nil {
+	if v, ok := b.retry.Lookup("CreateCluster", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if c, live := b.clusters[id]; !live || c.State == stateDeleting || c.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	if aerr := firstErr(
+		b.checkCompartment(in.Compartment), validateName(in.Name), b.checkTags(in.Tags),
+	); aerr != nil {
 		return "", aerr
 	}
 
@@ -407,6 +420,8 @@ func (b *InMemoryBackend) CreateCluster(in CreateClusterIn) (string, error) {
 	if b.engine != nil {
 		b.launchLocked(c, c.CreatedByWR)
 	}
+
+	b.retry.Remember("CreateCluster", in.RetryToken, ociretry.Join(c.ID, c.CreatedByWR), b.nowUTC())
 
 	return c.CreatedByWR, nil
 }
@@ -568,7 +583,7 @@ func (b *InMemoryBackend) UpdateCluster(id, ifMatch string, in UpdateClusterIn) 
 		return "", errState("Cluster " + id + " is in state " + c.State + "; the operation requires ACTIVE")
 	}
 
-	if aerr = b.checkClusterUpdate(c, in); aerr != nil {
+	if aerr = firstErr(b.checkTags(in.Tags), b.checkClusterUpdate(c, in)); aerr != nil {
 		return "", aerr
 	}
 
@@ -614,7 +629,49 @@ func (b *InMemoryBackend) checkClusterUpdate(c *Cluster, in UpdateClusterIn) *AP
 		}
 	}
 
-	return firstErr(checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version))
+	return firstErr(
+		checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version), b.checkUpgradeNodes(c, in.Version),
+	)
+}
+
+// checkUpgradeNodes applies the control plane upgrade preconditions on worker nodes: every node must be ready and
+// every node pool and node must stay within the version skew of the target.
+func (b *InMemoryBackend) checkUpgradeNodes(c *Cluster, want *string) *APIError {
+	if want == nil || *want == c.Version {
+		return nil
+	}
+
+	for _, np := range b.pools {
+		if np.ClusterID != c.ID || np.State == stateDeleted {
+			continue
+		}
+
+		if skewed(np.Version, *want) {
+			return errParam("The node pool " + np.ID + " Kubernetes version " + np.Version +
+				" is not compatible with the target control plane version " + *want)
+		}
+
+		for _, n := range np.Nodes {
+			if n.State != stateActive {
+				return errState("All worker nodes must be ready to upgrade the control plane; node " + n.ID +
+					" is in state " + n.State)
+			}
+
+			if skewed(n.Version, *want) {
+				return errParam("The node " + n.ID + " Kubernetes version " + n.Version +
+					" is not compatible with the target control plane version " + *want)
+			}
+		}
+	}
+
+	return nil
+}
+
+func skewed(have, target string) bool {
+	hv, ok := parseVersion(have)
+	tv, tok := parseVersion(target)
+
+	return ok && tok && tv.minor-hv.minor > maxMinorSkew
 }
 
 func checkTypeChange(cur, want string) *APIError {
@@ -670,6 +727,7 @@ func (b *InMemoryBackend) DeleteCluster(id, ifMatch string) (string, error) {
 		}
 	}
 
+	b.cascadeClusterDelete(id, c.TransitionAt)
 	b.reapLocked(id)
 
 	return wr, nil
@@ -770,6 +828,8 @@ func (h *Handler) createCluster(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateCluster(in)
 

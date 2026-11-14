@@ -106,6 +106,13 @@ type EventHubRule struct {
 	Rights       []string
 }
 
+// EventHubRuleEntry is a rule with its name and the hub it is scoped to ("" for the namespace).
+type EventHubRuleEntry struct {
+	Hub  string
+	Name string
+	EventHubRule
+}
+
 // EventHubs is the seam the Microsoft.EventHub resource provider uses to keep
 // the Event Hubs data plane in step with ARM. Primitive types only, so this
 // package never imports services/azureeventhubs. hub is empty for
@@ -121,6 +128,10 @@ type EventHubs interface {
 	PutRule(ns, hub, name string, rights []string) (EventHubRule, error)
 	GetRule(ns, hub, name string) (EventHubRule, bool)
 	DeleteRule(ns, hub, name string) error
+	// RegenerateRuleKey replaces a rule's PrimaryKey or SecondaryKey with key, or a random key when key is empty.
+	RegenerateRuleKey(ns, hub, name, keyType, key string) (EventHubRule, error)
+	// ListRules returns the authorization rules of a namespace and its hubs.
+	ListRules(ns string) ([]EventHubRuleEntry, error)
 }
 
 type noopEventHubs struct{}
@@ -143,6 +154,11 @@ func (noopEventHubs) GetRule(string, string, string) (EventHubRule, bool) {
 	return EventHubRule{}, false
 }
 func (noopEventHubs) DeleteRule(string, string, string) error { return nil }
+func (noopEventHubs) RegenerateRuleKey(string, string, string, string, string) (EventHubRule, error) {
+	return EventHubRule{}, ErrEventHubRuleNotFound
+}
+
+func (noopEventHubs) ListRules(string) ([]EventHubRuleEntry, error) { return nil, nil }
 
 var _ EventHubs = noopEventHubs{}
 
@@ -306,7 +322,8 @@ type EventGridDomainTopic struct {
 // subscription properties cross as ARM property maps, so this package never
 // imports services/azureeventgrid.
 type EventGrid interface {
-	PutTopic(name, resourceID, inputSchema string) (EventGridTopic, error)
+	// mapping is the topic's ARM inputSchemaMapping object, nil when absent.
+	PutTopic(name, resourceID, inputSchema string, mapping map[string]any) (EventGridTopic, error)
 	TopicInfo(name string) (EventGridTopic, bool)
 	DeleteTopic(name string) error
 	TopicKeys(name string) (key1, key2 string, err error)
@@ -363,7 +380,7 @@ type EventGrid interface {
 
 type noopEventGrid struct{}
 
-func (noopEventGrid) PutTopic(string, string, string) (EventGridTopic, error) {
+func (noopEventGrid) PutTopic(string, string, string, map[string]any) (EventGridTopic, error) {
 	return EventGridTopic{}, ErrEventGridUnavailable
 }
 func (noopEventGrid) TopicInfo(string) (EventGridTopic, bool) { return EventGridTopic{}, false }
@@ -508,6 +525,8 @@ type AppConfig interface {
 	PutStore(name string) (time.Time, error)
 	StoreCreated(name string) (time.Time, bool)
 	DeleteStore(name string) error
+	PurgeStore(name string)
+	SetRevisionRetention(name string, days int) error
 	StoreKeys(name string) ([]AppConfigKey, error)
 	RegenerateStoreKey(name, keyID string) (AppConfigKey, error)
 
@@ -519,9 +538,11 @@ type AppConfig interface {
 
 type noopAppConfig struct{}
 
-func (noopAppConfig) PutStore(string) (time.Time, error)    { return time.Time{}, ErrAppConfigUnavailable }
-func (noopAppConfig) StoreCreated(string) (time.Time, bool) { return time.Time{}, false }
-func (noopAppConfig) DeleteStore(string) error              { return nil }
+func (noopAppConfig) PutStore(string) (time.Time, error)     { return time.Time{}, ErrAppConfigUnavailable }
+func (noopAppConfig) StoreCreated(string) (time.Time, bool)  { return time.Time{}, false }
+func (noopAppConfig) DeleteStore(string) error               { return nil }
+func (noopAppConfig) PurgeStore(string)                      {}
+func (noopAppConfig) SetRevisionRetention(string, int) error { return nil }
 func (noopAppConfig) StoreKeys(string) ([]AppConfigKey, error) {
 	return nil, ErrAppConfigUnavailable
 }
@@ -560,6 +581,7 @@ type ContainerRegistries interface {
 	PutRegistry(name string, adminEnabled bool) (ContainerRegistryInfo, error)
 	RegistryInfo(name string) (ContainerRegistryInfo, bool)
 	DeleteRegistry(name string) error
+	SetAnonymousPull(name string, enabled bool) error
 	Credentials(name string) (ContainerRegistryCredentials, error)
 	RegenerateCredential(name, which string) (ContainerRegistryCredentials, error)
 	SetWebhook(registry string, w ContainerRegistryWebhook) error
@@ -589,6 +611,8 @@ func (noopContainerRegistries) RegistryInfo(string) (ContainerRegistryInfo, bool
 }
 
 func (noopContainerRegistries) DeleteRegistry(string) error { return nil }
+
+func (noopContainerRegistries) SetAnonymousPull(string, bool) error { return nil }
 
 func (noopContainerRegistries) Credentials(string) (ContainerRegistryCredentials, error) {
 	return ContainerRegistryCredentials{}, ErrACRUnavailable

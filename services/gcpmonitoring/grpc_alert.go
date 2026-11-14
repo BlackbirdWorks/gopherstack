@@ -207,7 +207,7 @@ func (s *serviceServer) CreateServiceLevelObjective(
 func (s *serviceServer) GetServiceLevelObjective(
 	_ context.Context, in *monitoringpb.GetServiceLevelObjectiveRequest,
 ) (*monitoringpb.ServiceLevelObjective, error) {
-	return s.b.GetServiceLevelObjective(in.GetName())
+	return s.b.GetServiceLevelObjective(in.GetName(), in.GetView())
 }
 
 func (s *serviceServer) ListServiceLevelObjectives(

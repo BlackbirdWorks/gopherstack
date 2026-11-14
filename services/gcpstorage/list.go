@@ -78,28 +78,35 @@ type listEntry struct {
 	key    listKey
 }
 
+func listMatcher(opts ListOptions) (*regexp.Regexp, *APIError) {
+	if opts.IncludeFolders && opts.Delimiter != "/" {
+		return nil, errInvalid("delimiter must be '/' when includeFoldersAsPrefixes is set.")
+	}
+
+	if opts.MatchGlob == "" {
+		return nil, nil
+	}
+
+	if opts.Delimiter != "" && opts.Delimiter != "/" {
+		return nil, errInvalid("delimiter must be empty or '/' when matchGlob is set.")
+	}
+
+	return compileGlob(opts.MatchGlob)
+}
+
 // ListObjects lists objects in name order, collapsing delimited prefixes.
 func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResult, error) {
-	var match *regexp.Regexp
-
-	if opts.MatchGlob != "" {
-		if opts.Delimiter != "" && opts.Delimiter != "/" {
-			return ListResult{}, errInvalid("delimiter must be empty or '/' when matchGlob is set.")
-		}
-
-		var apiErr *APIError
-
-		if match, apiErr = compileGlob(opts.MatchGlob); apiErr != nil {
-			return ListResult{}, apiErr
-		}
+	match, apiErr := listMatcher(opts)
+	if apiErr != nil {
+		return ListResult{}, apiErr
 	}
 
 	var after *listKey
 
 	if opts.PageToken != "" {
-		k, apiErr := parseListToken(opts.PageToken)
-		if apiErr != nil {
-			return ListResult{}, apiErr
+		k, tokErr := parseListToken(opts.PageToken)
+		if tokErr != nil {
+			return ListResult{}, tokErr
 		}
 
 		after = &k
@@ -111,6 +118,11 @@ func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResu
 	bk, err := b.bucketLocked(bucket)
 	if err != nil {
 		return ListResult{}, err
+	}
+
+	if opts.SoftDeleted {
+		bk = bk.softDeletedView()
+		opts.Versions = true
 	}
 
 	entries := listEntries(bk, opts, match, after)
@@ -200,4 +212,18 @@ func objectEntries(bk *Bucket, name string, versions bool) []listEntry {
 	}
 
 	return out
+}
+
+func (b *Bucket) softDeletedView() *Bucket {
+	view := &Bucket{Name: b.Name, Config: b.Config, Objects: map[string][]*Object{}}
+
+	for _, o := range b.SoftDeleted {
+		view.Objects[o.Name] = append(view.Objects[o.Name], o)
+	}
+
+	for _, versions := range view.Objects {
+		slices.SortFunc(versions, func(a, c *Object) int { return int(a.Generation - c.Generation) })
+	}
+
+	return view
 }

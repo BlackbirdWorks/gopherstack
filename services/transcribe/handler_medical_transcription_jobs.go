@@ -31,16 +31,6 @@ type medicalTranscriptionJobOutput struct {
 	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz,omitempty"`
 }
 
-func buildMedicalTranscriptURI(job *MedicalTranscriptionJob) string {
-	if job.OutputBucketName != "" {
-		key := outputObjectKey(job.OutputKey, job.MedicalTranscriptionJobName)
-
-		return "s3://" + job.OutputBucketName + "/" + key
-	}
-
-	return "s3://synthetic-transcripts/" + job.MedicalTranscriptionJobName + ".json"
-}
-
 func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTranscriptionJobOutput {
 	out := &medicalTranscriptionJobOutput{
 		MedicalTranscriptionJobName:      job.MedicalTranscriptionJobName,
@@ -57,7 +47,7 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		Transcript:                       &transcriptOutput{},
 	}
 	if job.TranscriptionJobStatus == jobStatusCompleted {
-		out.Transcript.TranscriptFileURI = buildMedicalTranscriptURI(job)
+		out.Transcript.TranscriptFileURI = job.TranscriptFileURI
 	}
 	if !job.CreationTime.IsZero() {
 		s := awstime.Epoch(job.CreationTime)

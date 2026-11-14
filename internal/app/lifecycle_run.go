@@ -248,11 +248,13 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 	if dataDir != "" {
 		env = append(env, "GOPHERSTACK_DATA_DIR="+lifecycleContainerData)
 		spec.Mounts = []string{dataDir + ":" + lifecycleContainerData}
+		spec.User = lifecycleRootUser
 	}
 
 	if c.DockerSocket {
 		sock := c.dockerSocketPath(d.Getenv)
 		spec.Mounts = append(spec.Mounts, sock+":"+lifecycleSocketInside)
+		spec.User = lifecycleRootUser
 		env = append(env, "DOCKER_HOST=unix://"+lifecycleSocketInside)
 		fmt.Fprintf(d.Err, "warning: mounting %s gives the server root-equivalent control of the host Docker daemon\n",
 			sock)

@@ -148,7 +148,7 @@ func (b *Backend) DeleteServicePrincipal(r Ref) error {
 		return denied()
 	}
 
-	b.removeObject(s.ID)
+	b.deleteObject(s.ID)
 
 	return nil
 }

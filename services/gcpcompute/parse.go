@@ -31,6 +31,7 @@ type reqRoute struct {
 	collection string
 	name       string
 	action     string
+	parent     string
 	aggregated bool
 }
 
@@ -145,7 +146,39 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 	return finishRoute(rt, rest)
 }
 
+const (
+	resizeSegments     = 3
+	resizeMaxSegments  = 5
+	resizeNameSegment  = 3
+	resizeActionOffset = 4
+)
+
+func isResizeRoute(rest []string) bool {
+	return len(rest) >= resizeSegments && rest[0] == collMIG && rest[2] == "resizeRequests"
+}
+
+func resizeRoute(rt reqRoute, rest []string) (reqRoute, bool) {
+	if len(rest) > resizeMaxSegments {
+		return reqRoute{}, false
+	}
+
+	rt.collection, rt.parent = collMIGResize, rest[1]
+	if len(rest) > resizeNameSegment {
+		rt.name = rest[resizeNameSegment]
+	}
+
+	if len(rest) > resizeActionOffset {
+		rt.action = rest[resizeActionOffset]
+	}
+
+	return rt, true
+}
+
 func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
+	if isResizeRoute(rest) {
+		return resizeRoute(rt, rest)
+	}
+
 	if len(rest) == 0 || len(rest) > maxPathTail {
 		return reqRoute{}, false
 	}
@@ -158,6 +191,10 @@ func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
 
 	if len(rest) == maxPathTail {
 		rt.action = rest[2]
+	}
+
+	if rt.collection == collInstances && rt.name == "bulkInsert" && rt.action == "" {
+		rt.name, rt.action = "", "bulkInsert"
 	}
 
 	if rt.collection == "images" && rt.name == "family" && rt.action != "" {

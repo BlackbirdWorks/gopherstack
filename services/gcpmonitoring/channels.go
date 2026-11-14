@@ -310,6 +310,13 @@ func (b *InMemoryBackend) DeleteNotificationChannel(req *monitoringpb.DeleteNoti
 			p.GetNotificationChannels(),
 			func(n string) bool { return n == req.GetName() },
 		)
+
+		for _, s := range p.GetAlertStrategy().GetNotificationChannelStrategy() {
+			s.NotificationChannelNames = slices.DeleteFunc(
+				s.GetNotificationChannelNames(),
+				func(n string) bool { return n == req.GetName() },
+			)
+		}
 	}
 
 	delete(b.channels, req.GetName())

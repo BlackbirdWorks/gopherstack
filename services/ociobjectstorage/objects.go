@@ -97,18 +97,37 @@ func errRetention(name string) *APIError {
 	return errConflict("ObjectUnderRetention", "Object '"+name+"' is protected by a retention rule")
 }
 
+// PutOptions are the optional integrity and encryption inputs of a write.
+type PutOptions struct {
+	ContentMD5 string
+	Checksum   ChecksumReq
+	SSE        SSEReq
+}
+
 // PutObject stores an object; contentMD5 is the optional base64 Content-MD5 request header.
 func (b *InMemoryBackend) PutObject(
 	ns, bucket, name string, data []byte, meta ObjectMeta, pre Preconds, contentMD5 string,
+) (ObjectInfo, error) {
+	return b.PutObjectWith(ns, bucket, name, data, meta, pre, PutOptions{ContentMD5: contentMD5})
+}
+
+// PutObjectWith stores an object with checksum and encryption options.
+func (b *InMemoryBackend) PutObjectWith(
+	ns, bucket, name string, data []byte, meta ObjectMeta, pre Preconds, opt PutOptions,
 ) (ObjectInfo, error) {
 	if name == "" || len(name) > maxObjectName {
 		return ObjectInfo{}, errParam("Object name must be 1-1024 characters")
 	}
 
 	sum := md5b64(data)
-	if contentMD5 != "" && contentMD5 != sum {
+	if opt.ContentMD5 != "" && opt.ContentMD5 != sum {
 		return ObjectInfo{}, newErr(http.StatusBadRequest, "InvalidDigest",
 			"The Content-MD5 you specified did not match what we received")
+	}
+
+	ck, err := opt.Checksum.forObject(data)
+	if err != nil {
+		return ObjectInfo{}, err
 	}
 
 	defer b.flushEvents()
@@ -117,6 +136,15 @@ func (b *InMemoryBackend) PutObject(
 	defer b.mu.Unlock()
 
 	bk, err := b.bucket(ns, bucket)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+
+	if err = writable(bk); err != nil {
+		return ObjectInfo{}, err
+	}
+
+	hash, err := opt.SSE.resolve(b.checkKMSKey)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
@@ -132,25 +160,41 @@ func (b *InMemoryBackend) PutObject(
 		return ObjectInfo{}, err
 	}
 
-	o, err := b.storeLocked(bk, name, data, meta, sum, "")
+	o, err := b.storeLocked(
+		bk,
+		name,
+		data,
+		meta,
+		writeSpec{MD5: sum, Checksum: ck, SseHash: hash, Kms: opt.SSE.KmsKeyID},
+	)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
 
 	b.recordEvent(bk, writeEventType(cur != nil), name, o.Etag)
+	b.replicate(bk, name, false)
 
 	return b.info(o), nil
 }
 
+// writeSpec is the integrity and encryption state recorded with a stored object.
+type writeSpec struct {
+	Checksum     Checksum
+	MD5          string
+	MultipartMD5 string
+	SseHash      string
+	Kms          string
+}
+
 func (b *InMemoryBackend) storeLocked(
-	bk *Bucket, name string, data []byte, meta ObjectMeta, sum, multipartMD5 string,
+	bk *Bucket, name string, data []byte, meta ObjectMeta, spec writeSpec,
 ) (*Object, error) {
 	switch meta.StorageTier {
 	case "":
 		meta.StorageTier = bk.StorageTier
 	case tierStandard, tierIA, tierArchive:
 	default:
-		return nil, errParam("Invalid storage-tier")
+		return nil, errInvalidTier("Invalid storage-tier")
 	}
 
 	if meta.ContentType == "" {
@@ -159,10 +203,27 @@ func (b *InMemoryBackend) storeLocked(
 
 	now := b.nowUTC()
 	o := &Object{
-		Name: name, Data: data, Meta: meta, MD5: sum, MultipartMD5: multipartMD5,
-		Etag: newEtag(), TimeCreated: now, TimeModified: now,
+		Name: name, Data: data, Meta: meta, MD5: spec.MD5, MultipartMD5: spec.MultipartMD5, Checksum: spec.Checksum,
+		SseKeySha256: spec.SseHash, KmsKeyID: spec.Kms, Etag: newEtag(), TimeCreated: now, TimeModified: now,
 	}
 
+	if o.SseKeySha256 == "" && o.KmsKeyID == "" {
+		o.KmsKeyID = bk.KmsKeyID
+	}
+
+	if meta.StorageTier == tierArchive {
+		o.TimeArchived = now
+	}
+
+	if err := b.placeLocked(bk, o); err != nil {
+		return nil, err
+	}
+
+	return o, nil
+}
+
+func (b *InMemoryBackend) placeLocked(bk *Bucket, o *Object) error {
+	name := o.Name
 	vs := bk.Objects[name]
 
 	switch bk.Versioning {
@@ -178,7 +239,7 @@ func (b *InMemoryBackend) storeLocked(
 			if v.VersionID != nullVersion {
 				kept = append(kept, v)
 			} else if b.underRetention(bk, v) {
-				return nil, errRetention(name)
+				return errRetention(name)
 			}
 		}
 
@@ -186,7 +247,7 @@ func (b *InMemoryBackend) storeLocked(
 	default:
 		for _, v := range vs {
 			if b.underRetention(bk, v) {
-				return nil, errRetention(name)
+				return errRetention(name)
 			}
 		}
 
@@ -194,7 +255,7 @@ func (b *InMemoryBackend) storeLocked(
 		bk.Objects[name] = []*Object{o}
 	}
 
-	return o, nil
+	return nil
 }
 
 func pick(bk *Bucket, name, versionID string) *Object {
@@ -215,6 +276,13 @@ func pick(bk *Bucket, name, versionID string) *Object {
 func (b *InMemoryBackend) GetObject(
 	ns, bucket, name, versionID string, pre Preconds, body bool,
 ) (ObjectInfo, error) {
+	return b.GetObjectWith(ns, bucket, name, versionID, pre, body, SSEKey{})
+}
+
+// GetObjectWith reads an object that may be encrypted with the customer-provided key.
+func (b *InMemoryBackend) GetObjectWith(
+	ns, bucket, name, versionID string, pre Preconds, body bool, key SSEKey,
+) (ObjectInfo, error) {
 	b.mu.RLock("GetObject")
 	defer b.mu.RUnlock()
 
@@ -229,6 +297,10 @@ func (b *InMemoryBackend) GetObject(
 	}
 
 	if err = pre.check(o.Etag, true, true); err != nil {
+		return ObjectInfo{}, err
+	}
+
+	if err = requireKey(o.SseKeySha256, key); err != nil {
 		return ObjectInfo{}, err
 	}
 
@@ -260,9 +332,14 @@ func (b *InMemoryBackend) DeleteObject(ns, bucket, name, versionID, ifMatch stri
 		return DeleteResult{}, err
 	}
 
+	if err = writable(bk); err != nil {
+		return DeleteResult{}, err
+	}
+
 	res, err := b.deleteLocked(bk, name, versionID, ifMatch)
 	if err == nil {
 		b.recordEvent(bk, EventDeleteObject, name, "")
+		b.replicate(bk, name, true)
 	}
 
 	return res, err
@@ -503,6 +580,10 @@ func (b *InMemoryBackend) RestoreObjects(ns, bucket, name, versionID string, hou
 		return err
 	}
 
+	if err = writable(bk); err != nil {
+		return err
+	}
+
 	o := pick(bk, name, versionID)
 	if o == nil {
 		return errObject(name)
@@ -526,7 +607,7 @@ func (b *InMemoryBackend) RestoreObjects(ns, bucket, name, versionID string, hou
 // UpdateStorageTier changes an object's tier.
 func (b *InMemoryBackend) UpdateStorageTier(ns, bucket, name, versionID, tier string) error {
 	if tier != tierStandard && tier != tierIA && tier != tierArchive {
-		return errParam("storageTier must be Standard, InfrequentAccess or Archive")
+		return errInvalidTier("storageTier must be Standard, InfrequentAccess or Archive")
 	}
 
 	b.mu.Lock("UpdateStorageTier")
@@ -534,6 +615,10 @@ func (b *InMemoryBackend) UpdateStorageTier(ns, bucket, name, versionID, tier st
 
 	bk, err := b.bucket(ns, bucket)
 	if err != nil {
+		return err
+	}
+
+	if err = writable(bk); err != nil {
 		return err
 	}
 
@@ -550,132 +635,13 @@ func (b *InMemoryBackend) UpdateStorageTier(ns, bucket, name, versionID, tier st
 	o.Meta.StorageTier = tier
 	o.RestoreReadyAt, o.RestoreExpiry = time.Time{}, time.Time{}
 	o.TimeModified = b.nowUTC()
+	o.TimeArchived = time.Time{}
 
-	return nil
-}
-
-// CopyInput is the CopyObjectDetails payload.
-type CopyInput struct {
-	DestinationMetadata map[string]string `json:"destinationObjectMetadata"`
-	SourceObjectName    string            `json:"sourceObjectName"`
-	DestinationRegion   string            `json:"destinationRegion"`
-	DestinationNS       string            `json:"destinationNamespace"`
-	DestinationBucket   string            `json:"destinationBucket"`
-	DestinationObject   string            `json:"destinationObjectName"`
-	SourceIfMatch       string            `json:"sourceObjectIfMatchETag"`
-	SourceVersionID     string            `json:"sourceVersionId"`
-	DestIfMatch         string            `json:"destinationObjectIfMatchETag"`
-	DestIfNoneMatch     string            `json:"destinationObjectIfNoneMatchETag"`
-	DestinationTier     string            `json:"destinationObjectStorageTier"`
-}
-
-func (in CopyInput) validate() error {
-	if in.SourceObjectName == "" || in.DestinationObject == "" || in.DestinationBucket == "" ||
-		in.DestinationNS == "" || in.DestinationRegion == "" {
-		return errMissing("sourceObjectName, destinationRegion, destinationNamespace, " +
-			"destinationBucket and destinationObjectName are required")
-	}
-
-	if in.DestinationRegion != Region {
-		return errParam("Cross-region copy is not supported by this emulator; use region " + Region)
+	if tier == tierArchive {
+		o.TimeArchived = o.TimeModified
 	}
 
 	return nil
-}
-
-// copyMeta derives the destination metadata of a copy.
-func copyMeta(o *Object, dst *Bucket, in CopyInput) ObjectMeta {
-	meta := o.Meta
-	meta.Metadata = copyMap(o.Meta.Metadata)
-
-	if in.DestinationMetadata != nil {
-		meta.Metadata = in.DestinationMetadata
-	}
-
-	if in.DestinationTier != "" {
-		meta.StorageTier = in.DestinationTier
-	} else if meta.StorageTier == tierArchive {
-		meta.StorageTier = dst.StorageTier
-	}
-
-	return meta
-}
-
-// CopyObject copies an object and returns a (completed) work request id.
-func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, error) {
-	if err := in.validate(); err != nil {
-		return "", err
-	}
-
-	defer b.flushEvents()
-
-	b.mu.Lock("CopyObject")
-	defer b.mu.Unlock()
-
-	src, err := b.bucket(ns, bucket)
-	if err != nil {
-		return "", err
-	}
-
-	dst, err := b.bucket(in.DestinationNS, in.DestinationBucket)
-	if err != nil {
-		return "", err
-	}
-
-	o := pick(src, in.SourceObjectName, in.SourceVersionID)
-	if o == nil {
-		return "", errObject(in.SourceObjectName)
-	}
-
-	if err = (Preconds{IfMatch: in.SourceIfMatch}).check(o.Etag, true, false); err != nil {
-		return "", err
-	}
-
-	if st := archivalAt(o, b.nowUTC()); st == archivalArchived || st == archivalRestoring {
-		return "", errConflict(
-			"NotRestored",
-			"The source object is archived and must be restored before it can be copied",
-		)
-	}
-
-	cur := live(dst, in.DestinationObject)
-	etag := ""
-
-	if cur != nil {
-		etag = cur.Etag
-	}
-
-	if err = (Preconds{IfMatch: in.DestIfMatch, IfNoneMatch: in.DestIfNoneMatch}).check(
-		etag,
-		cur != nil,
-		false,
-	); err != nil {
-		return "", err
-	}
-
-	stored, err := b.storeLocked(
-		dst,
-		in.DestinationObject,
-		append([]byte(nil), o.Data...),
-		copyMeta(o, dst, in),
-		o.MD5,
-		o.MultipartMD5,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	b.recordEvent(dst, writeEventType(cur != nil), in.DestinationObject, stored.Etag)
-
-	now := b.nowUTC()
-	wr := &WorkRequest{
-		ID: "ocid1.coreservicesworkrequest.oc1." + Region + "." + newVersionID(), OperationType: "COPY_OBJECT",
-		Status: "COMPLETED", CompartmentID: dst.CompartmentID, TimeAccepted: now, TimeFinished: now,
-		EntityURI: "/n/" + in.DestinationNS + "/b/" + in.DestinationBucket + "/o/" + in.DestinationObject,
-	}
-	b.workRequests[wr.ID] = wr
-
-	return wr.ID, nil
 }
 
 func copyMap(m map[string]string) map[string]string {
@@ -716,6 +682,10 @@ func (b *InMemoryBackend) RenameObject(ns, bucket string, in RenameInput) (Objec
 		return ObjectInfo{}, err
 	}
 
+	if err = writable(bk); err != nil {
+		return ObjectInfo{}, err
+	}
+
 	src := live(bk, in.SourceName)
 	if src == nil {
 		return ObjectInfo{}, errObject(in.SourceName)
@@ -747,7 +717,7 @@ func (b *InMemoryBackend) RenameObject(ns, bucket string, in RenameInput) (Objec
 	meta := src.Meta
 	meta.Metadata = copyMap(src.Meta.Metadata)
 
-	o, err := b.storeLocked(bk, in.NewName, src.Data, meta, src.MD5, src.MultipartMD5)
+	o, err := b.storeLocked(bk, in.NewName, src.Data, meta, specOf(src))
 	if err != nil {
 		return ObjectInfo{}, err
 	}
@@ -755,6 +725,9 @@ func (b *InMemoryBackend) RenameObject(ns, bucket string, in RenameInput) (Objec
 	if _, err = b.deleteLocked(bk, in.SourceName, "", ""); err != nil {
 		return ObjectInfo{}, err
 	}
+
+	b.replicate(bk, in.NewName, false)
+	b.replicate(bk, in.SourceName, true)
 
 	return b.info(o), nil
 }
@@ -790,6 +763,10 @@ func (b *InMemoryBackend) BatchDelete(ns, bucket string, items []BatchItem) ([]B
 		return nil, nil, err
 	}
 
+	if err = writable(bk); err != nil {
+		return nil, nil, err
+	}
+
 	deleted, failed := []BatchDeleted{}, []BatchFailure{}
 
 	for _, it := range items {
@@ -806,6 +783,7 @@ func (b *InMemoryBackend) BatchDelete(ns, bucket string, items []BatchItem) ([]B
 		}
 
 		b.recordEvent(bk, EventDeleteObject, it.ObjectName, "")
+		b.replicate(bk, it.ObjectName, true)
 
 		deleted = append(deleted, BatchDeleted{ObjectName: it.ObjectName, TimeLastModified: res.LastModified})
 	}

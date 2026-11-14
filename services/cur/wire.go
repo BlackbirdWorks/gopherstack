@@ -1,6 +1,19 @@
 package cur
 
-import "github.com/blackbirdworks/gopherstack/pkgs/tags"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// wireLastDelivery re-renders an RFC 3339 value from an older snapshot in the documented layout.
+func wireLastDelivery(v string) string {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t.UTC().Format(lastDeliveryLayout)
+	}
+
+	return v
+}
 
 type (
 	emptyResp struct{}
@@ -84,7 +97,7 @@ func toWire(r *Report) reportDefinitionWire {
 	}
 
 	if r.LastStatus != "" {
-		w.ReportStatus = &reportStatusWire{LastDelivery: r.LastDelivery, LastStatus: r.LastStatus}
+		w.ReportStatus = &reportStatusWire{LastDelivery: wireLastDelivery(r.LastDelivery), LastStatus: r.LastStatus}
 	}
 
 	return w

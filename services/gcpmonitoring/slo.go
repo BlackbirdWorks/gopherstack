@@ -274,7 +274,9 @@ func (b *InMemoryBackend) CreateServiceLevelObjective(
 }
 
 // GetServiceLevelObjective returns one objective.
-func (b *InMemoryBackend) GetServiceLevelObjective(name string) (*monitoringpb.ServiceLevelObjective, error) {
+func (b *InMemoryBackend) GetServiceLevelObjective(
+	name string, view monitoringpb.ServiceLevelObjective_View,
+) (*monitoringpb.ServiceLevelObjective, error) {
 	if _, _, err := sloParts(name); err != nil {
 		return nil, err
 	}
@@ -287,7 +289,17 @@ func (b *InMemoryBackend) GetServiceLevelObjective(name string) (*monitoringpb.S
 		return nil, errNotFound("Service level objective %s does not exist.", name)
 	}
 
-	return cloneSLO(s), nil
+	return b.viewSLOLocked(s, view), nil
+}
+
+func (b *InMemoryBackend) viewSLOLocked(
+	s *monitoringpb.ServiceLevelObjective, view monitoringpb.ServiceLevelObjective_View,
+) *monitoringpb.ServiceLevelObjective {
+	if view == monitoringpb.ServiceLevelObjective_EXPLICIT {
+		return b.explicitSLOLocked(s)
+	}
+
+	return cloneSLO(s)
 }
 
 type sloEnv struct {
@@ -347,7 +359,7 @@ func (b *InMemoryBackend) ListServiceLevelObjectives(
 
 	for name, s := range b.slos {
 		if sloInScope(name, project, svc, req.GetParent()) && f.matches(sloEnv{s: s}) {
-			all = append(all, cloneSLO(s))
+			all = append(all, b.viewSLOLocked(s, req.GetView()))
 		}
 	}
 

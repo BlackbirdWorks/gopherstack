@@ -439,7 +439,14 @@ func (c *compiler) binary(n *node, sc *scope) (*gx, error) {
 func (c *compiler) arithmetic(op string, l, r *gx) (*gx, error) {
 	switch op {
 	case "+", "-", "*":
-		return &gx{sql: "(" + l.sql + " " + op + " " + r.sql + ")", typ: arithType(l.typ, r.typ)}, nil
+		t := arithType(l.typ, r.typ)
+		if t.Kind == KindInt {
+			fn := map[string]string{"+": "bq_cadd", "-": "bq_csub", "*": "bq_cmul"}[op]
+
+			return &gx{sql: fn + "(" + l.sql + ", " + r.sql + ")", typ: t}, nil
+		}
+
+		return &gx{sql: "(" + l.sql + " " + op + " " + r.sql + ")", typ: t}, nil
 	case "/":
 		t := arithType(l.typ, r.typ)
 		if t.Kind == KindInt {
@@ -815,7 +822,12 @@ func (c *compiler) index(n *node, sc *scope) (*gx, error) {
 		pos = "(" + pos + " - 1)"
 	}
 
-	sql := "json_extract(" + base.sql + ", '$[' || " + pos + " || ']')"
+	chk := "bq_array_chk"
+	if strings.HasPrefix(n.name, "SAFE_") {
+		chk = "bq_safe_array_chk"
+	}
+
+	sql := "json_extract(" + base.sql + ", '$[' || " + chk + "(" + base.sql + ", " + pos + ") || ']')"
 
 	if base.typ.Elem.Kind == KindBytes {
 		sql = "bq_b64dec(" + sql + ")"

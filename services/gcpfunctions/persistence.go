@@ -34,6 +34,8 @@ type backendSnapshot struct {
 	Functions  map[string]fnSnap         `json:"functions"`
 	Uploads    map[string]uploadSnap     `json:"uploads"`
 	Operations map[string]jsontext.Value `json:"operations"`
+	IAM        map[string]jsontext.Value `json:"iamPolicies"`
+	IAMSeq     uint64                    `json:"iamSeq"`
 	Version    int                       `json:"version"`
 }
 
@@ -48,6 +50,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Uploads:    make(map[string]uploadSnap, len(b.uploads)),
 		Operations: b.ops.Snapshot(),
 	}
+
+	policies, seq := b.iam.Snapshot()
+	snap.IAM, snap.IAMSeq = marshalPolicies(policies), seq
 
 	for name, r := range b.functions {
 		raw, err := protojson.Marshal(r.pb)
@@ -119,6 +124,13 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 		b.functions[name] = rec
 		b.interruptLocked(rec)
 	}
+
+	policies, err := unmarshalPolicies(snap.IAM)
+	if err != nil {
+		return err
+	}
+
+	b.iam.Restore(policies, snap.IAMSeq)
 
 	for key, u := range snap.Uploads {
 		b.uploads[key] = &uploadRec{data: u.Data, generation: u.Generation}

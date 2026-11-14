@@ -204,7 +204,7 @@ func (b *Backend) ListIntegrationAssociations(
 }
 
 // DeleteIntegrationAssociation removes an association and its AppIntegrations counterpart.
-func (b *Backend) DeleteIntegrationAssociation(ctx context.Context, inst, id string) (*empty, error) {
+func (b *Backend) DeleteIntegrationAssociation(ctx context.Context, inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteIntegrationAssociation")
 	defer b.mu.Unlock()
 
@@ -284,7 +284,7 @@ func (b *Backend) ListUseCases(inst, assocID, token string, maxResults int32) ([
 }
 
 // DeleteUseCase removes a use case.
-func (b *Backend) DeleteUseCase(inst, assocID, useCaseID string) (*empty, error) {
+func (b *Backend) DeleteUseCase(inst, assocID, useCaseID string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteUseCase")
 	defer b.mu.Unlock()
 
@@ -306,5 +306,5 @@ func (b *Backend) DeleteUseCase(inst, assocID, useCaseID string) (*empty, error)
 	a.UseCases = slices.Delete(a.UseCases, i, i+1)
 	delete(a.UseCaseTags, useCaseID)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

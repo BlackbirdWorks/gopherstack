@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -25,6 +27,9 @@ const (
 	maxHistory       = 1000
 )
 
+// StreamPublisher puts one alarm message on a Streaming stream.
+type StreamPublisher func(ctx context.Context, streamID string, value []byte) error
+
 // Publisher delivers an alarm notification to a Notifications topic.
 type Publisher func(ctx context.Context, topicID, title, body string, asJSON bool) error
 
@@ -37,9 +42,16 @@ type InMemoryBackend struct {
 	now          func() time.Time
 	streams      map[string]*Stream
 	alarms       map[string]*Alarm
+	suppressions map[string]*AlarmSuppression
 	Auth         *ociauth.Registry
 	publisher    Publisher
+	streamPub    StreamPublisher
+	streamCheck  func(streamID string) bool
 	topicChecker TopicChecker
+	retry        *ociretry.Store
+	tagLookup    ocitags.Lookup
+	within       func(id, ancestor string) bool
+	tenancy      string
 	seq          int64
 }
 
@@ -54,7 +66,26 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) resetMaps() {
 	b.streams, b.alarms = map[string]*Stream{}, map[string]*Alarm{}
+	b.suppressions = map[string]*AlarmSuppression{}
+	b.retry = ociretry.New()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(t Tags) *APIError {
+	if err := ocitags.Validate(t.FreeformTags, t.DefinedTags, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 // SetClock injects the time source used for datapoint validation, evaluation and retention.
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
@@ -68,6 +99,39 @@ func (b *InMemoryBackend) SetPublisher(p Publisher) {
 	b.mu.Lock("SetPublisher")
 	b.publisher = p
 	b.mu.Unlock()
+}
+
+// SetStreamPublisher wires alarm delivery to Streaming destinations; check validates a destination stream.
+func (b *InMemoryBackend) SetStreamPublisher(p StreamPublisher, check func(streamID string) bool) {
+	b.mu.Lock("SetStreamPublisher")
+	b.streamPub, b.streamCheck = p, check
+	b.mu.Unlock()
+}
+
+// SetCompartmentTree wires subtree matching against the compartment hierarchy; the subtree flag is only
+// accepted for the tenancy root.
+func (b *InMemoryBackend) SetCompartmentTree(tenancy string, within func(id, ancestor string) bool) {
+	b.mu.Lock("SetCompartmentTree")
+	b.tenancy, b.within = tenancy, within
+	b.mu.Unlock()
+}
+
+// inCompartment reports whether a resource in have is selected by a compartmentId filter; the caller holds the lock.
+func (b *InMemoryBackend) inCompartment(have, want string, subtree bool) bool {
+	if have == want {
+		return true
+	}
+
+	return subtree && b.within != nil && b.within(have, want)
+}
+
+// checkSubtree rejects a subtree flag on any compartment but the tenancy root; the caller holds the lock.
+func (b *InMemoryBackend) checkSubtree(compartment string, subtree bool, field string) *APIError {
+	if subtree && b.tenancy != "" && compartment != b.tenancy {
+		return errParam(field + " can only be set to true when the compartment is the tenancy")
+	}
+
+	return nil
 }
 
 // SetTopicChecker wires validation of alarm destinations against a Notifications backend.
@@ -153,10 +217,10 @@ func (b *InMemoryBackend) Sweep(ctx context.Context) {
 	now := b.nowUTC()
 	b.prune(now)
 	out := b.evaluateAll(now)
-	pub := b.publisher
+	pub, streamPub := b.publisher, b.streamPub
 	b.mu.Unlock()
 
-	deliver(ctx, pub, out)
+	deliver(ctx, pub, streamPub, out)
 }
 
 func (b *InMemoryBackend) prune(now time.Time) {

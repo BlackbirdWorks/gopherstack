@@ -23,6 +23,8 @@ export type FunctionApp = {
   runtimeStack: string;
   hostName: string;
   worker: string;
+  /** Why the function host cannot start (for example no container runtime); empty when healthy. */
+  failure: string;
   deployed: boolean;
   created: string;
   lastDeploy: string;
@@ -48,10 +50,29 @@ export type Deployment = {
   finished: string;
 };
 
+export type HostKey = { kind: string; name: string; value: string };
+
+export type InvokeInput = {
+  function: string;
+  method: string;
+  query: string;
+  body: string;
+  contentType: string;
+};
+
+export type InvokeOutput = { status: number; headers: Record<string, string>; body: string };
+
 export type AppAction = "start" | "stop" | "restart";
 
 const armPath = (sub: string, tail: string) =>
   `/subscriptions/${enc(sub)}/providers/Microsoft.Web/${tail}?api-version=${WEB_API_VERSION}`;
+
+/** Plan label; the FC1 SKU is Flex Consumption. */
+export function describePlan(plan: string, sku: string): string {
+  if (!plan) return "";
+  if (sku.toUpperCase() === "FC1") return `${plan} (Flex Consumption)`;
+  return sku ? `${plan} (${sku})` : plan;
+}
 
 /** Display form of a linuxFxVersion such as "NODE|20" or "DOCKER|image:tag". */
 export function describeRuntime(linuxFx: string): string {
@@ -82,6 +103,7 @@ export function parseApp(
     runtimeStack: describeRuntime(str(obj(props.siteConfig).linuxFxVersion)),
     hostName: str(props.defaultHostName) || str(dataPlane.hostName),
     worker: str(dataPlane.worker),
+    failure: str(dataPlane.failure),
     deployed: dataPlane.deployed === true,
     created: str(dataPlane.created),
     lastDeploy: str(dataPlane.lastDeploy),
@@ -196,4 +218,57 @@ export async function deleteFunctionApp(app: FunctionApp, fetchFn: FetchFn = fet
     undefined,
     fetchFn,
   );
+}
+
+/** Host key names only; every value arrives masked. */
+export async function listHostKeys(name: string, fetchFn: FetchFn = fetch): Promise<HostKey[]> {
+  const body = await restCall(
+    FUNCTIONS_PROXY_BASE,
+    "GET",
+    `${appPath(name)}/keys`,
+    undefined,
+    fetchFn,
+  );
+  return list(body.keys).map((k) => ({
+    kind: str(k.kind),
+    name: str(k.name),
+    value: str(k.value),
+  }));
+}
+
+/** Fetches one key's value; the server sends it only on this call. */
+export async function revealHostKey(
+  name: string,
+  key: Pick<HostKey, "kind" | "name">,
+  fetchFn: FetchFn = fetch,
+): Promise<string> {
+  const body = await restCall(
+    FUNCTIONS_PROXY_BASE,
+    "POST",
+    `${appPath(name)}/keys/reveal`,
+    { kind: key.kind, name: key.name },
+    fetchFn,
+  );
+  return str(body.value);
+}
+
+/** Calls an HTTP function through the app's own emulator host. */
+export async function invokeAppFunction(
+  name: string,
+  input: InvokeInput,
+  fetchFn: FetchFn = fetch,
+): Promise<InvokeOutput> {
+  const body = await restCall(
+    FUNCTIONS_PROXY_BASE,
+    "POST",
+    `${appPath(name)}/invoke`,
+    input,
+    fetchFn,
+  );
+  const hdrs = obj(body.headers);
+  return {
+    status: typeof body.status === "number" ? body.status : 0,
+    headers: Object.fromEntries(Object.entries(hdrs).map(([k, v]) => [k, str(v)])),
+    body: str(body.body),
+  };
 }

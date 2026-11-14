@@ -3,7 +3,6 @@ package cognitoidp
 import (
 	"fmt"
 	"slices"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -77,7 +76,7 @@ const challengeSelectChallenge = "SELECT_CHALLENGE"
 // this specific user can actually complete, preserving the pool's configured order (the
 // real API returns AvailableChallenges in that order, not alphabetically). A nil
 // SignInPolicy (pool never configured choice-based auth) offers nothing.
-func offeredFirstFactors(pool *UserPool, user *User) []string {
+func (b *InMemoryBackend) offeredFirstFactors(pool *UserPool, user *User) []string {
 	if pool.SignInPolicy == nil {
 		return nil
 	}
@@ -85,7 +84,7 @@ func offeredFirstFactors(pool *UserPool, user *User) []string {
 	offered := make([]string, 0, len(pool.SignInPolicy.AllowedFirstAuthFactors))
 
 	for _, factor := range pool.SignInPolicy.AllowedFirstAuthFactors {
-		if userCanUseFirstFactor(user, factor) {
+		if b.userCanUseFirstFactor(pool, user, factor) {
 			offered = append(offered, factor)
 		}
 	}
@@ -97,7 +96,7 @@ func offeredFirstFactors(pool *UserPool, user *User) []string {
 // USER_AUTH first factor requires: PASSWORD needs a stored password hash, EMAIL_OTP needs a
 // verified email attribute, SMS_OTP needs a verified phone_number attribute. WEB_AUTHN is
 // never satisfiable -- see the design comment above.
-func userCanUseFirstFactor(user *User, factor string) bool {
+func (b *InMemoryBackend) userCanUseFirstFactor(pool *UserPool, user *User, factor string) bool {
 	switch factor {
 	case authFactorPassword:
 		return user.PasswordHash != ""
@@ -105,6 +104,8 @@ func userCanUseFirstFactor(user *User, factor string) bool {
 		return user.Attributes[attrEmail+"_verified"] == attrVerifiedTrue
 	case authFactorSMSOTP:
 		return user.Attributes[attrPhoneNumber+"_verified"] == attrVerifiedTrue
+	case authFactorWebAuthn:
+		return b.userHasPasskeysLocked(pool, user)
 	default:
 		return false
 	}
@@ -117,11 +118,21 @@ func userCanUseFirstFactor(user *User, factor string) bool {
 func (b *InMemoryBackend) initiateUserAuthLocked(
 	pool *UserPool, clientID, username, preferredChallenge string, user *User, cm map[string]string,
 ) (*AuthResult, error) {
+	return b.initiateUserAuthSessionLocked(pool, clientID, username, preferredChallenge, "", user, cm)
+}
+
+func (b *InMemoryBackend) initiateUserAuthSessionLocked(
+	pool *UserPool, clientID, username, preferredChallenge, session string, user *User, cm map[string]string,
+) (*AuthResult, error) {
+	if session != "" {
+		return b.autoSignInLocked(pool, clientID, user, session, cm)
+	}
+
 	if err := b.precheckAuthLocked(pool, clientID, authFlowUserAuth, user, cm); err != nil {
 		return nil, err
 	}
 
-	offered := offeredFirstFactors(pool, user)
+	offered := b.offeredFirstFactors(pool, user)
 	if len(offered) == 0 {
 		return nil, fmt.Errorf(
 			"%w: user pool %q has no USER_AUTH first factor available to user %q",
@@ -137,7 +148,7 @@ func (b *InMemoryBackend) initiateUserAuthLocked(
 			)
 		}
 
-		return b.newFirstFactorChallengeSession(pool, clientID, username, preferredChallenge), nil
+		return b.newFirstFactorChallengeSession(pool, clientID, user, preferredChallenge)
 	}
 
 	return b.newSelectChallengeSession(pool, clientID, username, offered), nil
@@ -146,6 +157,13 @@ func (b *InMemoryBackend) initiateUserAuthLocked(
 // InitiateUserAuth begins USER_AUTH choice-based authentication for a non-admin caller.
 func (b *InMemoryBackend) InitiateUserAuth(
 	clientID, username, preferredChallenge string, meta ...ClientMetadata,
+) (*AuthResult, error) {
+	return b.InitiateUserAuthSession(clientID, username, preferredChallenge, "", meta...)
+}
+
+// InitiateUserAuthSession is InitiateUserAuth for a request that carries the Session from ConfirmSignUp.
+func (b *InMemoryBackend) InitiateUserAuthSession(
+	clientID, username, preferredChallenge, session string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("InitiateUserAuth")
 	defer b.mu.Unlock()
@@ -167,7 +185,9 @@ func (b *InMemoryBackend) InitiateUserAuth(
 		return nil, unknownUserAuthError(client, username)
 	}
 
-	return b.initiateUserAuthLocked(pool, clientID, username, preferredChallenge, user, firstMetadata(meta))
+	return b.initiateUserAuthSessionLocked(
+		pool, clientID, username, preferredChallenge, session, user, firstMetadata(meta),
+	)
 }
 
 // AdminInitiateUserAuth is AdminInitiateAuth's USER_AUTH entry point: same negotiation as
@@ -212,7 +232,7 @@ func (b *InMemoryBackend) newSelectChallengeSession(
 		Username:            username,
 		ChallengeType:       challengeSelectChallenge,
 		AvailableChallenges: slices.Clone(offered),
-		ExpiresAt:           time.Now().Add(mfaSessionTTL),
+		ExpiresAt:           b.now().Add(mfaSessionTTL),
 	}
 
 	return &AuthResult{
@@ -230,8 +250,13 @@ func (b *InMemoryBackend) newSelectChallengeSession(
 // continue through postCredentialCheckLocked (further MFA / FORCE_CHANGE_PASSWORD) instead
 // of issuing tokens immediately the way a second-factor MFA round does.
 func (b *InMemoryBackend) newFirstFactorChallengeSession(
-	pool *UserPool, clientID, username, factor string,
-) *AuthResult {
+	pool *UserPool, clientID string, user *User, factor string,
+) (*AuthResult, error) {
+	if factor == authFactorWebAuthn {
+		return b.beginPasskeyLoginLocked(pool, clientID, user)
+	}
+
+	username := user.Username
 	sessionToken := randomAlphanumeric(mfaSessionLen)
 
 	entry := &mfaSessionEntry{
@@ -240,7 +265,7 @@ func (b *InMemoryBackend) newFirstFactorChallengeSession(
 		Username:      username,
 		ChallengeType: factor,
 		FirstFactor:   true,
-		ExpiresAt:     time.Now().Add(mfaSessionTTL),
+		ExpiresAt:     b.now().Add(mfaSessionTTL),
 	}
 
 	if factor == challengeEmailOTP || factor == authFactorSMSOTP {
@@ -250,7 +275,7 @@ func (b *InMemoryBackend) newFirstFactorChallengeSession(
 
 	b.mfaSessions[sessionToken] = entry
 
-	return &AuthResult{MFASession: sessionToken, ChallengeName: factor}
+	return &AuthResult{MFASession: sessionToken, ChallengeName: factor}, nil
 }
 
 // RespondToSelectChallenge validates a SELECT_CHALLENGE response's ANSWER against the
@@ -265,7 +290,7 @@ func (b *InMemoryBackend) RespondToSelectChallenge(clientID, session, answer str
 		return nil, fmt.Errorf("%w: session is not a SELECT_CHALLENGE challenge", ErrNotAuthorized)
 	}
 
-	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+	if !entry.ExpiresAt.IsZero() && b.now().After(entry.ExpiresAt) {
 		delete(b.mfaSessions, session)
 
 		return nil, fmt.Errorf("%w: SELECT_CHALLENGE session not found or expired", ErrNotAuthorized)
@@ -293,7 +318,7 @@ func (b *InMemoryBackend) RespondToSelectChallenge(clientID, session, answer str
 
 	delete(b.mfaSessions, session)
 
-	return b.newFirstFactorChallengeSession(pool, clientID, user.Username, answer), nil
+	return b.newFirstFactorChallengeSession(pool, clientID, user, answer)
 }
 
 // RespondToFirstFactorChallenge verifies a USER_AUTH first-factor round (PASSWORD,
@@ -309,11 +334,22 @@ func (b *InMemoryBackend) RespondToFirstFactorChallenge(
 	defer b.mu.Unlock()
 
 	entry, ok := b.mfaSessions[session]
+	if ok && !entry.FirstFactor && entry.ChallengeType == challengeEmailOTP {
+		tokens, err := b.respondToMFAChallengeLocked(
+			clientID, session, challengeResponses[firstFactorCodeKey(challengeEmailOTP)], firstMetadata(meta),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &AuthResult{Tokens: tokens}, nil
+	}
+
 	if !ok || !entry.FirstFactor {
 		return nil, fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
 	}
 
-	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
+	if !entry.ExpiresAt.IsZero() && b.now().After(entry.ExpiresAt) {
 		delete(b.mfaSessions, session)
 
 		return nil, fmt.Errorf("%w: session not found or expired", ErrNotAuthorized)
@@ -333,11 +369,20 @@ func (b *InMemoryBackend) RespondToFirstFactorChallenge(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	if err := verifyFirstFactorResponse(entry, user, challengeResponses); err != nil {
+	mfaSatisfied, err := b.verifyFirstFactorResponse(pool, entry, user, challengeResponses)
+	if err != nil {
+		if entry.ChallengeType == authFactorWebAuthn {
+			delete(b.mfaSessions, session)
+		}
+
 		return nil, err
 	}
 
 	delete(b.mfaSessions, session)
+
+	if mfaSatisfied {
+		return b.postCredentialCheckMFASatisfiedLocked(pool, clientID, user, firstMetadata(meta))
+	}
 
 	return b.postCredentialCheckLocked(pool, clientID, user, firstMetadata(meta))
 }
@@ -347,22 +392,27 @@ func (b *InMemoryBackend) RespondToFirstFactorChallenge(
 // authenticate); EMAIL_OTP/SMS_OTP reuse verifyMFAChallengeCode's one-time-code comparison
 // (mfa.go) since the underlying mechanism -- a code generated at challenge time with no
 // client-held secret to re-derive -- is identical to the MFA versions of these challenges.
-func verifyFirstFactorResponse(entry *mfaSessionEntry, user *User, challengeResponses map[string]string) error {
+func (b *InMemoryBackend) verifyFirstFactorResponse(
+	pool *UserPool, entry *mfaSessionEntry, user *User, challengeResponses map[string]string,
+) (bool, error) {
 	switch entry.ChallengeType {
 	case authFactorPassword:
 		if err := bcrypt.CompareHashAndPassword(
 			[]byte(user.PasswordHash), []byte(challengeResponses["PASSWORD"]),
 		); err != nil {
-			return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+			return false, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 		}
 
-		return nil
+		return false, nil
 
 	case challengeEmailOTP, authFactorSMSOTP:
-		return verifyMFAChallengeCode(entry, user, challengeResponses[firstFactorCodeKey(entry.ChallengeType)])
+		return false, b.verifyMFAChallengeCode(entry, user, challengeResponses[firstFactorCodeKey(entry.ChallengeType)])
+
+	case authFactorWebAuthn:
+		return b.verifyPasskeyLocked(pool, user, entry, challengeResponses)
 
 	default:
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"%w: unexpected challenge type %q for USER_AUTH first factor",
 			ErrInvalidParameter, entry.ChallengeType,
 		)

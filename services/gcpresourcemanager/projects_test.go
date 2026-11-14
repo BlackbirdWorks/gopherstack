@@ -229,7 +229,7 @@ func TestProjectRetentionPurge(t *testing.T) {
 		reuse     bool
 	}{
 		{"within retention", 24 * time.Hour, time.Hour, codes.OK, false},
-		{"past retention", 24 * time.Hour, 25 * time.Hour, codes.PermissionDenied, true},
+		{"past retention", 24 * time.Hour, 25 * time.Hour, codes.PermissionDenied, false},
 		{"zero purges at once", 0, 0, codes.PermissionDenied, true},
 	}
 
@@ -258,8 +258,17 @@ func TestProjectRetentionPurge(t *testing.T) {
 				assert.NotEmpty(
 					t,
 					e.grpc.createProject(t, "purge-me", "").GetName(),
-					"a purged id can be created again",
+					"with no retention a purged id is freed",
 				)
+
+				return
+			}
+
+			if tt.code == codes.PermissionDenied {
+				_, err = e.grpc.projects.CreateProject(t.Context(), &resourcemanagerpb.CreateProjectRequest{
+					Project: &resourcemanagerpb.Project{ProjectId: "purge-me", DisplayName: "again"},
+				})
+				assert.Equal(t, codes.AlreadyExists, codeOf(err), "a purged project id is never reusable")
 			}
 		})
 	}

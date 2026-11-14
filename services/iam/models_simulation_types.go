@@ -69,6 +69,7 @@ type AccountAuthorizationDetails struct {
 type SimulationResult struct {
 	EvalDecisionDetails          map[string]string `json:"evalDecisionDetails,omitempty"`
 	AllowedByPermissionsBoundary *bool             `json:"allowedByPermissionsBoundary,omitempty"`
+	AllowedByOrganizations       *bool             `json:"allowedByOrganizations,omitempty"`
 	ActionName                   string            `json:"actionName,omitempty"`
 	ResourceName                 string            `json:"resourceName,omitempty"`
 	Decision                     string            `json:"decision,omitempty"`
@@ -173,6 +174,11 @@ type PermBoundaryDecisionXML struct {
 	AllowedByPermissionsBoundary bool `xml:"AllowedByPermissionsBoundary"`
 }
 
+// OrgDecisionXML carries the Organizations (SCP) evaluation outcome.
+type OrgDecisionXML struct {
+	AllowedByOrganizations bool `xml:"AllowedByOrganizations"`
+}
+
 // ResourceSpecificResultXML is one per-resource decision under an EvaluationResult.
 type ResourceSpecificResultXML struct {
 	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML  `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
@@ -186,6 +192,7 @@ type ResourceSpecificResultXML struct {
 type SimulationEvalResultXML struct {
 	// PermissionsBoundaryDecisionDetail is present when the principal has a permissions boundary.
 	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML    `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
+	OrganizationsDecisionDetail       *OrgDecisionXML             `xml:"OrganizationsDecisionDetail,omitempty"`
 	EvalActionName                    string                      `xml:"EvalActionName"`
 	EvalResourceName                  string                      `xml:"EvalResourceName"`
 	EvalDecision                      string                      `xml:"EvalDecision"`

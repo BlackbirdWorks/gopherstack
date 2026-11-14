@@ -8,10 +8,16 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
+	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
+	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpresourcemanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
+	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	gcpworkflowsbackend "github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 )
@@ -84,11 +90,56 @@ func wireGCPEventarc(byName map[string]service.Registerable) {
 	svc.Targets = targets
 	ea.Backend.SetServices(svc)
 
+	wireGCPAudit(byName, ea)
+
+	if fs, isFS := byName["GCPFirestore"].(*gcpfirestorebackend.Handler); isFS {
+		fs.Backend.ObserveDocuments(func(ev gcpfirestorebackend.DocumentEvent) {
+			ea.Backend.HandleDocumentEvent(gcpeventarcbackend.DocumentEvent{
+				Kind: string(ev.Kind), Old: ev.Old, New: ev.New, UpdateMask: ev.UpdateMask, Time: ev.Time,
+			})
+		})
+	}
+
 	if gcs, isGCS := byName["GCPStorage"].(*gcpstoragebackend.Handler); isGCS {
 		gcs.Backend.ObserveObjects(func(ev gcpstoragebackend.ObjectEvent) {
 			ea.Backend.HandleStorageEvent(gcpeventarcbackend.StorageEvent{
 				Type: string(ev.Type), Bucket: ev.Object.Bucket, Name: ev.Object.Name, Data: ev.Data(), Time: ev.Time,
 			})
 		})
+	}
+}
+
+// wireGCPAudit points the audit emitters of the emulated services at the Logging emulator, and feeds the audit
+// log entries it stores to Eventarc.
+func wireGCPAudit(byName map[string]service.Registerable, ea *gcpeventarcbackend.Handler) {
+	lg, ok := byName["GCPLogging"].(*gcploggingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	lg.Backend.ObserveEntries(ea.Backend.HandleLogEntry)
+
+	if h, isH := byName["GCPStorage"].(*gcpstoragebackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPBigQuery"].(*gcpbigquerybackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPArtifactRegistry"].(*gcpartifactregistrybackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPFirestore"].(*gcpfirestorebackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
+	}
+
+	if h, isH := byName["GCPResourceManager"].(*gcpresourcemanagerbackend.Handler); isH {
+		h.Backend.Audit.SetSink(lg.Backend)
 	}
 }

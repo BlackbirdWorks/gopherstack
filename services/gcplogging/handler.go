@@ -63,6 +63,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateExclusion", "GetExclusion", "ListExclusions", "UpdateExclusion", "DeleteExclusion",
 		"CreateBucket", "GetBucket", "ListBuckets", "UpdateBucket", "DeleteBucket", "UndeleteBucket",
 		"CreateBucketAsync", "UpdateBucketAsync",
+		"CreateLink", "GetLink", "ListLinks", "DeleteLink", "CopyLogEntries",
 		"CreateView", "GetView", "ListViews", "UpdateView", "DeleteView",
 		"GetCmekSettings", "UpdateCmekSettings", "GetSettings", "UpdateSettings",
 		"CreateLogMetric", "GetLogMetric", "ListLogMetrics", "UpdateLogMetric", "DeleteLogMetric",

@@ -1,11 +1,15 @@
 package ecs
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
 
 const (
 	logDriverAwslogs       = "awslogs"
 	optAwslogsGroup        = "awslogs-group"
 	optAwslogsStreamPrefix = "awslogs-stream-prefix"
+	optAwslogsCreateGroup  = "awslogs-create-group"
 )
 
 // cwLogsRunner is implemented by TaskRunners that can forward container
@@ -59,6 +63,31 @@ func (b *InMemoryBackend) ensureAwslogsStreams(task *Task, td *TaskDefinition) {
 
 		_ = cwl.EnsureLogGroupAndStream(group, stream)
 	}
+}
+
+// logGroupChecker is implemented by CWLogsBackends that can report whether a log group exists.
+type logGroupChecker interface {
+	LogGroupExists(groupName string) bool
+}
+
+// errLogGroupMissing mirrors the awslogs driver failing a container whose group does not exist.
+var errLogGroupMissing = errors.New("ResourceNotFoundException: The specified log group does not exist")
+
+// checkAwslogsGroup fails an awslogs container whose group is missing unless awslogs-create-group is "true".
+func checkAwslogsGroup(cwl CWLogsBackend, cd ContainerDefinition) error {
+	checker, ok := cwl.(logGroupChecker)
+	lc := cd.LogConfiguration
+
+	if !ok || lc == nil || lc.LogDriver != logDriverAwslogs || lc.Options[optAwslogsCreateGroup] == "true" {
+		return nil
+	}
+
+	group := lc.Options[optAwslogsGroup]
+	if group == "" || checker.LogGroupExists(group) {
+		return nil
+	}
+
+	return errLogGroupMissing
 }
 
 // awslogsContainerTarget is awslogsTarget for a started container: without awslogs-stream-prefix the

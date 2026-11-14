@@ -5,11 +5,13 @@
 	import Tabs from '#lib/components/Tabs.svelte';
 	import GcpScopeBar from '#lib/components/gcp/GcpScopeBar.svelte';
 	import GcpResourceTable, { type ResourceRow } from '#lib/components/gcp/GcpResourceTable.svelte';
-	import { confirmDestructive } from '#lib/confirm-dialog.ts';
-	import { attempt } from '#lib/gcp-action.ts';
+	import ArtifactRegistryDetail from '#lib/components/gcp/ArtifactRegistryDetail.svelte';
+	import { confirmedAttempt, GCP_MINI } from '#lib/gcp-action.ts';
 	import {
 		deleteResource,
+		fileDownloadUrl,
 		formatBytes,
+		listDockerImages,
 		listFiles,
 		listPackages,
 		listRepositories,
@@ -18,6 +20,9 @@
 		readStoredArLocation,
 		readStoredArProject,
 		writeStoredArScope,
+		modeLabel,
+		summarizeCleanup,
+		type DockerImageInfo,
 		type FileInfo,
 		type PackageInfo,
 		type RepoInfo,
@@ -28,7 +33,9 @@
 
 	const TABS = [
 		{ id: 'packages', label: 'Packages' },
-		{ id: 'files', label: 'Files' }
+		{ id: 'images', label: 'Docker images' },
+		{ id: 'files', label: 'Files' },
+		{ id: 'details', label: 'Details' }
 	];
 
 	let project = $state(readStoredArProject());
@@ -38,6 +45,7 @@
 	let tab = $state('packages');
 	let packages = $state<PackageInfo[]>([]);
 	let files = $state<FileInfo[]>([]);
+	let images = $state<DockerImageInfo[]>([]);
 	let pkg = $state('');
 	let versions = $state<VersionInfo[]>([]);
 	let tags = $state<TagInfo[]>([]);
@@ -65,11 +73,13 @@
 		if (!repo) {
 			packages = [];
 			files = [];
+			images = [];
 			return;
 		}
 		childLoading = true;
 		try {
-			[packages, files] = await Promise.all([listPackages(repo), listFiles(repo)]);
+			const docker = repos.find((r) => r.name === repo)?.format === 'DOCKER';
+			[packages, files, images] = await Promise.all([listPackages(repo), listFiles(repo), docker ? listDockerImages(repo) : Promise.resolve([])]);
 			childError = '';
 			if (!packages.some((p) => p.name === pkg)) pkg = '';
 		} catch (e) {
@@ -114,14 +124,16 @@
 	}
 
 	async function remove(kind: string, row: ResourceRow, after: () => Promise<void>) {
-		if (!(await confirmDestructive({ title: `Delete ${kind}`, message: `Delete ${kind} "${row.cells[0]}"?` }))) return;
-		if (await attempt(() => deleteResource(row.id), `Deleted ${kind} ${row.cells[0]}`, `Failed to delete ${row.cells[0]}`)) await after();
+		const ok = await confirmedAttempt({ title: `Delete ${kind}`, message: `Delete ${kind} "${row.cells[0]}"?` }, () => deleteResource(row.id), `Deleted ${kind} ${row.cells[0]}`, `Failed to delete ${row.cells[0]}`);
+		if (ok) await after();
 	}
 
-	const repoRows = $derived(repos.map((r) => ({ id: r.name, cells: [r.id, r.format, r.mode, r.description, formatBytes(r.sizeBytes)], raw: r.raw })));
+	const repoRows = $derived(repos.map((r) => ({ id: r.name, cells: [r.id, r.format, modeLabel(r.mode), r.description, summarizeCleanup(r.raw), formatBytes(r.sizeBytes)], raw: r.raw })));
 	const pkgRows = $derived(packages.map((p) => ({ id: p.name, cells: [p.id, p.displayName, p.updateTime ? new Date(p.updateTime).toLocaleString() : ''], raw: p.raw })));
 	const fileRows = $derived(files.map((f) => ({ id: f.name, cells: [f.id, formatBytes(f.sizeBytes), f.owner, f.hashes.join(', ')], raw: f.raw })));
 	const versionRows = $derived(versions.map((v) => ({ id: v.name, cells: [v.id, v.relatedTags.join(', '), v.createTime ? new Date(v.createTime).toLocaleString() : ''], raw: v.raw })));
+	const imageRows = $derived(images.map((i) => ({ id: i.name, cells: [i.image, i.digest, i.tags.join(', '), formatBytes(i.sizeBytes), i.uploadTime ? new Date(i.uploadTime).toLocaleString() : ''], raw: i.raw })));
+	const selectedRepo = $derived(repos.find((r) => r.name === repo));
 	const tagRows = $derived(tags.map((t) => ({ id: t.name, cells: [t.id, t.version], raw: t.raw })));
 	const pkgId = $derived(packages.find((p) => p.name === pkg)?.id ?? '');
 
@@ -132,7 +144,7 @@
 	<PageHeader icon={Package} title="Artifact Registry" description="Google Artifact Registry: repositories, packages, versions, tags and files" color="blue" onRefresh={() => { void loadRepos(); void loadChildren(); void loadLeaves(); }} />
 	<GcpScopeBar prefix="artifactregistry" {project} {location} hint="Repositories are listed per project and location." onApply={applyScope} />
 
-	<GcpResourceTable testId="artifactregistry-repo" noun="repositories" columns={['Repository', 'Format', 'Mode', 'Description', 'Size']} rows={repoRows} {loading} {error} selected={repo} onRetry={loadRepos} onSelect={(r) => { repo = r.id; pkg = ''; }} onDelete={(r) => remove('repository', r, loadRepos)} />
+	<GcpResourceTable testId="artifactregistry-repo" noun="repositories" columns={['Repository', 'Format', 'Mode', 'Description', 'Cleanup', 'Size']} rows={repoRows} {loading} {error} selected={repo} onRetry={loadRepos} onSelect={(r) => { repo = r.id; pkg = ''; }} onDelete={(r) => remove('repository', r, loadRepos)} />
 
 	{#if repo}
 		<section class="space-y-3" data-testid="artifactregistry-repo-panel">
@@ -147,11 +159,23 @@
 					{#if tagsNote}
 						<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="artifactregistry-tags-note">{tagsNote}</p>
 					{:else}
-						<GcpResourceTable testId="artifactregistry-tag" noun="tags" columns={['Tag', 'Version']} rows={tagRows} loading={leafLoading} error="" onRetry={loadLeaves} />
+						<GcpResourceTable testId="artifactregistry-tag" noun="tags" columns={['Tag', 'Version']} rows={tagRows} loading={leafLoading} error="" onRetry={loadLeaves} onDelete={(r) => remove('tag', r, loadLeaves)} />
 					{/if}
 				{/if}
-			{:else}
-				<GcpResourceTable testId="artifactregistry-file" noun="files" columns={['File', 'Size', 'Owner', 'Hashes']} rows={fileRows} loading={childLoading} error={childError} onRetry={loadChildren} />
+			{:else if tab === 'images'}
+				{#if selectedRepo?.format === 'DOCKER'}
+					<GcpResourceTable testId="artifactregistry-image" noun="images" columns={['Image', 'Digest', 'Tags', 'Size', 'Uploaded']} rows={imageRows} loading={childLoading} error={childError} onRetry={loadChildren} />
+				{:else}
+					<p class="py-6 text-center text-gray-500 dark:text-gray-400" data-testid="artifactregistry-image-na">Docker images are only listed for DOCKER repositories.</p>
+				{/if}
+			{:else if tab === 'files'}
+				<GcpResourceTable testId="artifactregistry-file" noun="files" columns={['File', 'Size', 'Owner', 'Hashes']} rows={fileRows} loading={childLoading} error={childError} onRetry={loadChildren}>
+					{#snippet actions(row)}
+						<a class={GCP_MINI} href={fileDownloadUrl(row.id)} download data-testid="artifactregistry-file-download">Download</a>
+					{/snippet}
+				</GcpResourceTable>
+			{:else if selectedRepo}
+				<ArtifactRegistryDetail repo={selectedRepo} />
 			{/if}
 		</section>
 	{/if}

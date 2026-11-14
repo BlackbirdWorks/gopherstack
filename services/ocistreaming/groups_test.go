@@ -2,6 +2,7 @@ package ocistreaming_test
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -287,4 +288,74 @@ func TestGroupErrors(t *testing.T) {
 			assert.Equal(t, tt.wantCode, se.GetCode())
 		})
 	}
+}
+
+func TestGroupsPerStreamLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		groups  int
+		wantErr bool
+	}{
+		{name: "fifty groups", groups: 50},
+		{name: "fifty-first group", groups: 51, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			s := e.mkStream(t, "many-groups", 1)
+			c := e.msgs(t, s)
+
+			var err error
+
+			for i := range tt.groups {
+				d := streaming.CreateGroupCursorDetails{
+					Type: streaming.CreateGroupCursorDetailsTypeTrimHorizon, GroupName: new("g" + strconv.Itoa(i)),
+				}
+
+				_, err = c.CreateGroupCursor(
+					t.Context(), streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: d},
+				)
+				if i < 50 {
+					require.NoError(t, err)
+				}
+			}
+
+			if !tt.wantErr {
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}
+
+func TestCommitUnreservedPartition(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	s := e.mkStream(t, "g6", 1)
+	c := e.msgs(t, s)
+	putOne(t, c, s, "", "a")
+
+	manual := func(d *streaming.CreateGroupCursorDetails) {
+		d.CommitOnGet = new(false)
+		d.TimeoutInMs = new(5000)
+	}
+	cur := groupCursor(t, c, s, "g", "slow", manual)
+	got := getMsgs(t, c, s, cur, 0)
+
+	e.clock.Advance(10 * time.Second)
+	groupCursor(t, c, s, "g", "other", manual)
+
+	_, err := c.ConsumerCommit(t.Context(), streaming.ConsumerCommitRequest{StreamId: s.Id, Cursor: got.OpcNextCursor})
+	se := svcErr(t, err)
+	assert.Equal(t, http.StatusBadRequest, se.GetHTTPStatusCode())
+	assert.Equal(t, "InvalidParameter", se.GetCode())
+	assert.Contains(t, se.GetMessage(), "Trying to commit unreserved partition")
 }

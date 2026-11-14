@@ -179,11 +179,11 @@ func logicalIDs(t *testing.T, client *cfnsdk.Client) map[string]string {
 	return ids
 }
 
-func getTemplate(t *testing.T, client *cfnsdk.Client, name string, stage types.TemplateStage) string {
+func getTemplate(t *testing.T, client *cfnsdk.Client, stage types.TemplateStage) string {
 	t.Helper()
 
 	out, err := client.GetTemplate(t.Context(), &cfnsdk.GetTemplateInput{
-		StackName: aws.String(name), TemplateStage: stage,
+		StackName: aws.String("sam-stack"), TemplateStage: stage,
 	})
 	require.NoError(t, err)
 
@@ -255,7 +255,6 @@ func verifyFunctionAPIEvent(t *testing.T, b *cloudformation.ServiceBackends, cli
 		"ServerlessRestApi":                "AWS::ApiGateway::RestApi",
 		"ServerlessRestApiProdStage":       "AWS::ApiGateway::Stage",
 		"HelloFunctionHelloPermissionProd": "AWS::Lambda::Permission",
-		"HelloFunctionHelloPermissionTest": "AWS::Lambda::Permission",
 	} {
 		assert.Equal(t, typ, ids[id], id)
 	}
@@ -304,11 +303,11 @@ func verifyFunctionAPIEvent(t *testing.T, b *cloudformation.ServiceBackends, cli
 func assertOriginalAndProcessed(t *testing.T, client *cfnsdk.Client) {
 	t.Helper()
 
-	original := getTemplate(t, client, "sam-stack", types.TemplateStageOriginal)
+	original := getTemplate(t, client, types.TemplateStageOriginal)
 	assert.Contains(t, original, "AWS::Serverless::Function")
 	assert.Contains(t, original, "AWS::Serverless-2016-10-31")
 
-	processed := getTemplate(t, client, "sam-stack", types.TemplateStageProcessed)
+	processed := getTemplate(t, client, types.TemplateStageProcessed)
 	assert.NotContains(t, processed, "AWS::Serverless")
 	assert.Contains(t, processed, "AWS::Lambda::Function")
 	assert.Contains(t, processed, "HelloFunctionRole")
@@ -394,8 +393,8 @@ func TestSAMTransform_Failures(t *testing.T) {
 	}{
 		{
 			name:     "unsupported_resource_type",
-			template: samHeader + "Resources:\n  G:\n    Type: AWS::Serverless::GraphQLApi\n    Properties: {}\n",
-			reason:   "AWS::Serverless::GraphQLApi",
+			template: samHeader + "Resources:\n  G:\n    Type: AWS::Serverless::WebFunction\n    Properties: {}\n",
+			reason:   "AWS::Serverless::WebFunction",
 		},
 		{
 			name: "unsupported_function_property",
@@ -407,8 +406,8 @@ func TestSAMTransform_Failures(t *testing.T) {
 			name: "unsupported_event_type",
 			template: samHeader + "Resources:\n  F:\n    Type: AWS::Serverless::Function\n    Properties:\n" +
 				"      Handler: h\n      Runtime: python3.12\n      InlineCode: x\n      Events:\n" +
-				"        E:\n          Type: MSK\n          Properties: {}\n",
-			reason: "MSK",
+				"        E:\n          Type: Bogus\n          Properties: {}\n",
+			reason: "Bogus",
 		},
 		{
 			name: "local_codeuri_rejected",

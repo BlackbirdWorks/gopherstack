@@ -5,11 +5,13 @@ import (
 )
 
 type parser struct {
-	src   string
-	toks  []token
-	i     int
-	nextQ int
-	depth int
+	src  string
+	toks []token
+	// windows that name another window, resolved when their SELECT is complete
+	pending []*windowSpec
+	i       int
+	nextQ   int
+	depth   int
 }
 
 const maxParseDepth = 200
@@ -480,6 +482,7 @@ func (p *parser) selectStmt() (*selectStmt, error) {
 	}
 
 	s := &selectStmt{}
+	mark := len(p.pending)
 
 	if p.acceptKw(litDistinct) {
 		s.distinct = true
@@ -504,7 +507,11 @@ func (p *parser) selectStmt() (*selectStmt, error) {
 		}
 	}
 
-	return s, p.selectTail(s)
+	if err = p.selectTail(s); err != nil {
+		return nil, err
+	}
+
+	return s, p.resolveWindows(mark, s.windows)
 }
 
 func (p *parser) selectTail(s *selectStmt) error {
@@ -538,6 +545,10 @@ func (p *parser) selectTail(s *selectStmt) error {
 		if s.qualify, err = p.expr(); err != nil {
 			return err
 		}
+	}
+
+	if p.acceptKw("WINDOW") {
+		return p.windowClause(s)
 	}
 
 	return nil

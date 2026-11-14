@@ -10,6 +10,8 @@ import (
 // StorageBackend defines the interface for OpenSearch backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
+	securityBackend
+
 	// Domain operations
 	CreateDomain(input CreateDomainInput) (*Domain, error)
 	DeleteDomain(name string) (*Domain, error)
@@ -333,3 +335,17 @@ type StorageBackend interface {
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
+
+// securityBackend is the fine-grained access control surface of a backend.
+type securityBackend interface {
+	AuthenticateInternalUser(domain, user, pass string) (SecurityPrincipal, bool)
+	AnonymousAuthActive(aso *AdvancedSecurityOptions) bool
+	EffectivePerms(domain string, p SecurityPrincipal) EffectivePerms
+	SecurityTenantAccess(domain string, perms EffectivePerms) map[string]bool
+	ChangeOwnPassword(domain, user, current, next string) *SecError
+	SecurityList(domain string, kind securityKind) (map[string]any, *SecError)
+	SecurityGet(domain string, kind securityKind, name string) (any, *SecError)
+	SecurityPut(domain string, kind securityKind, name string, body []byte) (bool, *SecError)
+	SecurityDelete(domain string, kind securityKind, name string) *SecError
+	SecurityPatch(domain string, kind securityKind, name string, ops []patchOp) *SecError
+}

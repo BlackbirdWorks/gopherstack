@@ -47,6 +47,15 @@ func TestListFindings_FilterOperators(t *testing.T) {
 		{name: "error_absent", filter: map[string]aatypes.Criterion{
 			"error": {Exists: aws.Bool(false)},
 		}, want: []string{"bucket", "queue"}},
+		{name: "finding_type_external", filter: map[string]aatypes.Criterion{
+			"findingType": {Eq: []string{"ExternalAccess"}},
+		}, want: []string{"bucket", "queue"}},
+		{name: "finding_type_unused", filter: map[string]aatypes.Criterion{
+			"findingType": {Eq: []string{"UnusedIAMRole"}},
+		}, want: nil},
+		{name: "scp_restriction_absent", filter: map[string]aatypes.Criterion{
+			"serviceControlPolicyRestriction": {Exists: aws.Bool(true)},
+		}, want: nil},
 		{name: "eq_action", filter: map[string]aatypes.Criterion{
 			"action": {Eq: []string{"sqs:SendMessage"}},
 		}, want: []string{"queue"}},

@@ -56,10 +56,13 @@ func validateIndexType(t string) error {
 const (
 	maxPage           = 100
 	maxViewPage       = 20
+	maxViewListPage   = 50
+	maxBigPage        = 1000
+	maxMemberPage     = 10
 	maxMemberAccounts = 10
 	maxBatchViews     = 20
 )
 
-func paginate[T any](all []T, token string, maxResults, maxAllowed int) (page.Page[T], error) {
-	return restroute.Paginate(all, token, maxResults, maxAllowed, maxAllowed)
+func paginate[T any](all []T, token string, maxResults, defaultLimit, maxAllowed int) (page.Page[T], error) {
+	return restroute.Paginate(all, token, maxResults, defaultLimit, maxAllowed)
 }

@@ -253,6 +253,15 @@ func TestUpdateAndChangeCompartmentStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, *pool.Id, *up.StreamPoolId)
 	assert.Equal(t, "v", up.FreeformTags["k"])
+	assert.Equal(t, streaming.StreamLifecycleStateUpdating, up.LifecycleState)
+
+	_, err = e.admin.ChangeStreamCompartment(ctx, streaming.ChangeStreamCompartmentRequest{
+		StreamId:      s.Id,
+		CompartmentId: new("ocid1.compartment.oc1..two"),
+	})
+	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
+
+	e.settle()
 
 	_, err = e.admin.ChangeStreamCompartment(ctx, streaming.ChangeStreamCompartmentRequest{
 		StreamId:      s.Id,
@@ -315,6 +324,8 @@ func TestStreamPoolCRUD(t *testing.T) {
 	assert.Equal(t, "renamed", *up.Name)
 	assert.Equal(t, 8, *up.KafkaSettings.NumPartitions)
 	assert.Equal(t, 48, *up.KafkaSettings.LogRetentionHours)
+	assert.Equal(t, streaming.StreamPoolLifecycleStateUpdating, up.LifecycleState)
+	e.settle()
 
 	_, err = e.admin.UpdateStreamPool(ctx, streaming.UpdateStreamPoolRequest{
 		StreamPoolId:  pool.Id,
@@ -331,6 +342,7 @@ func TestStreamPoolCRUD(t *testing.T) {
 		CompartmentId: new("ocid1.compartment.oc1..two"),
 	})
 	require.NoError(t, err)
+	e.settle()
 
 	_, err = e.admin.DeleteStreamPool(ctx, streaming.DeleteStreamPoolRequest{StreamPoolId: pool.Id})
 	require.NoError(t, err)
@@ -407,6 +419,8 @@ func TestConnectHarness(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "y", up.FreeformTags["x"])
+	assert.Equal(t, streaming.ConnectHarnessLifecycleStateUpdating, up.LifecycleState)
+	e.settle()
 
 	list, err := e.admin.ListConnectHarnesses(
 		ctx,
@@ -420,6 +434,7 @@ func TestConnectHarness(t *testing.T) {
 		CompartmentId:    new("ocid1.compartment.oc1..two"),
 	})
 	require.NoError(t, err)
+	e.settle()
 
 	_, err = e.admin.DeleteConnectHarness(ctx, streaming.DeleteConnectHarnessRequest{ConnectHarnessId: created.Id})
 	require.NoError(t, err)

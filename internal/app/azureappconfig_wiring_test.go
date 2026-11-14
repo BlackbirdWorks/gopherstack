@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -29,12 +28,11 @@ func TestReserveFixedServicePorts_AzureAppConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(10000, 10100)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.want, tt.port)
 
-			cli := CLI{AzureAppConfig: azureappconfig.Settings{Port: tt.port}}
+			cli := CLI{AzureAppConfig: azureappconfig.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
-			assert.Equal(t, tt.want, alloc.IsAllocated(tt.port))
+			assert.Equal(t, tt.want, alloc.IsAllocated(port))
 		})
 	}
 }

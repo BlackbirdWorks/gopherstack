@@ -9,21 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 30 (19 ok, 11 partial) |
 | Feature families | 9 (8 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
 - The Kafka compatibility API (bootstrap servers, SASL and the Kafka wire protocol) is not implemented; kafkaSettings are stored and returned and bootstrapServers is whatever the caller set.
-- Create, delete and update responses report the transitional state but updates and compartment moves complete immediately; there is no UPDATING state and work requests only model CREATE, UPDATE and DELETE completion times.
-- The 2 MiB/s consumer throughput and per-group request-rate limits are not enforced; only the 1 MiB/s per-partition ingest, 1 MiB request and 256 byte key limits are.
-- Partition and stream counts per tenancy, partition limits per stream (1 to 1000 here) and the exact error code strings for failed PutMessages entries are unverified against the live service.
-- Error codes and statuses for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState), a lost group reservation on commit (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) are unverified.
+- The documented tenancy partition allowance (default 200 on Monthly Universal Credits, 50 on Pay-as-You-Go or Promo) is not enforced and the status for exceeding it is undocumented; the 1 to 1000 partitions per stream range, stream counts per tenancy and the error code strings of failed PutMessages entries have no documentation.
+- Per-operation error mapping for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) is undocumented; the common errors page lists the codes but not which operation returns them.
 - Private stream pools only store their subnet and NSG settings; endpoints are not network-isolated and endpointFqdn is the addressed host.
 - Messages and consumer group state are held in memory and in snapshots, so large retained volumes grow the snapshot.
-- opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
 

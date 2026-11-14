@@ -52,7 +52,8 @@ func isRedisChildList(segs []string, r *http.Request) bool {
 	}
 
 	switch strings.ToLower(segs[len(segs)-1]) {
-	case strings.ToLower(redisFirewallType), strings.ToLower(redisPatchType), strings.ToLower(redisLinkedType):
+	case strings.ToLower(redisFirewallType), strings.ToLower(redisPatchType), strings.ToLower(redisLinkedType),
+		strings.ToLower(redisPolicyType), strings.ToLower(redisAssignmentType):
 		return true
 	}
 

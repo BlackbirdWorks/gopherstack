@@ -7,24 +7,23 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 38 (33 ok, 5 partial) |
-| Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 11 |
+| PARITY entries audited | 41 (37 ok, 4 partial) |
+| Feature families | 7 (6 ok, 1 partial) |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- NFS shares: hard links, symbolic links, x-ms-owner/-group/-mode and NFS file types are not modelled (the routes answer 400 InvalidUri); NFS only changes the stored protocol and root squash.
+- NFS: Rename, ListFilesAndDirectories and snapshot diffs ignore NFS properties; file types other than Regular, SymLink and Directory are not modelled; the Create Hard Link and Create Symbolic Link references document no error code for SMB shares (400 InvalidUri is kept, unverified) and no default link count for directories (2 is kept, unverified).
 - SMB handles are never modelled, so List Handles is empty and Force Close Handles is a no-op.
-- CORS rules are stored but not enforced and OPTIONS preflight is unsupported; metrics and logging settings are stored only.
-- SAS permissions (sp), stored access policy references (si), account SAS signatures, IP/protocol restrictions and Bearer tokens are not enforced; Get User Delegation Key is unsupported; verification is off by default and limited to the development account.
-- Share quota is not enforced (no ShareSizeLimitReached), access tier changes are instant, provisioned/bursting options are echoed without validation.
-- Lease error codes for share operations (LeaseIdMismatchWithLeaseOperation, LeaseNotPresentWithLeaseOperation as 412) and the code for an unknown permission key follow the file-operation names and are not verified against the live service.
-- Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent; list XML returns them as stored.
-- Copy File is synchronous and only reads emulator file and blob URLs; x-ms-copy-source-authorization and CRC64 source checks are ignored, so Abort Copy never finds a pending copy.
-- LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; trailing-dot handling (x-ms-allow-trailing-dot) and structured-body/CRC64 transactional validation are ignored.
-- Share soft delete follows ARM PUT/PATCH/GET storageAccounts/{a}/fileServices/default (shareDeleteRetentionPolicy only; cors and protocolSettings sent through ARM are accepted but not applied, and the default is disabled rather than 7 days). ARM fileServices/shares resources and the dashboard UI do not exist yet.
+- Metrics and logging settings are stored only.
+- Get User Delegation Key and user delegation SAS are unsupported; SAS and Shared Key signatures are only verifiable for devstoreaccount1, verification is off by default, and the Bearer token is not validated. The codes for an unknown si, a service SAS used on a share-level operation (AuthorizationResourceTypeMismatch) and sr=f path mismatch on other accounts are unverified.
+- Access tier changes are instant, and provisioned IOPS/bandwidth are validated only against the union of the documented ranges (500-102,400 IOPS, 60-10,340 MiB/s): the emulator keeps no account tier (HDD 500-50,000 IOPS and 60-5,120 MiB/s, SSD 3,000-102,400 IOPS and 100-10,340 MiB/s), no provisioned v2 gating and no recommendation formula for unset values.
+- Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent: net/http canonicalises request header names before the handler runs, so the case is unrecoverable without a custom connection reader; list XML returns them as stored.
+- Copy File only reads emulator file and blob URLs; x-ms-copy-source-authorization is ignored and no CRC64 source check exists (the Azure CRC64 polynomial is unverified).
+- LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; x-ms-source-allow-trailing-dot (copy and rename sources) is ignored, and structured-body/CRC64 transactional validation is ignored.
+- ARM fileServices/default accepts cors and protocolSettings but does not apply them, and its soft-delete default is disabled rather than 7 days. ARM fileServices/shares implements Create, Update, Get ($expand=stats, x-ms-snapshot), List ($maxpagesize, $skipToken, $expand=snapshots,deleted), Delete ($include) and Restore; not implemented: the shares lease action, $filter on List, nextAllowed*DowngradeTime, includedBurstIops and maxBurstCreditsForIops (provisioned v2 only), accessTierStatus, and the dashboard UI.
 - Share snapshots are full in-memory deep copies (metadata and tree), so large trees cost memory per snapshot.
 
 ## More

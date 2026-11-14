@@ -68,12 +68,12 @@ func (b *InMemoryBackend) Commit(in *datastorepb.CommitRequest) (*datastorepb.Co
 
 	b.sweepLocked(b.wallLocked())
 
-	txn, err := b.commitTxnLocked(in, mode, req)
+	txn, tracked, err := b.commitTxnLocked(in, mode, req)
 	if err != nil {
 		return nil, err
 	}
 
-	if txn != nil && len(in.GetMutations()) > 0 {
+	if tracked && len(in.GetMutations()) > 0 {
 		if err = b.checkConflictLocked(txn, in.GetMutations(), req); err != nil {
 			b.endTxnLocked(txnKey(in))
 
@@ -87,8 +87,13 @@ func (b *InMemoryBackend) Commit(in *datastorepb.CommitRequest) (*datastorepb.Co
 	}
 	c.at = b.wallLocked()
 
-	if !c.at.After(b.lastCommit) {
-		c.at = b.lastCommit.Add(time.Microsecond)
+	floor := b.lastCommit
+	if b.lastTxnRead.After(floor) {
+		floor = b.lastTxnRead
+	}
+
+	if !c.at.After(floor) {
+		c.at = floor.Add(time.Microsecond)
 	}
 
 	c.version = c.at.UnixMicro()
@@ -98,7 +103,7 @@ func (b *InMemoryBackend) Commit(in *datastorepb.CommitRequest) (*datastorepb.Co
 	for _, m := range in.GetMutations() {
 		r, merr := c.apply(m)
 		if merr != nil {
-			if txn != nil {
+			if tracked {
 				b.endTxnLocked(txnKey(in))
 			}
 
@@ -108,7 +113,7 @@ func (b *InMemoryBackend) Commit(in *datastorepb.CommitRequest) (*datastorepb.Co
 		results = append(results, r)
 	}
 
-	if txn != nil {
+	if tracked {
 		b.endTxnLocked(txnKey(in))
 	}
 
@@ -134,37 +139,37 @@ func txnKey(in *datastorepb.CommitRequest) string {
 
 func (b *InMemoryBackend) commitTxnLocked(
 	in *datastorepb.CommitRequest, mode datastorepb.CommitRequest_Mode, req partition,
-) (*txnRec, error) {
+) (*txnRec, bool, error) {
 	if mode == datastorepb.CommitRequest_NON_TRANSACTIONAL {
 		if in.GetTransactionSelector() != nil {
-			return nil, errInvalid("A transaction must not be specified for a non-transactional commit.")
+			return nil, false, errInvalid("A transaction must not be specified for a non-transactional commit.")
 		}
 
-		return nil, nil //nolint:nilnil // no transaction for non-transactional commits
+		return nil, false, nil
 	}
 
 	switch sel := in.GetTransactionSelector().(type) {
 	case *datastorepb.CommitRequest_Transaction:
 		t, err := b.txnLocked(sel.Transaction, req)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		if t.readOnly && len(in.GetMutations()) > 0 {
 			b.endTxnLocked(string(sel.Transaction))
 
-			return nil, errInvalid("Cannot modify entities in a read-only transaction.")
+			return nil, false, errInvalid("Cannot modify entities in a read-only transaction.")
 		}
 
-		return t, nil
+		return t, true, nil
 	case *datastorepb.CommitRequest_SingleUseTransaction:
 		if sel.SingleUseTransaction.GetReadOnly() != nil {
-			return nil, errInvalid("A single-use transaction must be read-write.")
+			return nil, false, errInvalid("A single-use transaction must be read-write.")
 		}
 
-		return nil, nil //nolint:nilnil // single-use transactions have no prior reads to validate
+		return nil, false, nil
 	default:
-		return nil, errInvalid("A transaction must be specified for a transactional commit.")
+		return nil, false, errInvalid("A transaction must be specified for a transactional commit.")
 	}
 }
 

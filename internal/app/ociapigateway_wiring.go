@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -9,6 +10,7 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctions "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
 // GetOCIAPIGatewaySettings returns OCI API Gateway settings (ociapigateway.ConfigProvider).
@@ -47,17 +49,66 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 	if identityH, found := byName["OCIIdentity"].(*ociidentitybackend.Handler); found {
 		gwH.Backend.Auth.Link(identityH.Backend.Auth)
 		gwH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+		gwH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {
-		gwH.Backend.SetSubnetChecker(func(id string) bool {
-			_, live := coreH.Backend.LookupSubnet(id)
-
-			return live
-		})
+		gwH.Backend.SetNetwork(ociAPIGatewayNetwork(coreH.Backend))
 	}
 
 	if fnH, found := byName["OCIFunctions"].(*ocifunctions.Handler); found {
 		gwH.Backend.SetFunctionInvoker(ociAPIGatewayFunctions{fn: fnH.Backend})
+	}
+
+	if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+		gwH.Backend.SetSecretResolver(func(id string, version int64) (string, bool) {
+			w, _, err := vaultH.Backend.GetSecretBundle(id, ocivaultbackend.BundleSelector{VersionNumber: &version})
+			if err != nil || w.Content == nil {
+				return "", false
+			}
+
+			raw, derr := base64.StdEncoding.DecodeString(w.Content.Content)
+
+			return string(raw), derr == nil
+		})
+	}
+}
+
+func ociAPIGatewayNetwork(core *ocicorebackend.InMemoryBackend) ociapigateway.Network {
+	return ociapigateway.Network{
+		Subnet: func(id string) (ociapigateway.SubnetInfo, bool) {
+			ref, live := core.LookupSubnet(id)
+
+			return ociapigateway.SubnetInfo{
+				Regional: ref.AvailabilityDomain == "", Public: !ref.ProhibitPublicIP,
+			}, live
+		},
+		Allocate: func(r ociapigateway.AddressRequest) (ociapigateway.Allocation, error) {
+			ref, _ := core.LookupSubnet(r.SubnetID)
+			public := r.Public
+
+			nic, err := core.CreateServiceNic(ocicorebackend.ServiceNicIn{
+				CompartmentID: r.CompartmentID, AD: ref.AvailabilityDomain, SubnetID: r.SubnetID,
+				DisplayName: r.DisplayName, AssignPublicIP: &public, ReservedPublicIPIDs: r.ReservedIPIDs,
+				Ipv6Addresses: r.IPv6Addresses, Ipv6SubnetCidrs: r.IPv6SubnetCidrs, AssignIPv6: r.AssignIPv6,
+			})
+			if err != nil {
+				if ae, ok := errors.AsType[*ocicorebackend.APIError](err); ok {
+					return ociapigateway.Allocation{}, &ociapigateway.APIError{
+						Status: ae.Status, Code: ae.Code, Message: ae.Message,
+					}
+				}
+
+				return ociapigateway.Allocation{}, err
+			}
+
+			return ociapigateway.Allocation{
+				VnicID:        nic.VnicID,
+				PrivateIP:     nic.IPAddress,
+				PublicIPs:     nic.PublicIPs,
+				IPv6Addresses: nic.Ipv6Addresses,
+			}, nil
+		},
+		Release: core.DeleteServiceNic,
 	}
 }

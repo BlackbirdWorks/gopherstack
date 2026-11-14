@@ -34,6 +34,13 @@ const (
 	opExemplars   = "QueryExemplars"
 	opAMAlerts    = "AlertManagerAlerts"
 	opAMPostAlert = "AlertManagerPostAlerts"
+	opAMGroups    = "AlertManagerAlertGroups"
+	opAMReceivers = "AlertManagerReceivers"
+	opAMStatus    = "AlertManagerStatus"
+	opAMSilences  = "AlertManagerSilences"
+	opAMPutSilnce = "AlertManagerPutSilence"
+	opAMGetSilnce = "AlertManagerGetSilence"
+	opAMDelSilnce = "AlertManagerDeleteSilence"
 
 	promBase = "/workspaces/{workspaceId}/api/v1/"
 	amBase   = "/workspaces/{workspaceId}/alertmanager/api/v2/"
@@ -59,6 +66,13 @@ func dataRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: promBase + "query_exemplars", Op: opExemplars},
 		{Method: http.MethodGet, Path: amBase + "alerts", Op: opAMAlerts},
 		{Method: http.MethodPost, Path: amBase + "alerts", Op: opAMPostAlert},
+		{Method: http.MethodGet, Path: amBase + "alerts/groups", Op: opAMGroups},
+		{Method: http.MethodGet, Path: amBase + "receivers", Op: opAMReceivers},
+		{Method: http.MethodGet, Path: amBase + "status", Op: opAMStatus},
+		{Method: http.MethodGet, Path: amBase + "silences", Op: opAMSilences},
+		{Method: http.MethodPost, Path: amBase + "silences", Op: opAMPutSilnce},
+		{Method: http.MethodGet, Path: amBase + "silence/{silenceId}", Op: opAMGetSilnce},
+		{Method: http.MethodDelete, Path: amBase + "silence/{silenceId}", Op: opAMDelSilnce},
 	}
 }
 
@@ -68,6 +82,38 @@ type promSeriesJSON struct {
 	Metric promql.Labels `json:"metric"`
 	Value  *promPoint    `json:"value,omitempty"`
 	Values []promPoint   `json:"values,omitempty"`
+
+	Histogram  *promPoint  `json:"histogram,omitempty"`
+	Histograms []promPoint `json:"histograms,omitempty"`
+}
+
+type promHistJSON struct {
+	Count   string  `json:"count"`
+	Sum     string  `json:"sum"`
+	Buckets [][]any `json:"buckets,omitempty"`
+}
+
+// histPoint renders a native histogram in the Prometheus HTTP API shape; zero-count buckets are omitted.
+func histPoint(t int64, h *promql.FloatHistogram) promPoint {
+	out := promHistJSON{Count: formatValue(h.Count), Sum: formatValue(h.Sum)}
+
+	for _, b := range h.Buckets() {
+		if b.Count == 0 {
+			continue
+		}
+
+		rule := 0
+		switch {
+		case b.Zero:
+			rule = 3
+		case b.Negative:
+			rule = 1
+		}
+
+		out.Buckets = append(out.Buckets, []any{rule, formatValue(b.Lower), formatValue(b.Upper), formatValue(b.Count)})
+	}
+
+	return promPoint{seconds(t), out}
 }
 
 type promData struct {
@@ -83,7 +129,7 @@ type promResponse struct {
 }
 
 func promError(c *echo.Context, status int, errType, msg string) error {
-	return c.JSON(status, promResponse{Status: "error", ErrorType: errType, Error: msg})
+	return c.JSON(status, promResponse{Status: fieldErr, ErrorType: errType, Error: msg})
 }
 
 func formatValue(v float64) string {
@@ -117,6 +163,13 @@ func resultJSON(v promql.Value) promData {
 		out := make([]promSeriesJSON, 0, len(x))
 
 		for _, s := range x {
+			if s.H != nil {
+				p := histPoint(s.T, s.H)
+				out = append(out, promSeriesJSON{Metric: s.Metric, Histogram: &p})
+
+				continue
+			}
+
 			p := point(s.T, s.V)
 			out = append(out, promSeriesJSON{Metric: s.Metric, Value: &p})
 		}
@@ -134,11 +187,22 @@ func matrixJSON(m promql.Matrix) []promSeriesJSON {
 
 	for _, s := range m {
 		vals := make([]promPoint, 0, len(s.Samples))
+		hists := []promPoint{}
+
 		for _, p := range s.Samples {
-			vals = append(vals, point(p.T, p.V))
+			if p.H != nil {
+				hists = append(hists, histPoint(p.T, p.H))
+			} else {
+				vals = append(vals, point(p.T, p.V))
+			}
 		}
 
-		out = append(out, promSeriesJSON{Metric: s.Labels, Values: vals})
+		sj := promSeriesJSON{Metric: s.Labels, Values: vals}
+		if len(hists) > 0 {
+			sj.Histograms = hists
+		}
+
+		out = append(out, sj)
 	}
 
 	return out
@@ -205,6 +269,10 @@ func parseStep(raw string) (time.Duration, error) {
 func (h *Handler) serveData(c *echo.Context, op string, params map[string]string) error {
 	wsID := params[keyWorkspaceID]
 
+	if done, aerr := h.authorizeData(c, wsID); done {
+		return aerr
+	}
+
 	if op == opRemoteWrite {
 		return h.remoteWrite(c, wsID)
 	}
@@ -213,14 +281,20 @@ func (h *Handler) serveData(c *echo.Context, op string, params map[string]string
 		return h.postAlerts(c, wsID)
 	}
 
+	if op == opAMPutSilnce {
+		return h.putSilence(c, wsID)
+	}
+
 	vals, err := promParams(c)
 	if err != nil {
 		return promError(c, http.StatusBadRequest, "bad_data", "cannot read request parameters")
 	}
 
 	switch op {
-	case opRules, opAlerts, opMetadata, opBuildInfo, opExemplars, opAMAlerts:
+	case opRules, opAlerts, opMetadata, opBuildInfo, opExemplars:
 		return h.serveStatus(c, op, wsID, vals)
+	case opAMAlerts, opAMGroups, opAMReceivers, opAMStatus, opAMSilences, opAMGetSilnce, opAMDelSilnce:
+		return h.serveAlertManager(c, op, wsID, params, vals)
 	case opQuery:
 		return h.instantQuery(c, wsID, vals)
 	case opQueryRange:
@@ -258,6 +332,12 @@ func (h *Handler) remoteWrite(c *echo.Context, wsID string) error {
 
 	if ierr = h.Backend.IngestMetadata(c.Request().Context(), wsID, decodeWriteMetadata(body)); ierr != nil {
 		return h.server.WriteErr(c, ierr)
+	}
+
+	if res.OutOfOrder > 0 {
+		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("out of order sample: %d samples are older than the workspace out-of-order window",
+				res.OutOfOrder), nil)
 	}
 
 	if res.LimitExceeded > 0 {

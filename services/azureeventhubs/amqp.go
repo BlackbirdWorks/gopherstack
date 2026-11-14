@@ -125,7 +125,7 @@ func (h *Handler) stopAMQP() {
 type amqpHandler struct{ h *Handler }
 
 func (a *amqpHandler) Authenticate(mech amqp1.Symbol, user, password string) bool {
-	if mech == "ANONYMOUS" {
+	if mech == "ANONYMOUS" || mech == "MSSBCBS" {
 		return true
 	}
 

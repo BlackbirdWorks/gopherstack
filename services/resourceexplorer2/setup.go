@@ -217,7 +217,7 @@ func (b *InMemoryBackend) GetSetup(
 
 	slices.SortFunc(rows, func(x, y RegionStatusWire) int { return cmp.Compare(x.Region, y.Region) })
 
-	return paginate(rows, token, maxResults, maxPage)
+	return paginate(rows, token, maxResults, maxPage, maxPage)
 }
 
 func (b *InMemoryBackend) regionStatus(kind string, tr *TaskRegion) RegionStatusWire {

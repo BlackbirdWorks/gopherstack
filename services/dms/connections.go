@@ -53,13 +53,20 @@ func (b *InMemoryBackend) TestConnection(
 		(ep.EndpointType != endpointTypeSource || dmsengine.SupportedSource(ep.EngineName)) {
 		probe, opener, source = b.endpointConfigLocked(region, ep), b.eng.opener, ep.EndpointType == endpointTypeSource
 	}
+
+	secrets := b.secrets
 	b.mu.Unlock()
 
 	if opener != nil {
 		tctx, cancel := context.WithTimeout(ctx, connectionTestLimit)
 		defer cancel()
 
-		if err := dmsengine.TestEndpoint(tctx, opener, probe, source); err != nil {
+		err := resolveSecret(tctx, secrets, region, &probe)
+		if err == nil {
+			err = dmsengine.TestEndpoint(tctx, opener, probe, source)
+		}
+
+		if err != nil {
 			conn.Status, conn.LastFailureMessage = statusFailed, "Failed to connect to database. "+err.Error()
 		}
 	}

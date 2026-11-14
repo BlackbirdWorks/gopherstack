@@ -269,7 +269,7 @@ var (
 		"dnsSettings",
 	}
 	flexIPCfgPassthrough = []string{
-		netFieldSubnet, cmpFieldPrimary, "privateIPAddressVersion", "loadBalancerBackendAddressPools",
+		netFieldSubnet, cmpFieldPrimary, netPropIPVersion, "loadBalancerBackendAddressPools",
 		"applicationSecurityGroups",
 	}
 )
@@ -289,7 +289,7 @@ func flexNICProps(props map[string]any) map[string]any {
 	for _, ic := range raw {
 		im := mapOf(ic)
 		ip := mapOf(im[fieldProperties])
-		cfg := map[string]any{"privateIPAllocationMethod": methodDynamic}
+		cfg := map[string]any{netPropIPMethod: methodDynamic}
 
 		for _, k := range flexIPCfgPassthrough {
 			if v, ok := ip[k]; ok {

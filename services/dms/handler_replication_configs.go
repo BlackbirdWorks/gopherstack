@@ -305,16 +305,40 @@ type startReplicationInput struct {
 // DescribeReplications. This is distinct from the "ReplicationConfig"
 // resource (replicationConfigJSON) which has no Status field.
 type replicationJSON struct {
-	CdcStartTime                *float64 `json:"CdcStartTime,omitempty"`
-	ReplicationConfigArn        string   `json:"ReplicationConfigArn"`
-	ReplicationConfigIdentifier string   `json:"ReplicationConfigIdentifier"`
-	ReplicationType             string   `json:"ReplicationType,omitempty"`
-	SourceEndpointArn           string   `json:"SourceEndpointArn,omitempty"`
-	TargetEndpointArn           string   `json:"TargetEndpointArn,omitempty"`
-	StartReplicationType        string   `json:"StartReplicationType,omitempty"`
-	CdcStartPosition            string   `json:"CdcStartPosition,omitempty"`
-	CdcStopPosition             string   `json:"CdcStopPosition,omitempty"`
-	Status                      string   `json:"Status"`
+	CdcStartTime                *float64                  `json:"CdcStartTime,omitempty"`
+	ReplicationStats            *replicationTaskStatsJSON `json:"ReplicationStats,omitempty"`
+	ProvisionData               *provisionDataJSON        `json:"ProvisionData,omitempty"`
+	ReplicationCreateTime       *float64                  `json:"ReplicationCreateTime,omitempty"`
+	ReplicationUpdateTime       *float64                  `json:"ReplicationUpdateTime,omitempty"`
+	ReplicationLastStopTime     *float64                  `json:"ReplicationLastStopTime,omitempty"`
+	ReplicationConfigArn        string                    `json:"ReplicationConfigArn"`
+	ReplicationConfigIdentifier string                    `json:"ReplicationConfigIdentifier"`
+	ReplicationType             string                    `json:"ReplicationType,omitempty"`
+	SourceEndpointArn           string                    `json:"SourceEndpointArn,omitempty"`
+	TargetEndpointArn           string                    `json:"TargetEndpointArn,omitempty"`
+	StartReplicationType        string                    `json:"StartReplicationType,omitempty"`
+	CdcStartPosition            string                    `json:"CdcStartPosition,omitempty"`
+	CdcStopPosition             string                    `json:"CdcStopPosition,omitempty"`
+	StopReason                  string                    `json:"StopReason,omitempty"`
+	RecoveryCheckpoint          string                    `json:"RecoveryCheckpoint,omitempty"`
+	Status                      string                    `json:"Status"`
+	FailureMessages             []string                  `json:"FailureMessages,omitempty"`
+}
+
+// provisionDataJSON mirrors types.ProvisionData for a running replication.
+type provisionDataJSON struct {
+	DateProvisioned          float64 `json:"DateProvisioned,omitempty"`
+	ProvisionedCapacityUnits int32   `json:"ProvisionedCapacityUnits"`
+}
+
+func optEpoch(t time.Time) *float64 {
+	if t.IsZero() {
+		return nil
+	}
+
+	v := awstime.Epoch(t)
+
+	return &v
 }
 
 func replToJSON(rc *ReplicationConfig) replicationJSON {
@@ -324,7 +348,7 @@ func replToJSON(rc *ReplicationConfig) replicationJSON {
 		cdcStart = &v
 	}
 
-	return replicationJSON{
+	out := replicationJSON{
 		CdcStartPosition:            rc.CdcStartPosition,
 		CdcStartTime:                cdcStart,
 		CdcStopPosition:             rc.CdcStopPosition,
@@ -335,7 +359,26 @@ func replToJSON(rc *ReplicationConfig) replicationJSON {
 		TargetEndpointArn:           rc.TargetEndpointArn,
 		StartReplicationType:        rc.StartReplicationType,
 		Status:                      rc.Status,
+		StopReason:                  rc.StopReason,
+		RecoveryCheckpoint:          rc.RecoveryCheckpoint,
+		ReplicationCreateTime:       optEpoch(rc.CreateTime),
+		ReplicationUpdateTime:       optEpoch(rc.UpdateTime),
+		ReplicationLastStopTime:     optEpoch(rc.StopDate),
+		ReplicationStats: runStats(rc.StartDate, rc.StopDate, rc.FullLoadStartDate, rc.FullLoadFinishDate,
+			rc.ElapsedTimeMillis, rc.TableStats),
 	}
+
+	if rc.FailureMessage != "" {
+		out.FailureMessages = []string{rc.FailureMessage}
+	}
+
+	if rc.Status == statusRunning && rc.ComputeConfig != nil && rc.ComputeConfig.MinCapacityUnits != nil {
+		out.ProvisionData = &provisionDataJSON{
+			ProvisionedCapacityUnits: *rc.ComputeConfig.MinCapacityUnits, DateProvisioned: awstime.Epoch(rc.StartDate),
+		}
+	}
+
+	return out
 }
 
 type startReplicationOutput struct {

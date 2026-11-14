@@ -12,7 +12,7 @@ await gs.stop();
 ```
 
 Also `withPersistence(dir)`, `withDockerSocket()` (see the
-[socket warning](../README.md#docker-socket-warning)), `withEnv(k, v)`.
+[socket warning](../README.md#docker-socket-warning)), `withEnv(k, v)`, `withUser(u)` (overrides the root user those two imply).
 
 ```bash
 npm install && GOPHERSTACK_TEST_IMAGE=gopherstack:tc-local npm test

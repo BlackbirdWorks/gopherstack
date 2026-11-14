@@ -32,6 +32,8 @@ type peTarget struct {
 	groups map[string]peGroup
 	// actionKey is the JSON name of the connection state's action field in that provider's API.
 	actionKey string
+	// plain targets have no group ids: one endpoint address, no DNS names.
+	plain bool
 }
 
 func plainFQDN(pub string) func(name, loc string) []string {
@@ -93,7 +95,8 @@ func single(group string, g peGroup) map[string]peGroup { return map[string]peGr
 //
 //nolint:gochecknoglobals // read-only table
 var peTargets = map[string]peTarget{
-	"microsoft.storage/storageaccounts": {groups: storageGroups(), actionKey: "actionRequired"},
+	"microsoft.storage/storageaccounts":     {groups: storageGroups(), actionKey: "actionRequired"},
+	"microsoft.network/privatelinkservices": {actionKey: propActionsRequired, plain: true},
 	"microsoft.keyvault/vaults": {
 		groups:    single("vault", grp("vaultcore.azure.net", "vault.azure.net", plainFQDN("vault.azure.net"))),
 		actionKey: propActionsRequired,
@@ -180,7 +183,7 @@ func (p *NetworkProvider) connsOf(targetID string) []peConn {
 				m, _ := c.(map[string]any)
 				cn := strOf(m, fieldName)
 
-				if !strings.EqualFold(strOf(propsOf(m), "privateLinkServiceId"), targetID) ||
+				if !strings.EqualFold(strOf(propsOf(m), peLinkIDKey), targetID) ||
 					pe.Obj.Aux["gone:"+cn] != "" {
 					continue
 				}
@@ -210,15 +213,22 @@ func (p *NetworkProvider) targetConnBody(c peConn, targetID string) map[string]a
 		"privateEndpoint":                   idRef(c.pe.armID()),
 		"privateLinkServiceConnectionState": state,
 		fieldProvisioningState:              netStatusSucceeded,
-		propGroupIDs:                        propsOf(c.conn)[propGroupIDs],
 	}
 
 	typ := targetTypeOf(targetID)
-
-	return map[string]any{
+	out := map[string]any{
 		netFieldID: targetID + "/" + pecTypeName + "/" + c.targetName(), fieldName: c.targetName(),
 		fieldType: typ + "/" + pecTypeName, fieldProperties: props,
 	}
+
+	if t.plain {
+		props["privateEndpointLocation"] = c.pe.Obj.Location
+		out[netFieldEtag] = c.pe.Obj.Etag
+	} else {
+		props[propGroupIDs] = propsOf(c.conn)[propGroupIDs]
+	}
+
+	return out
 }
 
 func peTargetKeyOf(targetID string) string {

@@ -11,8 +11,9 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 // Default HTTP backend timeouts.
@@ -20,7 +21,6 @@ const (
 	defaultConnectSec = 60
 	defaultReadSec    = 10
 	defaultSendSec    = 10
-	dialerKeepAlive   = 30 * time.Second
 )
 
 var (
@@ -54,28 +54,9 @@ type FunctionInvoker interface {
 	InvokeFunction(ctx context.Context, functionID string, in FunctionRequest) (FunctionResponse, error)
 }
 
-// guardedDialer refuses connections to non-loopback peers unless external backends are allowed. The check runs
-// on the resolved address, so a hostname that resolves elsewhere (or later rebinds) is still refused.
+// guardedDialer refuses non-loopback peers unless external backends are allowed.
 func (b *InMemoryBackend) guardedDialer() *net.Dialer {
-	return &net.Dialer{
-		KeepAlive: dialerKeepAlive,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			if b.externalAllowed() {
-				return nil
-			}
-
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-
-			if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-				return ErrDestinationNotPermitted
-			}
-
-			return nil
-		},
-	}
+	return httpclient.LoopbackDialer(b.externalAllowed, ErrDestinationNotPermitted)
 }
 
 func seconds(v *float64, def int) time.Duration {

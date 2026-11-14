@@ -37,6 +37,16 @@ func TestRouteTableRules(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	drg, err := e.client.CreateDrg(ctx, core.CreateDrgRequest{
+		CompartmentId: new(testComp)})
+	require.NoError(t, err)
+	_, err = e.client.CreateDrgAttachment(ctx, core.CreateDrgAttachmentRequest{
+		DrgId: drg.Id, VcnId: v.Id})
+	require.NoError(t, err)
+	loose, err := e.client.CreateDrg(ctx, core.CreateDrgRequest{
+		CompartmentId: new(testComp)})
+	require.NoError(t, err)
+
 	cidr := core.RouteRuleDestinationTypeCidrBlock
 	svc := core.RouteRuleDestinationTypeServiceCidrBlock
 
@@ -58,7 +68,11 @@ func TestRouteTableRules(t *testing.T) {
 		{"deprecated cidrBlock", "", []core.RouteRule{{CidrBlock: new("10.1.0.0/16"), NetworkEntityId: igw.Id}}},
 		{"service gateway", "", []core.RouteRule{{Destination: new("oci-iad-objectstorage"), DestinationType: svc,
 			NetworkEntityId: sgw.Id}}},
-		{"drg", "", []core.RouteRule{{Destination: new("172.16.0.0/12"), NetworkEntityId: new("ocid1.drg.oc1.iad.x")}}},
+		{"drg", "", []core.RouteRule{{Destination: new("172.16.0.0/12"), NetworkEntityId: drg.Id}}},
+		{"drg not attached", "InvalidParameter", []core.RouteRule{{Destination: new("172.16.0.0/12"),
+			NetworkEntityId: loose.Id}}},
+		{"unknown drg", "NotAuthorizedOrNotFound", []core.RouteRule{{Destination: new("172.16.0.0/12"),
+			NetworkEntityId: new("ocid1.drg.oc1.iad.x")}}},
 		{
 			"service not attached",
 			"InvalidParameter",

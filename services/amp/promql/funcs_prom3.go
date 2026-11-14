@@ -173,13 +173,23 @@ func chunk(s string) string {
 	return s
 }
 
-// callNativeHistogram applies the native-histogram accessors; Prometheus ignores float samples, the only kind stored.
+// callNativeHistogram applies the native-histogram accessors; float samples are ignored like Prometheus does.
 func (e *Engine) callNativeHistogram(c *Call, t int64) (Value, error) {
-	if _, err := e.instantArg(c.Args[0], t, c.Func); err != nil {
+	vec, err := e.histArg(c.Args[0], t, c.Func)
+	if err != nil {
 		return nil, err
 	}
 
-	return Vector{}, nil
+	native, _ := splitNative(vec)
+	out := Vector{}
+
+	for _, s := range native {
+		out = append(out, VectorSample{Metric: s.Metric.without(NameLabel), T: t, V: s.H.accessor(c.Func)})
+	}
+
+	sortVector(out)
+
+	return out, nil
 }
 
 func (e *Engine) callHistogramFraction(c *Call, t int64) (Value, error) {
@@ -193,14 +203,19 @@ func (e *Engine) callHistogramFraction(c *Call, t int64) (Value, error) {
 		return nil, err
 	}
 
-	vec, err := e.instantArg(c.Args[2], t, c.Func)
+	vec, err := e.histArg(c.Args[2], t, c.Func)
 	if err != nil {
 		return nil, err
 	}
 
+	native, vec := splitNative(vec)
 	groups, order := groupBuckets(vec)
 
 	out := Vector{}
+
+	for _, s := range native {
+		out = append(out, VectorSample{Metric: s.Metric.without(NameLabel), T: t, V: s.H.Fraction(lower, upper)})
+	}
 
 	for _, k := range order {
 		g := groups[k]

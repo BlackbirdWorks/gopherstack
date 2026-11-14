@@ -184,20 +184,21 @@ type Container struct {
 
 // Deployment represents an active or completed deployment on an ECS service.
 type Deployment struct {
-	CreatedAt          *float64 `json:"createdAt,omitempty"`
-	UpdatedAt          *float64 `json:"updatedAt,omitempty"`
-	ID                 string   `json:"id"`
-	Status             string   `json:"status"`
-	TaskDefinition     string   `json:"taskDefinition"`
-	LaunchType         string   `json:"launchType,omitempty"`
-	PlatformVersion    string   `json:"platformVersion,omitempty"`
-	RolloutState       string   `json:"rolloutState,omitempty"`
-	RolloutStateReason string   `json:"rolloutStateReason,omitempty"`
-	ServiceRevisionArn string   `json:"serviceRevisionArn,omitempty"`
-	DesiredCount       int      `json:"desiredCount"`
-	PendingCount       int      `json:"pendingCount"`
-	RunningCount       int      `json:"runningCount"`
-	FailedTasks        int      `json:"failedTasks"`
+	CreatedAt            *float64              `json:"createdAt,omitempty"`
+	UpdatedAt            *float64              `json:"updatedAt,omitempty"`
+	ID                   string                `json:"id"`
+	Status               string                `json:"status"`
+	TaskDefinition       string                `json:"taskDefinition"`
+	LaunchType           string                `json:"launchType,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	RolloutState         string                `json:"rolloutState,omitempty"`
+	RolloutStateReason   string                `json:"rolloutStateReason,omitempty"`
+	ServiceRevisionArn   string                `json:"serviceRevisionArn,omitempty"`
+	VolumeConfigurations []VolumeConfiguration `json:"volumeConfigurations,omitempty"`
+	DesiredCount         int                   `json:"desiredCount"`
+	PendingCount         int                   `json:"pendingCount"`
+	RunningCount         int                   `json:"runningCount"`
+	FailedTasks          int                   `json:"failedTasks"`
 
 	completionEmitted bool
 }
@@ -632,6 +633,7 @@ type TaskOverride struct {
 	ExecutionRoleArn   string              `json:"executionRoleArn,omitempty"`
 	CPU                string              `json:"cpu,omitempty"`
 	Memory             string              `json:"memory,omitempty"`
+	EphemeralStorage   *EphemeralStorage   `json:"ephemeralStorage,omitempty"`
 	ContainerOverrides []ContainerOverride `json:"containerOverrides,omitempty"`
 }
 
@@ -1024,6 +1026,7 @@ type Service struct {
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	Deployments                   []Deployment                   `json:"deployments,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 	DesiredCount                  int                            `json:"desiredCount"`
 	PendingCount                  int                            `json:"pendingCount"`
 	RunningCount                  int                            `json:"runningCount"`
@@ -1049,26 +1052,31 @@ type Task struct {
 	PullStoppedAt        *time.Time            `json:"pullStoppedAt,omitempty"`
 	Overrides            *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
-	Group                string                `json:"group,omitempty"`
-	PlatformVersion      string                `json:"platformVersion,omitempty"`
-	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
-	LastStatus           string                `json:"lastStatus"`
-	DesiredStatus        string                `json:"desiredStatus"`
-	Connectivity         string                `json:"connectivity,omitempty"`
-	StoppedReason        string                `json:"stoppedReason,omitempty"`
-	StopCode             string                `json:"stopCode,omitempty"`
-	HealthStatus         string                `json:"healthStatus,omitempty"`
-	TaskArn              string                `json:"taskArn"`
-	LaunchType           string                `json:"launchType,omitempty"`
-	ContainerInstanceArn string                `json:"containerInstanceArn,omitempty"`
-	StartedBy            string                `json:"startedBy,omitempty"`
-	ClusterArn           string                `json:"clusterArn"`
-	PlatformFamily       string                `json:"platformFamily,omitempty"`
-	RuntimeID            string                `json:"runtimeId,omitempty"`
-	PropagateTags        string                `json:"propagateTags,omitempty"`
+	ebsVolumes           map[string]ebsMount
+	EphemeralStorage     *EphemeralStorage `json:"ephemeralStorage,omitempty"`
+	Group                string            `json:"group,omitempty"`
+	PlatformVersion      string            `json:"platformVersion,omitempty"`
+	TaskDefinitionArn    string            `json:"taskDefinitionArn"`
+	LastStatus           string            `json:"lastStatus"`
+	DesiredStatus        string            `json:"desiredStatus"`
+	Connectivity         string            `json:"connectivity,omitempty"`
+	StoppedReason        string            `json:"stoppedReason,omitempty"`
+	StopCode             string            `json:"stopCode,omitempty"`
+	HealthStatus         string            `json:"healthStatus,omitempty"`
+	TaskArn              string            `json:"taskArn"`
+	LaunchType           string            `json:"launchType,omitempty"`
+	ContainerInstanceArn string            `json:"containerInstanceArn,omitempty"`
+	StartedBy            string            `json:"startedBy,omitempty"`
+	ClusterArn           string            `json:"clusterArn"`
+	PlatformFamily       string            `json:"platformFamily,omitempty"`
+	RuntimeID            string            `json:"runtimeId,omitempty"`
+	PropagateTags        string            `json:"propagateTags,omitempty"`
 	// TaskRoleArn is the effective IAM role ARN for task containers.
 	// Resolved from Overrides.TaskRoleArn if set, else from the task definition.
 	TaskRoleArn string `json:"taskRoleArn,omitempty"`
+	// CPU and Memory are the task-level sizes (task definition, overridden per run).
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
 	// CapacityProviderName is the capacity provider actually selected to run this
 	// task. Set from RunTaskInput.CapacityProviderStrategy (the first entry, as a
 	// documented simplification: this backend does not model weight/base-driven
@@ -1142,6 +1150,7 @@ type CreateServiceInput struct {
 	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 	DesiredCount                  int                            `json:"desiredCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
@@ -1168,6 +1177,7 @@ type UpdateServiceInput struct {
 	CapacityProviderStrategy      []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 	ForceNewDeployment            bool                           `json:"forceNewDeployment,omitempty"`
 }
 
@@ -1188,6 +1198,7 @@ type RunTaskInput struct {
 	serviceTagsForPropagate  []Tag
 	PlacementConstraints     []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy        []PlacementStrategy            `json:"placementStrategy,omitempty"`
+	VolumeConfigurations     []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"capacityProviderStrategy,omitempty"`
 	Count                    int                            `json:"count,omitempty"`
 	EnableECSManagedTags     bool                           `json:"enableECSManagedTags,omitempty"`

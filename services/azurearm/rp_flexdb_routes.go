@@ -45,7 +45,8 @@ func isFlexScope(segs []string, n int) bool {
 
 func isFlexChildType(segs []string) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
-	case strings.ToLower(flexFirewallType), strings.ToLower(flexDatabasesType), strings.ToLower(flexConfigsType):
+	case strings.ToLower(flexFirewallType), strings.ToLower(flexDatabasesType), strings.ToLower(flexConfigsType),
+		strings.ToLower(flexAdminType):
 		return true
 	}
 
@@ -90,6 +91,8 @@ func isFlexAction(segs []string, r *http.Request) bool {
 	switch strings.ToLower(segs[flexServerSegs]) {
 	case aksActionStart, aksActionStop, "restart":
 		return true
+	case flexAdminFailover:
+		return strings.EqualFold(segs[flexNsIdx], namespaceDBforMySQL)
 	}
 
 	return false

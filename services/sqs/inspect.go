@@ -216,3 +216,13 @@ func inspectXML(c *echo.Context, msgs []*Message) error {
 
 	return c.XMLBlob(http.StatusOK, body)
 }
+
+// withOwnAttributes returns a copy whose Attributes map is not shared with m, so
+// stamping it cannot race with readers of an object already handed out.
+func (m *Message) withOwnAttributes() *Message {
+	c := *m
+	c.Attributes = make(map[string]string, len(m.Attributes)+1)
+	maps.Copy(c.Attributes, m.Attributes)
+
+	return &c
+}

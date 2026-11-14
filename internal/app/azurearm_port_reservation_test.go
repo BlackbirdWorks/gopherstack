@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -26,18 +24,16 @@ func TestReserveFixedServicePorts_AzureARM(t *testing.T) {
 	tests := []struct {
 		name                string
 		armPort             int
-		rangeStart          int
-		rangeEnd            int
 		wantBlockedFromPool bool
 	}{
 		{
-			name:    "default azurearm port collides with default pool range",
-			armPort: azurearmbackend.DefaultPort, rangeStart: 10000, rangeEnd: 10100,
+			name:                "default azurearm port collides with default pool range",
+			armPort:             azurearmbackend.DefaultPort,
 			wantBlockedFromPool: true,
 		},
 		{
-			name:    "custom azurearm port outside a custom pool range",
-			armPort: 9998, rangeStart: 10000, rangeEnd: 10100,
+			name:                "custom azurearm port outside a custom pool range",
+			armPort:             9998,
 			wantBlockedFromPool: false,
 		},
 	}
@@ -46,13 +42,12 @@ func TestReserveFixedServicePorts_AzureARM(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantBlockedFromPool, tt.armPort)
 
-			cli := CLI{AzureARM: azurearmbackend.Settings{Port: tt.armPort}}
+			cli := CLI{AzureARM: azurearmbackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(tt.armPort), tt.name)
+			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(port), tt.name)
 		})
 	}
 }

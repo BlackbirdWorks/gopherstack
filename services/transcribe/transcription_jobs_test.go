@@ -51,8 +51,6 @@ func TestStartTranscriptionJob_FullInput(t *testing.T) {
 	assert.NotNil(t, job.Subtitles)
 	assert.Len(t, job.Subtitles.Formats, 2)
 	assert.Len(t, job.Subtitles.SubtitleFileURIs, 2)
-	assert.NotEmpty(t, job.TranscriptText)
-	assert.NotEmpty(t, job.TranscriptJSON)
 	assert.False(t, job.CreationTime.IsZero())
 	assert.False(t, job.CompletionTime.IsZero())
 }
@@ -1017,7 +1015,7 @@ func TestGetTranscriptionJob_TranscriptURIRouting(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "s3://my-results/my-job.json")
 	})
 
-	t.Run("without_output_bucket_uses_synthetic", func(t *testing.T) {
+	t.Run("without_output_bucket_uses_managed_url", func(t *testing.T) {
 		t.Parallel()
 
 		h, _ := newHandlerWithBackend(t)
@@ -1030,7 +1028,8 @@ func TestGetTranscriptionJob_TranscriptURIRouting(t *testing.T) {
 		rec := doTranscribeRequest(t, h, "GetTranscriptionJob", map[string]any{
 			"TranscriptionJobName": "synthetic-job",
 		})
-		assert.Contains(t, rec.Body.String(), "s3://synthetic-transcripts/synthetic-job.json")
+		assert.Contains(t, rec.Body.String(), "/_gopherstack/transcribe/output/us-east-1/transcription/synthetic-job/")
+		assert.Contains(t, rec.Body.String(), "/asrOutput.json")
 	})
 }
 

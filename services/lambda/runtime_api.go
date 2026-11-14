@@ -55,11 +55,14 @@ type runtimeServer struct {
 	queue          chan *pendingInvocation
 	done           chan struct{}
 	exts           *extensionRegistry
+	tel            *telemetryHub
+	logCancel      atomic.Pointer[context.CancelFunc]
 	shutdownReason atomic.Pointer[string]
 	closing        chan struct{}
 	pending        sync.Map
 	port           int
 	stopOnce       sync.Once
+	logOnce        sync.Once
 	traceActive    atomic.Bool
 }
 
@@ -83,14 +86,18 @@ const maxInvocationResponseBytes = 6 * 1024 * 1024
 
 // newRuntimeServer creates a runtimeServer for the given port. Call start() to begin listening.
 func newRuntimeServer(port int) *runtimeServer {
-	return &runtimeServer{
+	s := &runtimeServer{
 		port:  port,
 		queue: make(chan *pendingInvocation, runtimeQueueSize),
 		done:  make(chan struct{}),
 
 		exts:    newExtensionRegistry(),
+		tel:     newTelemetryHub(),
 		closing: make(chan struct{}),
 	}
+	s.exts.hub = s.tel
+
+	return s
 }
 
 // setShutdownReason sets the reason carried by the SHUTDOWN event extensions receive.
@@ -106,6 +113,8 @@ func (s *runtimeServer) routes() http.Handler {
 	mux.HandleFunc(extensionPathPrefix+"event/next", s.handleExtensionNext)
 	mux.HandleFunc(extensionPathPrefix+"init/error", s.handleExtensionError(true))
 	mux.HandleFunc(extensionPathPrefix+"exit/error", s.handleExtensionError(false))
+	mux.HandleFunc(telemetryPath, s.handleSubscribe(apiTelemetry))
+	mux.HandleFunc(logsPath, s.handleSubscribe(apiLogs))
 
 	return mux
 }
@@ -143,7 +152,15 @@ func (s *runtimeServer) stop(ctx context.Context) {
 		reason = *r
 	}
 
+	s.tel.invokePhaseEnded(ctx, time.Now())
+	s.tel.flush(ctx)
 	s.exts.shutdown(ctx, reason)
+	s.tel.close(ctx)
+
+	if cancel := s.logCancel.Load(); cancel != nil {
+		(*cancel)()
+	}
+
 	s.stopOnce.Do(func() {
 		close(s.closing)
 		s.exts.close()
@@ -206,6 +223,8 @@ func (s *runtimeServer) invoke(
 			}
 		}
 
+		s.tel.timedOut(ctx, reqID, time.Now())
+
 		return nil, false, "", fmt.Errorf("%w after %s", ErrInvocationTimeout, timeout)
 	case <-ctx.Done():
 		if _, claimed := s.pending.LoadAndDelete(inv.requestID); !claimed {
@@ -236,7 +255,9 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.exts.awaitInit(r.Context())
+	s.tel.initFinished(time.Now(), "")
 	s.exts.awaitIdle(r.Context())
+	s.tel.invokePhaseEnded(r.Context(), time.Now())
 
 	select {
 	case inv := <-s.queue:
@@ -254,6 +275,7 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Lambda-Runtime-Trace-Id", trace)
 		}
 
+		s.tel.invokeStarted(inv.requestID, trace, time.Now())
 		s.exts.fanoutInvoke(inv.requestID, inv.deadline, fnARN, trace)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -289,7 +311,10 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 	requestID := parts[0]
 	action := parts[1] // "response" or "error"
 
+	readStart := time.Now()
 	body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxInvocationResponseBytes))
+	readEnd := time.Now()
+
 	defer r.Body.Close()
 
 	if readErr != nil {
@@ -318,6 +343,9 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 		return
 	}
+
+	s.tel.runtimeDone(requestID, action == statusError,
+		functionErrorType(r.Header.Get("Lambda-Runtime-Function-Error-Type"), body), len(body), readStart, readEnd)
 
 	inv.result <- invocationResult{
 		payload:    body,
@@ -355,6 +383,7 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 	logger.Load(r.Context()).ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
 
 	s.setShutdownReason(shutdownReasonFailure)
+	s.tel.initFinished(time.Now(), functionErrorType(r.Header.Get("Lambda-Runtime-Function-Error-Type"), body))
 	s.failPending(body)
 
 	w.WriteHeader(http.StatusAccepted)

@@ -5,6 +5,8 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"hash/fnv"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
@@ -12,12 +14,14 @@ import (
 )
 
 const (
-	isoSecond    = "2006-01-02T15:04:05Z"
-	hoursPerDay  = 24
-	dayLen       = 24 * time.Hour
-	providerAWS  = "AWS"
-	pairLen      = 2
-	unitQuantity = "Quantity"
+	isoSecond      = "2006-01-02T15:04:05Z"
+	hoursPerDay    = 24
+	dayLen         = 24 * time.Hour
+	providerAWS    = "AWS"
+	legalEntityAWS = "Amazon Web Services, Inc."
+	currencyUSD    = "USD"
+	pairLen        = 2
+	unitQuantity   = "Quantity"
 )
 
 type rowCtx struct {
@@ -51,99 +55,197 @@ func ratio(cost, usage float64) any {
 
 func lineID(r *rowCtx) string {
 	h := fnv.New128a()
-	_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s", r.line.Account, r.line.Service, r.line.UsageType, r.line.Region, r.start)
+	_, _ = fmt.Fprintf(h, "%s|%s", r.line.Key(), r.start)
 
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func rateText(cost, usage float64) any {
+	v := ratio(cost, usage)
+	if v == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%.10f", v)
+}
+
+func (r *rowCtx) cost() float64 { return r.line.Unblended * r.frac }
+
 func curValues(r *rowCtx) map[string]any {
 	code := billingexport.ProductCode(r.line.Service)
+	l := &r.line
 
 	return map[string]any{
-		"identity_line_item_id":           lineID(r),
-		"identity_time_interval":          r.start.Format(isoSecond) + "/" + r.end.Format(isoSecond),
-		"bill_invoice_id":                 "",
-		"bill_invoicing_entity":           "Amazon Web Services, Inc.",
-		"bill_billing_entity":             providerAWS,
-		"bill_bill_type":                  "Anniversary",
-		"bill_payer_account_id":           r.payer,
-		"bill_billing_period_start_date":  r.billStart.Format(isoSecond),
-		"bill_billing_period_end_date":    r.billEnd.Format(isoSecond),
-		"line_item_usage_account_id":      r.line.Account,
-		"line_item_line_item_type":        "Usage",
-		"line_item_usage_start_date":      r.start.Format(isoSecond),
-		"line_item_usage_end_date":        r.end.Format(isoSecond),
-		"line_item_product_code":          code,
-		"line_item_usage_type":            r.line.UsageType,
-		"line_item_operation":             "",
-		"line_item_availability_zone":     "",
-		"line_item_resource_id":           "",
-		"line_item_usage_amount":          r.line.Usage * r.frac,
-		"line_item_unblended_rate":        ratio(r.line.Unblended, r.line.Usage),
-		"line_item_unblended_cost":        r.line.Unblended * r.frac,
-		"line_item_blended_rate":          ratio(r.line.Blended, r.line.Usage),
-		"line_item_blended_cost":          r.line.Blended * r.frac,
-		"line_item_currency_code":         "USD",
-		"line_item_line_item_description": r.line.Service + " " + r.line.UsageType + " usage",
-		"line_item_legal_entity":          "Amazon Web Services, Inc.",
-		"product_product_name":            r.line.Service,
-		"product_region_code":             r.line.Region,
-		"product_servicecode":             code,
-		"pricing_unit":                    unitQuantity,
-		"pricing_term":                    "OnDemand",
-		"pricing_public_on_demand_cost":   r.line.Unblended * r.frac,
-		"pricing_public_on_demand_rate":   ratio(r.line.Unblended, r.line.Usage),
-		"product": jsonMap("product_name", r.line.Service, "region_code", r.line.Region,
-			"servicecode", code),
-		"resource_tags":                      "{}",
+		"identity_line_item_id":              lineID(r),
+		"identity_time_interval":             r.start.Format(isoSecond) + "/" + r.end.Format(isoSecond),
+		"bill_invoice_id":                    "",
+		"bill_invoicing_entity":              legalEntityAWS,
+		"bill_billing_entity":                providerAWS,
+		"bill_bill_type":                     "Anniversary",
+		"bill_payer_account_id":              r.payer,
+		"bill_billing_period_start_date":     r.billStart.Format(isoSecond),
+		"bill_billing_period_end_date":       r.billEnd.Format(isoSecond),
+		"line_item_usage_account_id":         l.Account,
+		"line_item_line_item_type":           l.LineItemType(),
+		"line_item_usage_start_date":         r.start.Format(isoSecond),
+		"line_item_usage_end_date":           r.end.Format(isoSecond),
+		"line_item_product_code":             code,
+		"line_item_usage_type":               l.UsageType,
+		"line_item_operation":                l.Operation,
+		"line_item_availability_zone":        l.AvailabilityZone,
+		"line_item_resource_id":              l.ResourceID,
+		"line_item_usage_amount":             l.Usage * r.frac,
+		"line_item_unblended_rate":           rateText(l.Unblended, l.Usage),
+		"line_item_unblended_cost":           r.cost(),
+		"line_item_blended_rate":             rateText(l.Blended, l.Usage),
+		"line_item_blended_cost":             l.Blended * r.frac,
+		"line_item_currency_code":            currencyUSD,
+		"line_item_line_item_description":    l.Service + " " + l.UsageType + " usage",
+		"line_item_legal_entity":             legalEntityAWS,
+		"product_region_code":                l.Region,
+		"product_servicecode":                code,
+		"product_usagetype":                  l.UsageType,
+		"product_operation":                  l.Operation,
+		"product_instance_type":              l.InstanceType,
+		"product_product_family":             l.ProductFamily,
+		"pricing_unit":                       unitQuantity,
+		"pricing_term":                       "OnDemand",
+		"pricing_currency":                   currencyUSD,
+		"pricing_public_on_demand_cost":      r.cost(),
+		"pricing_public_on_demand_rate":      rateText(l.Unblended, l.Usage),
+		"product":                            productMap(l, code),
+		"resource_tags":                      tagMap(l.Tags, "user:"),
+		"tags":                               tagMap(l.Tags, "user_"),
 		"cost_category":                      "{}",
 		"discount":                           "{}",
 		"split_line_item_parent_resource_id": "",
-		"split_line_item_split_usage":        r.line.Usage * r.frac,
+		"split_line_item_split_usage":        l.Usage * r.frac,
 		"split_line_item_split_usage_ratio":  1.0,
-		"split_line_item_split_cost":         r.line.Unblended * r.frac,
+		"split_line_item_split_cost":         r.cost(),
 		"split_line_item_unused_cost":        0.0,
 	}
 }
 
+func productMap(l *billingexport.CostLine, code string) string {
+	kv := []string{"product_name", l.Service, "region_code", l.Region, "servicecode", code, "usagetype", l.UsageType}
+
+	for _, p := range [][2]string{
+		{"operation", l.Operation}, {"instance_type", l.InstanceType}, {"product_family", l.ProductFamily},
+	} {
+		if p[1] != "" {
+			kv = append(kv, p[0], p[1])
+		}
+	}
+
+	return jsonMap(kv...)
+}
+
+func tagMap(t map[string]string, prefix string) string {
+	kv := make([]string, 0, len(t)*pairLen)
+
+	for _, k := range slices.Sorted(maps.Keys(t)) {
+		kv = append(kv, prefix+k, t[k])
+	}
+
+	return jsonMap(kv...)
+}
+
 func focusValues(r *rowCtx) map[string]any {
-	code := billingexport.ProductCode(r.line.Service)
+	l := &r.line
+	code := billingexport.ProductCode(l.Service)
 
 	return map[string]any{
-		"BilledCost":          r.line.Blended * r.frac,
+		"AvailabilityZone":    l.AvailabilityZone,
+		"BilledCost":          l.Blended * r.frac,
 		"BillingAccountId":    r.payer,
-		"BillingCurrency":     "USD",
+		"BillingCurrency":     currencyUSD,
 		"BillingPeriodEnd":    r.billEnd.Format(isoSecond),
 		"BillingPeriodStart":  r.billStart.Format(isoSecond),
-		"ChargeCategory":      "Usage",
-		"ChargeDescription":   r.line.Service + " " + r.line.UsageType + " usage",
+		"ChargeCategory":      l.ChargeCategory(),
+		"ChargeDescription":   l.Service + " " + l.UsageType + " usage",
 		"ChargeFrequency":     "Usage-Based",
 		"ChargePeriodEnd":     r.end.Format(isoSecond),
 		"ChargePeriodStart":   r.start.Format(isoSecond),
-		"ConsumedQuantity":    r.line.Usage * r.frac,
+		"ConsumedQuantity":    l.Usage * r.frac,
 		"ConsumedUnit":        unitQuantity,
-		"ContractedCost":      r.line.Unblended * r.frac,
-		"ContractedUnitPrice": ratio(r.line.Unblended, r.line.Usage),
-		"EffectiveCost":       r.line.Unblended * r.frac,
+		"ContractedCost":      r.cost(),
+		"ContractedUnitPrice": ratio(l.Unblended, l.Usage),
+		"EffectiveCost":       r.cost(),
 		"InvoiceIssuerName":   providerAWS,
-		"ListCost":            r.line.Unblended * r.frac,
-		"ListUnitPrice":       ratio(r.line.Unblended, r.line.Usage),
+		"ListCost":            r.cost(),
+		"ListUnitPrice":       ratio(l.Unblended, l.Usage),
 		"PricingCategory":     "Standard",
-		"PricingQuantity":     r.line.Usage * r.frac,
+		"PricingQuantity":     l.Usage * r.frac,
 		"PricingUnit":         unitQuantity,
 		"ProviderName":        providerAWS,
 		"PublisherName":       providerAWS,
-		"RegionId":            r.line.Region,
-		"RegionName":          r.line.Region,
+		"RegionId":            l.Region,
+		"RegionName":          l.Region,
+		"ResourceId":          l.ResourceID,
 		"ServiceCategory":     "Other",
-		"ServiceName":         r.line.Service,
-		"SubAccountId":        r.line.Account,
-		"Tags":                "{}",
+		"ServiceName":         l.Service,
+		"SubAccountId":        l.Account,
+		"Tags":                tagMap(l.Tags, ""),
 		"x_CostCategories":    "{}",
 		"x_Discounts":         "{}",
+		"x_Operation":         l.Operation,
 		"x_ServiceCode":       code,
-		"x_UsageType":         r.line.UsageType,
+		"x_UsageType":         l.UsageType,
 	}
+}
+
+func focus12Values(r *rowCtx) map[string]any {
+	v := focusValues(r)
+	delete(v, "x_CostCategories")
+	delete(v, "x_UsageType")
+	v["PricingCurrency"] = currencyUSD
+	v["PricingCurrencyEffectiveCost"] = r.cost()
+	v["PricingCurrencyListUnitPrice"] = ratio(r.line.Unblended, r.line.Usage)
+	v["PricingCurrencyContractedUnitPrice"] = ratio(r.line.Unblended, r.line.Usage)
+	v["InvoiceId"] = ""
+
+	return v
+}
+
+func dashboardValues(r *rowCtx) map[string]any {
+	l := &r.line
+	code := billingexport.ProductCode(l.Service)
+
+	return map[string]any{
+		"amortized_cost":    r.cost(),
+		"availability_zone": l.AvailabilityZone,
+		"billing_entity":    providerAWS,
+		"billing_period":    r.billStart.Format(isoSecond),
+		"charge_category":   dashboardChargeCategory(l),
+		"charge_type":       l.LineItemType(),
+		"instance_type":     l.InstanceType,
+		"invoice_id":        "",
+		"item_description":  l.Service + " " + l.UsageType + " usage",
+		"legal_entity":      legalEntityAWS,
+		"linked_account_id": l.Account,
+		"operation":         l.Operation,
+		"payer_account_id":  r.payer,
+		"pricing_unit":      unitQuantity,
+		"product_code":      code,
+		"product_family":    l.ProductFamily,
+		"product_name":      l.Service,
+		"public_cost":       r.cost(),
+		"purchase_option":   "OnDemand",
+		"region":            l.Region,
+		"service":           code,
+		"unblended_cost":    r.cost(),
+		"usage_date":        r.start.Format(isoSecond),
+		"usage_quantity":    l.Usage * r.frac,
+		"usage_type":        l.UsageType,
+	}
+}
+
+func dashboardChargeCategory(l *billingexport.CostLine) string {
+	if l.LineItemType() == "Usage" {
+		return "Running_usage"
+	}
+
+	return "Non_Usage"
 }
 
 func intervalsOf(gran string, ln *billingexport.CostLine, billEnd time.Time) []rowCtx {
@@ -166,14 +268,12 @@ func intervalsOf(gran string, ln *billingexport.CostLine, billEnd time.Time) []r
 }
 
 func aggregateMonthly(lines []billingexport.CostLine, billStart time.Time) []billingexport.CostLine {
-	type key struct{ svc, region, usage, account string }
-
-	idx := map[key]int{}
+	idx := map[string]int{}
 
 	var out []billingexport.CostLine
 
 	for _, ln := range lines {
-		k := key{ln.Service, ln.Region, ln.UsageType, ln.Account}
+		k := ln.Key()
 		i, ok := idx[k]
 
 		if !ok {
@@ -204,6 +304,10 @@ func tableRows(
 		values = curValues
 	case tableFocus:
 		values = focusValues
+	case tableFocus12:
+		values = focus12Values
+	case tableDashboard:
+		values = dashboardValues
 	default:
 		return nil
 	}

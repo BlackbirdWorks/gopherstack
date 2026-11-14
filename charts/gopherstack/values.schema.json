@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "imagePullSecrets": {"type": "array"},
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "config": {
+      "type": "object",
+      "properties": {
+        "region": {"type": "string", "minLength": 1},
+        "accountId": {"type": "string", "pattern": "^[0-9]{12}$"},
+        "logLevel": {"enum": ["debug", "info", "warn", "error"]},
+        "engines": {"enum": ["stub", "auto", "docker"]},
+        "enforceIam": {"type": "boolean"},
+        "localstackCompat": {"type": "boolean"},
+        "services": {"type": "array", "items": {"type": "string"}},
+        "disableServices": {"type": "array", "items": {"type": "string"}},
+        "extra": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}}
+      }
+    },
+    "container": {
+      "type": "object",
+      "properties": {
+        "runtime": {"enum": ["docker", "kubernetes"]},
+        "kubernetes": {
+          "type": "object",
+          "properties": {
+            "namespace": {"type": "string"},
+            "fetchImage": {"type": "string", "minLength": 1},
+            "codePort": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "ecs": {
+              "type": "object",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "exec": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "env": {"type": "array"},
+    "envFrom": {"type": "array"},
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "nodePort": {"type": ["integer", "null"], "minimum": 30000, "maximum": 32767},
+        "annotations": {"type": "object"},
+        "extraPorts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "port"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15},
+              "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+              "protocol": {"enum": ["TCP", "UDP"]},
+              "nodePort": {"type": "integer", "minimum": 30000, "maximum": 32767}
+            }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {"type": "string"},
+        "annotations": {"type": "object"},
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "paths"],
+            "properties": {
+              "host": {"type": "string"},
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path"],
+                  "properties": {
+                    "path": {"type": "string"},
+                    "pathType": {"enum": ["Prefix", "Exact", "ImplementationSpecific"]}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": {"type": "array"}
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "size": {"type": "string"},
+        "storageClass": {"type": "string"},
+        "accessModes": {"type": "array", "items": {"type": "string"}},
+        "existingClaim": {"type": "string"},
+        "mountPath": {"type": "string", "pattern": "^/"},
+        "annotations": {"type": "object"}
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": {"type": "boolean"},
+        "name": {"type": "string"},
+        "annotations": {"type": "object"}
+      }
+    },
+    "dind": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {"type": "string"},
+            "tag": {"type": "string"},
+            "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+          }
+        },
+        "resources": {"type": "object"}
+      }
+    },
+    "probes": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "pattern": "^/"},
+        "liveness": {"type": "object"},
+        "readiness": {"type": "object"},
+        "startup": {"type": "object"}
+      }
+    },
+    "podAnnotations": {"type": "object"},
+    "podLabels": {"type": "object"},
+    "podSecurityContext": {"type": "object"},
+    "securityContext": {"type": "object"},
+    "resources": {"type": "object"},
+    "nodeSelector": {"type": "object"},
+    "tolerations": {"type": "array"},
+    "affinity": {"type": "object"}
+  }
+}

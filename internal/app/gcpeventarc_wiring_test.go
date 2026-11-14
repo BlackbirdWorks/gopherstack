@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
@@ -111,6 +112,7 @@ func TestWireGCPEventarcStorageToHTTPEndpoint(t *testing.T) {
 
 	ea := gcpeventarcbackend.NewHandler(gcpeventarcbackend.NewInMemoryBackend())
 	ea.Port = 0
+	ea.Backend.SetOperationDelay(0)
 	ps := gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend())
 	ps.Port = 0
 	gcs := gcpstoragebackend.NewHandler(gcpstoragebackend.NewInMemoryBackend())
@@ -153,4 +155,55 @@ func TestWireGCPEventarcStorageToHTTPEndpoint(t *testing.T) {
 	assert.Equal(t, "/hook", r.URL.Path)
 	assert.Equal(t, "google.cloud.storage.object.v1.finalized", r.Header.Get("Ce-Type"))
 	assert.Equal(t, "objects/f.txt", r.Header.Get("Ce-Subject"))
+}
+
+func TestWireGCPEventarcAuditLogToHTTPEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := make(chan *http.Request, 1)
+	dest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(dest.Close)
+
+	ea := gcpeventarcbackend.NewHandler(gcpeventarcbackend.NewInMemoryBackend())
+	ea.Port = 0
+	ea.Backend.SetOperationDelay(0)
+	ps := gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend())
+	ps.Port = 0
+	gcs := gcpstoragebackend.NewHandler(gcpstoragebackend.NewInMemoryBackend())
+	lg := gcploggingbackend.NewHandler(gcploggingbackend.NewInMemoryBackend())
+
+	wireGCPEventarc(map[string]service.Registerable{
+		"GCPEventarc": ea, "GCPPubSub": ps, "GCPStorage": gcs, "GCPLogging": lg,
+	})
+
+	require.NoError(t, ps.StartWorker(t.Context()))
+	t.Cleanup(func() { ps.Shutdown(context.Background()) })
+	require.NoError(t, ea.StartWorker(t.Context()))
+	t.Cleanup(func() { ea.Shutdown(context.Background()) })
+
+	_, err := ea.Backend.CreateTrigger(&eventarcpb.CreateTriggerRequest{
+		Parent: "projects/p/locations/us-central1", TriggerId: "audit-trigger",
+		Trigger: &eventarcpb.Trigger{
+			EventFilters: []*eventarcpb.EventFilter{
+				{Attribute: "type", Value: "google.cloud.audit.log.v1.written"},
+				{Attribute: "serviceName", Value: "storage.googleapis.com"},
+				{Attribute: "methodName", Value: "storage.buckets.create"},
+			},
+			Destination: &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_HttpEndpoint{
+				HttpEndpoint: &eventarcpb.HttpEndpoint{Uri: dest.URL + "/audit"},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": []byte(`"audited"`)})
+	require.NoError(t, err)
+
+	r := <-got
+	assert.Equal(t, "/audit", r.URL.Path)
+	assert.Equal(t, "google.cloud.audit.log.v1.written", r.Header.Get("Ce-Type"))
+	assert.Equal(t, "storage.googleapis.com/projects/_/buckets/audited", r.Header.Get("Ce-Subject"))
 }

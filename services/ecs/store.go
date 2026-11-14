@@ -95,6 +95,7 @@ type InMemoryBackend struct {
 	linkLocal        LinkLocal
 	secrets          SecretsResolver
 	efs              EFSResolver
+	ebs              EBSProvisioner
 	envFiles         EnvFileStore
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver

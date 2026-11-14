@@ -6,39 +6,45 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type objectJSON struct {
-	Metadata           map[string]string `json:"metadata,omitempty"`
-	Kind               string            `json:"kind"`
-	ID                 string            `json:"id"`
-	SelfLink           string            `json:"selfLink"`
-	MediaLink          string            `json:"mediaLink"`
-	Name               string            `json:"name"`
-	Bucket             string            `json:"bucket"`
-	Generation         string            `json:"generation"`
-	Metageneration     string            `json:"metageneration"`
-	ContentType        string            `json:"contentType,omitempty"`
-	ContentEncoding    string            `json:"contentEncoding,omitempty"`
-	ContentDisposition string            `json:"contentDisposition,omitempty"`
-	ContentLanguage    string            `json:"contentLanguage,omitempty"`
-	CacheControl       string            `json:"cacheControl,omitempty"`
-	TimeCreated        string            `json:"timeCreated"`
-	Updated            string            `json:"updated"`
-	TimeDeleted        string            `json:"timeDeleted,omitempty"`
-	TimeStorageClass   string            `json:"timeStorageClassUpdated"`
-	CustomTime         string            `json:"customTime,omitempty"`
-	StorageClass       string            `json:"storageClass"`
-	Size               string            `json:"size"`
-	MD5Hash            string            `json:"md5Hash,omitempty"`
-	CRC32C             string            `json:"crc32c"`
-	ETag               string            `json:"etag"`
-	ACL                []aclResource     `json:"acl,omitempty"`
-	ComponentCount     int64             `json:"componentCount,omitempty"`
-	TemporaryHold      bool              `json:"temporaryHold,omitempty"`
-	EventBasedHold     bool              `json:"eventBasedHold,omitempty"`
+	Metadata           map[string]string       `json:"metadata,omitempty"`
+	Kind               string                  `json:"kind"`
+	ID                 string                  `json:"id"`
+	SelfLink           string                  `json:"selfLink"`
+	MediaLink          string                  `json:"mediaLink"`
+	Name               string                  `json:"name"`
+	Bucket             string                  `json:"bucket"`
+	Generation         string                  `json:"generation"`
+	Metageneration     string                  `json:"metageneration"`
+	ContentType        string                  `json:"contentType,omitempty"`
+	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
+	ContentDisposition string                  `json:"contentDisposition,omitempty"`
+	ContentLanguage    string                  `json:"contentLanguage,omitempty"`
+	CacheControl       string                  `json:"cacheControl,omitempty"`
+	TimeCreated        string                  `json:"timeCreated"`
+	Updated            string                  `json:"updated"`
+	TimeDeleted        string                  `json:"timeDeleted,omitempty"`
+	SoftDeleteTime     string                  `json:"softDeleteTime,omitempty"`
+	HardDeleteTime     string                  `json:"hardDeleteTime,omitempty"`
+	RetentionExpiry    string                  `json:"retentionExpirationTime,omitempty"`
+	TimeStorageClass   string                  `json:"timeStorageClassUpdated"`
+	CustomTime         string                  `json:"customTime,omitempty"`
+	StorageClass       string                  `json:"storageClass"`
+	Size               string                  `json:"size"`
+	MD5Hash            string                  `json:"md5Hash,omitempty"`
+	CRC32C             string                  `json:"crc32c,omitempty"`
+	CustomerEncryption *customerEncryptionJSON `json:"customerEncryption,omitempty"`
+	KMSKeyName         string                  `json:"kmsKeyName,omitempty"`
+	ETag               string                  `json:"etag"`
+	ACL                []aclResource           `json:"acl,omitempty"`
+	ComponentCount     int64                   `json:"componentCount,omitempty"`
+	TemporaryHold      bool                    `json:"temporaryHold,omitempty"`
+	EventBasedHold     bool                    `json:"eventBasedHold,omitempty"`
 }
 
 func baseURL(r *http.Request) string {
@@ -90,7 +96,10 @@ func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 		TimeCreated:        fmtTime(o.Created),
 		Updated:            fmtTime(o.Updated),
 		TimeDeleted:        fmtTime(o.Deleted),
-		TimeStorageClass:   fmtTime(o.Created),
+		SoftDeleteTime:     fmtTime(o.SoftDeleteTime),
+		HardDeleteTime:     fmtTime(o.HardDeleteTime),
+		RetentionExpiry:    fmtTime(o.retention),
+		TimeStorageClass:   fmtTime(storageClassTime(o)),
 		CustomTime:         fmtTime(o.CustomTime),
 		StorageClass:       o.StorageClass,
 		Size:               strconv.FormatInt(o.Size(), 10),
@@ -100,6 +109,8 @@ func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 		ComponentCount:     o.ComponentCount,
 		TemporaryHold:      o.TemporaryHold,
 		EventBasedHold:     o.EventBasedHold,
+		CustomerEncryption: o.customerEncryption(),
+		KMSKeyName:         o.KMSKeyName,
 	}
 }
 
@@ -107,7 +118,7 @@ func bucketResource(base string, b *Bucket) map[string]any {
 	res := map[string]any{
 		keyKind:          "storage#bucket",
 		"id":             b.Name,
-		"selfLink":       base + "/storage/v1/b/" + b.Name,
+		keySelfLink:      base + "/storage/v1/b/" + b.Name,
 		"name":           b.Name,
 		"timeCreated":    fmtTime(b.Created),
 		"updated":        fmtTime(b.Updated),
@@ -115,12 +126,20 @@ func bucketResource(base string, b *Bucket) map[string]any {
 		"location":       b.Location,
 		"locationType":   LocationType(b.Location),
 		keyStorageClass:  b.StorageClass,
-		"etag":           base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
+		keyEtag:          base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
 		"iamConfiguration": map[string]any{
 			"bucketPolicyOnly":         map[string]bool{keyEnabled: false},
 			"uniformBucketLevelAccess": map[string]bool{keyEnabled: false},
 			"publicAccessPrevention":   "inherited",
 		},
+	}
+
+	if b.Generation != 0 {
+		res["generation"] = strconv.FormatInt(b.Generation, 10)
+	}
+
+	if !b.SoftDeleteTime.IsZero() {
+		res["softDeleteTime"], res["hardDeleteTime"] = fmtTime(b.SoftDeleteTime), fmtTime(b.HardDeleteTime)
 	}
 
 	if len(b.Labels) > 0 {
@@ -229,4 +248,12 @@ func decodePatch(body []byte) (Patch, *APIError) {
 	}
 
 	return p, nil
+}
+
+func storageClassTime(o *Object) time.Time {
+	if !o.ClassUpdated.IsZero() {
+		return o.ClassUpdated
+	}
+
+	return o.Created
 }

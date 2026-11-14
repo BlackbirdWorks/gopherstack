@@ -37,6 +37,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(NewInMemoryBackend())
 	handler.Port = settings.Port
+	handler.RequireAuth = settings.RequireAuth
 
 	return handler, nil
 }

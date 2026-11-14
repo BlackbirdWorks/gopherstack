@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -170,23 +171,40 @@ func (b *InMemoryBackend) autoBackups() {
 	}
 }
 
-// expireBackups deletes backups older than their retention.
+func (bk *Backup) retentionEnds() time.Time {
+	from := bk.TimeCreated
+	if bk.RetainFrom != nil {
+		from = *bk.RetainFrom
+	}
+
+	return from.Add(time.Duration(bk.Retention) * hoursPerDay * time.Hour)
+}
+
+// expireBackups applies retention: a soft-delete backup is kept in DELETE_SCHEDULED for 7 days first.
 func (b *InMemoryBackend) expireBackups() {
 	now := b.nowUTC()
 
 	for _, bk := range b.backups {
-		if bk.State != stateActive {
-			continue
-		}
+		switch {
+		case bk.State == stateActive && bk.retentionEnds().Before(now):
+			if bk.SoftDelete == enabled {
+				at := now
+				bk.State, bk.ScheduledAt, bk.TimeUpdated = stateDeleteScheduled, &at, now
 
-		if bk.TimeCreated.Add(time.Duration(bk.Retention) * hoursPerDay * time.Hour).Before(now) {
+				continue
+			}
+
 			bk.State, bk.Dump = stateDeleted, nil
+		case bk.State == stateDeleteScheduled && bk.ScheduledAt != nil &&
+			bk.ScheduledAt.Add(softDeleteGrace).Before(now):
+			bk.State, bk.Dump, bk.ScheduledAt = stateDeleted, nil, nil
 		}
 	}
 }
 
 // CreateBackupIn is the CreateBackup body.
 type CreateBackupIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Retention   *int   `json:"retentionInDays"`
 	DBSystemID  string `json:"dbSystemId"`
@@ -200,6 +218,24 @@ type CreateBackupIn struct {
 func (b *InMemoryBackend) CreateBackup(in CreateBackupIn) (Doc, string, string, error) {
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
+
+	id, rwr, hit, rerr := b.replayCreate("CreateBackup", in.RetryToken, func(id string) (string, bool) {
+		bk, ok := b.backups[id]
+		if !ok {
+			return "", false
+		}
+
+		return bk.State, true
+	})
+	if hit {
+		if rerr != nil {
+			return nil, "", "", rerr
+		}
+
+		bk := b.backups[id]
+
+		return b.backupDoc(bk, true), bk.Etag, rwr, nil
+	}
 
 	if in.DBSystemID == "" {
 		return nil, "", "", errMissing("dbSystemId is required")
@@ -242,6 +278,7 @@ func (b *InMemoryBackend) CreateBackup(in CreateBackupIn) (Doc, string, string, 
 	bk.Description, bk.Tags = in.Description, in.Tags
 	setNonEmpty(&bk.BackupType, strings.ToUpper(in.BackupType))
 	setNonEmpty(&bk.SoftDelete, strings.ToUpper(in.SoftDelete))
+	b.retry.Remember("CreateBackup", in.RetryToken, ociretry.Join(bk.ID, wr), b.nowUTC())
 
 	return b.backupDoc(bk, true), bk.Etag, wr, nil
 }
@@ -425,6 +462,13 @@ func (b *InMemoryBackend) DeleteBackup(id, ifMatch string) (string, error) {
 		return "", aerr
 	}
 
+	if bk.State == stateDeleteScheduled {
+		now := b.nowUTC()
+		bk.State, bk.Dump, bk.ScheduledAt, bk.TimeUpdated, bk.Etag = stateDeleted, nil, nil, now, newEtag()
+
+		return b.newWR(wrDeleteBackup, bk.CompartmentID, entityBackup, id, actionDeleted, &now), nil
+	}
+
 	if bk.State != stateActive && bk.State != stateFailed {
 		return "", errState("backup " + id + " is in state " + bk.State + "; deletion requires ACTIVE or FAILED")
 	}
@@ -432,6 +476,34 @@ func (b *InMemoryBackend) DeleteBackup(id, ifMatch string) (string, error) {
 	bk.State, bk.TimeUpdated, bk.Etag, bk.TransitionAt = stateDeleting, b.nowUTC(), newEtag(), b.transitionAt()
 
 	return b.newWR(wrDeleteBackup, bk.CompartmentID, entityBackup, id, actionDeleted, bk.TransitionAt), nil
+}
+
+// CancelBackupDeletion returns a DELETE_SCHEDULED backup to ACTIVE with a fresh retention window.
+func (b *InMemoryBackend) CancelBackupDeletion(id, ifMatch string) (string, error) {
+	b.mu.Lock("CancelBackupDeletion")
+	defer b.mu.Unlock()
+
+	b.settleID(id)
+
+	bk, ok := b.backups[id]
+	if !ok || bk.State == stateDeleted {
+		return "", errNotFound(id)
+	}
+
+	if aerr := checkEtag(bk.Etag, ifMatch); aerr != nil {
+		return "", aerr
+	}
+
+	if bk.State != stateDeleteScheduled {
+		return "", errState(
+			"backup " + id + " is in state " + bk.State + "; only DELETE_SCHEDULED backups can be restored",
+		)
+	}
+
+	now := b.nowUTC()
+	bk.State, bk.ScheduledAt, bk.RetainFrom, bk.TimeUpdated, bk.Etag = stateActive, nil, &now, now, newEtag()
+
+	return b.newWR(wrUpdateBackup, bk.CompartmentID, entityBackup, id, actionUpdated, &now), nil
 }
 
 // ChangeBackupCompartment moves a backup to another compartment.
@@ -450,6 +522,10 @@ func (b *InMemoryBackend) ChangeBackupCompartment(id, ifMatch, compartment strin
 		return aerr
 	}
 
+	if bk.State == stateDeleteScheduled {
+		return errState("backup " + id + " is DELETE_SCHEDULED; cancel the deletion before moving it")
+	}
+
 	bk.CompartmentID, bk.TimeUpdated, bk.Etag = compartment, b.nowUTC(), newEtag()
 
 	return nil
@@ -460,6 +536,8 @@ func (h *Handler) createBackup(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	d, etag, wr, err := h.Backend.CreateBackup(in)
 	if err != nil {
@@ -500,6 +578,12 @@ func (h *Handler) updateBackup(q *req) error {
 
 func (h *Handler) deleteBackup(q *req) error {
 	wr, err := h.Backend.DeleteBackup(q.param("backupId"), q.ifMatch())
+
+	return acceptedWR(q, wr, err)
+}
+
+func (h *Handler) cancelBackupDeletion(q *req) error {
+	wr, err := h.Backend.CancelBackupDeletion(q.param("backupId"), q.ifMatch())
 
 	return acceptedWR(q, wr, err)
 }

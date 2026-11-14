@@ -139,6 +139,10 @@ func (p *ComputeProvider) putVM(id ResourceID, body map[string]any) (*cmpRes, er
 	r.Extra = extraFields(body, "plan", "extendedLocation")
 	props := propsOf(body)
 
+	if err = p.checkPlacementRefs(props); err != nil {
+		return nil, err
+	}
+
 	size, hw, err := parseVMSize(props)
 	if err != nil {
 		return nil, err

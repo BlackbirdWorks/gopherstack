@@ -73,13 +73,12 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 		modifiedTemplate, "test", nil, nil, nil, cloudformation.CreateChangeSetOptions{})
 	require.NoError(t, err)
 
-	// After execute, the changeset is removed (EXECUTE_COMPLETE).
 	err = b.ExecuteChangeSet(t.Context(), "exec-status-stack", "my-cs", false, false)
 	require.NoError(t, err)
 
-	// Changeset no longer exists — verify.
-	_, err = b.DescribeChangeSet("exec-status-stack", "my-cs")
-	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound)
+	cs, err := b.DescribeChangeSet("exec-status-stack", "my-cs")
+	require.NoError(t, err)
+	assert.Equal(t, "EXECUTE_COMPLETE", cs.ExecutionStatus)
 }
 
 // TestChangeSet_Capabilities_ThreadedToExecute locks in a parity fix: CreateChangeSet

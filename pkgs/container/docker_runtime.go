@@ -104,6 +104,10 @@ type realDockerClient struct {
 	c *client.Client
 }
 
+func (r *realDockerClient) ImageDigest(ctx context.Context, ref string) (string, error) {
+	return r.c.ImageDigest(ctx, ref)
+}
+
 func (r *realDockerClient) ImagePush(ctx context.Context, ref string) (string, error) {
 	return r.c.ImagePush(ctx, ref)
 }
@@ -400,6 +404,10 @@ func (r *DockerRuntime) HasImage(ctx context.Context, imageRef string) (bool, er
 // CreateAndStart creates a new container from spec and starts it.
 // Returns the container ID.
 func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, error) {
+	if len(spec.Archives) > 0 {
+		return "", ErrArchivesUnsupported
+	}
+
 	cfg := &dockercontainer.Config{
 		Image: spec.Image,
 		Env:   spec.Env,

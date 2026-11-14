@@ -278,6 +278,23 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	return nil
 }
 
+// SetTableColumns replaces the table's storage-descriptor columns (Iceberg schema evolution keeps Glue in step).
+func (b *InMemoryBackend) SetTableColumns(dbName, tableName string, cols []Column) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
+	b.mu.Lock("SetTableColumns")
+	defer b.mu.Unlock()
+
+	t, ok := b.tables.Get(tableKey(dbName, tableName))
+	if !ok {
+		return ErrNotFound
+	}
+
+	t.StorageDescriptor.Columns = cols
+	t.UpdateTime = float64(time.Now().Unix())
+
+	return nil
+}
+
 // SwapTableParameters applies set to the table's parameters only if guardKey still holds guardValue
 // (optimistic locking for catalog-committed Iceberg metadata).
 func (b *InMemoryBackend) SwapTableParameters(

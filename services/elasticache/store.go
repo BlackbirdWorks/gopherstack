@@ -151,6 +151,7 @@ func (b *InMemoryBackend) Reset() {
 // holds the lock (calling the public, self-locking Reset there would
 // deadlock). Must hold b.mu.
 func (b *InMemoryBackend) resetLocked() {
+	b.closeAllDockLocked()
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters.All() {
 			b.releaseClusterLocked(c)

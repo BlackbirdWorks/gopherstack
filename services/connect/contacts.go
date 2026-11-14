@@ -201,7 +201,7 @@ func (b *Backend) touch(c *contactRec) {
 func (b *Backend) StartOutboundVoiceContact(
 	ctx context.Context,
 	in *StartOutboundVoiceContactInput,
-) (*contactIDOut, error) {
+) (*ContactIDOut, error) {
 	if !e164Pattern.MatchString(in.DestinationPhoneNumber) {
 		return nil, invalidParamErr("DestinationPhoneNumber must be an E.164 number")
 	}
@@ -248,15 +248,15 @@ func (b *Backend) StartOutboundVoiceContact(
 		return nil, err
 	}
 
-	c := b.newContact(ctx, inst, channelVoice, "OUTBOUND")
+	c := b.newContact(ctx, inst, channelVoice, methodOutbound)
 	c.FlowID, c.References = in.ContactFlowID, in.References
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes = cloneTags(in.Attributes)
 	c.Contact.RelatedContactID = in.RelatedContactID
 	c.Contact.OutboundStrategy = in.OutboundStrategy
 	c.Contact.RingStartTimestamp = c.Contact.InitiationTimestamp
-	c.Contact.CustomerEndpoint = &EndpointInfo{Address: in.DestinationPhoneNumber, Type: "TELEPHONE_NUMBER"}
-	c.Contact.SystemEndpoint = &EndpointInfo{Address: source, Type: "TELEPHONE_NUMBER"}
+	c.Contact.CustomerEndpoint = &EndpointInfo{Address: in.DestinationPhoneNumber, Type: endpointPhone}
+	c.Contact.SystemEndpoint = &EndpointInfo{Address: source, Type: endpointPhone}
 
 	if in.CampaignID != "" {
 		c.Contact.Campaign = &Campaign{CampaignID: in.CampaignID}
@@ -268,7 +268,7 @@ func (b *Backend) StartOutboundVoiceContact(
 
 	b.contacts.put(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 func (b *Backend) outboundSource(inst string, in *StartOutboundVoiceContactInput) (string, error) {
@@ -348,7 +348,7 @@ func (b *Backend) StartChatContact(ctx context.Context, in *StartChatContactInpu
 		return nil, err
 	}
 
-	c := b.newContact(ctx, inst, channelChat, "API")
+	c := b.newContact(ctx, inst, channelChat, methodAPI)
 	c.FlowID, c.ParticipantID, c.ParticipantToken = in.ContactFlowID, uuid.NewString(), newToken()
 	c.Contact.Attributes, c.Contact.CustomerID = cloneTags(in.Attributes), in.CustomerID
 	c.Contact.RelatedContactID, c.Contact.SegmentAttributes = in.RelatedContactID, in.SegmentAttributes
@@ -402,7 +402,7 @@ func (b *Backend) persistentSource(inst string, p *PersistentChat) (*contactRec,
 }
 
 // StartTaskContact creates a task contact, optionally scheduled up to six days ahead.
-func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInput) (*contactIDOut, error) {
+func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInput) (*ContactIDOut, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, invalidParamErr("Name is required")
 	}
@@ -445,7 +445,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 		return nil, notFoundErr("QuickConnect", in.QuickConnectID)
 	}
 
-	c := b.newContact(ctx, inst, channelTask, "API")
+	c := b.newContact(ctx, inst, channelTask, methodAPI)
 	c.FlowID, c.References, c.TaskTemplateID = in.ContactFlowID, in.References, in.TaskTemplateID
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes, c.Contact.SegmentAttributes = cloneTags(in.Attributes), in.SegmentAttributes
@@ -463,7 +463,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 
 	b.contacts.put(c)
 
-	return &contactIDOut{ContactID: c.Contact.ID}, nil
+	return &ContactIDOut{ContactID: c.Contact.ID}, nil
 }
 
 // DescribeContact returns a contact.
@@ -478,12 +478,59 @@ func (b *Backend) DescribeContact(inst, id string) (*Contact, error) {
 
 	out := c.Contact
 	out.Attributes, out.Tags = cloneTags(out.Attributes), cloneTags(out.Tags)
+	out.Recordings = slices.Clone(out.Recordings)
+	out.ContactAssociationID = out.InitialContactID
+	out.TaskTemplateInfo = b.taskTemplateInfoLocked(c)
+	out.ContactEvaluations = b.contactEvaluationsLocked(c)
 
 	return &out, nil
 }
 
+func (b *Backend) taskTemplateInfoLocked(c *contactRec) *TaskTemplateInfo {
+	if c.TaskTemplateID == "" {
+		return nil
+	}
+
+	t, err := b.taskTemplates.get(c.InstanceID, c.TaskTemplateID)
+	if err != nil {
+		return nil
+	}
+
+	return &TaskTemplateInfo{Arn: t.Template.Arn, Name: t.Template.Name}
+}
+
+// contactEvaluationsLocked keys the contact's evaluations by form; the latest evaluation of a form wins.
+func (b *Backend) contactEvaluationsLocked(c *contactRec) map[string]ContactEvalInfo {
+	var out map[string]ContactEvalInfo
+
+	latest := map[string]awstime.EpochTime{}
+
+	for _, e := range b.evaluations.in(c.InstanceID) {
+		if e.ContactID != c.Contact.ID || e.CreatedTime.Time.Before(latest[e.FormID].Time) {
+			continue
+		}
+
+		start := e.CreatedTime
+		info := ContactEvalInfo{
+			StartTimestamp: &start, EvaluationArn: e.Arn, FormID: e.FormID, Status: "IN_PROGRESS",
+		}
+		if e.Status == evalSubmitted {
+			end := e.LastModified
+			info.EndTimestamp, info.Status = &end, "COMPLETE"
+		}
+
+		if out == nil {
+			out = map[string]ContactEvalInfo{}
+		}
+
+		out[e.FormID], latest[e.FormID] = info, e.CreatedTime
+	}
+
+	return out
+}
+
 // StopContact ends a contact that is still active.
-func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) StopContact(in *ContactRefInput) (*EmptyOutput, error) {
 	b.mu.Lock("StopContact")
 	defer b.mu.Unlock()
 
@@ -498,19 +545,20 @@ func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
 
 	t := awstime.NewEpochTime(b.now())
 	c.Contact.DisconnectTimestamp = &t
-	c.Contact.DisconnectReason = "API"
+	c.Contact.DisconnectReason = reasonAPI
 
 	if in.DisconnectReason != nil && in.DisconnectReason.Code != "" {
 		c.Contact.DisconnectReason = in.DisconnectReason.Code
 	}
 
+	b.finishContactLocked(c, t)
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateContactAttributes merges attributes into a contact.
-func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*empty, error) {
+func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*EmptyOutput, error) {
 	if err := checkAttributes(in.Attributes); err != nil {
 		return nil, err
 	}
@@ -537,7 +585,7 @@ func (b *Backend) UpdateContactAttributes(in *ContactRefInput) (*empty, error) {
 	c.Contact.Attributes = merged
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // GetContactAttributes returns a contact's attributes.
@@ -559,7 +607,7 @@ func (b *Backend) GetContactAttributes(inst, id string) (*attributesOut, error) 
 }
 
 // UpdateContact changes the supplied properties of a contact, including its queue and agent.
-func (b *Backend) UpdateContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) UpdateContact(in *ContactRefInput) (*EmptyOutput, error) {
 	if in.Name != nil || in.Description != nil {
 		name, desc := "", ""
 		if in.Name != nil {
@@ -593,7 +641,7 @@ func (b *Backend) UpdateContact(in *ContactRefInput) (*empty, error) {
 
 	b.touch(c)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (b *Backend) applyContactUpdate(c *contactRec, in *ContactRefInput) error {
@@ -643,7 +691,7 @@ func (b *Backend) applyContactUpdate(c *contactRec, in *ContactRefInput) error {
 }
 
 // TagContact adds tags to a contact.
-func (b *Backend) TagContact(in *ContactRefInput) (*empty, error) {
+func (b *Backend) TagContact(in *ContactRefInput) (*EmptyOutput, error) {
 	if err := checkTags(in.Tags); err != nil {
 		return nil, err
 	}
@@ -669,11 +717,11 @@ func (b *Backend) TagContact(in *ContactRefInput) (*empty, error) {
 
 	c.Contact.Tags = merged
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UntagContact removes tags from a contact.
-func (b *Backend) UntagContact(in *ContactPathInput) (*empty, error) {
+func (b *Backend) UntagContact(in *ContactPathInput) (*EmptyOutput, error) {
 	b.mu.Lock("UntagContact")
 	defer b.mu.Unlock()
 
@@ -686,7 +734,7 @@ func (b *Backend) UntagContact(in *ContactPathInput) (*empty, error) {
 		delete(c.Contact.Tags, k)
 	}
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 func (c *contactRec) active() bool { return c.Contact.DisconnectTimestamp == nil }

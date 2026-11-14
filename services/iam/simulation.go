@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -362,10 +363,11 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 
 	for _, action := range actionNames {
 		for _, resource := range resourceArns {
-			results = append(results, b.evaluateSingleSimulation(
+			res := b.evaluateSingleSimulation(
 				action, resource, docs, resourcePolicyList,
 				ctx, hasBoundary, boundaryDoc, namedPolicies, isCrossAccount,
-			))
+			)
+			results = append(results, b.applyOrganizations(res, principalArn, principalAccount, ctx))
 		}
 	}
 
@@ -476,6 +478,7 @@ func parseAccountFromArn(arnStr string) string {
 }
 
 const (
+	decisionAllowed      = "allowed"
 	decisionExplicitDeny = "explicitDeny"
 	decisionImplicitDeny = "implicitDeny"
 	rankExplicitDeny     = 2
@@ -486,7 +489,7 @@ const (
 func evalDecisionStr(r EvaluationResult) string {
 	switch r {
 	case EvalAllow:
-		return "allowed"
+		return decisionAllowed
 	case EvalExplicitDeny:
 		return decisionExplicitDeny
 	default:
@@ -601,4 +604,38 @@ func (b *InMemoryBackend) collectNamedEntityPolicies(
 	}
 
 	return named
+}
+
+// applyOrganizations folds the principal account's SCPs into a simulation result. The simulator
+// evaluates SCPs but not RCPs (IAM User Guide, "How the IAM policy simulator works").
+func (b *InMemoryBackend) applyOrganizations(
+	res SimulationResult, principalArn, account string, ctx ConditionContext,
+) SimulationResult {
+	p := b.scpProvider()
+	if p == nil || account == "" || scpExemptPrincipal(principalArn) {
+		return res
+	}
+
+	levels, ok := p.SCPsForAccount(account)
+	if !ok || len(levels) == 0 {
+		return res
+	}
+
+	ctx.PrincipalARN, ctx.PrincipalAccount = principalArn, account
+	if rp, isRCP := p.(RCPProvider); isRCP {
+		ctx = withPrincipalOrg(rp, ctx)
+	}
+
+	v := evaluateSCPs(levels, res.ActionName, arn.Canonical(res.ResourceName), ctx)
+	allowed := !v.denied
+	res.AllowedByOrganizations = &allowed
+
+	if v.denied && res.Decision == decisionAllowed {
+		res.Decision = decisionImplicitDeny
+		if v.explicit {
+			res.Decision = decisionExplicitDeny
+		}
+	}
+
+	return res
 }

@@ -191,6 +191,11 @@ func TestReplicaLifecycle(t *testing.T) {
 	_, err := e.svc.Instances.Delete(project, "prim").Context(ctx).Do()
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, statusOf(t, err), "a primary with replicas cannot be deleted")
+	assert.Contains(
+		t,
+		err.Error(),
+		"You cannot delete an instance that has any replicas. You must delete all replicas first.",
+	)
 
 	_, err = e.svc.Instances.StartReplica(project, "prim").Context(ctx).Do()
 	require.Error(t, err)

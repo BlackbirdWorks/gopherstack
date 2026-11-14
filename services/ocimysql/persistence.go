@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -18,6 +19,7 @@ type backendSnapshot struct {
 	Channels map[string]*Channel       `json:"channels"`
 	Configs  map[string]*Configuration `json:"configurations"`
 	WorkReqs map[string]*WorkRequest   `json:"workRequests"`
+	Retry    map[string]ociretry.Entry `json:"retryTokens"`
 	Auth     []ociauth.KeyRecord       `json:"authKeys"`
 	Version  int                       `json:"version"`
 	Seq      int64                     `json:"seq"`
@@ -32,7 +34,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "ocimysql", backendSnapshot{
 		Version: snapshotVersion, Systems: b.systems, Backups: b.backups, Channels: b.channels, Configs: b.configs,
-		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq,
+		WorkReqs: b.workReqs, Auth: keys, Seq: b.seq, Retry: b.retry.Entries(),
 	})
 }
 
@@ -63,6 +65,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	lives := b.detachAllLocked()
 	b.systems, b.backups, b.channels, b.configs = snap.Systems, snap.Backups, snap.Channels, snap.Configs
 	b.workReqs, b.seq = snap.WorkReqs, snap.Seq
+	b.retry.Load(snap.Retry)
 
 	for _, s := range b.systems {
 		s.EngineHost, s.EnginePort = "", 0

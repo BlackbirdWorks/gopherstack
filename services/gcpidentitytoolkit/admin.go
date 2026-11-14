@@ -453,7 +453,7 @@ func (b *InMemoryBackend) OOBCodes(project, tenant string) ([]OOBCode, error) {
 	var list []entry
 
 	for code, rec := range sc.proj.Codes {
-		if rec.TenantID == tenant {
+		if rec.TenantID == tenant && rec.RequestType != reqPhoneSession && rec.RequestType != reqPhoneProof {
 			list = append(list, entry{rec, code})
 		}
 	}

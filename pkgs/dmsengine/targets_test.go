@@ -35,6 +35,35 @@ func (m *memObjects) PutObject(_ context.Context, bucket, key string, body []byt
 	return nil
 }
 
+func (m *memObjects) ListObjects(_ context.Context, bucket, prefix string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var keys []string
+
+	for k := range m.objs {
+		if rest, ok := strings.CutPrefix(k, bucket+"/"); ok && strings.HasPrefix(rest, prefix) {
+			keys = append(keys, rest)
+		}
+	}
+
+	sort.Strings(keys)
+
+	return keys, nil
+}
+
+func (m *memObjects) GetObject(_ context.Context, bucket, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	body, ok := m.objs[bucket+"/"+key]
+	if !ok {
+		return nil, errBoom
+	}
+
+	return []byte(body), nil
+}
+
 func (m *memObjects) CheckBucket(_ context.Context, bucket string) error {
 	if bucket == "missing" {
 		return errBoom
@@ -168,7 +197,7 @@ func TestS3TargetCSV(t *testing.T) {
 					got[k] = v
 				} else {
 					got[k[:strings.LastIndex(k, "/")]+"/cdc"] = v
-					assert.Regexp(t, `/\d{8}-\d{6}\d{3}\.csv$`, k)
+					assert.Regexp(t, `/\d{8}-\d{6}\d{4}\.csv$`, k)
 				}
 			}
 

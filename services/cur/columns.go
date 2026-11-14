@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"time"
 
@@ -55,7 +56,7 @@ func rate(cost, usage float64) any {
 
 func lineItemID(r *rowCtx) string {
 	h := fnv.New128a()
-	_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s", r.line.Account, r.line.Service, r.line.UsageType, r.line.Region, r.start)
+	_, _ = fmt.Fprintf(h, "%s|%s|%s", r.line.Key(), r.line.ChargeType, r.start)
 
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -79,7 +80,7 @@ func baseColumns() []colDef {
 		),
 		col(catBill, "BillingPeriodEndDate", typeString, func(r *rowCtx) any { return r.billEnd.Format(isoSecond) }),
 		col(catLineItem, "UsageAccountId", typeString, func(r *rowCtx) any { return r.line.Account }),
-		col(catLineItem, "LineItemType", typeString, func(*rowCtx) any { return "Usage" }),
+		col(catLineItem, "LineItemType", typeString, func(r *rowCtx) any { return r.line.LineItemType() }),
 		col(catLineItem, "LegalEntity", typeString, func(*rowCtx) any { return "Amazon Web Services, Inc." }),
 		col(catLineItem, "UsageStartDate", typeString, func(r *rowCtx) any { return r.start.Format(isoSecond) }),
 		col(catLineItem, "UsageEndDate", typeString, func(r *rowCtx) any { return r.end.Format(isoSecond) }),
@@ -90,8 +91,8 @@ func baseColumns() []colDef {
 			func(r *rowCtx) any { return billingexport.ProductCode(r.line.Service) },
 		),
 		col(catLineItem, "UsageType", typeString, func(r *rowCtx) any { return r.line.UsageType }),
-		blank(catLineItem, "Operation", typeString),
-		blank(catLineItem, "AvailabilityZone", typeString),
+		col(catLineItem, "Operation", typeString, func(r *rowCtx) any { return r.line.Operation }),
+		col(catLineItem, "AvailabilityZone", typeString, func(r *rowCtx) any { return r.line.AvailabilityZone }),
 		col(catLineItem, "UsageAmount", typeDouble, func(r *rowCtx) any { return r.line.Usage * r.frac }),
 		blank(catLineItem, "NormalizationFactor", typeDouble),
 		blank(catLineItem, "NormalizedUsageAmount", typeDouble),
@@ -115,10 +116,10 @@ func baseColumns() []colDef {
 		}),
 		blank(catLineItem, "TaxType", typeString),
 		col(catProduct, "ProductName", typeString, func(r *rowCtx) any { return r.line.Service }),
-		blank(catProduct, "instanceType", typeString),
+		col(catProduct, "instanceType", typeString, func(r *rowCtx) any { return r.line.InstanceType }),
 		blank(catProduct, "location", typeString),
 		blank(catProduct, "locationType", typeString),
-		blank(catProduct, "productFamily", typeString),
+		col(catProduct, "productFamily", typeString, func(r *rowCtx) any { return r.line.ProductFamily }),
 		col(catProduct, "servicename", typeString, func(r *rowCtx) any { return r.line.Service }),
 		blank(catProduct, "sku", typeString),
 		col(catProduct, "usagetype", typeString, func(r *rowCtx) any { return r.line.UsageType }),
@@ -143,13 +144,26 @@ func rateString(cost, usage float64) any {
 	return fmt.Sprintf("%.10f", v)
 }
 
-func columnsFor(elements []string) []colDef {
+func columnsFor(elements, tagKeys []string) []colDef {
 	cols := baseColumns()
+
+	if slices.Contains(elements, schemaDiscount) {
+		cols = slices.DeleteFunc(cols, func(c colDef) bool {
+			return c.category == "discount" && (c.name == "EdpDiscount" || c.name == "TotalDiscount")
+		})
+	}
+
+	for _, k := range tagKeys {
+		cols = append(cols, col("resourceTags", "user:"+k, typeString, func(r *rowCtx) any { return r.line.Tags[k] }))
+	}
 
 	for _, e := range elements {
 		switch e {
 		case schemaResources:
-			cols = append(cols, col(catLineItem, "ResourceId", typeString, func(*rowCtx) any { return "" }))
+			cols = append(
+				cols,
+				col(catLineItem, "ResourceId", typeString, func(r *rowCtx) any { return r.line.ResourceID }),
+			)
 		case schemaSplit:
 			cols = append(cols,
 				col(catSplit, "ParentResourceId", typeString, func(*rowCtx) any { return "" }),
@@ -171,7 +185,7 @@ func buildTable(
 	billStart, billEnd time.Time,
 	payer string,
 ) *billingexport.Table {
-	defs := columnsFor(r.AdditionalSchemaElements)
+	defs := columnsFor(r.AdditionalSchemaElements, tagKeysOf(lines))
 	t := &billingexport.Table{Columns: make([]billingexport.Column, len(defs))}
 
 	for i, d := range defs {
@@ -223,14 +237,12 @@ func intervals(unit string, ln *billingexport.CostLine, billEnd time.Time) []row
 }
 
 func aggregateMonthly(lines []billingexport.CostLine, billStart time.Time) []billingexport.CostLine {
-	type key struct{ svc, region, usage, account string }
-
-	idx := map[key]int{}
+	idx := map[string]int{}
 
 	var out []billingexport.CostLine
 
 	for _, ln := range lines {
-		k := key{ln.Service, ln.Region, ln.UsageType, ln.Account}
+		k := ln.Key()
 		i, ok := idx[k]
 
 		if !ok {
@@ -247,4 +259,16 @@ func aggregateMonthly(lines []billingexport.CostLine, billStart time.Time) []bil
 	}
 
 	return out
+}
+
+func tagKeysOf(lines []billingexport.CostLine) []string {
+	seen := map[string]struct{}{}
+
+	for i := range lines {
+		for k := range lines[i].Tags {
+			seen[k] = struct{}{}
+		}
+	}
+
+	return slices.Sorted(maps.Keys(seen))
 }

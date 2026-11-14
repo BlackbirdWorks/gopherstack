@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
-| Known gaps | 7 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,9 +18,7 @@
 - CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface.
 - CreateFileSystem: AcceptBucketWarning is accepted but no bucket warnings exist; the error code for a missing role or key (ValidationException) is inferred, the SDK does not pin it.
 - GetSynchronizationConfiguration returns ResourceNotFoundException until a configuration is put; the real service may seed a default configuration at creation, which the SDK docs do not state.
-- ServiceQuotaExceededException, ThrottlingException and InternalServerException are never returned: the S3 Files quotas are not published in the SDK, so no limit is enforced.
-- Error HTTP statuses (400/404/409) are inferred; the SDK dispatches on the X-Amzn-Errortype header and does not pin statuses. ConflictException carries resourceId and resourceType.
-- Access point and file system ARN resource paths (access-point/<id>, file-system/<id>) are assumed from sibling services; the SDK documents ARNs only as opaque strings.
+- ThrottlingException and InternalServerException are never returned: s3-files-quotas.html lists no request-rate limits and nothing triggers a server fault.
 - The creating/deleting dwell is zero by default and is not exposed as a CLI lifecycle setting; tests drive it with SetLifecycleDelay.
 
 ### Structural gaps

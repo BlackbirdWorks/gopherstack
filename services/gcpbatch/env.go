@@ -14,6 +14,7 @@ const (
 	envTaskIndex = "BATCH_TASK_INDEX"
 	envTaskCount = "BATCH_TASK_COUNT"
 	envHostsFile = "BATCH_HOSTS_FILE"
+	envRetry     = "BATCH_TASK_RETRY_ATTEMPT"
 	// HostsFilePath is where BATCH_HOSTS_FILE points when require_hosts_file is set.
 	HostsFilePath = "/etc/cloudbatch-taskgroup-hosts"
 )
@@ -61,7 +62,8 @@ func (b *InMemoryBackend) resolveEnv(svc Services, layers []*batchpb.Environment
 }
 
 // predefined are the variables Batch sets on every runnable of a task.
-func predefined(g *batchpb.TaskGroup, i, count int, vars map[string]string) {
+func predefined(g *batchpb.TaskGroup, i, count int, attempt int32, vars map[string]string) {
+	vars[envRetry] = strconv.Itoa(int(attempt))
 	vars[envTaskIndex] = strconv.Itoa(i)
 	vars[envTaskCount] = strconv.Itoa(count)
 

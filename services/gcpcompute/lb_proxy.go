@@ -168,10 +168,6 @@ func (b *InMemoryBackend) resolveProxyPolicyLocked(c lbCtx, ref *string) *APIErr
 		return nil
 	}
 
-	if c.scope != scopeGlobal {
-		return errField("resource.sslPolicy", *ref, "SSL policies are global.")
-	}
-
 	l, err := lbResolve(b, sslPolicySpec(), c, "resource.sslPolicy", *ref)
 	if err != nil {
 		return err

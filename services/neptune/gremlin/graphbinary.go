@@ -384,7 +384,9 @@ func (r *bbReader) bytecode() (any, error) {
 		return nil, err
 	}
 
-	if err := r.instructions(func(string, []any) {}); err != nil {
+	if err := r.instructions(func(name string, args []any) {
+		tr.Sources = append(tr.Sources, Step{Name: name, Args: args})
+	}); err != nil {
 		return nil, err
 	}
 
@@ -534,6 +536,8 @@ func (w *bbWriter) fq(v any) {
 		w.items(t)
 	case *Map:
 		w.mapValue(t)
+	case *Tree:
+		w.mapValue(t.asMap())
 	case Token:
 		w.enum(t)
 	default:

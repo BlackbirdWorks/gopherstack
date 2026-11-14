@@ -1,8 +1,8 @@
 ---
 service: gcpeventarc
 sdk_module: cloud.google.com/go/eventarc@v1.26.0
-last_audit_commit: 5964f2cd3
-last_audit_date: 2026-10-25
+last_audit_commit: b1c140fda
+last_audit_date: 2026-11-05
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -21,7 +21,7 @@ ops:
   GetChannelConnection: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
   ListChannelConnections: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged."}
   DeleteChannelConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "The channel becomes INACTIVE."}
-  GetProvider: {wire: ok, errors: ok, state: ok, persist: n/a, note: "pubsub.googleapis.com and storage.googleapis.com only: the sources the emulator delivers."}
+  GetProvider: {wire: ok, errors: ok, state: ok, persist: n/a, note: "pubsub.googleapis.com, storage.googleapis.com, firestore.googleapis.com and cloudaudit.googleapis.com: the sources the emulator delivers."}
   ListProviders: {wire: ok, errors: ok, state: ok, persist: n/a, note: "filter understands name:\"x\" and displayName:\"x\" substrings; order_by name or display_name."}
   GetGoogleChannelConfig: {wire: ok, errors: ok, state: ok, persist: n/a, note: "An empty config with the right name until first updated."}
   UpdateGoogleChannelConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "crypto_key_name and labels; the key is stored, not used."}
@@ -31,27 +31,64 @@ ops:
   SetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces the policy; a stale etag is ABORTED."}
   TestIamPermissions: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Reports every requested permission as granted: no caller is authenticated."}
   GetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "google.longrunning.Operations via pkgs/gcplro on projects/*/locations/*/operations/*."}
+  CreateMessageBus: {wire: ok, errors: partial, state: ok, persist: ok, note: "Eventarc Advanced. Id 3-63 chars like triggers; labels validated; validate_only supported. Not-done operation until the operation delay elapses."}
+  GetMessageBus: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListMessageBuses: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged; order_by name, create_time, update_time; filter is rejected."}
+  UpdateMessageBus: {wire: ok, errors: partial, state: ok, persist: ok, note: "Top-level update_mask paths or *; stale etag is ABORTED (code unverified); allow_missing creates."}
+  DeleteMessageBus: {wire: ok, errors: partial, state: ok, persist: ok, note: "FAILED_PRECONDITION while an enrollment or Google API source points at the bus (code unverified)."}
+  ListMessageBusEnrollments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Enrollment names on the bus."}
+  CreateEnrollment: {wire: ok, errors: partial, state: ok, persist: ok, note: "message_bus and destination (a pipeline) must exist (FAILED_PRECONDITION, unverified); cel_match must compile to a bool with cel-go over the message variable."}
+  GetEnrollment: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListEnrollments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged."}
+  UpdateEnrollment: {wire: ok, errors: partial, state: ok, persist: ok, note: "Same mask rules as MessageBus."}
+  DeleteEnrollment: {wire: ok, errors: partial, state: ok, persist: ok, note: ""}
+  CreatePipeline: {wire: ok, errors: partial, state: ok, persist: ok, note: "Exactly one destination (http_endpoint, workflow, message_bus or topic); at most one transformation mediation, compiled at create; retry_policy max_attempts 1-100, delays 1-600s."}
+  GetPipeline: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListPipelines: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged."}
+  UpdatePipeline: {wire: ok, errors: partial, state: ok, persist: ok, note: ""}
+  DeletePipeline: {wire: ok, errors: partial, state: ok, persist: ok, note: "FAILED_PRECONDITION while an enrollment targets the pipeline."}
+  CreateGoogleApiSource: {wire: ok, errors: partial, state: ok, persist: ok, note: "destination must be an existing message bus; project_subscriptions or organization_subscription."}
+  GetGoogleApiSource: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListGoogleApiSources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged."}
+  UpdateGoogleApiSource: {wire: ok, errors: partial, state: ok, persist: ok, note: ""}
+  DeleteGoogleApiSource: {wire: ok, errors: partial, state: ok, persist: ok, note: ""}
+  Publish: {wire: ok, errors: partial, state: ok, persist: n/a, note: "eventarcpublishing Publisher.Publish to a message bus with json_message or a CloudEvent proto_message; avro_message is UNIMPLEMENTED. Events are routed asynchronously through enrollments to pipelines."}
+  CancelOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "A not-done operation finishes as CANCELLED with metadata.requested_cancellation; the change it describes is not rolled back (unverified against production). A done operation is unchanged."}
 families:
   delivery_pubsub: {status: ok, note: "google.cloud.pubsub.topic.v1.messagePublished: the transport subscription is a push subscription on the Pub/Sub emulator whose endpoint is this service; each message is forwarded in binary content mode (ce-specversion, ce-id = message id, ce-source //pubsub.googleapis.com/{topic}, ce-type, ce-time, content-type application/json) with the Pub/Sub push envelope {message, subscription} as data. A non-2xx reply makes Pub/Sub redeliver with the subscription's retry policy (10s to 600s) for up to 24 hours of retention."}
   delivery_storage: {status: ok, note: "google.cloud.storage.object.v1 finalized, deleted, archived and metadataUpdated come from gcpstorage's ObserveObjects, are matched against trigger filters and published to the trigger's transport topic, then pushed like Pub/Sub events with ce-source //storage.googleapis.com/projects/_/buckets/{bucket}, ce-subject objects/{name} and the object resource as data."}
   path_patterns: {status: ok, note: "match-path-pattern: * inside a segment, ** across segments, {name} and {name=**} captures; only on attributes whose provider declares it (subject for storage). The pattern grammar is taken from the Eventarc docs, not production."}
   destinations: {status: partial, note: "cloud_run resolves the service against the Cloud Run emulator, then against a Cloud Functions emulator function of the same id (a 2nd gen function is a Cloud Run service), and posts to its serving URL plus path. http_endpoint posts to the URI. A service_account adds an unsigned test identity token (pkgs/gcpdispatch). cloud_function is rejected as read-only (as the API documents), gke destinations are rejected because that service is not emulated. workflow destinations start Workflows executions (see delivery_workflows)."}
   delivery_workflows: {status: ok, note: "A trigger whose destination.workflow names a workflow (projects/{p}/locations/{l}/workflows/{w}) is checked against the Workflows emulator when connected (FAILED_PRECONDITION if missing) and starts one execution per event with the structured CloudEvent {specversion, id, source, type, subject, time, datacontenttype, data} as its argument, where data is the Pub/Sub push envelope or the storage object resource. A failed start returns 502 so Pub/Sub redelivers. The trigger service account is not used to authorise the execution."}
+  delivery_audit_logs: {status: ok, note: "google.cloud.audit.log.v1.written: emulated services record AuditLog entries (protoPayload type.googleapis.com/google.cloud.audit.AuditLog with serviceName, methodName, resourceName, authenticationInfo, authorizationInfo, status) in the Logging emulator through pkgs/gcpaudit, and Eventarc observes the entries Logging stores. Triggers need serviceName and methodName filters and may path-pattern resourceName. Delivery is binary mode with ce-source //{serviceName}/projects/{p} (docs.cloud.google.com/eventarc/docs/cloudevents), ce-subject {serviceName}/{resourceName}, extension attributes servicename, methodname and resourcename and the LogEntry JSON as data. Emitting services: Cloud Storage (bucket create/update/delete as activity, object create/update/delete as data access), BigQuery (datasets, tables, jobs), Firestore (writes), Secret Manager (mutations; AccessSecretVersion as data access), Resource Manager (mutations). Request and response bodies are never logged."}
+  delivery_firestore: {status: ok, note: "google.cloud.firestore.document.v1 created, updated, deleted and written with database, namespace (required) and document (path pattern) filters. Source //firestore.googleapis.com/projects/{p}/databases/{d}, subject documents/{path}. Data is DocumentEventData: application/protobuf by default and application/json when event_data_content_type says so (value, oldValue, updateMask.fieldPaths). A written trigger receives every kind with the written type."}
+  retry_policy: {status: ok, note: "Trigger.RetryPolicy.max_attempts is documented in the v1 proto as valid only as 1 and only for Cloud Run destinations; other values are INVALID_ARGUMENT. With 1 a failed delivery is dropped (the push is acknowledged) instead of being retried by the subscription. Without a policy the subscription retries until its 24 hour retention ends. The API has no dead-letter setting for triggers, and Pipelines have none either."}
+  operations: {status: ok, note: "Operations are not done until the operation delay (default 1s, SetOperationDelay) has elapsed on the injectable timer (SetAfterFunc); GetOperation shows done=false, WaitOperation blocks until done or its timeout, CancelOperation finishes a pending operation as CANCELLED. After a restore not-done operations are ABORTED."}
+  advanced: {status: partial, note: "MessageBus, Enrollment, Pipeline and GoogleApiSource CRUD (cloud.google.com/go/eventarc v1.26.0 eventarcpb) plus the Publisher.Publish ingress. A published CloudEvent is matched against each enrollment on the bus with its cel_match (cel-go, variable message = the CloudEvent as a map), then delivered by the enrollment's pipeline: optional CEL transformation (merge, denormalize, setField, removeFields, toMap, toJsonString), then the destination: http_endpoint (CloudEvents binary mode, or message_binding_template evaluating to {headers, body}; OIDC or OAuth placeholder tokens), workflow, topic or another message bus. Failures retry per Pipeline.RetryPolicy (default 5 attempts, 5s doubling to 60s) on the injectable timer, then the message is dropped. A GoogleApiSource puts audit-log, storage and Firestore events of its subscribed projects on its bus."}
   routing_isolation: {status: ok, note: "Own gRPC server with the REST transcoder and the push route bound in StartWorker to --gcp-eventarc-port / GCP_EVENTARC_PORT (default 8138, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool."}
   auth: {status: partial, note: "No request is authenticated or authorised, and the push route accepts any caller."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures and delivery failures are logged at debug. No dashboard page."}
 items_still_open:
-  - "Cloud Audit Logs events (google.cloud.audit.log.v1.written) are not delivered: the Logging emulator keeps no audit log entries to match. Triggers for them are rejected."
-  - "Only Pub/Sub and Cloud Storage events exist; every other Google source (Firebase, Cloud Build, Firestore, Artifact Registry, direct events of other services) and third-party providers are absent from ListProviders, and triggers on a channel are stored but receive no events."
+  - "Direct events: the Eventarc supported-events reference (docs.cloud.google.com/eventarc/docs/reference/supported-events, read 2026-11-05) lists Cloud Build and Artifact Registry only as audit-log sources, so no direct Cloud Build or Artifact Registry events are delivered; the .withAuthContext variants of the Firestore and Datastore events and google.cloud.datastore.entity.v1.* are not delivered; third-party providers are absent (channel triggers receive events published through Publisher.PublishEvents and PublishChannelConnectionEvents only)."
+  - "Audit logs: Data Access records are emitted unconditionally (no IAM audit config), the principal is the fixed gcpaudit.DefaultPrincipal, Cloud Build, Cloud Run, Pub/Sub, KMS and the other emulated services record nothing (Artifact Registry records repository and artifact writes, not reads or Docker data-plane calls); the ce-subject layout {serviceName}/{resourceName} is not documented (the cloudevents and supported-events pages never mention subject) and stays the emulator's choice."
   - "Triggers cannot target GKE (not emulated); Cloud Functions are reached through the Cloud Run destination, a trigger cannot set cloud_function (the API forbids it)."
-  - "MessageBus, Enrollment, Pipeline, GoogleApiSource, LoggingConfig and Eventarc Advanced are UNIMPLEMENTED."
-  - "retry_policy.max_attempts is stored but not enforced, and there is no dead-letter handling; delivery retries until the subscription's 24 hour retention expires."
-  - "network_config, event_data_content_type application/protobuf, CMEK (crypto_key_name) and satisfies_pzs are not honoured; trigger conditions are always empty."
+  - "Advanced: LoggingConfig is stored and not honoured; Publisher avro_message is UNIMPLEMENTED (the publishing proto documents only CloudEvent protos and JSON text for channels); input_payload_format and output_payload_format are recorded but data is always JSON; the CEL functions toDestinationPayloadFormat and toCloudEventJsonWithPayloadFormat are identity; destination network_config is ignored; an organization subscription receives every project's events; Cloud Storage events carry no project, so project subscriptions do not filter them; the default message binding and the Pub/Sub topic destination payload are the emulator's choice (unverified); crypto_key_name on buses, pipelines and Google API sources is validated, but delivery through them does not stop when the key is disabled."
+  - "network_config, event_data_content_type application/protobuf for event types other than Firestore and satisfies_pzs are not honoured; trigger conditions are always empty."
   - "A Cloud Run service need not exist when a trigger is created; an unresolved service only fails deliveries (and is retried). Region and location rules (global triggers, storage bucket region match) are not enforced."
-  - "Operations are recorded already finished: no CREATING state, and CancelOperation has no effect."
+  - "The default operation delay (1s) is the emulator's choice; a cancelled create/update/delete is not rolled back."
   - "After a restore the transport subscriptions keep the push endpoint of the run that created them; a changed --gcp-eventarc-port needs the triggers recreated."
-  - "Trigger and channel id rules, the ABORTED etag code, FAILED_PRECONDITION for a missing user topic and INVALID_ARGUMENT for a bad channel activation token were chosen without a production reference."
+  - "Trigger, channel and Advanced resource id rules, the ABORTED etag code, FAILED_PRECONDITION for a missing user topic, missing Advanced references or a referenced resource being deleted, and INVALID_ARGUMENT for a bad channel activation token were chosen without a production reference."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine, joined by Shutdown, and the pooled delivery client, closed there."}
 ---
 
+Verified 2026-11-13: audit-log ce-source is //SERVICE_NAME/projects/PROJECT_ID and ce-time, ce-id, ce-type, ce-specversion are as the cloudevents page templates show; audit-log extension attribute names and the InsertJob method name (docs.cloud.google.com/eventarc/docs/cloudevents and /determining-filters-cal); trigger id rules, conditions, and destination field descriptions are not specified in the triggers reference, so those items stay open.
+
+Parity pass (2026-11-05): Cloud Audit Logs and Firestore events, retry_policy (proto: max_attempts is only 1, Cloud Run only), pending long-running operations with cancel, and Eventarc Advanced (message buses, enrollments, pipelines, Google API sources, Publisher.Publish), checked against cloud.google.com/go/eventarc v1.26.0 protos and the SDK clients in the package tests.
+
 Initial implementation (2026-10-25): google.cloud.eventarc.v1 Eventarc, Locations, IAMPolicy and Operations verified against cloud.google.com/go/eventarc v1.26.0 through the official client in the package tests; delivery verified with the Pub/Sub and Cloud Storage Go clients against an httptest destination.
+
+## 2026-11-13 channel publishing
+
+PublishEvents and PublishChannelConnectionEvents (publishingpb PublishEventsRequest, cloud.google.com/go/eventarc v1.26.0) deliver CloudEvents straight to the destination of every trigger whose channel matches and whose event_filters match the event attributes, retrying with Pub/Sub-style backoff (10s to 600s, 10 attempts, once when retry_policy.max_attempts is 1). Direct events (Storage, Firestore, audit) no longer reach channel triggers.
+
+Pass 2026-11-13: crypto_key_name on channels, the Google channel config and Advanced buses, pipelines and Google API sources resolves against gcpkms when wired: the key must exist, be ENCRYPT_DECRYPT with an enabled primary version and be in the resource's region (eu maps to europe); publishing to a channel whose key is disabled fails with FAILED_PRECONDITION (docs.cloud.google.com/eventarc/docs/use-cmek).

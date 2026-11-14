@@ -3,7 +3,6 @@ package opensearch
 import (
 	"context"
 	"crypto/pbkdf2"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -16,11 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
-const (
-	pbkdf2Iterations = 100_000
-	pbkdf2KeyLen     = 32
-	pbkdf2SaltLen    = 16
-)
+const pbkdf2Iterations = 100_000
 
 type dataPlaneCtxKey struct{}
 
@@ -31,20 +26,8 @@ type dataPlaneTarget struct {
 	path string
 }
 
-// hashMasterPassword returns "<salt>$<pbkdf2>" in hex; the password itself is never stored.
-func hashMasterPassword(password string) string {
-	salt := make([]byte, pbkdf2SaltLen)
-	_, _ = rand.Read(salt)
-
-	key, err := pbkdf2.Key(sha256.New, password, salt, pbkdf2Iterations, pbkdf2KeyLen)
-	if err != nil {
-		return ""
-	}
-
-	return hex.EncodeToString(salt) + "$" + hex.EncodeToString(key)
-}
-
-func masterPasswordMatches(stored, password string) bool {
+// legacyPasswordMatches verifies the "<salt>$<pbkdf2>" hash format written by earlier snapshots.
+func legacyPasswordMatches(stored, password string) bool {
 	saltHex, keyHex, ok := strings.Cut(stored, "$")
 	if !ok {
 		return false
@@ -83,7 +66,11 @@ func dataPlaneTargetOf(r *http.Request) (dataPlaneTarget, bool) {
 	}
 
 	domain, sub, _ := strings.Cut(rest, "/")
-	if sub == "_bulk" {
+	if _, isSecurity := securityAPISubpath(sub); isSecurity {
+		return dataPlaneTarget{domain: domain, path: "/" + sub}, true
+	}
+
+	if sub == segBulk {
 		return dataPlaneTarget{domain: domain, path: "/_bulk"}, true
 	}
 
@@ -101,14 +88,15 @@ func dataPlaneTargetOf(r *http.Request) (dataPlaneTarget, bool) {
 
 func isDocumentOp(seg string) bool {
 	switch seg {
-	case indexOpDoc, indexOpSearch, indexOpCount, "_bulk", "_create", "_update":
+	case indexOpDoc, indexOpSearch, indexOpCount, segBulk, "_create", "_update":
 		return true
 	default:
 		return false
 	}
 }
 
-// serveDataPlane enforces fine-grained access control and the custom backend for data-plane requests.
+// serveDataPlane forwards data-plane requests to a configured custom backend (whose own security plugin judges
+// credentials) or enforces fine-grained access control on the built-in engine.
 // It reports whether the request was fully handled.
 func (h *Handler) serveDataPlane(w http.ResponseWriter, r *http.Request) bool {
 	target, ok := dataPlaneTargetOf(r)
@@ -127,21 +115,13 @@ func (h *Handler) serveDataPlane(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 
-	aso := dom.AdvancedSecurityOptions
-	if aso == nil || !aso.Enabled || !aso.InternalUserDatabaseEnabled || aso.MasterUserName == "" {
-		return false
+	if aso := dom.AdvancedSecurityOptions; aso != nil && aso.Enabled {
+		h.enforceFGAC(w, r, target, dom)
+
+		return true
 	}
 
-	user, pass, hasBasic := r.BasicAuth()
-	if hasBasic && subtle.ConstantTimeCompare([]byte(user), []byte(aso.MasterUserName)) == 1 &&
-		masterPasswordMatches(aso.MasterUserPasswordHash, pass) {
-		return false
-	}
-
-	w.Header().Set("WWW-Authenticate", `Basic realm="OpenSearch Security"`)
-	http.Error(w, "Unauthorized", http.StatusUnauthorized)
-
-	return true
+	return false
 }
 
 // proxyToCustomBackend forwards to the configured URL only: scheme and host never come from the request.

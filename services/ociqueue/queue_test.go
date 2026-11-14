@@ -2,11 +2,15 @@ package ociqueue_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 )
 
 func TestQueueLifecycle(t *testing.T) {
@@ -122,6 +126,7 @@ func TestCreateQueueValidation(t *testing.T) {
 			"visibility high",
 			"InvalidParameter",
 		},
+		{func(d *queue.CreateQueueDetails) { d.VisibilityInSeconds = new(0) }, "visibility zero", "InvalidParameter"},
 		{func(d *queue.CreateQueueDetails) { d.TimeoutInSeconds = new(31) }, "timeout high", "InvalidParameter"},
 		{
 			func(d *queue.CreateQueueDetails) { d.DeadLetterQueueDeliveryCount = new(21) },
@@ -284,4 +289,103 @@ func TestUnknownRoute(t *testing.T) {
 	status, body := rawDo(t, http.MethodGet, e.base+"/20210201/nothing", "")
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Contains(t, body, "NotFound")
+}
+
+func TestCreateQueueRetryToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		token     string
+		advance   time.Duration
+		wantCount int
+		wantSame  bool
+	}{
+		{name: "replay", token: "tok", wantCount: 1, wantSame: true},
+		{name: "no token", token: "", wantCount: 2},
+		{name: "expired", token: "tok", advance: 25 * time.Hour, wantCount: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			req := queue.CreateQueueRequest{
+				CompartmentId: new(testCompartment), DisplayName: new("retry")}
+
+			if tt.token != "" {
+				req.OpcRetryToken = new(tt.token)
+			}
+
+			first, err := e.admin.CreateQueue(t.Context(), req)
+			require.NoError(t, err)
+
+			e.clock.Advance(tt.advance)
+
+			second, err := e.admin.CreateQueue(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSame, *first.OpcWorkRequestId == *second.OpcWorkRequestId)
+
+			list, err := e.admin.ListQueues(t.Context(), queue.ListQueuesRequest{CompartmentId: new(testCompartment)})
+			require.NoError(t, err)
+			assert.Len(t, list.Items, tt.wantCount)
+		})
+	}
+}
+
+func TestQueueTagValidation(t *testing.T) {
+	t.Parallel()
+
+	eleven := map[string]string{}
+	for _, k := range "abcdefghijk" {
+		eleven[string(k)] = "v"
+	}
+
+	tests := []struct {
+		free   map[string]string
+		defd   map[string]map[string]any
+		name   string
+		code   string
+		status int
+	}{
+		{
+			name:   "valid",
+			free:   map[string]string{"a": "b"},
+			defd:   map[string]map[string]any{"Ops": {"Cost": "1"}},
+			status: 200,
+		},
+		{name: "too many free", free: eleven, status: 400, code: "InvalidParameter"},
+		{name: "dotted key", free: map[string]string{"a.b": "x"}, status: 400, code: "InvalidParameter"},
+		{
+			name:   "unknown namespace",
+			defd:   map[string]map[string]any{"Nope": {"k": "v"}},
+			status: 404,
+			code:   "NotAuthorizedOrNotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			e.backend.SetTagLookup(func(ns, key string) (ocitags.Def, bool) {
+				return ocitags.Def{}, strings.EqualFold(ns, "ops") && strings.EqualFold(key, "cost")
+			})
+
+			_, err := e.admin.CreateQueue(t.Context(), queue.CreateQueueRequest{
+				CompartmentId: new(testCompartment), DisplayName: new("tagged"),
+				FreeformTags: tt.free, DefinedTags: tt.defd})
+			if tt.status == http.StatusOK {
+				require.NoError(t, err)
+
+				return
+			}
+
+			se := svcErr(t, err)
+			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
+			assert.Equal(t, tt.code, se.GetCode())
+		})
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"time"
 )
 
 // requiredChannelDefinitionCount is the exact number of channel definitions required for call analytics.
@@ -166,7 +165,7 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCatego
 		return nil, fmt.Errorf("%w: category %s already exists", ErrAlreadyExists, input.CategoryName)
 	}
 
-	now := time.Now()
+	now := b.now()
 	cat := *input
 	cat.CreateTime = now
 	cat.LastUpdateTime = now
@@ -247,7 +246,7 @@ func (b *InMemoryBackend) UpdateCallAnalyticsCategory(input *CallAnalyticsCatego
 
 	cat.InputType = input.InputType
 	cat.Rules = input.Rules
-	cat.LastUpdateTime = time.Now()
+	cat.LastUpdateTime = b.now()
 
 	cp := *cat
 
@@ -300,41 +299,60 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 		)
 	}
 
-	now := time.Now()
 	job := *input
-	job.CallAnalyticsJobStatus = jobStatusCompleted
-	job.CreationTime = now
-	job.StartTime = now
-	job.CompletionTime = now
-	if bucket, key := splitOutputLocation(job.OutputLocation, job.CallAnalyticsJobName); job.OutputLocation != "" &&
-		!b.putOutputLocked(bucket, key, synthesizeCallAnalyticsJSON(&job)) {
-		job.CallAnalyticsJobStatus = jobStatusFailed
-		job.FailureReason = outputWriteFailure
-	}
+	job.CreationTime = b.now()
+	job.StartTime = job.CreationTime
+	job.CallAnalyticsJobStatus = jobStatusInProgress
 	b.callAnalyticsJobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
+	b.settleLocked(viewCallAnalytics(&job))
 
-	cp := job
-	b.observeCallAnalyticsJob(&cp)
+	return b.callAnalyticsCopyLocked(&job), nil
+}
 
-	return &cp, nil
+func (b *InMemoryBackend) callAnalyticsCopyLocked(job *CallAnalyticsJob) *CallAnalyticsJob {
+	cp := *job
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName))
+
+	return &cp
+}
+
+func viewCallAnalytics(j *CallAnalyticsJob) jobView {
+	bucket, key := "", ""
+	if j.OutputLocation != "" {
+		bucket, key = splitOutputLocation(j.OutputLocation, j.CallAnalyticsJobName)
+	}
+
+	redaction := j.Settings != nil && j.Settings.ContentRedaction != nil
+	spec := jobSpec{
+		Kind: kindCallAnalytics, Name: j.CallAnalyticsJobName, Language: j.LanguageCode,
+		MediaURI: j.Media.MediaFileURI, MediaFormat: j.MediaFormat, SampleRate: j.MediaSampleRateHertz,
+		OutBucket: bucket, OutKey: key, Channels: j.ChannelDefinitions, Redaction: redaction,
+	}
+
+	return jobView{
+		spec: spec, created: j.CreationTime, status: &j.CallAnalyticsJobStatus, failure: &j.FailureReason,
+		started: &j.StartTime, completed: &j.CompletionTime,
+		complete: func(d delivered) {
+			j.TranscriptFileURI, j.RedactedTranscriptURI = d.transcript, d.redacted
+			j.ManagedToken, j.TranscriptJSON, j.ManagedOutputs = d.token, d.main, d.extra
+		},
+	}
 }
 
 // GetCallAnalyticsJob returns a Call Analytics job by name.
 func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob, error) {
-	b.mu.RLock("GetCallAnalyticsJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetCallAnalyticsJob")
+	defer b.mu.Unlock()
 
 	job, ok := b.callAnalyticsJobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}
 
-	cp := *job
-	b.observeCallAnalyticsJob(&cp)
-	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, jobName))
+	b.settleLocked(viewCallAnalytics(job))
 
-	return &cp, nil
+	return b.callAnalyticsCopyLocked(job), nil
 }
 
 // ListCallAnalyticsJobs returns Call Analytics jobs with optional status filter, name
@@ -342,13 +360,14 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 func (b *InMemoryBackend) ListCallAnalyticsJobs(
 	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]CallAnalyticsJob, string) {
-	b.mu.RLock("ListCallAnalyticsJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCallAnalyticsJobs")
+	defer b.mu.Unlock()
 
 	all := make([]CallAnalyticsJob, 0, b.callAnalyticsJobs.Len())
 	for _, j := range b.callAnalyticsJobs.All() {
+		b.settleListLocked(viewCallAnalytics(j))
+
 		cp := *j
-		b.observeCallAnalyticsJob(&cp)
 
 		if (statusFilter == "" || cp.CallAnalyticsJobStatus == statusFilter) &&
 			matchesNameContains(j.CallAnalyticsJobName, nameContains) {

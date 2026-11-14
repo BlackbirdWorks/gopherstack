@@ -33,6 +33,48 @@ func (b *Backend) registerViewTables() {
 	b.workspaces.taggable(
 		func(v *workspaceRec) string { return v.Workspace.Arn },
 		func(v *workspaceRec) *map[string]string { return &v.Workspace.Tags })
+	b.metricDefs = newFamily(r, "metricDefinitions", labelMetric,
+		func(v *metricRec) string { return v.InstanceID }, func(v *metricRec) string { return v.Metric.ID })
+	b.metricDefs.taggable(
+		func(v *metricRec) string { return v.Metric.Arn },
+		func(v *metricRec) *map[string]string { return &v.Metric.Tags },
+	)
+	b.attachedFiles = newFamily(r, "attachedFiles", labelAttachedFile,
+		func(v *attachedFileRec) string { return v.InstanceID }, func(v *attachedFileRec) string { return v.FileID })
+	b.attachedFiles.taggable(
+		func(v *attachedFileRec) string { return v.Arn },
+		func(v *attachedFileRec) *map[string]string { return &v.Tags },
+	)
+	b.attachedConfigs = newFamily(r, "attachedFilesConfigurations", labelAttachedConfig,
+		func(v *attachedConfigRec) string { return v.InstanceID }, func(v *attachedConfigRec) string { return v.Scope })
+	b.notifications = newFamily(r, "notifications", labelNotification,
+		func(v *notificationRec) string { return v.InstanceID }, func(v *notificationRec) string { return v.ID })
+	b.notifications.taggable(
+		func(v *notificationRec) string { return v.Arn },
+		func(v *notificationRec) *map[string]string { return &v.Tags },
+	)
+	b.pushRegistrations = newFamily(
+		r,
+		"pushRegistrations",
+		labelPushRegistration,
+		func(v *pushRegistrationRec) string { return v.InstanceID },
+		func(v *pushRegistrationRec) string { return v.ID },
+	)
+	b.authSessions = newFamily(r, "authSessions", labelSession,
+		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
+	b.testCases = newFamily(r, "testCases", labelTestCase,
+		func(v *testCaseRec) string { return v.InstanceID }, func(v *testCaseRec) string { return v.ID })
+	b.testCases.taggable(
+		func(v *testCaseRec) string { return v.Arn }, func(v *testCaseRec) *map[string]string { return &v.Tags })
+	b.testExecutions = newFamily(r, "testCaseExecutions", labelTestExecution,
+		func(v *testExecutionRec) string { return v.InstanceID }, func(v *testExecutionRec) string { return v.ID })
+	b.analyticsAssocs = newFamily(r, "analyticsAssociations", labelAnalyticsAssoc,
+		func(v *analyticsAssocRec) string { return v.InstanceID },
+		func(v *analyticsAssocRec) string { return analyticsKey(v.DataSetID, v.TargetAccountID) })
+	b.evaluations = newFamily(r, "contactEvaluations", labelEvaluation,
+		func(v *evaluationRec) string { return v.InstanceID }, func(v *evaluationRec) string { return v.ID })
+	b.evaluations.taggable(
+		func(v *evaluationRec) string { return v.Arn }, func(v *evaluationRec) *map[string]string { return &v.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -49,6 +91,14 @@ func (b *Backend) registerViewTables() {
 		func(v *entityProfilesRec) string { return v.InstanceID },
 		func(v *entityProfilesRec) string { return v.EntityARN },
 	)
+	b.extractions = newFamily(r, "extractionDefinitions", labelExtraction,
+		func(v *extractionRec) string { return v.InstanceID },
+		func(v *extractionRec) string { return v.Definition.ExtractionDefinitionID })
+	b.extractions.taggable(
+		func(v *extractionRec) string { return v.Definition.ExtractionDefinitionArn },
+		func(v *extractionRec) *map[string]string { return &v.Definition.Tags })
+	b.authProfiles = newFamily(r, "authenticationProfiles", labelAuthProfile,
+		func(v *authProfileRec) string { return v.InstanceID }, func(v *authProfileRec) string { return v.Profile.ID })
 	b.views.taggable(
 		func(v *viewRec) string { return v.View.Arn }, func(v *viewRec) *map[string]string { return &v.View.Tags })
 }
@@ -108,7 +158,13 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.dataTables.findARN,
 		b.emails.findARN,
 		b.workspaces.findARN,
+		b.metricDefs.findARN,
+		b.attachedFiles.findARN,
+		b.notifications.findARN,
+		b.testCases.findARN,
+		b.evaluations.findARN,
 		b.trafficGroups.findARN,
+		b.extractions.findARN,
 	}
 }
 
@@ -129,5 +185,15 @@ func (b *Backend) dropExtras(inst string) {
 	b.dataTables.dropInstance(inst)
 	b.emails.dropInstance(inst)
 	b.workspaces.dropInstance(inst)
+	b.metricDefs.dropInstance(inst)
+	b.attachedFiles.dropInstance(inst)
+	b.attachedConfigs.dropInstance(inst)
+	b.notifications.dropInstance(inst)
+	b.pushRegistrations.dropInstance(inst)
+	b.authSessions.dropInstance(inst)
+	b.testCases.dropInstance(inst)
+	b.evaluations.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
+	b.extractions.dropInstance(inst)
+	b.authProfiles.dropInstance(inst)
 }

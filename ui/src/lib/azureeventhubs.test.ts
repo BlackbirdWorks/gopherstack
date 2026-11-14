@@ -3,14 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EH_PROXY_BASE,
   listNamespaces,
+  listPolicies,
   parseEvent,
   peekEvents,
+  revealPolicyKeys,
   sendEvent,
   validateSend,
 } from "./azureeventhubs";
 
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
 describe("validateSend", () => {
   it.each([
@@ -51,7 +56,9 @@ describe("client", () => {
       }),
     );
     const out = await listNamespaces(f);
-    expect(f).toHaveBeenCalledWith(`${EH_PROXY_BASE}/namespaces`, { method: "GET" });
+    expect(f).toHaveBeenCalledWith(`${EH_PROXY_BASE}/namespaces`, {
+      method: "GET",
+    });
     expect(out[0].hubs[0]).toEqual({
       name: "h",
       partitionIds: ["0", "1"],
@@ -80,7 +87,10 @@ describe("client", () => {
       partition: 2,
     });
     await sendEvent("n", "h", { body: "b", partitionKey: "k", partition: "" }, f);
-    expect(JSON.parse(f.mock.calls[1][1].body as string)).toEqual({ body: "b", partitionKey: "k" });
+    expect(JSON.parse(f.mock.calls[1][1].body as string)).toEqual({
+      body: "b",
+      partitionKey: "k",
+    });
   });
 
   it("surfaces proxy errors", async () => {
@@ -90,6 +100,33 @@ describe("client", () => {
         json({ error: { message: "event hub not found", status: "NOT_FOUND" } }, 404),
       );
     await expect(peekEvents("n", "h", "0", 1, f)).rejects.toThrow("event hub not found");
+  });
+
+  it("lists policies without keys", async () => {
+    const f = vi.fn().mockResolvedValue(
+      json({
+        policies: [{ hub: "h", name: "sender", rights: ["Send"] }, { name: "root" }],
+      }),
+    );
+    const out = await listPolicies("n s", f);
+    expect(f.mock.calls[0][0]).toBe(`${EH_PROXY_BASE}/namespaces/n%20s/policies`);
+    expect(out).toEqual([
+      { hub: "h", name: "sender", rights: ["Send"] },
+      { hub: "", name: "root", rights: [] },
+    ]);
+  });
+
+  it("reveals policy keys with a POST naming the policy", async () => {
+    const f = vi.fn().mockResolvedValue(json({ primaryKey: "p", secondaryKey: "s" }));
+    expect(await revealPolicyKeys("n", { hub: "h", name: "x" }, f)).toEqual({
+      primaryKey: "p",
+      secondaryKey: "s",
+    });
+    expect(f.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(f.mock.calls[0][1].body as string)).toEqual({
+      hub: "h",
+      name: "x",
+    });
   });
 
   it("parseEvent tolerates missing fields", () => {

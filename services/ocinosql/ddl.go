@@ -46,11 +46,13 @@ type createSpec struct {
 	cols        []Column
 	pk          []string
 	shard       []string
+	frozen      bool
 	ifNotExists bool
 }
 
 type alterSpec struct {
 	ttlHours *int
+	freeze   *bool
 	identity *Identity
 	name     string
 	add      []Column
@@ -108,6 +110,15 @@ func parseCreate(sql string) (*createSpec, *APIError) {
 
 	if spec.ttlHours, e = p.parseTTL(); e != nil {
 		return nil, e
+	}
+
+	if p.acceptKw("WITH") {
+		if e = firstErr(p.expectKw("SCHEMA"), p.expectKw("FROZEN")); e != nil {
+			return nil, e
+		}
+
+		_ = p.acceptKw("FORCE")
+		spec.frozen = true
 	}
 
 	if !p.atEOF() {
@@ -256,6 +267,26 @@ func (p *parser) parseTTL() (*int, *APIError) {
 	}
 
 	return &hours, nil
+}
+
+func (p *parser) parseFreeze() (*bool, *APIError) {
+	var v bool
+
+	switch {
+	case p.acceptKw("FREEZE"):
+		v = true
+	case p.acceptKw("UNFREEZE"):
+	default:
+		return nil, nil
+	}
+
+	if e := p.expectKw("SCHEMA"); e != nil {
+		return nil, e
+	}
+
+	_ = p.acceptKw("FORCE")
+
+	return &v, nil
 }
 
 func (p *parser) parseColumn() (Column, *Identity, *APIError) {
@@ -471,12 +502,16 @@ func parseAlter(sql string) (*alterSpec, *APIError) {
 		return nil, e
 	}
 
+	if spec.freeze, e = p.parseFreeze(); e != nil {
+		return nil, e
+	}
+
 	if !p.atEOF() {
 		return nil, p.fail("end of statement")
 	}
 
-	if len(spec.add) == 0 && len(spec.drop) == 0 && spec.ttlHours == nil {
-		return nil, errParam("ALTER TABLE must add a column, drop a column or set USING TTL")
+	if len(spec.add) == 0 && len(spec.drop) == 0 && spec.ttlHours == nil && spec.freeze == nil {
+		return nil, errParam("ALTER TABLE must add a column, drop a column, set USING TTL or change the schema state")
 	}
 
 	return spec, nil

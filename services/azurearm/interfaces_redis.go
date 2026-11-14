@@ -2,11 +2,28 @@ package azurearm
 
 // RedisSpec is the part of a cache's configuration the Redis servers act on.
 type RedisSpec struct {
-	SKU              string
-	MinTLS           string
-	EnableNonSSLPort bool
-	Persistence      bool
-	AuthNotRequired  bool
+	SKU               string
+	MinTLS            string
+	Firewall          []RedisIPRange
+	Assignments       []RedisAccessAssignment
+	EnableNonSSLPort  bool
+	Persistence       bool
+	AuthNotRequired   bool
+	DisableAccessKeys bool
+	EntraEnabled      bool
+}
+
+// RedisIPRange is one inclusive IPv4 client range of a cache's firewall.
+type RedisIPRange struct {
+	Start string
+	End   string
+}
+
+// RedisAccessAssignment grants a principal the permissions string of a data access policy.
+type RedisAccessAssignment struct {
+	ObjectID    string
+	Alias       string
+	Permissions string
 }
 
 // RedisEndpoint is where a cache's servers listen; Port is 0 while the plaintext port is disabled.

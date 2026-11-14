@@ -22,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/elbv2"
 )
 
@@ -188,7 +189,8 @@ func (f *dpFixture) do(t *testing.T, r dpReq) dpResult {
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := testclient.New(t)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 
@@ -270,6 +272,7 @@ func newTestELBv2ClientURL(t *testing.T, h *elbv2.Handler) (*elbv2sdk.Client, st
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
 		awscfg.WithRegion("us-east-1"),
+		awscfg.WithHTTPClient(testclient.New(t)),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)
 	require.NoError(t, err)

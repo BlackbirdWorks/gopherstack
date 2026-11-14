@@ -117,7 +117,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpfirestore", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := gcpenforce.NewServer(ctx, "firestore.googleapis.com", grpc.UnaryInterceptor(logInterceptor(log)))
+	srv := gcpenforce.NewServer(ctx, "firestore.googleapis.com", grpc.ChainUnaryInterceptor(
+		logInterceptor(log), h.Backend.Audit.UnaryInterceptor(auditPolicy(), h.Backend.clockNow),
+	))
 	firestorepb.RegisterFirestoreServer(srv, &server{b: h.Backend})
 
 	h.srvMu.Lock("StartWorker")

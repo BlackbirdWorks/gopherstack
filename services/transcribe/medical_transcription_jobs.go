@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"time"
 )
 
 // supportedMedicalSpecialties returns the set of supported medical specialties.
@@ -56,7 +55,7 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 		return nil, fmt.Errorf("%w: LanguageCode is required", ErrValidation)
 	}
 
-	if input.LanguageCode != "en-US" {
+	if input.LanguageCode != languageEnUS {
 		return nil, fmt.Errorf("%w: LanguageCode must be en-US for medical transcription jobs", ErrValidation)
 	}
 
@@ -94,47 +93,63 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 		)
 	}
 
-	now := time.Now()
 	job := *input
-	job.TranscriptionJobStatus = jobStatusCompleted
-	job.CreationTime = now
-	job.StartTime = now
-	job.CompletionTime = now
-	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
-		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
-	key := outputObjectKey(job.OutputKey, job.MedicalTranscriptionJobName)
-	if !b.putOutputLocked(job.OutputBucketName, key, job.TranscriptJSON) {
-		job.TranscriptionJobStatus = jobStatusFailed
-		job.FailureReason = outputWriteFailure
-	}
+	job.CreationTime = b.now()
+	job.StartTime = job.CreationTime
+	job.TranscriptionJobStatus = jobStatusInProgress
 	b.medicalTranscriptionJobs.Put(&job)
 	b.recordResourceTagsLocked(
 		b.resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,
 	)
+	b.settleLocked(viewMedical(&job))
 
-	cp := job
-	b.observeMedicalTranscriptionJob(&cp)
+	return b.medicalCopyLocked(&job), nil
+}
 
-	return &cp, nil
+func (b *InMemoryBackend) medicalCopyLocked(job *MedicalTranscriptionJob) *MedicalTranscriptionJob {
+	cp := *job
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName))
+
+	return &cp
+}
+
+func viewMedical(j *MedicalTranscriptionJob) jobView {
+	spec := jobSpec{
+		Kind: kindMedical, Name: j.MedicalTranscriptionJobName, Language: j.LanguageCode,
+		MediaURI: j.Media.MediaFileURI, MediaFormat: j.MediaFormat, SampleRate: j.MediaSampleRateHertz,
+		OutBucket: j.OutputBucketName, OutKey: j.OutputKey, PHI: j.MedicalContentIdentificationType != "",
+	}
+
+	if j.Settings != nil {
+		spec.ShowSpeakers = j.Settings.ShowSpeakerLabels
+		spec.IdentifyChannels = j.Settings.ChannelIdentification
+	}
+
+	return jobView{
+		spec: spec, created: j.CreationTime, status: &j.TranscriptionJobStatus, failure: &j.FailureReason,
+		started: &j.StartTime, completed: &j.CompletionTime,
+		complete: func(d delivered) {
+			j.TranscriptFileURI = d.transcript
+			j.ManagedToken, j.TranscriptJSON, j.ManagedOutputs = d.token, d.main, d.extra
+		},
+	}
 }
 
 // GetMedicalTranscriptionJob returns a Medical Transcription job by name.
 func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 	jobName string,
 ) (*MedicalTranscriptionJob, error) {
-	b.mu.RLock("GetMedicalTranscriptionJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetMedicalTranscriptionJob")
+	defer b.mu.Unlock()
 
 	job, ok := b.medicalTranscriptionJobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}
 
-	cp := *job
-	b.observeMedicalTranscriptionJob(&cp)
-	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
+	b.settleLocked(viewMedical(job))
 
-	return &cp, nil
+	return b.medicalCopyLocked(job), nil
 }
 
 // ListMedicalTranscriptionJobs returns Medical Transcription jobs with optional status
@@ -142,13 +157,14 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
 	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]MedicalTranscriptionJob, string) {
-	b.mu.RLock("ListMedicalTranscriptionJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListMedicalTranscriptionJobs")
+	defer b.mu.Unlock()
 
 	all := make([]MedicalTranscriptionJob, 0, b.medicalTranscriptionJobs.Len())
 	for _, j := range b.medicalTranscriptionJobs.All() {
+		b.settleListLocked(viewMedical(j))
+
 		cp := *j
-		b.observeMedicalTranscriptionJob(&cp)
 
 		if (statusFilter == "" || cp.TranscriptionJobStatus == statusFilter) &&
 			matchesNameContains(j.MedicalTranscriptionJobName, nameContains) {

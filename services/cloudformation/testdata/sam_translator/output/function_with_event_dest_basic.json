@@ -1,0 +1,174 @@
+{
+  "Parameters": {
+    "SNSArn": {
+      "Default": "my-sns-arn",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "MyTestFunction": {
+      "Properties": {
+        "Code": {
+          "ZipFile": "exports.handler = function(event, context, callback) {\n    var event_received_at = new Date().toISOString();\n    console.log('Event received at: ' + event_received_at);\n    console.log('Received event:', JSON.stringify(event, null, 2));\n\n    if (event.Success) {\n        console.log(\"Success\");\n        context.callbackWaitsForEmptyEventLoop = false;\n        callback(null);\n    } else {\n        console.log(\"Failure\");\n        context.callbackWaitsForEmptyEventLoop = false;\n        callback(new Error(\"Failure from event, Success = false, I am failing!\"), 'Destination Function Error Thrown');\n    }\n};      \n"
+        },
+        "Handler": "index.handler",
+        "MemorySize": 1024,
+        "Role": {
+          "Fn::GetAtt": [
+            "MyTestFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyTestFunctionAliaslive": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MyTestFunction"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "MyTestFunctionVersiondaf9da458d",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "MyTestFunctionEventInvokeConfig": {
+      "DependsOn": [
+        "MyTestFunctionAliaslive"
+      ],
+      "Properties": {
+        "DestinationConfig": {
+          "OnFailure": {
+            "Destination": "my-sns-arn"
+          },
+          "OnSuccess": {
+            "Destination": {
+              "Fn::GetAtt": [
+                "MyTestFunctionEventInvokeConfigOnSuccessQueue",
+                "Arn"
+              ]
+            }
+          }
+        },
+        "FunctionName": {
+          "Ref": "MyTestFunction"
+        },
+        "MaximumEventAgeInSeconds": 70,
+        "MaximumRetryAttempts": 1,
+        "Qualifier": "live"
+      },
+      "Type": "AWS::Lambda::EventInvokeConfig"
+    },
+    "MyTestFunctionEventInvokeConfigOnSuccessQueue": {
+      "Properties": {},
+      "Type": "AWS::SQS::Queue"
+    },
+    "MyTestFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sqs:SendMessage",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "MyTestFunctionEventInvokeConfigOnSuccessQueue",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            },
+            "PolicyName": "MyTestFunctionEventInvokeConfigOnSuccessSQSPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sns:publish",
+                  "Effect": "Allow",
+                  "Resource": "my-sns-arn"
+                }
+              ]
+            },
+            "PolicyName": "MyTestFunctionEventInvokeConfigOnFailureSNSPolicy"
+          },
+          {
+            "Fn::If": [
+              "SomeCondition",
+              {
+                "PolicyDocument": {
+                  "Statement": [
+                    {
+                      "Action": [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents"
+                      ],
+                      "Effect": "Deny",
+                      "Resource": "arn:aws:logs:*:*:*"
+                    }
+                  ],
+                  "Version": "2012-10-17"
+                },
+                "PolicyName": "MyTestFunctionRolePolicy0"
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyTestFunctionVersiondaf9da458d": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MyTestFunction"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    }
+  }
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/labstack/echo/v5"
 	"google.golang.org/grpc"
@@ -68,6 +69,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateFunction", "GetFunction", "ListFunctions", "UpdateFunction", "DeleteFunction",
 		"GenerateUploadUrl", "GenerateDownloadUrl", "ListRuntimes",
+		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
 	}
 }
 
@@ -127,6 +129,7 @@ func logInterceptor(log interface {
 
 func (h *Handler) registerServers(srv *grpc.Server) {
 	functionspb.RegisterFunctionServiceServer(srv, &server{b: h.Backend})
+	iampb.RegisterIAMPolicyServer(srv, &iamServer{b: h.Backend})
 	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
 }
 

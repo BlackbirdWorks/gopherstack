@@ -187,6 +187,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	b.deregisterTaskFromELBv2Locked(task, lc.clusterName)
 	b.deregisterTaskFromCloudMapLocked(task, lc.clusterName)
 	b.releaseTaskHostPortsLocked(lc.clusterName, task)
+	b.releaseTaskVolumesLocked(task)
 
 	return true
 }

@@ -3,7 +3,6 @@ package transcribe
 import (
 	"fmt"
 	"sort"
-	"time"
 )
 
 // maxVocabularyPhrases is the maximum number of phrases in a vocabulary.
@@ -58,7 +57,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 		return nil, fmt.Errorf("%w: vocabulary %s already exists", ErrAlreadyExists, input.VocabularyName)
 	}
 
-	now := time.Now()
+	now := b.now()
 	v := *input
 	v.VocabularyState = vocabStateReady
 	v.LastModifiedTime = now
@@ -123,7 +122,7 @@ func (b *InMemoryBackend) UpdateVocabulary(
 	v.Phrases, v.VocabularyFileURI = applyListOrURI(
 		input.Phrases, input.VocabularyFileURI, v.Phrases, v.VocabularyFileURI,
 	)
-	v.LastModifiedTime = time.Now()
+	v.LastModifiedTime = b.now()
 
 	cp := *v
 	b.observeVocabulary(&cp)

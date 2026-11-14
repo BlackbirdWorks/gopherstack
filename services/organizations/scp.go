@@ -16,6 +16,16 @@ func (b *InMemoryBackend) SCPsForAccount(accountID string) ([]iam.SCPLevel, bool
 		return nil, false
 	}
 
+	path, ok := b.policyPathLocked(accountID)
+	if !ok {
+		return nil, false
+	}
+
+	return b.levelsForPathLocked(path, policyTypeSCP), true
+}
+
+// policyPathLocked is the root, OU chain and account node IDs for accountID.
+func (b *InMemoryBackend) policyPathLocked(accountID string) ([]string, bool) {
 	if !b.accounts.Has(accountID) {
 		return nil, false
 	}
@@ -31,15 +41,19 @@ func (b *InMemoryBackend) SCPsForAccount(accountID string) ([]iam.SCPLevel, bool
 	}
 
 	path := append([]string{b.root.ID}, ous...)
-	path = append(path, accountID)
 
+	return append(path, accountID), true
+}
+
+// levelsForPathLocked collects the policyType policies attached at each node of path.
+func (b *InMemoryBackend) levelsForPathLocked(path []string, policyType string) []iam.SCPLevel {
 	levels := make([]iam.SCPLevel, 0, len(path))
 
 	for _, target := range path {
 		lvl := iam.SCPLevel{TargetID: target}
 
 		for _, pid := range b.targetPolicies[target] {
-			if p, found := b.policies.Get(pid); found && p.PolicySummary.Type == policyTypeSCP {
+			if p, found := b.policies.Get(pid); found && p.PolicySummary.Type == policyType {
 				lvl.Policies = append(lvl.Policies, iam.SCPPolicy{ARN: p.PolicySummary.ARN, Document: p.Content})
 			}
 		}
@@ -47,7 +61,7 @@ func (b *InMemoryBackend) SCPsForAccount(accountID string) ([]iam.SCPLevel, bool
 		levels = append(levels, lvl)
 	}
 
-	return levels, true
+	return levels
 }
 
 func (b *InMemoryBackend) scpEnabledLocked() bool {
@@ -56,8 +70,14 @@ func (b *InMemoryBackend) scpEnabledLocked() bool {
 	})
 }
 
-// attachDefaultSCPLocked attaches FullAWSAccess to a new OU or account, as
-// Organizations does for every entity created while SCPs are enabled.
+// attachDefaultPoliciesLocked attaches the default FullAWSAccess SCP and
+// RCPFullAWSAccess RCP to a new OU or account, as Organizations does for every
+// entity created while those policy types are enabled.
+func (b *InMemoryBackend) attachDefaultPoliciesLocked(targetID string) {
+	b.attachDefaultRCPLocked(targetID)
+	b.attachDefaultSCPLocked(targetID)
+}
+
 func (b *InMemoryBackend) attachDefaultSCPLocked(targetID string) {
 	if b.root == nil || !b.scpEnabledLocked() || !b.policies.Has(fullAWSAccessPolicyID) {
 		return
@@ -73,14 +93,19 @@ func (b *InMemoryBackend) attachDefaultSCPLocked(targetID string) {
 
 // attachDefaultSCPEverywhereLocked attaches FullAWSAccess to the root, every OU and every account.
 func (b *InMemoryBackend) attachDefaultSCPEverywhereLocked() {
-	b.attachDefaultSCPLocked(b.root.ID)
+	b.forEachTargetLocked(b.attachDefaultSCPLocked)
+}
+
+// forEachTargetLocked calls fn for the root, every OU and every account.
+func (b *InMemoryBackend) forEachTargetLocked(fn func(targetID string)) {
+	fn(b.root.ID)
 
 	for _, ou := range b.ous.All() {
-		b.attachDefaultSCPLocked(ou.ID)
+		fn(ou.ID)
 	}
 
 	for _, a := range b.accounts.All() {
-		b.attachDefaultSCPLocked(a.ID)
+		fn(a.ID)
 	}
 }
 

@@ -77,3 +77,70 @@ func TestLedgerSpendExcludesChargeTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestLedgerSpendFiltered(t *testing.T) {
+	t.Parallel()
+
+	dim := func(key string, opts []string, vals ...string) *ce.SpendFilter {
+		return &ce.SpendFilter{Dimensions: &ce.SpendValues{Key: key, Values: vals, MatchOptions: opts}}
+	}
+
+	tests := []struct {
+		filter *ce.SpendFilter
+		name   string
+		want   float64
+	}{
+		{name: "nil", want: 17},
+		{
+			name:   "or",
+			filter: &ce.SpendFilter{Or: []ce.SpendFilter{*dim("SERVICE", nil, "X"), *dim("SERVICE", nil, "Y")}},
+			want:   17,
+		},
+		{
+			name:   "or one",
+			filter: &ce.SpendFilter{Or: []ce.SpendFilter{*dim("SERVICE", nil, "Y"), *dim("SERVICE", nil, "Z")}},
+			want:   7,
+		},
+		{name: "not", filter: &ce.SpendFilter{Not: dim("SERVICE", nil, "X")}, want: 7},
+		{name: "starts with", filter: dim("SERVICE", []string{"STARTS_WITH"}, "y"), want: 7},
+		{name: "contains", filter: dim("SERVICE", []string{"CONTAINS"}, "Z"), want: 0},
+		{
+			name:   "case sensitive",
+			filter: dim("SERVICE", []string{"CASE_SENSITIVE"}, "x"),
+			want:   0,
+		},
+		{
+			name:   "tag",
+			filter: &ce.SpendFilter{Tags: &ce.SpendValues{Key: "team", Values: []string{"a"}}},
+			want:   10,
+		},
+		{
+			name:   "tag absent",
+			filter: &ce.SpendFilter{Tags: &ce.SpendValues{Key: "team", MatchOptions: []string{"ABSENT"}}},
+			want:   7,
+		},
+		{
+			name: "and not",
+			filter: &ce.SpendFilter{And: []ce.SpendFilter{
+				*dim("SERVICE", nil, "X"),
+				{Not: &ce.SpendFilter{Tags: &ce.SpendValues{Key: "team", Values: []string{"a"}}}},
+			}},
+			want: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ce.NewInMemoryBackend("123456789012", "us-east-1")
+			b.RecordCharge(ce.CostEntry{
+				Date: "2001-01-01", Service: "X", UnblendedCost: 10, Tags: map[string]string{"team": "a"},
+			})
+			b.RecordCharge(ce.CostEntry{Date: "2001-01-01", Service: "Y", UnblendedCost: 7})
+
+			got := b.LedgerSpendFiltered("2001-01-01", "2001-01-02", tc.filter, nil, "UnblendedCost")
+			assert.InDelta(t, tc.want, got, 1e-9)
+		})
+	}
+}

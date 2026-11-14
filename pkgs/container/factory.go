@@ -42,8 +42,10 @@ func NewRuntime(cfg Config) (Runtime, error) {
 		return newPodmanRuntime(cfg)
 	case RuntimeAuto:
 		return autoDetectRuntime(cfg)
+	case RuntimeKubernetes:
+		return newKubernetesRuntime(cfg)
 	default:
-		return nil, fmt.Errorf("%w %q; valid values: docker, podman, auto", ErrUnknownRuntime, name)
+		return nil, fmt.Errorf("%w %q; valid values: docker, podman, auto, kubernetes", ErrUnknownRuntime, name)
 	}
 }
 

@@ -374,6 +374,9 @@ func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 			options: map[string]any{
 				"Enabled":                     true,
 				"InternalUserDatabaseEnabled": true,
+				"MasterUserOptions": map[string]any{
+					"MasterUserName": "admin", "MasterUserPassword": "Sup3r-Secret!",
+				},
 			},
 			wantASO: map[string]any{
 				"Enabled":                     true,
@@ -385,9 +388,13 @@ func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 			options: map[string]any{
 				"Enabled":                     true,
 				"InternalUserDatabaseEnabled": false,
+				"MasterUserOptions": map[string]any{
+					"MasterUserARN": "arn:aws:iam::000000000000:role/master",
+				},
 				"SAMLOptions": map[string]any{
 					"Enabled":               true,
 					"SessionTimeoutMinutes": 60,
+					"Idp":                   map[string]any{"EntityId": "https://idp", "MetadataContent": "<xml/>"},
 				},
 			},
 			wantASO: map[string]any{
@@ -399,6 +406,9 @@ func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 			options: map[string]any{
 				"Enabled":              true,
 				"AnonymousAuthEnabled": true,
+				"MasterUserOptions": map[string]any{
+					"MasterUserARN": "arn:aws:iam::000000000000:role/master",
+				},
 			},
 			wantASO: map[string]any{
 				"Enabled":              true,
@@ -422,8 +432,11 @@ func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 
 			h := newTestHandler()
 			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
-				"DomainName":              "aso-test",
-				"AdvancedSecurityOptions": tt.options,
+				"DomainName":                  "aso-test",
+				"AdvancedSecurityOptions":     tt.options,
+				"EncryptionAtRestOptions":     map[string]any{"Enabled": true},
+				"NodeToNodeEncryptionOptions": map[string]any{"Enabled": true},
+				"DomainEndpointOptions":       map[string]any{"EnforceHTTPS": true},
 			})
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)

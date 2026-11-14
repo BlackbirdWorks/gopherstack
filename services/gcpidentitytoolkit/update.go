@@ -1,7 +1,9 @@
 package gcpidentitytoolkit
 
 import (
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -340,6 +342,10 @@ func (b *InMemoryBackend) SendOobCode(c call, r *authRequest) (*oobResponse, err
 		return nil, err
 	}
 
+	if err = checkContinueURL(sc.proj.Config.AuthorizedDomains, r.ContinueURL); err != nil {
+		return nil, err
+	}
+
 	email, silent, err := b.oobTargetLocked(sc, c, r)
 	if err != nil {
 		return nil, err
@@ -564,4 +570,27 @@ func (b *InMemoryBackend) SignInWithEmailLink(c call, r *authRequest) (*tokenRes
 	resp.IsNewUser = created
 
 	return resp, nil
+}
+
+// checkContinueURL rejects a continueUrl whose host is neither an authorized domain nor a subdomain of one.
+func checkContinueURL(authorized []string, raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return idtk("INVALID_CONTINUE_URI")
+	}
+
+	host := strs.Fold(u.Hostname())
+
+	for _, d := range authorized {
+		d = strs.Fold(d)
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return nil
+		}
+	}
+
+	return idtk("UNAUTHORIZED_DOMAIN")
 }

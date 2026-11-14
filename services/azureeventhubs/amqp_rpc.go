@@ -96,7 +96,7 @@ func (c *amqpConn) putToken(req *amqp1.Message) rpcResponse {
 	}
 
 	if !c.h.ValidateSAS {
-		c.grant([]string{RightListen, RightSend, RightManage})
+		c.grant("", []string{RightListen, RightSend, RightManage})
 
 		return rpcResponse{status: rpcAccepted, desc: "Accepted"}
 	}
@@ -104,22 +104,18 @@ func (c *amqpConn) putToken(req *amqp1.Message) rpcResponse {
 	token, _ := req.Value.(string)
 	typ, _ := req.ApplicationProperties["type"].(string)
 
-	rights, ok := c.b.claimRights(token)
+	claim, ok := c.b.claimRights(token)
 	if typ != sasTokenType || !ok {
 		return rpcResponse{status: rpcUnauth, desc: "invalid SharedAccessSignature"}
 	}
 
-	c.grant(rights)
+	c.grant(claim.Audience, claim.Rights)
 
 	return rpcResponse{status: rpcAccepted, desc: "Accepted"}
 }
 
 // manage serves the READ operations of a hub's $management node.
 func (c *amqpConn) manage(ref HubRef, req *amqp1.Message) rpcResponse {
-	if !c.authenticated() {
-		return rpcResponse{status: rpcUnauth, desc: noClaim}
-	}
-
 	props := req.ApplicationProperties
 	if op, _ := props["operation"].(string); op != "READ" {
 		return rpcResponse{status: rpcNotImpl, desc: "unsupported management operation: " + op}
@@ -128,6 +124,10 @@ func (c *amqpConn) manage(ref HubRef, req *amqp1.Message) rpcResponse {
 	name, _ := props["name"].(string)
 	if ref.Hub != "" && name != ref.Hub {
 		return rpcResponse{status: rpcNotFound, desc: "The messaging entity '" + name + "' could not be found."}
+	}
+
+	if !c.authenticated(name) {
+		return rpcResponse{status: rpcUnauth, desc: noClaim}
 	}
 
 	ref, found := c.b.ResolveHub(name)

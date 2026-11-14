@@ -75,9 +75,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	for k, idx := range b.indexes {
-		if raw, err := protojson.Marshal(idx); err == nil {
-			snap.Indexes[k] = raw
+		raw, err := protojson.Marshal(idx)
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "gcpdatastore: skipping unmarshalable index", "index", k, "error", err)
+
+			continue
 		}
+
+		snap.Indexes[k] = raw
 	}
 
 	return persistence.MarshalSnapshot(ctx, "gcpdatastore", snap)
@@ -102,13 +107,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	opts := protojson.UnmarshalOptions{DiscardUnknown: true}
 	ents := make(map[string]*entRec, len(snap.Entities))
 
-	for ks, es := range snap.Entities {
+	for _, es := range snap.Entities {
 		e := &datastorepb.Entity{}
 		if err := opts.Unmarshal(es.Entity, e); err != nil {
 			return fmt.Errorf("gcpdatastore: restore entity: %w", err)
 		}
 
-		ents[ks] = &entRec{
+		ents[keyString(e.GetKey())] = &entRec{
 			key:  e.GetKey(),
 			vers: []entVer{{at: es.Updated, created: es.Created, ent: e, version: es.Version}},
 		}

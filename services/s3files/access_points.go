@@ -132,10 +132,14 @@ func (b *InMemoryBackend) CreateAccessPoint(
 		return nil, false, conflict("FileSystem", fs.ID, "File system "+fs.ID+" is "+state+", not available")
 	}
 
+	if b.liveAccessPointCount(fs.ID) >= b.apLimit {
+		return nil, false, quotaExceeded("The file system already has the maximum of 25000 access points")
+	}
+
 	id := awsid.New("fsap-")
 	rec := &AccessPoint{
 		ID:            id,
-		ARN:           arn.Build("s3files", region, b.accountID, "access-point/"+id),
+		ARN:           arn.Build("s3files", region, b.accountID, "file-system/"+fs.ID+"/access-point/"+id),
 		FileSystemID:  fs.ID,
 		ClientToken:   in.ClientToken,
 		OwnerID:       b.accountID,
@@ -224,4 +228,18 @@ func (b *InMemoryBackend) DeleteAccessPoint(ctx context.Context, ref string) err
 	}
 
 	return nil
+}
+
+const maxAccessPointsPerFileSystem = 25000
+
+func (b *InMemoryBackend) liveAccessPointCount(fileSystemID string) int {
+	n := 0
+
+	for _, ap := range b.accessPoints.All() {
+		if _, gone := b.state(&ap.Lifecycle); ap.FileSystemID == fileSystemID && !gone {
+			n++
+		}
+	}
+
+	return n
 }

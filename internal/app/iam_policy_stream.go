@@ -10,11 +10,15 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 const (
@@ -202,4 +206,116 @@ func scpProviderFor(enabled bool, services []service.Registerable) iambackend.SC
 	}
 
 	return nil
+}
+
+type bucketOwnerBackend interface {
+	GetBucketOwnerAccount(ctx context.Context, bucket string) (string, error)
+}
+
+// s3OwnerResolver maps account-less S3 ARNs to the account that created the bucket.
+type s3OwnerResolver struct{ backend bucketOwnerBackend }
+
+func (r s3OwnerResolver) ResourceOwnerAccount(ctx context.Context, resourceARN string) (string, bool) {
+	rest, ok := strings.CutPrefix(resourceARN, "arn:aws:s3:::")
+	if !ok {
+		return "", false
+	}
+
+	bucket, _, _ := strings.Cut(rest, "/")
+	if bucket == "" {
+		return "", false
+	}
+
+	owner, err := r.backend.GetBucketOwnerAccount(ctx, bucket)
+
+	return owner, err == nil && owner != ""
+}
+
+// resourceOwnersFor returns the owner resolvers RCP evaluation needs, or nil when org policy enforcement is off.
+func resourceOwnersFor(enabled bool, services []service.Registerable) []iambackend.ResourceOwnerResolver {
+	if !enabled {
+		return nil
+	}
+
+	var out []iambackend.ResourceOwnerResolver
+
+	for _, svc := range services {
+		if h, ok := svc.(*s3backend.S3Handler); ok {
+			if b, isOwner := h.Backend.(bucketOwnerBackend); isOwner {
+				out = append(out, s3OwnerResolver{backend: b})
+			}
+		}
+
+		if h, ok := svc.(*sqsbackend.Handler); ok {
+			if b, isOwner := h.Backend.(queueOwnerBackend); isOwner {
+				out = append(out, sqsOwnerResolver{backend: b})
+			}
+		}
+	}
+
+	return out
+}
+
+type queueOwnerBackend interface {
+	QueueOwner(arnAccount, callerAccount, region, name string) string
+}
+
+// sqsOwnerResolver maps a queue ARN to the account whose queue the request addresses.
+type sqsOwnerResolver struct{ backend queueOwnerBackend }
+
+const sqsARNParts = 6
+
+func (r sqsOwnerResolver) ResourceOwnerAccount(ctx context.Context, resourceARN string) (string, bool) {
+	parts := strings.SplitN(resourceARN, ":", sqsARNParts)
+	if len(parts) < sqsARNParts || parts[2] != "sqs" || parts[4] == "" || parts[5] == "" {
+		return "", false
+	}
+
+	return r.backend.QueueOwner(parts[4], awsmeta.Account(ctx), parts[3], parts[5]), true
+}
+
+type managedKeyBackend interface {
+	IsAWSManagedKey(ctx context.Context, keyID string) bool
+}
+
+// kmsManagedKeyExemption exempts AWS managed keys, which RCPs never restrict.
+type kmsManagedKeyExemption struct{ backend managedKeyBackend }
+
+func (e kmsManagedKeyExemption) RCPExempt(ctx context.Context, resourceARN string) bool {
+	return strings.HasPrefix(resourceARN, "arn:aws:kms:") && e.backend.IsAWSManagedKey(ctx, resourceARN)
+}
+
+// rcpExemptionsFor returns the resources RCPs must skip, or nil when org policy enforcement is off.
+func rcpExemptionsFor(enabled bool, services []service.Registerable) []iambackend.RCPExemptionResolver {
+	if !enabled {
+		return nil
+	}
+
+	var out []iambackend.RCPExemptionResolver
+
+	for _, svc := range services {
+		if h, ok := svc.(*kmsbackend.Handler); ok {
+			if b, isKMS := h.Backend.(managedKeyBackend); isKMS {
+				out = append(out, kmsManagedKeyExemption{backend: b})
+			}
+		}
+	}
+
+	return out
+}
+
+// wireSimulatorSCPs lets the IAM policy simulator report the SCP verdict (OrganizationsDecisionDetail).
+func wireSimulatorSCPs(enabled bool, services []service.Registerable) {
+	p := scpProviderFor(enabled, services)
+	if p == nil {
+		return
+	}
+
+	for _, svc := range services {
+		if h, ok := svc.(*iambackend.Handler); ok {
+			if b, isSim := h.Backend.(interface{ SetSCPProvider(iambackend.SCPProvider) }); isSim {
+				b.SetSCPProvider(p)
+			}
+		}
+	}
 }

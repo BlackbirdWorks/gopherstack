@@ -15,6 +15,7 @@ const (
 // writeStmt is a parsed CTAS, INSERT INTO or UNLOAD statement.
 type writeStmt struct {
 	props       map[string][]string
+	dml         *dmlSpec
 	location    string
 	body        string
 	target      []string
@@ -77,6 +78,14 @@ func parseWriteStmt(sql string) (*writeStmt, bool) {
 		return c.parseInsert()
 	case c.acceptWords("unload"):
 		return c.parseUnload()
+	case c.acceptWords("delete", "from"):
+		return c.parseDelete()
+	case c.acceptWords("update"):
+		return c.parseUpdate()
+	case c.acceptWords("merge", "into"):
+		return c.parseMerge()
+	case c.acceptWords("optimize"):
+		return c.parseOptimize()
 	case c.acceptWords("create"):
 		c.acceptWords("external")
 

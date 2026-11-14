@@ -17,10 +17,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
 )
 
-var errNoSuchImage = errors.New("no such image")
+var (
+	errNoSuchImage   = errors.New("no such image")
+	errNoSuchNetwork = errors.New("no such network")
+)
 
 type fakeDocker struct {
 	imageErr    error
+	connectErr  error
 	endpoints   map[string]mobynetwork.EndpointResource
 	labels      map[string]map[string]string
 	netCreated  []mobyclient.NetworkCreateOptions
@@ -71,7 +75,7 @@ func (f *fakeDocker) NetworkConnect(
 	defer f.mu.Unlock()
 	f.connected = append(f.connected, o)
 
-	return mobyclient.NetworkConnectResult{}, nil
+	return mobyclient.NetworkConnectResult{}, f.connectErr
 }
 
 func (f *fakeDocker) NetworkRemove(
@@ -210,6 +214,52 @@ func TestManagerRelaySpec(t *testing.T) {
 		c.NetworkingConfig.EndpointsConfig["gopherstack-linklocal-imds"].IPAMConfig.IPv4Address)
 }
 
+func TestManagerRelayJoinsUpstreamNetwork(t *testing.T) {
+	t.Parallel()
+
+	noUpstream := linklocal.IMDSSpec("", "172.17.0.1", "8123", "")
+	noUpstream.UpstreamNetwork = ""
+
+	tests := []struct {
+		spec        linklocal.Spec
+		connectErr  error
+		name        string
+		wantNetwork string
+		wantRemoved int
+		wantActive  bool
+	}{
+		{name: "imds", spec: linklocal.IMDSSpec("", "172.17.0.1", "8123", ""), wantNetwork: "bridge", wantActive: true},
+		{name: "ecs", spec: linklocal.ECSSpec("", "172.17.0.1", "8123"), wantNetwork: "bridge", wantActive: true},
+		{name: "disabled", spec: noUpstream, wantActive: true},
+		{
+			name: "join_failure_removes_relay", spec: linklocal.IMDSSpec("", "172.17.0.1", "8123", ""),
+			connectErr: errNoSuchNetwork, wantRemoved: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := &fakeDocker{connectErr: tt.connectErr}
+			m := linklocal.New(f, tt.spec)
+
+			assert.Equal(t, tt.wantActive, m.Active(t.Context()))
+			assert.Len(t, f.removedCtrs, tt.wantRemoved)
+
+			if tt.wantNetwork == "" && tt.connectErr == nil {
+				assert.Empty(t, f.connected)
+
+				return
+			}
+
+			require.Len(t, f.connected, 1)
+			assert.Equal(t, "relay1", f.connected[0].Container)
+			assert.Positive(t, f.connected[0].EndpointConfig.GwPriority, "upstream network carries the default route")
+		})
+	}
+}
+
 func TestManagerAttachAndOwner(t *testing.T) {
 	t.Parallel()
 
@@ -223,8 +273,8 @@ func TestManagerAttachAndOwner(t *testing.T) {
 	m := linklocal.New(f, linklocal.IMDSSpec("", "h", "1", "gopherstack.ec2.instance"))
 
 	require.NoError(t, m.Attach(t.Context(), "c-attached", "i-attached"))
-	require.Len(t, f.connected, 1)
-	assert.Equal(t, -1, f.connected[0].EndpointConfig.GwPriority)
+	require.NotEmpty(t, f.connected)
+	assert.Equal(t, -1, f.connected[len(f.connected)-1].EndpointConfig.GwPriority)
 
 	tests := []struct {
 		name      string

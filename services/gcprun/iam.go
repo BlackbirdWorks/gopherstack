@@ -11,6 +11,7 @@ import (
 const (
 	permServices = "run.services."
 	permJobs     = "run.jobs."
+	permPools    = "run.workerpools."
 )
 
 // iamTargetLocked validates that name is a service or job and returns the permission prefix for its type.
@@ -31,7 +32,15 @@ func (b *InMemoryBackend) iamTargetLocked(name string) (string, error) {
 		return permJobs, nil
 	}
 
-	return "", errInvalid("Invalid resource name %q: expected a service or a job.", name)
+	if n, err := parseName(name, "workerPools"); err == nil {
+		if _, ok := b.workerPools[name]; !ok {
+			return "", errNotFound("WORKER_POOL", n.ids[0], n.location, n.project)
+		}
+
+		return permPools, nil
+	}
+
+	return "", errInvalid("Invalid resource name %q: expected a service, a job or a worker pool.", name)
 }
 
 // SetIamPolicy replaces the policy of a service or job; a non-empty etag must match the stored policy.
@@ -106,6 +115,21 @@ func (s *jobsServer) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyReque
 }
 
 func (s *jobsServer) TestIamPermissions(
+	_ context.Context,
+	in *iampb.TestIamPermissionsRequest,
+) (*iampb.TestIamPermissionsResponse, error) {
+	return s.b.TestIamPermissions(in)
+}
+
+func (s *workerPoolsServer) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
+	return s.b.SetIamPolicy(in)
+}
+
+func (s *workerPoolsServer) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
+	return s.b.GetIamPolicy(in)
+}
+
+func (s *workerPoolsServer) TestIamPermissions(
 	_ context.Context,
 	in *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {

@@ -78,3 +78,12 @@ func errInvalidPath() *apiError {
 	return newErr(http.StatusBadRequest, "InvalidFileOrDirectoryPathName",
 		"The specified file or directory path name is not valid.")
 }
+
+func errInvalidPermissionKey() *apiError {
+	return newErr(http.StatusBadRequest, "FileInvalidPermissionKey",
+		"The specified file permission key doesn't exist in the share.")
+}
+
+func errShareFull() *apiError {
+	return newErr(http.StatusForbidden, "ShareSizeLimitReached", "The specified share is full.")
+}

@@ -2,6 +2,7 @@ package cognitoidp_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -236,14 +237,19 @@ func TestListWebAuthnCredentials_Pagination(t *testing.T) {
 	t.Run("boundary_walk", func(t *testing.T) {
 		t.Parallel()
 
-		b, _, client := setupTestPoolAndClient(t)
+		b, pool, client := setupTestPoolAndClient(t)
 		tokens := signUpConfirmAndLogin(t, b, client.ClientID, "webauthn-walk-user")
+		enablePasskeys(t, b, pool.ID)
 
 		const n = 7
-		for i := range n {
-			_, err := b.CompleteWebAuthnRegistration(tokens.AccessToken, fmt.Sprintf("cred-%03d", i), "", nil)
-			require.NoError(t, err)
+
+		want := make([]string, 0, n)
+
+		for range n {
+			want = append(want, b64u(registerPasskey(t, b, tokens.AccessToken).credID))
 		}
+
+		slices.Sort(want)
 
 		var got []string
 
@@ -262,23 +268,18 @@ func TestListWebAuthnCredentials_Pagination(t *testing.T) {
 			}
 		}
 
-		want := make([]string, n)
-		for i := range n {
-			want[i] = fmt.Sprintf("cred-%03d", i)
-		}
-
 		assert.Equal(t, want, got)
 	})
 
 	t.Run("stale_cursor_after_deletion", func(t *testing.T) {
 		t.Parallel()
 
-		b, _, client := setupTestPoolAndClient(t)
+		b, pool, client := setupTestPoolAndClient(t)
 		tokens := signUpConfirmAndLogin(t, b, client.ClientID, "webauthn-stale-user")
+		enablePasskeys(t, b, pool.ID)
 
-		for i := range 3 {
-			_, err := b.CompleteWebAuthnRegistration(tokens.AccessToken, fmt.Sprintf("cred-%03d", i), "", nil)
-			require.NoError(t, err)
+		for range 3 {
+			registerPasskey(t, b, tokens.AccessToken)
 		}
 
 		page1, next1, err := b.ListWebAuthnCredentials(tokens.AccessToken, 1, "")

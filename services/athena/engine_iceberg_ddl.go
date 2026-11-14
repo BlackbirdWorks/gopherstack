@@ -61,9 +61,9 @@ func icebergProps(raw map[string]string) (map[string]string, error) {
 
 		switch lk {
 		case propFormat:
-			if !strings.EqualFold(v, "parquet") {
+			if !strings.EqualFold(v, "parquet") && !strings.EqualFold(v, "avro") {
 				return nil, fmt.Errorf(
-					"%w: Iceberg format %s; the embedded engine writes PARQUET",
+					"%w: Iceberg format %s; the embedded engine writes PARQUET and AVRO",
 					errUnsupportedFormat,
 					v,
 				)
@@ -107,21 +107,55 @@ func (b *InMemoryBackend) createIcebergTable(
 		return nil, stmtFail(athenaErrTypeEntityFound, "Table %s already exists", spec.def.Name), true
 	}
 
+	allocated := false
+
+	if alloc, isAlloc := cat.(tableAllocator); isAlloc {
+		info, err := alloc.AllocateTable(db, spec.def.Name)
+		if err != nil {
+			return nil, allocFailure(err, db, spec.def.Name), true
+		}
+
+		allocated, spec.def.Location = true, info.Location
+	}
+
+	res, out := b.registerIcebergTable(spec, db, cat, put)
+	if allocated && out.failed {
+		_ = cat.DeleteTable(db, spec.def.Name)
+	}
+
+	return res, out, true
+}
+
+// allocFailure maps a catalog table-allocation error to a statement failure.
+func allocFailure(err error, db, table string) statementOutcome {
+	switch {
+	case errors.Is(err, ErrCatalogEntityExists):
+		return stmtFail(athenaErrTypeEntityFound, "Table %s already exists", table)
+	case errors.Is(err, ErrCatalogEntityNotFound):
+		return stmtFail(athenaErrTypeEntityMiss, "Database does not exist: %s", db)
+	default:
+		return stmtFail(athenaErrTypeSyntax, "%s", err.Error())
+	}
+}
+
+func (b *InMemoryBackend) registerIcebergTable(
+	spec *createTableSpec, db string, cat GlueTableCatalog, put S3Storer,
+) (*sqlResult, statementOutcome) {
 	meta, err := newIcebergMetadata(spec)
 	if err != nil {
-		return nil, engineFailure(err), true
+		return nil, engineFailure(err)
 	}
 
 	body, err := iceberg.EncodeMetadata(meta)
 	if err != nil {
-		return nil, engineFailure(err), true
+		return nil, engineFailure(err)
 	}
 
 	loc := iceberg.InitialMetadataLocation(meta.Location)
 	wp := &writePlan{put: put}
 
 	if out := wp.putObjectAt(context.Background(), loc, body); out.failed {
-		return nil, out, true
+		return nil, out
 	}
 
 	spec.def.Location = meta.Location
@@ -130,13 +164,13 @@ func (b *InMemoryBackend) createIcebergTable(
 
 	switch err = cat.CreateTableDef(db, spec.def); {
 	case err == nil:
-		return &sqlResult{}, stmtOK(), true
+		return &sqlResult{}, stmtOK()
 	case errors.Is(err, ErrCatalogEntityExists):
-		return nil, stmtFail(athenaErrTypeEntityFound, "Table %s already exists", spec.def.Name), true
+		return nil, stmtFail(athenaErrTypeEntityFound, "Table %s already exists", spec.def.Name)
 	case errors.Is(err, ErrCatalogEntityNotFound):
-		return nil, stmtFail(athenaErrTypeEntityMiss, "Database does not exist: %s", db), true
+		return nil, stmtFail(athenaErrTypeEntityMiss, "Database does not exist: %s", db)
 	default:
-		return nil, stmtFail(athenaErrTypeSyntax, "%s", err.Error()), true
+		return nil, stmtFail(athenaErrTypeSyntax, "%s", err.Error())
 	}
 }
 
@@ -223,7 +257,7 @@ func parseTransformCall(sig []token) (transformCall, error) {
 	args := splitCommas(sig[2 : len(sig)-1])
 	colArg := 0
 
-	if c.fn == "bucket" || c.fn == fnTruncate {
+	if c.fn == fnBucket || c.fn == fnTruncate {
 		if len(args) != argsTwo {
 			return c, ddlSyntax(c.fn + " takes a width and a column")
 		}
@@ -263,7 +297,7 @@ func partitionField(schema iceberg.Schema, sig []token) (iceberg.PartitionField,
 	transform, suffix := c.fn, "_"+c.fn
 
 	switch c.fn {
-	case "bucket", fnTruncate:
+	case fnBucket, fnTruncate:
 		transform = c.fn + "[" + c.width + "]"
 		if c.fn == fnTruncate {
 			suffix = "_trunc"

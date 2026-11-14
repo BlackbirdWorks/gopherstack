@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- ListFindings/ListFindingsV2/ListAccessPreviewFindings and archive-rule filters: Contains has no documented semantics in the pinned SDK (Criterion.Contains is described only as a "contains" operator) and createdAt/updatedAt/analyzedAt filter value formats are undocumented, so both are treated as matching.
+- Criterion.Contains: API_Criterion.html and the IAM filter-keys page (access-analyzer-reference-filter-keys.html) describe it only as a "contains" operator with no match semantics (substring vs element), so Contains is treated as matching. createdAt/updatedAt/analyzedAt/resourceRegion are not listed as filter keys on that page and are treated as matching.
 
 ### Structural gaps
 

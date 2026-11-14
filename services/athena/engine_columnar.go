@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,6 +40,7 @@ type fileCol struct {
 	hive     string
 	fileName string
 	id       int
+	rowPos   bool
 }
 
 // fillTable creates the SQLite table for cols and lets fill insert rows.
@@ -205,7 +207,7 @@ func (l *tableLoader) loadColumnarFile(
 			return nil
 		}
 
-		rec, nulls := l.fileRow(cols, wanted, vals)
+		rec, nulls := l.fileRow(cols, wanted, vals, cur)
 
 		return l.insertJSON(ctx, sink, rec, nulls)
 	})
@@ -217,14 +219,17 @@ func (l *tableLoader) loadColumnarFile(
 }
 
 // fileRow assembles one table row: constants first, then the values read from the file.
-func (l *tableLoader) fileRow(cols []fileCol, wanted []boundCol, vals []any) ([]string, []bool) {
+func (l *tableLoader) fileRow(cols []fileCol, wanted []boundCol, vals []any, rowNum int64) ([]string, []bool) {
 	rec := make([]string, len(cols))
 	nulls := make([]bool, len(cols))
 
 	for i, c := range cols {
-		if c.constant != nil && l.want.has(c.name) {
+		switch {
+		case c.rowPos:
+			rec[i] = strconv.FormatInt(rowNum, 10)
+		case c.constant != nil && l.want.has(c.name):
 			rec[i] = *c.constant
-		} else {
+		default:
 			nulls[i] = true
 		}
 	}

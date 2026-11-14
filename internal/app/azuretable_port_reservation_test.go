@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
@@ -27,18 +25,16 @@ func TestReserveFixedServicePorts_AzureTable(t *testing.T) {
 	tests := []struct {
 		name                string
 		azurePort           int
-		rangeStart          int
-		rangeEnd            int
 		wantBlockedFromPool bool
 	}{
 		{
-			name:      "default azure table port collides with default pool range",
-			azurePort: azuretablebackend.DefaultPort, rangeStart: 10000, rangeEnd: 10100,
+			name:                "default azure table port collides with default pool range",
+			azurePort:           azuretablebackend.DefaultPort,
 			wantBlockedFromPool: true,
 		},
 		{
-			name:      "custom azure table port outside a custom pool range",
-			azurePort: 9998, rangeStart: 10000, rangeEnd: 10100,
+			name:                "custom azure table port outside a custom pool range",
+			azurePort:           9998,
 			wantBlockedFromPool: false,
 		},
 	}
@@ -47,13 +43,12 @@ func TestReserveFixedServicePorts_AzureTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantBlockedFromPool, tt.azurePort)
 
-			cli := CLI{AzureTable: azuretablebackend.Settings{Port: tt.azurePort}}
+			cli := CLI{AzureTable: azuretablebackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(tt.azurePort), tt.name)
+			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(port), tt.name)
 		})
 	}
 }

@@ -1,7 +1,9 @@
 package servicequotas_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sqsdk "github.com/aws/aws-sdk-go-v2/service/servicequotas"
@@ -235,4 +237,62 @@ func TestTemplate_Entries(t *testing.T) {
 			tt.run(t, orgFixture(t, goodOrg()))
 		})
 	}
+}
+
+func TestTemplate_RegionAvailability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+		code   string
+	}{
+		{name: "default_region", region: "eu-west-1", code: ""},
+		{name: "opt_in_region", region: "af-south-1", code: "TemplatesNotAvailableInRegionException"},
+		{name: "opt_in_apac", region: "ap-southeast-3", code: "TemplatesNotAvailableInRegionException"},
+		{name: "china", region: "cn-north-1", code: "TemplatesNotAvailableInRegionException"},
+		{name: "govcloud", region: "us-gov-west-1", code: "TemplatesNotAvailableInRegionException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := servicequotas.NewInMemoryBackend(awsmeta.DefaultAccount, tt.region)
+			backend.SetOrgDirectory(fakeOrgs{awsmeta.DefaultAccount: goodOrg()})
+
+			c := newFixtureFromBackend(t, backend, &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}).client
+
+			_, err := c.GetAssociationForServiceQuotaTemplate(
+				t.Context(), &sqsdk.GetAssociationForServiceQuotaTemplateInput{})
+			assert.Equal(t, tt.code, apiCode(err))
+
+			_, err = c.ListServiceQuotaIncreaseRequestsInTemplate(
+				t.Context(), &sqsdk.ListServiceQuotaIncreaseRequestsInTemplateInput{})
+			assert.Equal(t, tt.code, apiCode(err))
+		})
+	}
+}
+
+func TestTemplate_ItemLimit(t *testing.T) {
+	t.Parallel()
+
+	f := orgFixture(t, goodOrg())
+
+	put := func(region string) error {
+		_, err := f.client.PutServiceQuotaIncreaseRequestIntoTemplate(t.Context(),
+			&sqsdk.PutServiceQuotaIncreaseRequestIntoTemplateInput{
+				AwsRegion: aws.String(region), ServiceCode: aws.String("ec2"),
+				QuotaCode: aws.String("L-1216C47A"), DesiredValue: aws.Float64(2000),
+			})
+
+		return err
+	}
+
+	for i := range 10 {
+		require.NoError(t, put(fmt.Sprintf("ap-test%c-1", 'a'+i)))
+	}
+
+	assert.Equal(t, "QuotaExceededException", apiCode(put("ap-testz-1")))
+	assert.NoError(t, put("ap-testa-1"), "replacing an item does not count against the limit")
 }

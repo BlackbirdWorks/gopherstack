@@ -100,16 +100,24 @@ type Subscriber struct {
 
 // CostEntry is a synthetic cost ledger entry for a single day+service combination.
 type CostEntry struct {
-	Tags          map[string]string `json:"tags"`
-	Date          string            `json:"date"`
-	Service       string            `json:"service"`
-	Region        string            `json:"region"`
-	UsageType     string            `json:"usageType"`
-	Account       string            `json:"account"`
-	ChargeType    string            `json:"chargeType,omitempty"`
-	BlendedCost   float64           `json:"blendedCost"`
-	UnblendedCost float64           `json:"unblendedCost"`
-	UsageQuantity float64           `json:"usageQuantity"`
+	Tags       map[string]string `json:"tags"`
+	Date       string            `json:"date"`
+	Service    string            `json:"service"`
+	Region     string            `json:"region"`
+	UsageType  string            `json:"usageType"`
+	Account    string            `json:"account"`
+	ChargeType string            `json:"chargeType,omitempty"`
+	// The fields from AvailabilityZone to ResourceID are additive ledger dimensions.
+	AvailabilityZone string  `json:"availabilityZone,omitempty"`
+	InstanceType     string  `json:"instanceType,omitempty"`
+	Operation        string  `json:"operation,omitempty"`
+	PurchaseType     string  `json:"purchaseType,omitempty"`
+	UsageTypeGroup   string  `json:"usageTypeGroup,omitempty"`
+	ProductFamily    string  `json:"productFamily,omitempty"`
+	ResourceID       string  `json:"resourceId,omitempty"`
+	BlendedCost      float64 `json:"blendedCost"`
+	UnblendedCost    float64 `json:"unblendedCost"`
+	UsageQuantity    float64 `json:"usageQuantity"`
 }
 
 // CostAllocationTag represents an AWS CE cost allocation tag.

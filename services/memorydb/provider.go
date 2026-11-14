@@ -2,7 +2,10 @@ package memorydb
 
 import (
 	"errors"
+	"os"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -37,9 +40,27 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend.SetEngine(engineMode, ctx.PortAlloc)
+
+	if engineMode == EngineDocker {
+		enableDockerEngine(ctx, backend)
+	}
+
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.DefaultRegion = region
 
 	return handler, nil
+}
+
+func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
+	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+	if err != nil {
+		ctx.Logger.Warn("MemoryDB: container runtime unavailable; clusters stay metadata-only", "error", err)
+
+		return
+	}
+
+	if err = backend.EnableDockerEngine(rt, redisdocker.Config{Host: os.Getenv("MEMORYDB_HOST")}); err != nil {
+		ctx.Logger.Warn("MemoryDB: docker engine unavailable; clusters stay metadata-only", "error", err)
+	}
 }

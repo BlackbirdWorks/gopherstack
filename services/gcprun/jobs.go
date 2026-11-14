@@ -16,15 +16,7 @@ const (
 )
 
 func jobMutable() []string {
-	return []string{
-		"labels",
-		"annotations",
-		"client",
-		"client_version",
-		"launch_stage",
-		"binary_authorization",
-		"template",
-	}
+	return commonMutable("labels")
 }
 
 func validateJob(j *runpb.Job) error {

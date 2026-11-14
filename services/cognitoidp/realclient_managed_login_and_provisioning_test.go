@@ -298,22 +298,33 @@ func testWebAuthnRealClient(t *testing.T) {
 	client := newTestCognitoIDPClient(t, h)
 	accessToken := selfServiceAccessToken(t, client, "webauthn-pool", "webauthn-user")
 
+	pools, err := client.ListUserPools(t.Context(), &cognitoidpsdk.ListUserPoolsInput{MaxResults: aws.Int32(10)})
+	require.NoError(t, err)
+	require.Len(t, pools.UserPools, 1)
+
+	poolID := aws.ToString(pools.UserPools[0].Id)
+
+	_, err = client.SetUserPoolMfaConfig(t.Context(), &cognitoidpsdk.SetUserPoolMfaConfigInput{
+		UserPoolId:            aws.String(poolID),
+		WebAuthnConfiguration: &types.WebAuthnConfigurationType{RelyingPartyId: aws.String(passkeyRPID)},
+	})
+	require.NoError(t, err)
+
 	opts, err := client.StartWebAuthnRegistration(t.Context(), &cognitoidpsdk.StartWebAuthnRegistrationInput{
 		AccessToken: aws.String(accessToken),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, opts.CredentialCreationOptions)
 
-	credential := map[string]any{
-		"id": "cred-1",
-		"response": map[string]any{
-			"transports": []string{"internal"},
-		},
-	}
+	var created map[string]any
+
+	require.NoError(t, opts.CredentialCreationOptions.UnmarshalSmithyDocument(&created))
+
+	pk := newSoftPasskey(t)
 
 	_, err = client.CompleteWebAuthnRegistration(t.Context(), &cognitoidpsdk.CompleteWebAuthnRegistrationInput{
 		AccessToken: aws.String(accessToken),
-		Credential:  document.NewLazyDocument(credential),
+		Credential:  document.NewLazyDocument(pk.register(t, created)),
 	})
 	require.NoError(t, err)
 
@@ -322,10 +333,10 @@ func testWebAuthnRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, listed.Credentials, 1)
-	assert.Equal(t, "cred-1", aws.ToString(listed.Credentials[0].CredentialId))
+	assert.Equal(t, b64u(pk.credID), aws.ToString(listed.Credentials[0].CredentialId))
 
 	_, err = client.DeleteWebAuthnCredential(t.Context(), &cognitoidpsdk.DeleteWebAuthnCredentialInput{
-		AccessToken: aws.String(accessToken), CredentialId: aws.String("cred-1"),
+		AccessToken: aws.String(accessToken), CredentialId: aws.String(b64u(pk.credID)),
 	})
 	require.NoError(t, err)
 

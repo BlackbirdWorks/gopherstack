@@ -73,6 +73,10 @@ func (b *InMemoryBackend) newBuild(in buildInput) (*longrunningpb.Operation, err
 		return nil, err
 	}
 
+	if in.build.GetOptions().GetAutomapSubstitutions() {
+		pb.Substitutions = mergeSubs(in.builtin, in.build.GetSubstitutions())
+	}
+
 	b.initBuild(pb, r, in.trigger)
 	holdForApproval(pb, in)
 
@@ -87,6 +91,11 @@ func (b *InMemoryBackend) newBuild(in buildInput) (*longrunningpb.Operation, err
 	}
 
 	b.builds[r.key()] = rec
+
+	if pb.GetStatus() == cloudbuildpb.Build_PENDING {
+		b.armQueueExpiry(rec)
+	}
+
 	op := b.putBuildOp(rec)
 	snap := cloneBuild(pb)
 
@@ -349,6 +358,7 @@ func (b *InMemoryBackend) ApproveBuild(
 	approved := res.GetDecision() == cloudbuildpb.ApprovalResult_APPROVED
 	if approved {
 		rec.pb.Approval.State, rec.pb.Status = cloudbuildpb.BuildApproval_APPROVED, cloudbuildpb.Build_QUEUED
+		rec.stopQueueTimer()
 	} else {
 		rec.pb.Approval.State = cloudbuildpb.BuildApproval_REJECTED
 		b.finishLocked(rec, cloudbuildpb.Build_CANCELLED, "Build was rejected.", nil)

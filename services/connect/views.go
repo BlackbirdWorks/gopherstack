@@ -379,12 +379,12 @@ func (b *Backend) UpdateViewContent(in *ViewRequest) (*View, error) {
 }
 
 // UpdateViewMetadata renames a view or changes its description.
-func (b *Backend) UpdateViewMetadata(in *ViewRequest) (*empty, error) {
+func (b *Backend) UpdateViewMetadata(in *ViewRequest) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
 
-	return writeInstance(b, "UpdateViewMetadata", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "UpdateViewMetadata", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		v, _, err := b.viewByRef(inst, in.ViewID)
 		if err != nil {
 			return nil, err
@@ -402,13 +402,13 @@ func (b *Backend) UpdateViewMetadata(in *ViewRequest) (*empty, error) {
 
 		v.View.LastModifiedTime = awstime.NewEpochTime(b.now())
 
-		return &empty{}, nil
+		return &EmptyOutput{}, nil
 	})
 }
 
 // DeleteView removes a view and all its versions.
-func (b *Backend) DeleteView(inst, ref string) (*empty, error) {
-	return writeInstance(b, "DeleteView", inst, func(inst string) (*empty, error) {
+func (b *Backend) DeleteView(inst, ref string) (*EmptyOutput, error) {
+	return writeInstance(b, "DeleteView", inst, func(inst string) (*EmptyOutput, error) {
 		v, _, err := b.viewByRef(inst, ref)
 		if err != nil {
 			return nil, err
@@ -427,7 +427,7 @@ func (b *Backend) DeleteView(inst, ref string) (*empty, error) {
 }
 
 // DeleteViewVersion removes one published version of a view.
-func (b *Backend) DeleteViewVersion(in *ViewRequest) (*empty, error) {
+func (b *Backend) DeleteViewVersion(in *ViewRequest) (*EmptyOutput, error) {
 	n, err := strconv.ParseInt(in.PathVersion, 10, 32)
 	if err != nil {
 		return nil, invalidParamErr("ViewVersion must be an integer")
@@ -435,7 +435,7 @@ func (b *Backend) DeleteViewVersion(in *ViewRequest) (*empty, error) {
 
 	version := int32(n)
 
-	return writeInstance(b, "DeleteViewVersion", in.InstanceID, func(inst string) (*empty, error) {
+	return writeInstance(b, "DeleteViewVersion", in.InstanceID, func(inst string) (*EmptyOutput, error) {
 		v, _, verr := b.viewByRef(inst, in.ViewID)
 		if verr != nil {
 			return nil, verr

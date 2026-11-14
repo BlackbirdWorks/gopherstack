@@ -16,9 +16,9 @@
 
 ### Known gaps
 
-- DescribePatchProperties: PRODUCT entries use the API-reference sample shape (Name, ProductFamily); the entry keys for CLASSIFICATION/SEVERITY/MSRC_SEVERITY/PRIORITY/PRODUCT_FAMILY are not documented and use Name by analogy.
+- DescribePatchProperties: PRODUCT entries use the API-reference sample shape (Name, ProductFamily); the entry keys for CLASSIFICATION/SEVERITY/MSRC_SEVERITY/PRIORITY/PRODUCT_FAMILY are not documented and use Name by analogy. API_DescribePatchProperties.html (checked 2026-11-13) shows only the PRODUCT sample and lists valid properties per OS.
 - DescribeAvailablePatches PATCH_ID filter: the real opaque Patch.Id format is not verifiable from the SDK.
-- ListDocuments Owner filter Public/Private: the DocumentKeyValuesFilter docs (SDK and API reference) list the values without defining them.
+- ListDocuments Owner filter Public/Private: the DocumentKeyValuesFilter docs (SDK and API reference) list the values without defining them. API_DocumentKeyValuesFilter.html (checked 2026-11-13) lists Amazon, Private, Public, Self and ThirdParty without defining them.
 - StartExecutionPreviewInput.DocumentVersion: neither preview output echoes the version, so there is no observable behaviour to verify.
 - OpsItemEventSummary.DetailType has no verifiable source value; DocumentDescription/DocumentIdentifier Author format for user documents is not determinable from the SDK.
 

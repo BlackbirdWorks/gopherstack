@@ -15,13 +15,7 @@ func (b *InMemoryBackend) glueCatalogFor(catalog string) (GlueTableCatalog, bool
 	b.mu.RLock("glueCatalogFor")
 	defer b.mu.RUnlock()
 
-	if !b.isGlueBacked(catalog) {
-		return nil, false
-	}
-
-	cat, ok := b.glueSource.(GlueTableCatalog)
-
-	return cat, ok
+	return b.tableCatalogFor(catalog)
 }
 
 func refTarget(parts []string, qctx QueryExecutionContext) (string, string, string) {
@@ -44,7 +38,13 @@ func (b *InMemoryBackend) execCatalogStatement(
 		return b.execGlueDropTable(query, qctx)
 	case hasKeyword(upper, "MSCK"):
 		return b.execMsckRepair(query, qctx)
+	case hasKeyword(upper, "VACUUM"):
+		return b.execVacuum(query, qctx)
 	case hasKeyword(upper, "ALTER"):
+		if res, out, handled := b.execIcebergAlter(query, qctx); handled {
+			return res, out, true
+		}
+
 		return b.execAlterAddPartition(query, qctx)
 	case hasKeyword(upper, "SHOW"), hasKeyword(upper, "DESCRIBE"), hasKeyword(upper, "DESC"):
 		return b.execShowDescribe(query, qctx)
@@ -63,16 +63,20 @@ func (b *InMemoryBackend) execGlueCreateTable(
 
 	catalog, db, table := refTarget(spec.parts, qctx)
 
-	if _, isS3T := s3TablesBucket(catalog); isS3T {
-		return nil, stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error()), true
-	}
-
 	cat, ok := b.glueCatalogFor(catalog)
 	if !ok {
 		return nil, stmtOK(), false
 	}
 
 	spec.def.Name = table
+
+	if out, handled := prepareS3TablesCreate(spec, cat); handled {
+		return nil, out, true
+	}
+
+	if spec.def.Location == "" && !isAllocator(cat) {
+		return nil, stmtOK(), false
+	}
 
 	switch tableTypeOf(&spec.def) {
 	case tableTypeIceberg:
@@ -107,10 +111,6 @@ func (b *InMemoryBackend) execGlueDropTable(
 
 	parts := strings.Split(strings.ReplaceAll(name, `"`, ""), ".")
 	catalog, db, table := refTarget(parts, qctx)
-
-	if _, isS3T := s3TablesBucket(catalog); isS3T {
-		return nil, stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error()), true
-	}
 
 	cat, ok := b.glueCatalogFor(catalog)
 	if !ok {
@@ -556,4 +556,31 @@ func (b *InMemoryBackend) describeTable(
 	add(tm.PartitionKeys)
 
 	return singleColumn(colName, rows), stmtOK(), true
+}
+
+func isAllocator(cat GlueTableCatalog) bool {
+	_, ok := cat.(tableAllocator)
+
+	return ok
+}
+
+// prepareS3TablesCreate defaults an S3 Tables CREATE TABLE to ICEBERG and rejects other table types.
+func prepareS3TablesCreate(spec *createTableSpec, cat GlueTableCatalog) (statementOutcome, bool) {
+	if !isAllocator(cat) {
+		return stmtOK(), false
+	}
+
+	if tableTypeOf(&spec.def) == "" {
+		if spec.def.Parameters == nil {
+			spec.def.Parameters = map[string]string{}
+		}
+
+		spec.def.Parameters[paramTableType] = tableTypeIceberg
+	}
+
+	if tableTypeOf(&spec.def) != tableTypeIceberg {
+		return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: S3 Tables catalogs only hold ICEBERG tables"), true
+	}
+
+	return stmtOK(), false
 }

@@ -40,8 +40,9 @@ type Orphans struct {
 type orphanKey struct{ service, resource string }
 
 // Reconcile lists managed containers and removes the ones that are provably dead leftovers of this instance:
-//   - this owner's containers without a LabelResource, and ones whose launcher process is gone and has no
-//     resource to adopt for are removed now;
+//   - this owner's containers without a LabelResource are removed now unless this very process launched them
+//     (they are live: tests and embedders run several instances in one process);
+//   - ones whose launcher process is gone and has no resource to adopt for are removed now;
 //   - another owner's containers are removed only when they are ephemeral and their launcher process is dead;
 //   - this owner's resource-labelled containers (launcher dead or this very process) are held for Claim;
 //   - everything else, including this owner's containers whose launcher is still alive elsewhere, is untouched.
@@ -68,7 +69,9 @@ func Reconcile(ctx context.Context, rt ManagedLister, id Identity, log *slog.Log
 			}
 
 			if c.Labels[LabelResource] == "" {
-				o.remove(ctx, c)
+				if !ownPID {
+					o.remove(ctx, c)
+				}
 
 				continue
 			}

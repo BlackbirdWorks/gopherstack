@@ -123,7 +123,7 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 		targets = append(targets, retentionTarget{
 			region:    group.region,
 			groupName: group.LogGroupName,
-			cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
+			cutoffMs:  now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli(),
 		})
 	}
 

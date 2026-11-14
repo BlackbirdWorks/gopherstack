@@ -218,6 +218,10 @@ func (b *InMemoryBackend) evalRuleLocked(g *groupRuntime, r *ruleRuntime, now, q
 
 	if err != nil {
 		r.health, r.lastErr = healthErr, err.Error()
+		b.queueLogLocked(logEvent{
+			at: now, wsID: g.wsID, component: logComponentR, stream: logStreamR, level: logLevelError,
+			msg: "rule evaluation failed", fields: map[string]string{"namespace": g.ns, fieldErr: err.Error()},
+		})
 	}
 
 	return alerts
@@ -250,8 +254,15 @@ func (b *InMemoryBackend) writeOutputsLocked(
 	t := now.UnixMilli()
 	cur := make(map[string]promql.Labels, len(outs))
 
+	ws, _ := b.workspaces.Get(g.wsID)
+
 	for i, l := range outs {
-		cur[promql.Fingerprint(l)] = l
+		fp := promql.Fingerprint(l)
+		if _, known := b.series.Get(seriesKey(g.wsID, fp)); !known && b.overLabelSetLimit(ws, l) {
+			continue
+		}
+
+		cur[fp] = l
 		b.appendSampleLocked(g.wsID, l, promql.Sample{T: t, V: vals[i]})
 	}
 

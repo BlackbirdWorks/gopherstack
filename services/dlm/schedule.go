@@ -123,6 +123,7 @@ func retainCutoff(rule map[string]any, now time.Time) (time.Time, bool) {
 
 	count := int(n)
 	unit, _ := rule["IntervalUnit"].(string)
+	now = now.UTC()
 
 	switch strings.ToUpper(unit) {
 	case unitWeeks:

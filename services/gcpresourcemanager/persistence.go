@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -25,7 +27,10 @@ type backendSnapshot struct {
 	Enabled   map[string]map[string]time.Time `json:"enabledServices"`
 	Policies  map[string]jsontext.Value       `json:"policies"`
 	Ops       map[string]jsontext.Value       `json:"operations"`
+	TagHolds  map[string]*holdRec             `json:"tagHolds,omitempty"`
+	Liens     map[string]*lienRec             `json:"liens,omitempty"`
 	Seed      string                          `json:"seed"`
+	Retired   []string                        `json:"retiredProjectIds,omitempty"`
 	Version   int                             `json:"version"`
 	PolicySeq uint64                          `json:"policySeq"`
 }
@@ -36,10 +41,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	policies, seq := b.policies.Snapshot()
+	retired := slices.Sorted(maps.Keys(b.retired))
 	snap := backendSnapshot{
 		Version: snapshotVersion, Seed: b.seed, Projects: b.projects, Folders: b.folders, TagKeys: b.tagKeys,
 		TagValues: b.tagValues, Bindings: b.bindings, Enabled: b.enabled, PolicySeq: seq,
-		Policies: make(map[string]jsontext.Value, len(policies)), Ops: b.lro.Snapshot(),
+		Policies: make(map[string]jsontext.Value, len(policies)), Ops: b.lro.Snapshot(), Retired: retired,
+		Liens: b.liens, TagHolds: b.holds,
 	}
 
 	for n, p := range policies {
@@ -90,6 +97,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tagKeys, b.tagValues = orEmpty(snap.TagKeys), orEmpty(snap.TagValues)
 	b.bindings, b.enabled = orEmpty(snap.Bindings), orEmpty(snap.Enabled)
 	b.policies.Restore(policies, snap.PolicySeq)
+	b.liens = orEmpty(snap.Liens)
+	b.holds = orEmpty(snap.TagHolds)
+	b.retired = map[string]bool{}
+
+	for _, id := range snap.Retired {
+		b.retired[id] = true
+	}
 
 	return nil
 }

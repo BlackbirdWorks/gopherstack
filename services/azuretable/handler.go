@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -537,12 +537,12 @@ func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) 
 // services/azurequeue's StartWorker for the synchronous-bind rationale this
 // mirrors exactly.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("azuretable: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))

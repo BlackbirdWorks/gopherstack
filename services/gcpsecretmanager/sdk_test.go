@@ -145,6 +145,26 @@ func TestCreateSecret(t *testing.T) {
 			},
 			codes.OK,
 		},
+		"tags-ok": {
+			&secretmanagerpb.Secret{
+				Replication: auto(),
+				Tags:        map[string]string{"123/env": "prod", "tagKeys/9": "tagValues/1"},
+			},
+			codes.OK,
+		},
+		"tag-bad-key": {
+			&secretmanagerpb.Secret{Replication: auto(), Tags: map[string]string{"env": "prod"}},
+			codes.InvalidArgument,
+		},
+		"tag-empty-value": {
+			&secretmanagerpb.Secret{Replication: auto(), Tags: map[string]string{"123/env": ""}},
+			codes.InvalidArgument,
+		},
+		"bad-secret-type": {&secretmanagerpb.Secret{Replication: auto(), SecretType: 7}, codes.InvalidArgument},
+		"secret-type-ok": {
+			&secretmanagerpb.Secret{Replication: auto(), SecretType: secretmanagerpb.Secret_CERTIFICATE},
+			codes.OK,
+		},
 		"negative-ttl": {
 			&secretmanagerpb.Secret{
 				Replication: auto(),

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -36,23 +38,59 @@ func parseSAS(token string) map[string]string {
 	return out
 }
 
-// claimRights validates a SAS token against the authorization rules and
-// returns the rights it grants.
-func (b *InMemoryBackend) claimRights(token string) ([]string, bool) {
+// sasClaim is a validated SAS token: the hub its audience names ("" for the
+// whole namespace) and the rights of the signing rule.
+type sasClaim struct {
+	Audience string
+	Rights   []string
+}
+
+// audienceHub returns the entity named by a SAS audience URL
+// (sb://host/<hub>[/...]); "" addresses the namespace.
+func audienceHub(resource string) (string, bool) {
+	raw, err := url.QueryUnescape(resource)
+	if err != nil {
+		return "", false
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+
+	hub, _, _ := strings.Cut(strings.Trim(u.Path, "/"), "/")
+
+	return hub, true
+}
+
+// audienceCovers reports whether a claim for audience (a hub, or "" for the
+// namespace) authorizes access to entity.
+func audienceCovers(audience, entity string) bool {
+	return audience == "" || strs.Equal(audience, entity)
+}
+
+// claimRights validates a SAS token against the authorization rules; a
+// hub-scoped rule only signs tokens whose audience is that hub.
+func (b *InMemoryBackend) claimRights(token string) (sasClaim, bool) {
 	if len(token) > maxSASLen {
-		return nil, false
+		return sasClaim{}, false
 	}
 
 	fields := parseSAS(token)
 
 	expiry, err := strconv.ParseInt(fields["se"], 10, 64)
 	if err != nil || b.now().Unix() > expiry {
-		return nil, false
+		return sasClaim{}, false
 	}
 
 	sig, err := url.QueryUnescape(fields["sig"])
-	if err != nil || fields["sr"] == "" {
-		return nil, false
+	if err != nil {
+		return sasClaim{}, false
+	}
+
+	hub, ok := audienceHub(fields["sr"])
+	if !ok {
+		return sasClaim{}, false
 	}
 
 	name := fields["skn"]
@@ -60,7 +98,12 @@ func (b *InMemoryBackend) claimRights(token string) ([]string, bool) {
 		name = DefaultKeyName
 	}
 
-	return b.matchRule(name, fields["sr"], expiry, sig)
+	rights, ok := b.matchRule(name, hub, fields["sr"], expiry, sig)
+	if !ok {
+		return sasClaim{}, false
+	}
+
+	return sasClaim{Audience: hub, Rights: rights}, true
 }
 
 func (r *rule) signs(resource string, expiry int64, sig string) bool {
@@ -73,13 +116,13 @@ func (r *rule) signs(resource string, expiry int64, sig string) bool {
 	return false
 }
 
-func (b *InMemoryBackend) matchRule(name, resource string, expiry int64, sig string) ([]string, bool) {
+func (b *InMemoryBackend) matchRule(name, hub, resource string, expiry int64, sig string) ([]string, bool) {
 	b.mu.RLock("matchRule")
 	defer b.mu.RUnlock()
 
 	for _, ns := range b.namespaces {
 		for _, r := range ns.Rules {
-			if r.Name == name && r.signs(resource, expiry, sig) {
+			if r.Name == name && audienceCovers(r.Hub, hub) && r.signs(resource, expiry, sig) {
 				return append([]string(nil), r.Rights...), true
 			}
 		}

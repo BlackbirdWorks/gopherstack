@@ -62,6 +62,12 @@ type CodeBuildRunner interface {
 	BuildStatus(ctx context.Context, buildID string) (string, error)
 }
 
+// CodeBuildVariableReader is implemented by a CodeBuildRunner that can report the variables a build exported
+// (buildspec env/exported-variables); they become the action's output variables.
+type CodeBuildVariableReader interface {
+	BuildExportedVariables(ctx context.Context, buildID string) (map[string]string, error)
+}
+
 // ArtifactS3 is the S3 surface Source/S3 and Deploy/S3 actions and the
 // pipeline artifact store need, wired via SetArtifactS3.
 type ArtifactS3 interface {

@@ -92,7 +92,7 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 		ClusterConfiguration: b.snapshotClusterConfigFor(c),
 	}
 
-	data, err := c.engine.Snapshot()
+	data, err := b.captureDataLocked(c)
 	if err != nil {
 		return nil, err
 	}

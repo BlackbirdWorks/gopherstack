@@ -3,6 +3,7 @@ package resourceexplorer2
 import (
 	_ "embed" // documented resource type list
 	"encoding/json/v2"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func cfnTypeOf(resourceType string) string {
 
 // ListSupportedResourceTypes pages the catalog of searchable resource types.
 func (b *InMemoryBackend) ListSupportedResourceTypes(token string, maxResults int) (page.Page[SupportedType], error) {
-	return paginate(supportedTypes(), token, maxResults, maxPage)
+	return paginate(supportedTypes(), token, maxResults, maxPage, maxBigPage)
 }
 
 // ManagedViewWire is the ManagedView shape.
@@ -170,7 +171,7 @@ func (b *InMemoryBackend) ListManagedViews(
 
 	slices.Sort(arns)
 
-	return paginate(arns, token, maxResults, maxViewPage)
+	return paginate(arns, token, maxResults, maxViewListPage, maxViewListPage)
 }
 
 // GetManagedView returns a managed view by ARN.
@@ -191,7 +192,7 @@ func (b *InMemoryBackend) GetManagedView(account, region, viewARN string) (*Mana
 			ManagedViewArn:     viewARN,
 			ManagedViewName:    d.name,
 			Owner:              "aws",
-			ResourcePolicy:     managedViewPolicy(d.service, account),
+			ResourcePolicy:     managedViewPolicy(d.service, account, viewARN),
 			Scope:              arn.BuildGlobal("iam", "", account, "root"),
 			TrustedService:     d.service,
 			Version:            "1",
@@ -201,8 +202,15 @@ func (b *InMemoryBackend) GetManagedView(account, region, viewARN string) (*Mana
 	return nil, notFound("managed view %s not found", viewARN)
 }
 
-func managedViewPolicy(service, account string) string {
-	return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"` + service +
-		`"},"Action":"resource-explorer-2:Search","Resource":"*","Condition":{"StringEquals":{"aws:SourceAccount":"` +
-		account + `"}}}]}`
+func managedViewPolicy(service, account, viewARN string) string {
+	id := viewARN[strings.LastIndex(viewARN, "/")+1:]
+
+	return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[`+
+		`{"Sid":"%[1]s_ACCESS_TO_SERVICE_PRINCIPAL","Effect":"Allow","Principal":{"Service":"%[2]s"},`+
+		`"Action":["resource-explorer-2:GetManagedView","resource-explorer-2:Search"],"Resource":"%[4]s",`+
+		`"Condition":{"StringEquals":{"aws:SourceAccount":"%[3]s"}}},`+
+		`{"Sid":"%[1]s_DENY_ACCESS_TO_NON_SERVICE_PRINCIPAL","Effect":"Deny","Principal":"*",`+
+		`"Condition":{"ForAllValues:StringNotEquals":{"aws:PrincipalServiceNamesList":["%[2]s"]}},`+
+		`"NotAction":["resource-explorer-2:GetManagedView"],"Resource":"%[4]s"}]}`,
+		id, service, account, viewARN)
 }

@@ -12,30 +12,62 @@ import (
 
 func buildOps() map[string]opFunc {
 	return map[string]opFunc{
-		opGetNamespace: (*Handler).getNamespace, opGetNamespaceMetadata: (*Handler).getNamespaceMeta,
-		opUpdateNamespaceMeta: (*Handler).updateNamespaceMeta,
-		opListBuckets:         (*Handler).listBuckets, opCreateBucket: (*Handler).createBucket,
-		opGetBucket: (*Handler).getBucket, opHeadBucket: (*Handler).getBucket,
-		opUpdateBucket: (*Handler).updateBucket, opDeleteBucket: (*Handler).deleteBucket,
-		opMakeBucketWritable: (*Handler).makeBucketWritable,
-		opListObjects:        (*Handler).listObjects, opListObjectVersions: (*Handler).listObjectVersions,
-		opPutObject: (*Handler).putObject, opGetObject: (*Handler).getObject, opHeadObject: (*Handler).getObject,
-		opDeleteObject: (*Handler).deleteObject, opCopyObject: (*Handler).copyObject,
-		opRenameObject: (*Handler).renameObject, opRestoreObjects: (*Handler).restoreObjects,
-		opUpdateStorageTier: (*Handler).updateStorageTier, opBatchDeleteObjects: (*Handler).batchDelete,
-		opCreateMultipart: (*Handler).createUpload, opUploadPart: (*Handler).uploadPart,
-		opCommitMultipart: (*Handler).commitUpload, opAbortMultipart: (*Handler).abortUpload,
-		opListMultipartUploads: (*Handler).listUploads, opListMultipartParts: (*Handler).listParts,
-		opCreatePAR: (*Handler).createPAR, opListPARs: (*Handler).listPARs,
-		opGetPAR: (*Handler).getPAR, opDeletePAR: (*Handler).deletePAR,
-		opPutLifecycle: (*Handler).putLifecycle, opGetLifecycle: (*Handler).getLifecycle,
-		opDeleteLifecycle: (*Handler).deleteLifecycle,
-		opCreateRetention: (*Handler).createRetention, opGetRetention: (*Handler).getRetention,
-		opListRetention: (*Handler).listRetention, opUpdateRetention: (*Handler).updateRetention,
-		opDeleteRetention: (*Handler).deleteRetention,
-		opGetWorkRequest:  (*Handler).getWorkRequest, opListWorkRequests: (*Handler).listWorkRequests,
-		opDeleteWorkRequest: (*Handler).cancelWorkRequest,
-		opListWRErrors:      (*Handler).listWRErrors, opListWRLogs: (*Handler).listWRLogs,
+		opGetNamespace:           (*Handler).getNamespace,
+		opGetNamespaceMetadata:   (*Handler).getNamespaceMeta,
+		opUpdateNamespaceMeta:    (*Handler).updateNamespaceMeta,
+		opListBuckets:            (*Handler).listBuckets,
+		opCreateBucket:           (*Handler).createBucket,
+		opGetBucket:              (*Handler).getBucket,
+		opHeadBucket:             (*Handler).getBucket,
+		opUpdateBucket:           (*Handler).updateBucket,
+		opDeleteBucket:           (*Handler).deleteBucket,
+		opMakeBucketWritable:     (*Handler).makeBucketWritable,
+		opCreateReplication:      (*Handler).createReplication,
+		opGetReplication:         (*Handler).getReplication,
+		opListReplications:       (*Handler).listReplications,
+		opDeleteReplication:      (*Handler).deleteReplication,
+		opListReplicationSources: (*Handler).listReplicationSources,
+		opReencryptObject:        (*Handler).reencryptObject,
+		opReencryptBucket:        (*Handler).reencryptBucket,
+		opListObjects:            (*Handler).listObjects,
+		opListObjectVersions:     (*Handler).listObjectVersions,
+		opPutObject:              (*Handler).putObject,
+		opGetObject:              (*Handler).getObject,
+		opHeadObject:             (*Handler).getObject,
+		opDeleteObject:           (*Handler).deleteObject,
+		opCopyObject:             (*Handler).copyObject,
+		opRenameObject:           (*Handler).renameObject,
+		opRestoreObjects:         (*Handler).restoreObjects,
+		opUpdateStorageTier:      (*Handler).updateStorageTier,
+		opBatchDeleteObjects:     (*Handler).batchDelete,
+		opCreateMultipart:        (*Handler).createUpload,
+		opUploadPart:             (*Handler).uploadPart,
+		opCommitMultipart:        (*Handler).commitUpload,
+		opAbortMultipart:         (*Handler).abortUpload,
+		opListMultipartUploads:   (*Handler).listUploads,
+		opListMultipartParts:     (*Handler).listParts,
+		opCreatePAR:              (*Handler).createPAR,
+		opListPARs:               (*Handler).listPARs,
+		opGetPAR:                 (*Handler).getPAR,
+		opDeletePAR:              (*Handler).deletePAR,
+		opPutLifecycle:           (*Handler).putLifecycle,
+		opGetLifecycle:           (*Handler).getLifecycle,
+		opDeleteLifecycle:        (*Handler).deleteLifecycle,
+		opCreateRetention:        (*Handler).createRetention,
+		opGetRetention:           (*Handler).getRetention,
+		opListRetention:          (*Handler).listRetention,
+		opUpdateRetention:        (*Handler).updateRetention,
+		opDeleteRetention:        (*Handler).deleteRetention,
+		opGetWorkRequest:         (*Handler).getWorkRequest,
+		opListWorkRequests:       (*Handler).listWorkRequests,
+		opDeleteWorkRequest:      (*Handler).cancelWorkRequest,
+		opListWRErrors:           (*Handler).listWRErrors,
+		opListWRLogs:             (*Handler).listWRLogs,
+		opCreatePrivateEndpoint:  (*Handler).createPrivateEndpoint,
+		opGetPrivateEndpoint:     (*Handler).getPrivateEndpoint,
+		opListPrivateEndpoints:   (*Handler).listPrivateEndpoints,
+		opUpdatePrivateEndpoint:  (*Handler).updatePrivateEndpoint,
+		opDeletePrivateEndpoint:  (*Handler).deletePrivateEndpoint,
 	}
 }
 
@@ -182,7 +214,7 @@ func (h *Handler) deleteBucket(q *req) error {
 }
 
 func (h *Handler) makeBucketWritable(q *req) error {
-	if _, err := h.Backend.GetBucket(q.rt.ns, q.rt.bucket, nil, Preconds{}); err != nil {
+	if err := h.Backend.MakeBucketWritable(q.rt.ns, q.rt.bucket); err != nil {
 		return err
 	}
 
@@ -333,6 +365,14 @@ func (q *req) objectHeaders(o *ObjectInfo) {
 		q.header("Content-MD5", o.MD5)
 	}
 
+	for k, v := range o.Checksum.headers() {
+		q.header(k, v)
+	}
+
+	if !o.TimeArchived.IsZero() {
+		q.header("time-of-archival", o.TimeArchived.UTC().Format(time.RFC3339Nano))
+	}
+
 	for k, v := range map[string]string{
 		"Content-Language": o.Meta.ContentLanguage, "Content-Encoding": o.Meta.ContentEncoding,
 		"Content-Disposition": o.Meta.ContentDisposition, "Cache-Control": o.Meta.CacheControl,
@@ -348,9 +388,26 @@ func (q *req) objectHeaders(o *ObjectInfo) {
 	}
 }
 
+func checksumFromHeaders(h http.Header) ChecksumReq {
+	return ChecksumReq{
+		Algorithm: h.Get(hdrChecksumAlg), CRC32C: h.Get(hdrCRC32C),
+		SHA256: h.Get(hdrSHA256), SHA384: h.Get(hdrSHA384),
+	}
+}
+
 func (h *Handler) putObject(q *req) error {
-	o, err := h.Backend.PutObject(
-		q.rt.ns, q.rt.bucket, q.rt.object, q.body, q.objectMeta(), q.pre(), q.r.Header.Get("Content-MD5"))
+	ck := checksumFromHeaders(q.r.Header)
+
+	alg, err := normalizeAlg(ck.Algorithm)
+	if err != nil {
+		return err
+	}
+
+	ck.Algorithm = alg
+
+	o, err := h.Backend.PutObjectWith(
+		q.rt.ns, q.rt.bucket, q.rt.object, q.body, q.objectMeta(), q.pre(),
+		PutOptions{ContentMD5: q.r.Header.Get("Content-MD5"), Checksum: ck, SSE: sseFromHeaders(q.r.Header)})
 	if err != nil {
 		return err
 	}
@@ -360,13 +417,18 @@ func (h *Handler) putObject(q *req) error {
 	q.header("Last-Modified", httpDate(o.TimeModified))
 	q.header("version-id", o.VersionID)
 
+	for k, v := range o.Checksum.headers() {
+		q.header(k, v)
+	}
+
 	return q.status(http.StatusOK)
 }
 
 func (h *Handler) getObject(q *req) error {
 	head := q.rt.op == opHeadObject
 
-	o, err := h.Backend.GetObject(q.rt.ns, q.rt.bucket, q.rt.object, q.query("versionId"), q.pre(), !head)
+	o, err := h.Backend.GetObjectWith(
+		q.rt.ns, q.rt.bucket, q.rt.object, q.query("versionId"), q.pre(), !head, readKeyFromHeaders(q.r.Header))
 	if err != nil {
 		return err
 	}
@@ -478,7 +540,8 @@ func (h *Handler) copyObject(q *req) error {
 		return err
 	}
 
-	id, err := h.Backend.CopyObject(q.rt.ns, q.rt.bucket, in)
+	id, err := h.Backend.CopyObjectWith(q.rt.ns, q.rt.bucket, in,
+		CopyOptions{Dest: sseFromHeaders(q.r.Header), SrcKey: srcKeyFromHeaders(q.r.Header)})
 	if err != nil {
 		return err
 	}
@@ -577,7 +640,8 @@ func (h *Handler) createUpload(q *req) error {
 		return err
 	}
 
-	u, err := h.Backend.CreateUpload(q.rt.ns, q.rt.bucket, in, q.pre())
+	u, err := h.Backend.CreateUploadWith(q.rt.ns, q.rt.bucket, in, q.pre(),
+		UploadOptions{Algorithm: q.r.Header.Get(hdrChecksumAlg), SSE: sseFromHeaders(q.r.Header)})
 	if err != nil {
 		return err
 	}
@@ -591,14 +655,21 @@ func (h *Handler) uploadPart(q *req) error {
 		return errParam("uploadPartNum must be an integer")
 	}
 
-	etag, sum, err := h.Backend.UploadPart(
-		q.rt.ns, q.rt.bucket, q.rt.object, q.query("uploadId"), num, q.body, q.r.Header.Get("Content-MD5"))
+	r, err := h.Backend.UploadPartWith(q.rt.ns, q.rt.bucket, q.rt.object, q.query("uploadId"), num, q.body,
+		PartOptions{
+			ContentMD5: q.r.Header.Get("Content-MD5"), Checksum: checksumFromHeaders(q.r.Header),
+			Key: readKeyFromHeaders(q.r.Header),
+		})
 	if err != nil {
 		return err
 	}
 
-	q.header("ETag", etag)
-	q.header("opc-content-md5", sum)
+	q.header("ETag", r.Etag)
+	q.header("opc-content-md5", r.MD5)
+
+	for k, v := range r.Checksum.headers() {
+		q.header(k, v)
+	}
 
 	return q.status(http.StatusOK)
 }
@@ -616,6 +687,11 @@ func (h *Handler) commitUpload(q *req) error {
 
 	q.header("ETag", o.Etag)
 	q.header("opc-multipart-md5", o.MultipartMD5)
+
+	for k, v := range o.Checksum.headers() {
+		q.header(k, v)
+	}
+
 	q.header("Last-Modified", httpDate(o.TimeModified))
 	q.header("version-id", o.VersionID)
 
@@ -830,11 +906,166 @@ func (h *Handler) listWRErrors(q *req) error {
 	return q.json(http.StatusOK, []any{})
 }
 
+func wrLogMessage(op string) string {
+	if strings.HasPrefix(op, "PRIVATE_ENDPOINT_") {
+		return "Private endpoint operation completed"
+	}
+
+	return "Copy completed"
+}
+
 func (h *Handler) listWRLogs(q *req) error {
 	w, err := h.Backend.GetWorkRequest(q.rt.id)
 	if err != nil {
 		return err
 	}
 
-	return q.json(http.StatusOK, []map[string]any{{"message": "Copy completed", "timestamp": w.TimeFinished}})
+	return q.json(
+		http.StatusOK,
+		[]map[string]any{{"message": wrLogMessage(w.OperationType), "timestamp": w.TimeFinished}},
+	)
+}
+
+func (h *Handler) createReplication(q *req) error {
+	var in CreateReplicationInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	p, err := h.Backend.CreateReplicationPolicy(q.rt.ns, q.rt.bucket, in)
+	if err != nil {
+		return err
+	}
+
+	return q.json(http.StatusOK, p)
+}
+
+func (h *Handler) getReplication(q *req) error {
+	p, err := h.Backend.GetReplicationPolicy(q.rt.ns, q.rt.bucket, q.rt.id)
+	if err != nil {
+		return err
+	}
+
+	return q.json(http.StatusOK, p)
+}
+
+func (h *Handler) listReplications(q *req) error {
+	p, err := h.Backend.ListReplicationPolicies(q.rt.ns, q.rt.bucket, q.query("page"), q.limit())
+	if err != nil {
+		return err
+	}
+
+	q.nextPage(p.Next)
+
+	return q.json(http.StatusOK, p.Data)
+}
+
+func (h *Handler) deleteReplication(q *req) error {
+	if err := h.Backend.DeleteReplicationPolicy(q.rt.ns, q.rt.bucket, q.rt.id); err != nil {
+		return err
+	}
+
+	return q.status(http.StatusNoContent)
+}
+
+func (h *Handler) listReplicationSources(q *req) error {
+	p, err := h.Backend.ListReplicationSources(q.rt.ns, q.rt.bucket, q.query("page"), q.limit())
+	if err != nil {
+		return err
+	}
+
+	q.nextPage(p.Next)
+
+	return q.json(http.StatusOK, p.Data)
+}
+
+func (h *Handler) reencryptObject(q *req) error {
+	var in ReencryptInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	if err := h.Backend.ReencryptObject(q.rt.ns, q.rt.bucket, q.rt.object, q.query("versionId"), in); err != nil {
+		return err
+	}
+
+	return q.status(http.StatusOK)
+}
+
+func (h *Handler) reencryptBucket(q *req) error {
+	id, err := h.Backend.ReencryptBucket(q.rt.ns, q.rt.bucket)
+	if err != nil {
+		return err
+	}
+
+	q.header("opc-work-request-id", id)
+
+	return q.status(http.StatusAccepted)
+}
+
+func (q *req) acceptWorkRequest(id string) error {
+	q.header("opc-work-request-id", id)
+
+	return q.status(http.StatusAccepted)
+}
+
+func (h *Handler) createPrivateEndpoint(q *req) error {
+	var in CreatePrivateEndpointInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	id, err := h.Backend.CreatePrivateEndpoint(q.rt.ns, in, q.user())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
+}
+
+func (h *Handler) getPrivateEndpoint(q *req) error {
+	w, err := h.Backend.GetPrivateEndpoint(q.rt.ns, q.rt.id, q.pre())
+	if err != nil {
+		return err
+	}
+
+	q.header("ETag", w.Etag)
+
+	return q.json(http.StatusOK, w)
+}
+
+func (h *Handler) listPrivateEndpoints(q *req) error {
+	p, err := h.Backend.ListPrivateEndpoints(
+		q.rt.ns, q.query("compartmentId"), q.query("lifecycleState"), q.query("page"), q.limit(),
+	)
+	if err != nil {
+		return err
+	}
+
+	q.nextPage(p.Next)
+
+	return q.json(http.StatusOK, p.Data)
+}
+
+func (h *Handler) updatePrivateEndpoint(q *req) error {
+	var in UpdatePrivateEndpointInput
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	id, err := h.Backend.UpdatePrivateEndpoint(q.rt.ns, q.rt.id, in, q.pre())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
+}
+
+func (h *Handler) deletePrivateEndpoint(q *req) error {
+	id, err := h.Backend.DeletePrivateEndpoint(q.rt.ns, q.rt.id, q.pre())
+	if err != nil {
+		return err
+	}
+
+	return q.acceptWorkRequest(id)
 }

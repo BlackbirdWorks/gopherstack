@@ -287,7 +287,7 @@ func (b *Backend) updateFlow(
 	ctx context.Context,
 	in *UpdateContactFlowInput,
 	apply func(f *flowRec) error,
-) (*empty, error) {
+) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateContactFlow")
 	defer b.mu.Unlock()
 
@@ -307,11 +307,11 @@ func (b *Backend) updateFlow(
 
 	f.Flow.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }
 
 // UpdateContactFlowContent replaces the content of a flow after validating it.
-func (b *Backend) UpdateContactFlowContent(ctx context.Context, in *UpdateContactFlowInput) (*empty, error) {
+func (b *Backend) UpdateContactFlowContent(ctx context.Context, in *UpdateContactFlowInput) (*EmptyOutput, error) {
 	if in.Content == nil {
 		return nil, invalidParamErr("Content is required")
 	}
@@ -329,7 +329,7 @@ func (b *Backend) UpdateContactFlowContent(ctx context.Context, in *UpdateContac
 }
 
 // UpdateContactFlowName renames a flow.
-func (b *Backend) UpdateContactFlowName(ctx context.Context, in *UpdateContactFlowInput) (*empty, error) {
+func (b *Backend) UpdateContactFlowName(ctx context.Context, in *UpdateContactFlowInput) (*EmptyOutput, error) {
 	if in.Name == nil && in.Description == nil {
 		return nil, invalidParamErr("Name or Description is required")
 	}
@@ -343,7 +343,7 @@ func (b *Backend) renameFlow(f *flowRec, in *UpdateContactFlowInput) error {
 }
 
 // UpdateContactFlowMetadata changes name, description and state of a flow.
-func (b *Backend) UpdateContactFlowMetadata(ctx context.Context, in *UpdateContactFlowInput) (*empty, error) {
+func (b *Backend) UpdateContactFlowMetadata(ctx context.Context, in *UpdateContactFlowInput) (*EmptyOutput, error) {
 	if in.ContactFlowState != nil {
 		if err := oneOf("ContactFlowState", *in.ContactFlowState, flowActive, flowArchived); err != nil {
 			return nil, err
@@ -362,7 +362,7 @@ func (b *Backend) UpdateContactFlowMetadata(ctx context.Context, in *UpdateConta
 }
 
 // DeleteContactFlow removes a flow no phone number, queue or quick connect uses.
-func (b *Backend) DeleteContactFlow(inst, id string) (*empty, error) {
+func (b *Backend) DeleteContactFlow(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteContactFlow")
 	defer b.mu.Unlock()
 
@@ -542,7 +542,7 @@ type UpdateContactFlowModuleInput struct {
 	instPath
 }
 
-func (b *Backend) updateModule(in *UpdateContactFlowModuleInput, apply func(m *moduleRec) error) (*empty, error) {
+func (b *Backend) updateModule(in *UpdateContactFlowModuleInput, apply func(m *moduleRec) error) (*EmptyOutput, error) {
 	b.mu.Lock("UpdateContactFlowModule")
 	defer b.mu.Unlock()
 
@@ -560,7 +560,10 @@ func (b *Backend) updateModule(in *UpdateContactFlowModuleInput, apply func(m *m
 }
 
 // UpdateContactFlowModuleContent replaces the content and settings of a module.
-func (b *Backend) UpdateContactFlowModuleContent(_ context.Context, in *UpdateContactFlowModuleInput) (*empty, error) {
+func (b *Backend) UpdateContactFlowModuleContent(
+	_ context.Context,
+	in *UpdateContactFlowModuleInput,
+) (*EmptyOutput, error) {
 	if in.Content == nil && in.Settings == nil {
 		return nil, invalidParamErr("Content or Settings is required")
 	}
@@ -582,7 +585,10 @@ func (b *Backend) UpdateContactFlowModuleContent(_ context.Context, in *UpdateCo
 }
 
 // UpdateContactFlowModuleMetadata changes name, description and state of a module.
-func (b *Backend) UpdateContactFlowModuleMetadata(_ context.Context, in *UpdateContactFlowModuleInput) (*empty, error) {
+func (b *Backend) UpdateContactFlowModuleMetadata(
+	_ context.Context,
+	in *UpdateContactFlowModuleInput,
+) (*EmptyOutput, error) {
 	if in.State != nil {
 		if err := oneOf("State", *in.State, flowActive, flowArchived); err != nil {
 			return nil, err
@@ -623,7 +629,7 @@ func (b *Backend) UpdateContactFlowModuleMetadata(_ context.Context, in *UpdateC
 }
 
 // DeleteContactFlowModule removes a flow module.
-func (b *Backend) DeleteContactFlowModule(inst, id string) (*empty, error) {
+func (b *Backend) DeleteContactFlowModule(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeleteContactFlowModule")
 	defer b.mu.Unlock()
 

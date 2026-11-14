@@ -15,7 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -69,8 +69,7 @@ func TestInitializeServices_RegionAwareCrossServiceWiring(t *testing.T) {
 	t.Parallel()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
-	portAlloc, err := portalloc.New(19300, 19400)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	cli.faultStore = chaos.NewFaultStore()
 

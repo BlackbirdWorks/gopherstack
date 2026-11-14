@@ -10,7 +10,7 @@ import (
 // authenticate accepts Shared Key, Shared Key Lite, SAS, bearer and anonymous
 // requests. Signatures are only enforced when VerifyAuth is set, and only for
 // the development account whose key is public.
-func (h *Handler) authenticate(rc *reqCtx) *apiError {
+func (h *Handler) authenticate(rc *reqCtx, op string) *apiError {
 	if !h.VerifyAuth {
 		return nil
 	}
@@ -20,11 +20,23 @@ func (h *Handler) authenticate(rc *reqCtx) *apiError {
 
 	switch {
 	case strings.HasPrefix(authz, "Bearer "):
-		return nil
+		return checkBearerIntent(rc)
 	case authz != "":
 		return verifySharedKey(rc)
 	case rc.q.Get("sig") != "":
-		return verifySAS(rc)
+		return h.verifySAS(rc, op)
+	}
+
+	return nil
+}
+
+// checkBearerIntent requires x-ms-file-request-intent=backup on OAuth requests, as the service does.
+func checkBearerIntent(rc *reqCtx) *apiError {
+	switch v := rc.hdr("x-ms-file-request-intent"); {
+	case v == "":
+		return errMissingHeader("x-ms-file-request-intent")
+	case !strings.EqualFold(v, "backup"):
+		return errInvalidHeader("x-ms-file-request-intent")
 	}
 
 	return nil

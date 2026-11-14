@@ -12,6 +12,7 @@ const snapshotVersion = 1
 
 type backendSnapshot struct {
 	Stores  map[string]*store `json:"stores"`
+	Trash   map[string]*store `json:"trash,omitempty"`
 	Version int               `json:"version"`
 }
 
@@ -21,7 +22,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "azureappconfig", backendSnapshot{
-		Version: snapshotVersion, Stores: b.stores,
+		Version: snapshotVersion, Stores: b.stores, Trash: b.trash,
 	})
 }
 
@@ -41,6 +42,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.stores = map[string]*store{}
+		b.trash = map[string]*store{}
 
 		return nil
 	}
@@ -50,6 +52,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.stores = snap.Stores
+	b.trash = snap.Trash
 
 	return nil
 }
@@ -59,7 +62,21 @@ func normalize(snap *backendSnapshot) error {
 		snap.Stores = map[string]*store{}
 	}
 
-	for name, s := range snap.Stores {
+	if snap.Trash == nil {
+		snap.Trash = map[string]*store{}
+	}
+
+	for _, group := range []map[string]*store{snap.Stores, snap.Trash} {
+		if err := normalizeStores(group); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func normalizeStores(stores map[string]*store) error {
+	for name, s := range stores {
 		if s == nil {
 			return fmt.Errorf("%w: store %q", errNullEntry, name)
 		}

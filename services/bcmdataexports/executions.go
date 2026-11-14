@@ -28,7 +28,9 @@ type manifest struct {
 	Compression   string           `json:"compression"`
 	Columns       []manifestColumn `json:"columns"`
 	DataFileKeys  []string         `json:"dataFileKeys"`
-	RowCount      int              `json:"rowCount"`
+	// AdditionalOutputFiles is the documented manifest section listing Athena/Redshift integration files.
+	AdditionalOutputFiles []string `json:"additionalOutputFiles"`
+	RowCount              int      `json:"rowCount"`
 }
 
 type outcome struct {
@@ -213,6 +215,8 @@ func writeResult(
 		Format:      e.Format,
 		Compression: e.Compression,
 		RowCount:    len(res.rows),
+
+		AdditionalOutputFiles: []string{},
 	}
 
 	for _, c := range res.cols {
@@ -245,9 +249,17 @@ func writeResult(
 		return fmt.Errorf("encode manifest: %w", err)
 	}
 
-	mKey := path.Join(base, "metadata", periodLabel(billStart), e.Name+"-Manifest.json")
-	if err = billingexport.Put(ctx, objects, e.S3Bucket, mKey, mb, "application/json"); err != nil {
-		return fmt.Errorf("put %s: %w", mKey, err)
+	metaDir := path.Join(base, "metadata", periodLabel(billStart))
+	mKeys := []string{path.Join(metaDir, e.Name+"-Manifest.json")}
+
+	if e.Overwrite == ovNew {
+		mKeys = append(mKeys, path.Join(metaDir, now.Format("20060102T150405Z")+"-"+x.ID, e.Name+"-Manifest.json"))
+	}
+
+	for _, mKey := range mKeys {
+		if err = billingexport.Put(ctx, objects, e.S3Bucket, mKey, mb, "application/json"); err != nil {
+			return fmt.Errorf("put %s: %w", mKey, err)
+		}
 	}
 
 	return nil

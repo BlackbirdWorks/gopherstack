@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto"
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -31,6 +32,14 @@ func wireAzureGraph(byName map[string]service.Registerable) {
 		graphH.Issuer = armH.Issuer
 	}
 
+	if armH.Issuer != nil {
+		graphH.Backend.SetIssuerKeys(func(kid string) (crypto.PublicKey, bool) {
+			k, found := armH.Issuer.PublicKeyForKID(kid)
+
+			return k, found
+		})
+	}
+
 	armH.SetClientAuthenticator(&graphClientAuth{backend: graphH.Backend})
 	armH.SetPrincipalDirectory(graphH.Backend)
 }
@@ -43,11 +52,21 @@ type graphClientAuth struct {
 func (a *graphClientAuth) AuthenticateClient(clientID, secret string) (string, bool, error) {
 	oid, known, err := a.backend.AuthenticateClient(clientID, secret)
 
+	return oid, known, armError(err)
+}
+
+func (a *graphClientAuth) AuthenticateAssertion(clientID, assertion string, audiences []string) (string, bool, error) {
+	oid, known, err := a.backend.AuthenticateAssertion(clientID, assertion, audiences)
+
+	return oid, known, armError(err)
+}
+
+func armError(err error) error {
 	if ce, ok := errors.AsType[*azuregraph.ClientAuthError](err); ok {
-		return "", known, &azurearm.ClientAuthError{
+		return &azurearm.ClientAuthError{
 			Name: ce.Name, Description: ce.Description, Status: ce.Status, Code: ce.Code,
 		}
 	}
 
-	return oid, known, err
+	return err
 }

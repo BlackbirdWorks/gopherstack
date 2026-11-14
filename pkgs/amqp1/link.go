@@ -1,6 +1,10 @@
 package amqp1
 
-import "context"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
 
 func (s *session) attach(a *Attach) bool {
 	s.mu.Lock()
@@ -81,6 +85,8 @@ func (l *sendLink) open(a *Attach) bool {
 }
 
 func (l *sendLink) openAsync(d DeferredAttach, a *Attach) {
+	defer logger.Recover(l.ctx, "amqp1.openasync", l.s.c.internalError)
+
 	e := d.Ready(l.ctx)
 	if l.ctx.Err() != nil {
 		l.ep.Close()

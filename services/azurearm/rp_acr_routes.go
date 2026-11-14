@@ -17,6 +17,7 @@ const (
 	acrActionListEvents       = "listEvents"
 	acrSubCheckLen            = 5
 	acrRegistryLen            = 8
+	acrChildLen               = 10
 	acrRegistryActionLen      = 9
 	acrWebhookActionLen       = 11
 	acrProviderNsIdx          = 5
@@ -53,6 +54,13 @@ var containerRegistryRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPatch && isACRScope(segs, acrRegistryLen)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRPatch(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPatch && isACRScope(segs, acrChildLen) &&
+				(segAt(segs, acrWebhookTypeIdx, acrWebhooksType) || segAt(segs, acrWebhookTypeIdx, acrReplicationsType))
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRPatch(c, segs) },
 	},

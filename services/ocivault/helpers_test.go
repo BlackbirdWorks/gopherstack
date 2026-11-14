@@ -156,6 +156,7 @@ func (e *env) mkVault(t *testing.T, name string) keymanagement.Vault {
 		VaultType: keymanagement.CreateVaultDetailsVaultTypeDefault,
 	})
 	require.NoError(t, err)
+	e.clock.Advance(oci.TransitionDelay)
 
 	return resp.Vault
 }
@@ -179,6 +180,7 @@ func (e *env) mkKey(t *testing.T, m keymanagement.KmsManagementClient, name stri
 		CompartmentId: new(testCompartment), DisplayName: new(name), KeyShape: ks, ProtectionMode: mode,
 	})
 	require.NoError(t, err)
+	e.clock.Advance(oci.TransitionDelay)
 
 	return resp.Key
 }
@@ -192,3 +194,5 @@ func svcErr(t *testing.T, err error) common.ServiceError {
 
 	return se
 }
+
+func (e *env) settle() { e.clock.Advance(oci.TransitionDelay) }

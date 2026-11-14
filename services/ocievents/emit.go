@@ -31,20 +31,26 @@ var errNoTarget = errors.New("the target service is not available")
 type Event struct {
 	Time               time.Time
 	AdditionalDetails  map[string]any
+	FreeformTags       map[string]string
+	DefinedTags        map[string]map[string]any
 	EventType          string
 	Source             string
 	CompartmentID      string
 	ResourceName       string
 	ResourceID         string
 	AvailabilityDomain string
+	CompartmentName    string
 }
 
 type eventData struct {
-	AdditionalDetails  map[string]any `json:"additionalDetails"`
-	CompartmentID      string         `json:"compartmentId"`
-	ResourceName       string         `json:"resourceName"`
-	ResourceID         string         `json:"resourceId"`
-	AvailabilityDomain string         `json:"availabilityDomain"`
+	AdditionalDetails  map[string]any            `json:"additionalDetails"`
+	FreeformTags       map[string]string         `json:"freeFormTags,omitempty"`
+	DefinedTags        map[string]map[string]any `json:"definedTags,omitempty"`
+	CompartmentName    string                    `json:"compartmentName,omitempty"`
+	CompartmentID      string                    `json:"compartmentId"`
+	ResourceName       string                    `json:"resourceName"`
+	ResourceID         string                    `json:"resourceId"`
+	AvailabilityDomain string                    `json:"availabilityDomain"`
 }
 
 type envelope struct {
@@ -96,7 +102,8 @@ func buildEnvelope(ev Event, id string) ([]byte, map[string]any, error) {
 		EventID: id, Extensions: map[string]string{"compartmentId": ev.CompartmentID},
 		Data: eventData{
 			CompartmentID: ev.CompartmentID, ResourceName: ev.ResourceName, ResourceID: ev.ResourceID,
-			AvailabilityDomain: ad, AdditionalDetails: details,
+			AvailabilityDomain: ad, AdditionalDetails: details, CompartmentName: ev.CompartmentName,
+			FreeformTags: ev.FreeformTags, DefinedTags: ev.DefinedTags,
 		},
 	}, jsonx.V1())
 	if err != nil {
@@ -129,6 +136,10 @@ func (b *InMemoryBackend) Emit(ev Event) {
 		ev.Time = b.clockNow()
 	}
 
+	if ev.CompartmentName == "" {
+		ev.CompartmentName = b.nameOf(ev.CompartmentID)
+	}
+
 	id := uuid.NewString()
 
 	raw, generic, err := buildEnvelope(ev, id)
@@ -141,6 +152,18 @@ func (b *InMemoryBackend) Emit(ev Event) {
 	for _, j := range jobs {
 		spawn(func() { b.finish(j.rec, b.deliver(j)) })
 	}
+}
+
+func (b *InMemoryBackend) nameOf(compartmentID string) string {
+	b.mu.RLock("nameOf")
+	fn := b.compartmentName
+	b.mu.RUnlock()
+
+	if fn == nil {
+		return ""
+	}
+
+	return fn(compartmentID)
 }
 
 func (b *InMemoryBackend) clockNow() time.Time {

@@ -6,15 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
-func newURLQualifierBackend(t *testing.T, portStart int) (*lambda.InMemoryBackend, *mockDNSRegistrar) {
+func newURLQualifierBackend(t *testing.T) (*lambda.InMemoryBackend, *mockDNSRegistrar) {
 	t.Helper()
 
-	pa, err := portalloc.New(portStart, portStart+10)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 50)
 
 	b := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 	closeBackend(t, b)
@@ -26,7 +25,7 @@ func newURLQualifierBackend(t *testing.T, portStart int) (*lambda.InMemoryBacken
 		FunctionName: "url-q-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest",
 	}))
 
-	_, err = b.PublishVersion("url-q-fn", "v1")
+	_, err := b.PublishVersion("url-q-fn", "v1")
 	require.NoError(t, err)
 
 	_, err = b.CreateAlias("url-q-fn", &lambda.CreateAliasInput{Name: "prod", FunctionVersion: "1"})
@@ -49,11 +48,11 @@ func TestFunctionURLConfig_QualifierScoped(t *testing.T) {
 		{name: "version_number_is_not_an_alias", qualifier: "1", wantErr: lambda.ErrFunctionNotFound},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b, _ := newURLQualifierBackend(t, 21000+i*20)
+			b, _ := newURLQualifierBackend(t)
 
 			_, err := b.CreateFunctionURLConfig(t.Context(), "url-q-fn", "NONE", nil, "")
 			require.NoError(t, err)
@@ -100,7 +99,7 @@ func TestFunctionURLConfig_QualifierScoped(t *testing.T) {
 func TestDeleteFunction_ReleasesFunctionURLListeners(t *testing.T) {
 	t.Parallel()
 
-	b, dns := newURLQualifierBackend(t, 21200)
+	b, dns := newURLQualifierBackend(t)
 
 	_, err := b.CreateFunctionURLConfig(t.Context(), "url-q-fn", "NONE", nil, "")
 	require.NoError(t, err)

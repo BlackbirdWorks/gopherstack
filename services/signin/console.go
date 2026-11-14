@@ -14,6 +14,20 @@ const (
 
 var targetPattern = regexp.MustCompile(`^(\d{12}|o-[a-z0-9]{10}|r-[0-9a-z]{4,32})$`)
 
+// OrganizationResolver reports which organization and root IDs exist.
+type OrganizationResolver interface {
+	HasOrganization(id string) bool
+	HasRoot(id string) bool
+}
+
+// SetOrganizationResolver validates organization and root targets against r; nil accepts any well-formed ID.
+func (b *InMemoryBackend) SetOrganizationResolver(r OrganizationResolver) {
+	b.mu.Lock("SetOrganizationResolver")
+	defer b.mu.Unlock()
+
+	b.orgs = r
+}
+
 // ConsoleAuthorization is the state returned by the console authorization operations.
 type ConsoleAuthorization struct {
 	Scope    string
@@ -42,8 +56,16 @@ func (b *InMemoryBackend) resolveTarget(ctx context.Context, targetID string) (s
 
 	switch {
 	case strings.HasPrefix(targetID, "o-"):
+		if r := b.orgResolver(); r != nil && !r.HasOrganization(targetID) {
+			return "", "", notFound("organization " + targetID + " does not exist")
+		}
+
 		return targetID, scopeOrganization, nil
 	case strings.HasPrefix(targetID, "r-"):
+		if r := b.orgResolver(); r != nil && !r.HasRoot(targetID) {
+			return "", "", notFound("root " + targetID + " does not exist")
+		}
+
 		return targetID, scopeRoot, nil
 	case targetID != c.account:
 		return "", "", accessDenied(
@@ -116,4 +138,11 @@ func (b *InMemoryBackend) DeleteConsoleAuthorizationConfiguration(
 	b.consoleConfigs.Delete(target)
 
 	return &ConsoleAuthorization{Scope: cfg.Scope, TargetID: cfg.TargetID, Enabled: false}, nil
+}
+
+func (b *InMemoryBackend) orgResolver() OrganizationResolver {
+	b.mu.RLock("orgResolver")
+	defer b.mu.RUnlock()
+
+	return b.orgs
 }

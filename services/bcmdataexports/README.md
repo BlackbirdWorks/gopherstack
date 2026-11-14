@@ -9,18 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 12 (12 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 6 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- tables: only COST_AND_USAGE_REPORT, FOCUS_1_0_AWS, CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS exist; FOCUS_1_2_AWS and other real tables are absent
-- columns: COST_AND_USAGE_REPORT carries about 40 of the real CUR 2.0 columns and FOCUS_1_0_AWS the 43 FOCUS 1.0 columns plus 5 x_ extensions; the exact x_ set is unverified
 - CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS: schemas only, exports contain headers and no rows (no emissions or recommendation data source)
-- manifest: the metadata manifest layout is an emulator shape, not verified against the real service
-- error bodies: ResourceNotFoundException carries ResourceId/ResourceType and ValidationException carries Reason/Fields where the field is known; ServiceQuotaExceeded ResourceId/ResourceType/QuotaCode/ServiceCode and Throttling QuotaCode/ServiceCode are not set; query-parser validation errors report Reason other without Fields
-- MaxResults bounds: 1-100 assumed
+- manifest: delivery locations (one manifest in overwrite mode, a second per-execution copy in create-new mode) and the additionalOutputFiles section follow the documented layout; the spelling of the remaining manifest keys (columns, file list, time period) is not published
+- error bodies: ServiceQuotaExceeded QuotaCode and Throttling QuotaCode/ServiceCode are not set (Service Quotas codes are not published; throttling is never raised); query-parser validation errors report Reason other without Fields
 
 ## More
 

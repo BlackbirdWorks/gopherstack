@@ -214,9 +214,17 @@ func (b *InMemoryBackend) GetMessages(streamID, cursor string, limit int) ([]mes
 		return nil, "", errParam("The cursor has expired; create a new cursor")
 	}
 
+	if cerr := b.chargeGet(s.ID, "", cur.Part, now); cerr != nil {
+		return nil, "", cerr
+	}
+
 	cur.Issued = now.UnixMilli()
 
 	msgs := s.read(cur.Part, cur.Offset, limit)
+	if cerr := b.chargeRead(s.ID, cur.Part, msgs, now); cerr != nil {
+		return nil, "", cerr
+	}
+
 	cur.Offset = max(cur.Offset, s.Parts[cur.Part].Base)
 
 	if n := len(msgs); n > 0 {
@@ -345,13 +353,17 @@ func (b *InMemoryBackend) CreateGroupCursor(streamID string, in CreateGroupCurso
 	b.mu.Lock("CreateGroupCursor")
 	defer b.mu.Unlock()
 
-	s, aerr := b.activeStream(streamID)
+	s, aerr := b.dataStream(streamID)
 	if aerr != nil {
 		return cursorWire{}, aerr
 	}
 
 	g, ok := b.groups[groupKey(streamID, in.GroupName)]
 	if !ok {
+		if b.groupCount(streamID) >= maxGroupsPerStream {
+			return cursorWire{}, errParam("A stream supports at most 50 consumer groups")
+		}
+
 		g = &Group{
 			StreamID: streamID, Name: in.GroupName, Instances: map[string]time.Time{},
 			Rotation: map[string]int{}, Reserved: make([]Reservation, len(s.Parts)),
@@ -405,6 +417,14 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 			continue
 		}
 
+		if cerr := b.chargeGet(s.ID, cur.Group, part, b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
+
+		if cerr := b.chargeRead(s.ID, part, msgs, b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
+
 		g.Rotation[cur.Instance] = idx + 1
 		end := msgs[len(msgs)-1].Offset + 1
 
@@ -418,6 +438,12 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 		}
 
 		return msgs, cur.encode(), nil
+	}
+
+	if len(owned) > 0 {
+		if cerr := b.chargeGet(s.ID, cur.Group, owned[0], b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
 	}
 
 	return []messageWire{}, cur.encode(), nil
@@ -445,8 +471,7 @@ func (b *InMemoryBackend) ConsumerCommit(streamID, cursor string) (cursorWire, e
 
 	for part, off := range cur.Pending {
 		if !owned[part] {
-			return cursorWire{}, errState("The consumer instance no longer holds the reservation for partition " +
-				strconv.Itoa(part))
+			return cursorWire{}, errParam("Trying to commit unreserved partition " + strconv.Itoa(part))
 		}
 
 		g.Next[part] = max(g.Next[part], min(off, s.Parts[part].end()))
@@ -649,4 +674,87 @@ func (h *Handler) consumerHeartbeat(q *req) error {
 	c, err := h.Backend.ConsumerHeartbeat(q.param("streamId"), q.query("cursor"))
 
 	return reply(q, c, "", err)
+}
+
+type getWindow struct {
+	sec   int64
+	count int
+	bytes int
+}
+
+// chargeRead enforces 2 MiB/s of read throughput per partition across all consumers.
+func (b *InMemoryBackend) chargeRead(streamID string, part int, msgs []messageWire, now time.Time) *APIError {
+	size := 0
+	for _, m := range msgs {
+		size += len(m.Key) + len(m.Value)
+	}
+
+	if size == 0 {
+		return nil
+	}
+
+	k := "read/" + streamID + "/" + strconv.Itoa(part)
+
+	w := b.getWindows[k]
+	if w == nil {
+		w = &getWindow{}
+		b.getWindows[k] = w
+	}
+
+	if w.sec != now.Unix() {
+		w.sec, w.count, w.bytes = now.Unix(), 0, 0
+	}
+
+	if w.bytes > 0 && w.bytes+size > maxPartitionReadBytes {
+		return errThrottled("Partition " + strconv.Itoa(part) + " exceeded the 2 MiB/s read limit")
+	}
+
+	w.bytes += size
+
+	return nil
+}
+
+// chargeGet enforces 5 GetMessages requests per second per partition per consumer group.
+func (b *InMemoryBackend) chargeGet(streamID, group string, part int, now time.Time) *APIError {
+	k := groupKey(streamID, group) + "/" + strconv.Itoa(part)
+
+	if len(b.getWindows) > maxGetWindows {
+		for key, old := range b.getWindows {
+			if old.sec < now.Unix() {
+				delete(b.getWindows, key)
+			}
+		}
+	}
+
+	w := b.getWindows[k]
+	if w == nil {
+		w = &getWindow{}
+		b.getWindows[k] = w
+	}
+
+	if w.sec != now.Unix() {
+		w.sec, w.count = now.Unix(), 0
+	}
+
+	if w.count >= maxGetsPerSecond {
+		return errThrottled(
+			"Partition " + strconv.Itoa(part) + " exceeded 5 GetMessages requests per second for this consumer group",
+		)
+	}
+
+	w.count++
+
+	return nil
+}
+
+func (b *InMemoryBackend) groupCount(streamID string) int {
+	n := 0
+
+	for _, g := range b.groups {
+		if g.StreamID == streamID {
+			n++
+		}
+	}
+
+	return n
 }

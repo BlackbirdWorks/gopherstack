@@ -88,7 +88,7 @@ func (l *lexer) quoted(q rune) error {
 	}
 
 	kind := tokString
-	if q != '\'' {
+	if q == '`' {
 		kind = tokIdent
 	}
 
@@ -442,6 +442,12 @@ func (p *gqlParser) selectList(q *datastorepb.Query) ([]*datastorepb.Aggregation
 		var err error
 		if on, err = p.distinctOn(); err != nil {
 			return nil, err
+		}
+
+		if p.accept("*") {
+			q.DistinctOn = on
+
+			return nil, nil
 		}
 	}
 

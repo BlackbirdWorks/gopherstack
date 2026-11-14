@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Describe* filters validate ServiceNamespace/ScalableDimension by enum membership only; whether AWS rejects a mismatched namespace/dimension pair on a filter is not stated anywhere in the pinned SDK, so it is left unenforced.
+- Describe* filters validate ServiceNamespace/ScalableDimension by enum membership only; whether AWS rejects a mismatched namespace/dimension pair on a filter is stated in neither the SDK nor the Describe* API pages (which only require a ResourceId whenever ScalableDimension is given, enforced), so the pair is left unenforced.
 
 ### Structural gaps
 

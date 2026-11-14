@@ -212,11 +212,17 @@ func (h *Handler) handleDescribeTestCases(
 type getReportGroupTrendInput struct {
 	ReportGroupArn string `json:"reportGroupArn"`
 	TrendField     string `json:"trendField"`
+	NumOfReports   int32  `json:"numOfReports"`
 }
 
 type getReportGroupTrendOutput struct {
-	Stats   map[string]any   `json:"stats"`
-	RawData []map[string]any `json:"rawData"`
+	Stats   map[string]string `json:"stats"`
+	RawData []trendPointWire  `json:"rawData"`
+}
+
+type trendPointWire struct {
+	ReportArn string `json:"reportArn"`
+	Data      string `json:"data"`
 }
 
 // reportGroupTrendFields is the ReportGroupTrendFieldType enum
@@ -239,12 +245,17 @@ func (h *Handler) handleGetReportGroupTrend(
 		return nil, fmt.Errorf("%w: trendField must be one of %v", errInvalidRequest, reportGroupTrendFields)
 	}
 
-	stats, err := h.Backend.GetReportGroupTrend(in.ReportGroupArn)
+	res, err := h.Backend.GetReportGroupTrend(in.ReportGroupArn, in.TrendField, in.NumOfReports)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getReportGroupTrendOutput{Stats: stats, RawData: []map[string]any{}}, nil
+	raw := make([]trendPointWire, 0, len(res.RawData))
+	for _, p := range res.RawData {
+		raw = append(raw, trendPointWire(p))
+	}
+
+	return &getReportGroupTrendOutput{Stats: res.Stats, RawData: raw}, nil
 }
 
 type listReportGroupsInput struct {

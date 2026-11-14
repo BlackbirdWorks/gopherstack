@@ -27,6 +27,8 @@ var (
 	// parameters cannot be used together (e.g. MonitoringInterval>0 without a
 	// MonitoringRoleArn). AWS returns the InvalidParameterCombination error code.
 	ErrInvalidParameterCombination = awserr.New("InvalidParameterCombination", awserr.ErrInvalidParameter)
+	// ErrKMSKeyNotAccessible is returned when a KMS key cannot be used (KMSKeyNotAccessibleFault).
+	ErrKMSKeyNotAccessible = awserr.New("KMSKeyNotAccessibleFault", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned for unrecognized RDS actions.
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.

@@ -197,6 +197,10 @@ func (b *InMemoryBackend) AssociateRepository(
 		return nil, err
 	}
 
+	if err = b.checkCustomerKey(ctx, in.KMSKeyDetails); err != nil {
+		return nil, err
+	}
+
 	if err = b.checkTargetExists(ctx, region, t); err != nil {
 		return nil, err
 	}

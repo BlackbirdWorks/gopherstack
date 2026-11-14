@@ -392,7 +392,7 @@ func (b *InMemoryBackend) ListTags(in *artifactregistrypb.ListTagsRequest) ([]*a
 		return nil, "", err
 	}
 
-	if b.isNPMRepo(p.repo) {
+	if b.hasPackageTags(p.repo) {
 		return b.npmListTags(in, p)
 	}
 
@@ -451,7 +451,7 @@ func (b *InMemoryBackend) GetTag(name string) (*artifactregistrypb.Tag, error) {
 		return nil, err
 	}
 
-	if b.isNPMRepo(l.pkg.repo) {
+	if b.hasPackageTags(l.pkg.repo) {
 		return b.npmGetTag(l)
 	}
 

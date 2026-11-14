@@ -255,9 +255,10 @@ func (b *InMemoryBackend) GetChangeSetTemplate(stackName, changeSetName string) 
 // ExecuteChangeSet applies a change set to a stack. Only a change set whose
 // ExecutionStatus is AVAILABLE can be executed — e.g. a change set created with
 // no actual changes is FAILED/UNAVAILABLE and AWS rejects execution of it with
-// InvalidChangeSetStatus. On success, AWS deletes every other change set
-// associated with the stack because none remain valid against the now-updated
-// template; this backend clears the whole per-stack change-set map to match.
+// InvalidChangeSetStatus. On success AWS deletes every other change set of the
+// stack, since none remain valid against the updated template; the executed one
+// stays describable and moves EXECUTE_IN_PROGRESS -> EXECUTE_COMPLETE as the
+// stack operation it started settles.
 func (b *InMemoryBackend) ExecuteChangeSet(
 	ctx context.Context,
 	stackName, changeSetName string,
@@ -278,7 +279,7 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 				ErrChangeSetNotExecutable, changeSetName, cs.ExecutionStatus,
 			)
 		}
-		cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
+		cs.ExecutionStatus = executionStatusInProgress
 
 		return nil
 	}()
@@ -286,7 +287,6 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		return lockErr
 	}
 
-	var execErr error
 	opts := StackOptions{
 		Capabilities:          cs.Capabilities,
 		Tags:                  cs.Tags,
@@ -298,26 +298,36 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		ResourceTypes:         cs.ResourceTypes,
 		DisableValidation:     cs.DisableValidation,
 	}
+
+	var execErr error
 	if cs.ChangeSetType == changeSetTypeCreate {
-		_, execErr = b.createStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, false)
+		_, execErr = b.createStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, true)
 	} else {
-		_, execErr = b.updateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, false)
+		_, execErr = b.updateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, true)
 	}
 
-	func() {
-		b.mu.Lock("ExecuteChangeSet")
-		defer b.mu.Unlock()
+	b.mu.Lock("ExecuteChangeSet")
+	defer b.mu.Unlock()
 
-		if execErr != nil {
-			if cs2, ok2 := b.changeSets[stackName][changeSetName]; ok2 {
-				cs2.ExecutionStatus = "EXECUTE_FAILED"
-			}
-		} else {
-			b.changeSets[stackName] = make(map[string]*ChangeSet)
+	if execErr != nil {
+		if cs2, ok2 := b.changeSets[stackName][changeSetName]; ok2 {
+			cs2.ExecutionStatus = executionStatusFailed
 		}
-	}()
 
-	return execErr
+		return execErr
+	}
+
+	for name := range b.changeSets[stackName] {
+		if name != changeSetName {
+			delete(b.changeSets[stackName], name)
+		}
+	}
+
+	if stack, ok := b.resolveStack(stackName); ok {
+		b.settleChangeSetsLocked(stack)
+	}
+
+	return nil
 }
 
 // DeleteChangeSet removes a change set.

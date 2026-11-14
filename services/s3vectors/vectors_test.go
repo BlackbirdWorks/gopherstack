@@ -363,3 +363,54 @@ func TestIndexModes(t *testing.T) {
 	)
 	require.NoError(t, err, "buckets created before the cutoff may use CLASSIC")
 }
+
+func TestKeyBatchLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantCode string
+		name     string
+		op       string
+		n        int
+	}{
+		{name: "get 100", op: "get", n: 100},
+		{name: "get 101", op: "get", n: 101, wantCode: "ValidationException"},
+		{name: "delete 500", op: "delete", n: 500},
+		{name: "delete 501", op: "delete", n: 501, wantCode: "ValidationException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			f.bucket(t, "lim-bucket")
+			f.index(t, "lim-bucket", "lim", "euclidean", 1)
+
+			keys := make([]string, tt.n)
+			for i := range keys {
+				keys[i] = fmt.Sprintf("k%d", i)
+			}
+
+			var err error
+
+			if tt.op == "get" {
+				_, err = f.client.GetVectors(t.Context(), &sdk.GetVectorsInput{
+					VectorBucketName: aws.String("lim-bucket"), IndexName: aws.String("lim"), Keys: keys,
+				})
+			} else {
+				_, err = f.client.DeleteVectors(t.Context(), &sdk.DeleteVectorsInput{
+					VectorBucketName: aws.String("lim-bucket"), IndexName: aws.String("lim"), Keys: keys,
+				})
+			}
+
+			if tt.wantCode == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			assert.Equal(t, tt.wantCode, apiCode(err))
+		})
+	}
+}

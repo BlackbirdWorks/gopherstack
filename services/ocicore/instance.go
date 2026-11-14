@@ -92,6 +92,10 @@ func (b *InMemoryBackend) launchSource(in LaunchInstanceIn, sh shapeDef) (instan
 		sd = &SourceDetails{SourceType: srcImage, ImageID: in.ImageID}
 	}
 
+	if aerr := b.checkKmsKey(sd.KmsKeyID); aerr != nil {
+		return src, aerr
+	}
+
 	switch sd.SourceType {
 	case srcImage:
 		return b.imageSource(*sd, sh)
@@ -238,10 +242,7 @@ func agentConfig(in map[string]any) map[string]any {
 }
 
 // LaunchInstance creates an instance with its boot volume and primary VNIC.
-func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (resource, string, *APIError) {
-	b.mu.Lock("LaunchInstance")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) LaunchInstance(in LaunchInstanceIn) (Resource, string, *APIError) {
 	sh, cfg, aerr := b.launchChecks(in)
 	if aerr != nil {
 		return nil, "", aerr
@@ -346,7 +347,7 @@ func nonNilAny(m map[string]any) map[string]any {
 }
 
 // InstanceAction applies a power action.
-func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (resource, string, *APIError) {
+func (b *InMemoryBackend) InstanceAction(id, action, ifMatch string) (Resource, string, *APIError) {
 	b.mu.Lock("InstanceAction")
 	defer b.mu.Unlock()
 
@@ -401,9 +402,22 @@ type UpdateInstanceIn struct {
 }
 
 // UpdateInstance changes an instance; a different shape or shape configuration needs a stopped instance.
-func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, in UpdateInstanceIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, in UpdateInstanceIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(inst *Instance) *APIError {
-		md, ext := mergeStrings(inst.Metadata, in.Metadata), mergeAny(inst.ExtendedMetadata, in.ExtendedMetadata)
+		md, ext := inst.Metadata, inst.ExtendedMetadata
+
+		if in.Metadata != nil {
+			if aerr := checkImmutableMetadata(inst.Metadata, in.Metadata); aerr != nil {
+				return aerr
+			}
+
+			md = maps.Clone(in.Metadata)
+		}
+
+		if in.ExtendedMetadata != nil {
+			ext = maps.Clone(in.ExtendedMetadata)
+		}
+
 		if aerr := checkMetadata(md, ext); aerr != nil {
 			return aerr
 		}
@@ -456,11 +470,19 @@ func (b *InMemoryBackend) resize(inst *Instance, in UpdateInstanceIn) (*Instance
 	return cfg, name, aerr
 }
 
-func mergeStrings(base, add map[string]string) map[string]string {
-	out := maps.Clone(base)
-	maps.Copy(out, add)
+// checkImmutableMetadata rejects a metadata update that changes, removes or adds user_data or ssh_authorized_keys
+// (UpdateInstanceDetails.Metadata in the OCI core SDK).
+func checkImmutableMetadata(current, next map[string]string) *APIError {
+	for _, k := range []string{"user_data", "ssh_authorized_keys"} {
+		cv, had := current[k]
+		nv, has := next[k]
 
-	return out
+		if had != has || cv != nv {
+			return errParam("metadata." + k + " cannot be changed after launch; provide the existing value")
+		}
+	}
+
+	return nil
 }
 
 func mergeAny(base, add map[string]any) map[string]any {
@@ -526,10 +548,7 @@ type CreateImageIn struct {
 }
 
 // CreateImage captures a custom image from an instance's boot volume.
-func (b *InMemoryBackend) CreateImage(in CreateImageIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateImage")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateImage(in CreateImageIn) (Resource, string, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
 		return nil, "", aerr
 	}
@@ -577,7 +596,7 @@ func (b *InMemoryBackend) CreateImage(in CreateImageIn) (resource, string, *APIE
 }
 
 // UpdateImage changes a custom image.
-func (b *InMemoryBackend) UpdateImage(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateImage(id, ifMatch string, in UpdateIn) (Resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in, func(*Image) *APIError { return nil })
 }
 

@@ -24,7 +24,7 @@ const (
 )
 
 // translateStateMachineEvents expands the Events of an AWS::Serverless::StateMachine.
-func (t *samTranslator) translateStateMachineEvents(smID string, events map[string]any) error {
+func (t *samTranslator) translateStateMachineEvents(smID, targetID string, events map[string]any, boundary any) error {
 	for _, name := range slices.Sorted(maps.Keys(events)) {
 		e := asMap(events[name])
 		typ, _ := e[samKeyType].(string)
@@ -34,13 +34,13 @@ func (t *samTranslator) translateStateMachineEvents(smID string, events map[stri
 
 		switch typ {
 		case samEventSchedule:
-			err = t.smScheduleEvent(smID, name, props)
+			err = t.smScheduleEvent(smID, targetID, name, props, boundary)
 		case samEventScheduleV2:
-			err = t.smScheduleV2Event(smID, name, props)
+			err = t.smScheduleV2Event(smID, targetID, name, props)
 		case samEventRule, samEventCWEvent:
-			err = t.smRuleEvent(smID, name, props)
+			err = t.smRuleEvent(smID, targetID, name, props, boundary)
 		case samEventAPI:
-			err = t.smAPIEvent(smID, name, props)
+			err = t.smAPIEvent(smID, targetID, name, props, boundary)
 		default:
 			err = samErr(smID, "Event type '%s' (event [%s]) is not supported by this emulator's SAM transform",
 				typ, name)
@@ -58,7 +58,6 @@ func startExecutionPolicy(smID, policyName string) map[string]any {
 	return map[string]any{
 		samKeyPolicyName: policyName,
 		samKeyPolicyDoc: map[string]any{
-			samKeyVersion: samPolicyVersion,
 			samKeyStatement: []any{map[string]any{
 				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "states:StartExecution",
 				samKeyResource: samRef(smID),
@@ -68,10 +67,10 @@ func startExecutionPolicy(smID, policyName string) map[string]any {
 }
 
 // putSMEventRole emits <role>Role letting principal start the state machine.
-func (t *samTranslator) putSMEventRole(smID, roleID, principal, policyName string, extra []any, boundary any) error {
+func (t *samTranslator) putSMEventRole(smID, roleID, principal string, boundary any) error {
 	role := map[string]any{
 		samKeyAssumeRole: servicePrincipalTrust(principal),
-		"Policies":       append([]any{startExecutionPolicy(smID, policyName)}, extra...),
+		"Policies":       []any{startExecutionPolicy(smID, roleID+"StartExecutionPolicy")},
 	}
 	if boundary != nil {
 		role["PermissionsBoundary"] = boundary
@@ -80,184 +79,113 @@ func (t *samTranslator) putSMEventRole(smID, roleID, principal, policyName strin
 	return t.put(roleID, map[string]any{samKeyType: samTypeRole, samKeyProps: role})
 }
 
-func smDLQPolicy(policyName string, dlc map[string]any) []any {
-	arn := dlc[attrNameArn]
-	if arn == nil {
-		return nil
+func (t *samTranslator) smDLQ(smID, name string, props map[string]any, ruleARN any) (any, error) {
+	cfg := asMap(props[samKeyDLC])
+	if cfg == nil {
+		return nil, nil //nolint:nilnil // no DeadLetterConfig is valid
 	}
 
-	return []any{map[string]any{
-		samKeyPolicyName: policyName,
-		samKeyPolicyDoc: map[string]any{
-			samKeyVersion: samPolicyVersion,
-			samKeyStatement: []any{map[string]any{
-				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "sqs:SendMessage", samKeyResource: arn,
-			}},
-		},
-	}}
+	return t.eventBridgeDLQ(smID+name, cfg, ruleARN, true)
 }
 
-func smDLCArn(smID, name string, props map[string]any) (map[string]any, error) {
-	dlc := asMap(props[samKeyDLC])
-	if dlc == nil {
-		return nil, nil //nolint:nilnil // no DeadLetterConfig is a valid state
-	}
-
-	if dlc[attrNameArn] == nil {
-		return nil, samErr(
-			smID,
-			"Event [%s] DeadLetterConfig needs an 'Arn'; generating the queue (Type: SQS) is not supported.",
-			name,
-		)
-	}
-
-	return map[string]any{attrNameArn: dlc[attrNameArn]}, nil
-}
-
-// smRuleTarget builds the Events::Rule target and emits the invoke role unless RoleArn is given.
-func (t *samTranslator) smRuleTarget(smID, name string, props map[string]any) (map[string]any, error) {
-	target := map[string]any{attrNameArn: samRef(smID), "Id": smID + name + "StepFunctionsTarget"}
-	if tid := asMap(props[samKeyTarget])["Id"]; tid != nil {
-		target["Id"] = tid
-	}
-
-	for _, k := range []string{samKeyInput, "InputPath", samKeyRetry} {
-		if v, ok := props[k]; ok {
-			target[k] = v
-		}
-	}
-
-	dlc, err := smDLCArn(smID, name, props)
-	if err != nil {
-		return nil, err
-	}
-
-	if dlc != nil {
-		target[samKeyDLC] = dlc
-	}
-
-	if props[samKeyRoleArn] != nil {
-		target[samKeyRoleArn] = props[samKeyRoleArn]
-
-		return target, nil
-	}
-
-	roleID := smID + name + "Role"
-	if err = t.putSMEventRole(smID, roleID, samEventsPrincipl, roleID+"StartExecutionPolicy", nil, nil); err != nil {
-		return nil, err
-	}
-
-	target[samKeyRoleArn] = samGetAtt(roleID, attrNameArn)
-
-	return target, nil
-}
-
-func (t *samTranslator) smScheduleEvent(smID, name string, props map[string]any) error {
+func (t *samTranslator) smScheduleEvent(smID, targetID, name string, props map[string]any, boundary any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, "Enabled", samKeyState, "Name", samKeyDesc,
-		samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
+	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, attrNameName,
+		samKeyDesc, samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
 		return err
 	}
-
 	if props["Schedule"] == nil {
 		return samErr(smID, "Event [%s] of type Schedule is missing required property 'Schedule'.", name)
 	}
-
-	rule := map[string]any{samKeySchedExpr: props["Schedule"], samKeyState: ruleState(props)}
+	if props[samKeyState] != nil && props[samKeyEnabled] != nil {
+		return samErr(id, "State and Enabled Properties cannot both be specified.")
+	}
+	rule := map[string]any{samKeySchedExpr: props["Schedule"]}
+	if props[samKeyState] != nil {
+		rule[samKeyState] = props[samKeyState]
+	}
+	if en, ok := props[samKeyEnabled].(bool); ok {
+		rule[samKeyState] = samStateEnabled
+		if !en {
+			rule[samKeyState] = samStateDisabled
+		}
+	}
 	for _, k := range []string{attrNameName, samKeyDesc} {
 		if props[k] != nil {
 			rule[k] = props[k]
 		}
 	}
 
-	return t.putSMRule(smID, name, rule, props)
+	return t.putSMRule(smID, targetID, name, rule, props, boundary)
 }
 
-func (t *samTranslator) smRuleEvent(smID, name string, props map[string]any) error {
+func (t *samTranslator) smRuleEvent(smID, targetID, name string, props map[string]any, boundary any) error {
 	id := smID + name
 	if err := rejectUnknown(id, props, keySet("Pattern", samKeyInput, "InputPath", "EventBusName", samKeyState,
-		"RuleName", samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
+		samKRuleName, samKeyDLC, samKeyRetry, samKeyTarget, "InputTransformer")); err != nil {
 		return err
 	}
-
-	if props["Pattern"] == nil {
-		return samErr(smID, "Event [%s] is missing required property 'Pattern'.", name)
+	rule := map[string]any{}
+	for src, dst := range map[string]string{"Pattern": "EventPattern", samKeyEventBus: "EventBusName",
+		samKRuleName: attrNameName, samKeyState: samKeyState} {
+		if props[src] != nil {
+			rule[dst] = props[src]
+		}
 	}
 
-	rule := map[string]any{"EventPattern": props["Pattern"], samKeyState: ruleState(props)}
-	if props["EventBusName"] != nil {
-		rule["EventBusName"] = props["EventBusName"]
-	}
-
-	if props["RuleName"] != nil {
-		rule[attrNameName] = props["RuleName"]
-	}
-
-	return t.putSMRule(smID, name, rule, props)
+	return t.putSMRule(smID, targetID, name, rule, props, boundary)
 }
 
-func (t *samTranslator) putSMRule(smID, name string, rule, props map[string]any) error {
-	target, err := t.smRuleTarget(smID, name, props)
-	if err != nil {
-		return err
-	}
-
-	rule["Targets"] = []any{target}
-
-	return t.put(smID+name, map[string]any{samKeyType: samTypeRule, samKeyProps: rule})
-}
-
-func (t *samTranslator) smScheduleV2Event(smID, name string, props map[string]any) error {
+// putSMRule emits the Events::Rule, its invoke role (unless RoleArn) and the optional dead-letter queue.
+func (t *samTranslator) putSMRule(smID, targetID, name string, rule, props map[string]any, boundary any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet(samKeySchedExpr, "ScheduleExpressionTimezone", "StartDate",
-		"EndDate", samKeyState, "Name", "OmitName", samKeyDesc, "GroupName", "FlexibleTimeWindow", samKeyInput,
-		"KmsKeyArn", samKeyRetry, samKeyRoleArn, "PermissionsBoundary", samKeyDLC)); err != nil {
-		return err
+	target := map[string]any{attrNameArn: samRef(targetID), "Id": samTargetIDSuffix(id, "StepFunctionsTarget")}
+	if tid := asMap(props[samKeyTarget])["Id"]; tid != nil {
+		target["Id"] = tid
 	}
-
-	if props[samKeySchedExpr] == nil {
-		return samErr(smID, "Event [%s] of type ScheduleV2 is missing required property 'ScheduleExpression'.", name)
-	}
-
-	target := map[string]any{attrNameArn: samRef(smID)}
-	for _, k := range []string{samKeyInput, samKeyRetry} {
+	for _, k := range []string{samKeyInput, "InputPath", samKeyRetry, "InputTransformer"} {
 		if v, ok := props[k]; ok {
 			target[k] = v
 		}
 	}
-
-	dlc, err := smDLCArn(smID, name, props)
+	roleARN := props[samKeyRoleArn]
+	if roleARN == nil {
+		roleID := id + "Role"
+		if err := t.putSMEventRole(targetID, roleID, samEventsPrincipl, boundary); err != nil {
+			return err
+		}
+		roleARN = samGetAtt(roleID, attrNameArn)
+	}
+	target[samKeyRoleArn] = roleARN
+	dlq, err := t.smDLQ(smID, name, props, samGetAtt(id, attrNameArn))
 	if err != nil {
 		return err
 	}
-
-	if dlc != nil {
-		target[samKeyDLC] = dlc
+	if dlq != nil {
+		target[samKeyDLC] = map[string]any{attrNameArn: dlq}
 	}
+	rule["Targets"] = []any{target}
 
-	if props[samKeyRoleArn] != nil {
-		target[samKeyRoleArn] = props[samKeyRoleArn]
-	} else {
-		roleID := id + "Role"
-		extra := smDLQPolicy(id+"SQSPolicy", dlc)
-
-		if err = t.putSMEventRole(
-			smID, roleID, "scheduler.amazonaws.com", id+"StartExecutionPolicy", extra, props["PermissionsBoundary"],
-		); err != nil {
-			return err
-		}
-
-		target[samKeyRoleArn] = samGetAtt(roleID, attrNameArn)
-	}
-
-	ev := &samEventCtx{id: smID}
-
-	return t.put(id, map[string]any{samKeyType: samTypeSchedule, samKeyProps: scheduleProps(ev, name, props, target)})
+	return t.put(id, map[string]any{samKeyType: samTypeRule, samKeyProps: rule})
 }
 
-func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) error {
+func (t *samTranslator) smScheduleV2Event(smID, targetID, name string, props map[string]any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Path", "Method", "RestApiId", samAuthKey, samUnescapeFlag)); err != nil {
+	target := samSchedulerTarget{
+		arn:    samRef(targetID),
+		policy: startExecutionPolicy(targetID, id+"StartExecutionPolicy"),
+	}
+
+	return t.putSchedule(smID, id, props, target)
+}
+
+func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string]any, boundary any) error {
+	id := smID + name
+	if err := rejectUnknown(
+		id,
+		props,
+		keySet("Path", "Method", samKRestAPIID, samAuthKey, samUnescapeFlag),
+	); err != nil {
 		return err
 	}
 
@@ -268,39 +196,40 @@ func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) erro
 		return samErr(smID, "Event [%s] of type Api requires 'Path' and 'Method'.", name)
 	}
 
-	api, err := t.apiFor(smID, props["RestApiId"])
+	api, err := t.apiFor(smID, props[samKRestAPIID])
 	if err != nil {
 		return err
 	}
 
-	authorizer, apiKey, err := eventAuth(smID, name, props)
+	authorizer, apiKey, scopes, err := eventAuth(smID, name, props)
 	if err != nil {
 		return err
 	}
 
 	roleID := id + "Role"
-	if err = t.putSMEventRole(
-		smID,
-		roleID,
-		"apigateway.amazonaws.com",
-		roleID+"StartExecutionPolicy",
-		nil,
-		nil,
-	); err != nil {
+	if err = t.putSMEventRole(targetID, roleID, "apigateway.amazonaws.com", boundary); err != nil {
 		return err
 	}
 
+	if v, has := props[samUnescapeFlag]; has && v != nil {
+		if _, isBool := v.(bool); !isBool {
+			return samErr(id, "Type of property '%s' is invalid.", samUnescapeFlag)
+		}
+	}
 	unescape, _ := props[samUnescapeFlag].(bool)
 	api.addRoute(
 		samRoute{
-			fnID:       smID,
+			fnID:       targetID,
 			path:       path,
 			method:     method,
 			authorizer: authorizer,
 			roleID:     roleID,
 			unescape:   unescape,
 			apiKey:     apiKey,
+			scopes:     scopes,
+			auth:       asMap(props[samAuthKey]),
 		},
+		t.pass,
 	)
 
 	return nil
@@ -314,8 +243,8 @@ func smIntegration(rt samRoute) map[string]any {
 	}
 
 	return map[string]any{
-		"credentials": samGetAtt(rt.roleID, attrNameArn),
-		"httpMethod":  samHTTPPost,
+		"credentials":    samGetAtt(rt.roleID, attrNameArn),
+		samKeyHTTPMethod: samHTTPPost,
 		"requestTemplates": map[string]any{
 			samJSONMime: map[string]any{samKeyFnSub: fmt.Sprintf(tmpl, rt.fnID)},
 		},
@@ -324,6 +253,6 @@ func smIntegration(rt samRoute) map[string]any {
 			"400": map[string]any{samKeyStatusCd: "400"},
 		},
 		samKeyTypeLower: "aws",
-		"uri":           map[string]any{samKeyFnSub: smStartExecutionURI},
+		samKeyURI:       map[string]any{samKeyFnSub: smStartExecutionURI},
 	}
 }

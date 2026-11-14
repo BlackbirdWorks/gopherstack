@@ -1,0 +1,151 @@
+{
+  "Resources": {
+    "Function": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionApi2Permission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "Function"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/*",
+            {
+              "__ApiId__": {
+                "Ref": "MyApi2"
+              },
+              "__Stage__": "*"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "FunctionApiPermission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "Function"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/*",
+            {
+              "__ApiId__": "MyApi",
+              "__Stage__": "*"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "FunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyApi": {
+      "Properties": {
+        "BodyS3Location": {
+          "Bucket": "bucket",
+          "Key": "key"
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Api"
+    },
+    "MyApi2": {
+      "Properties": {
+        "BodyS3Location": {
+          "Bucket": "bucket",
+          "Key": "key",
+          "Version": "version"
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Api"
+    },
+    "MyApi2ApiGatewayDefaultStage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "MyApi2"
+        },
+        "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "ThrottlingRateLimit": 100.0
+        },
+        "StageName": "$default"
+      },
+      "Type": "AWS::ApiGatewayV2::Stage"
+    },
+    "MyApiStage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "MyApi"
+        },
+        "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "ThrottlingBurstLimit": 50,
+          "ThrottlingRateLimit": 100.0
+        },
+        "StageName": {
+          "Fn::Join": [
+            "",
+            [
+              "Stage",
+              "Name"
+            ]
+          ]
+        }
+      },
+      "Type": "AWS::ApiGatewayV2::Stage"
+    }
+  }
+}

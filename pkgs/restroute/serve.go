@@ -120,6 +120,10 @@ func (s *Server) Handler() echo.HandlerFunc {
 			status = http.StatusOK
 		}
 
+		if status == http.StatusNoContent {
+			return c.NoContent(status)
+		}
+
 		if result == nil {
 			result = struct{}{}
 		}

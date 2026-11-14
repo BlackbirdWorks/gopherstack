@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,36 +70,14 @@ func (g *gateRunner) open() { close(g.gate) }
 func (g *gateRunner) awaitEntered(t *testing.T) {
 	t.Helper()
 
-	select {
-	case <-g.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("launch never reached the runner")
-	}
+	<-g.entered
 }
 
-// runTaskPromptly fails the test when RunTask blocks on the launch instead of returning.
+// runTaskPromptly runs RunTask; it returns only if RunTask does not block on the launch (a hang fails by test timeout).
 func runTaskPromptly(t *testing.T, b *InMemoryBackend, in RunTaskInput) []Task {
 	t.Helper()
 
-	var (
-		tasks []Task
-		err   error
-	)
-
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		tasks, _, err = b.RunTask(in)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("RunTask blocked on the launch")
-	}
-
+	tasks, _, err := b.RunTask(in)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 

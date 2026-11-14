@@ -17,7 +17,7 @@ type (
 )
 
 func vnetPath(rg, name string) string {
-	return "/subscriptions/s1/resourceGroups/" + rg + "/providers/Microsoft.Network/applicationGateways/" + name +
+	return "/subscriptions/s1/resourceGroups/" + rg + "/providers/Microsoft.Network/expressRouteCircuits/" + name +
 		"?api-version=2023-01-01"
 }
 
@@ -25,8 +25,8 @@ func TestGenericList_IndexFollowsWrites(t *testing.T) {
 	t.Parallel()
 
 	const (
-		list  = "/subscriptions/s1/providers/Microsoft.Network/applicationGateways?api-version=2023-01-01"
-		listG = "/subscriptions/s1/resourceGroups/RG1/providers/microsoft.network/ApplicationGateways?api-version=2023-01-01"
+		list  = "/subscriptions/s1/providers/Microsoft.Network/expressRouteCircuits?api-version=2023-01-01"
+		listG = "/subscriptions/s1/resourceGroups/RG1/providers/microsoft.network/ExpressRouteCircuits?api-version=2023-01-01"
 	)
 
 	tests := []struct {

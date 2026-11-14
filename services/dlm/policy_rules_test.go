@@ -62,6 +62,7 @@ func TestPolicyExecution_FastRestoreRule(t *testing.T) {
 		name    string
 		wantNew int
 		wantOld int
+		wantAZs int
 	}{
 		{
 			name:    "count",
@@ -75,6 +76,13 @@ func TestPolicyExecution_FastRestoreRule(t *testing.T) {
 				IntervalUnit: dlmtypes.RetentionIntervalUnitValuesDays,
 			},
 			wantNew: 2,
+		},
+		{
+			name: "zone_ids",
+			rule: &dlmtypes.FastRestoreRule{
+				AvailabilityZoneIds: []string{"use1-az1", "use1-az2"}, Count: aws.Int32(1),
+			},
+			wantAZs: 2,
 		},
 	}
 
@@ -90,7 +98,8 @@ func TestPolicyExecution_FastRestoreRule(t *testing.T) {
 			env.runAt(t, created, time.Second)
 
 			first := aws.ToString(env.managedSnapshots(t, policyID)[0].SnapshotId)
-			assert.Len(t, env.fastRestoreEnabled(t), len(tt.rule.AvailabilityZones), "enabled on creation")
+			wantAZs := len(tt.rule.AvailabilityZones) + tt.wantAZs
+			assert.Len(t, env.fastRestoreEnabled(t), wantAZs, "enabled on creation")
 
 			env.runAt(t, created, 13*hour, 25*hour)
 
@@ -239,6 +248,8 @@ func TestPolicyExecution_CrossRegionCopy(t *testing.T) {
 	}
 }
 
+const archiveCount = 180
+
 func TestPolicyExecution_ArchiveRule(t *testing.T) {
 	t.Parallel()
 
@@ -253,13 +264,13 @@ func TestPolicyExecution_ArchiveRule(t *testing.T) {
 		{
 			name:   "count",
 			retain: &dlmtypes.RetainRule{Count: aws.Int32(1)},
-			tier:   &dlmtypes.RetentionArchiveTier{Count: aws.Int32(1)},
-			runs:   []time.Duration{time.Second, 13 * hour, 25 * hour}, wantArchived: 1, wantStandard: 1,
+			tier:   &dlmtypes.RetentionArchiveTier{Count: aws.Int32(archiveCount)},
+			runs:   []time.Duration{time.Second, 13 * hour, 25 * hour}, wantArchived: 2, wantStandard: 1,
 		},
 		{
 			name:   "archive_immediately",
 			retain: &dlmtypes.RetainRule{Count: aws.Int32(0)},
-			tier:   &dlmtypes.RetentionArchiveTier{Count: aws.Int32(3)},
+			tier:   &dlmtypes.RetentionArchiveTier{Count: aws.Int32(archiveCount)},
 			runs:   []time.Duration{time.Second, 13 * hour}, wantArchived: 2,
 		},
 		{

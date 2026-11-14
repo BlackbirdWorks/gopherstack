@@ -26,11 +26,8 @@ const (
 )
 
 var (
-	errNoStore        = errors.New("cloud storage is not available to this build")
-	errUnsupportedSrc = errors.New(
-		"only storageSource, gitSource and repoSource are supported; storageSourceManifest " +
-			"and connectedRepository are not",
-	)
+	errNoStore         = errors.New("cloud storage is not available to this build")
+	errUnsupportedSrc  = errors.New("unsupported source type")
 	errArchiveFormat   = errors.New("source archive must be a .tar.gz or .zip file")
 	errArchiveTooLarge = errors.New("source archive is too large")
 	errUnsafePath      = errors.New("source archive entry escapes the workspace")
@@ -45,30 +42,15 @@ func (r *runner) fetchSource(ctx context.Context) error {
 		return nil
 	case *cloudbuildpb.Source_StorageSource:
 		return r.fetchStorage(ctx, s.StorageSource)
+	case *cloudbuildpb.Source_StorageSourceManifest:
+		return r.fetchManifest(ctx, s.StorageSourceManifest)
+	case *cloudbuildpb.Source_ConnectedRepository:
+		return errConnectedSrc
 	case *cloudbuildpb.Source_GitSource, *cloudbuildpb.Source_RepoSource:
 		return r.fetchGit(ctx, src)
 	default:
 		return errUnsupportedSrc
 	}
-}
-
-func (r *runner) fetchStorage(ctx context.Context, ss *cloudbuildpb.StorageSource) error {
-	if r.svc.Store == nil {
-		return errNoStore
-	}
-
-	r.log.system(fmt.Sprintf("Fetching storage object: gs://%s/%s", ss.GetBucket(), ss.GetObject()))
-
-	data, err := r.svc.Store.ReadObject(ss.GetBucket(), ss.GetObject())
-	if err != nil {
-		return fmt.Errorf("read gs://%s/%s: %w", ss.GetBucket(), ss.GetObject(), err)
-	}
-
-	if err = ctx.Err(); err != nil {
-		return fmt.Errorf("fetch source: %w", err)
-	}
-
-	return extractArchive(data, r.work)
 }
 
 func extractArchive(data []byte, dest string) error {

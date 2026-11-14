@@ -91,11 +91,14 @@ func (b *InMemoryBackend) DeliverDue(ctx context.Context) {
 		if cur, ok := b.reports.Get(due[i].ReportName); ok {
 			cur.LastSlot = slotOf(cur.TimeUnit, now)
 			cur.LastStatus = status
-			cur.LastDelivery = now.Format(time.RFC3339)
+			cur.LastDelivery = now.UTC().Format(lastDeliveryLayout)
 		}
 		b.mu.Unlock()
 	}
 }
+
+// lastDeliveryLayout matches ReportStatus.lastDelivery's documented pattern [0-9]{8}T[0-9]{6}Z.
+const lastDeliveryLayout = "20060102T150405Z"
 
 func deliver(
 	ctx context.Context, objects billingexport.ObjectStore, costs billingexport.CostSource,

@@ -455,12 +455,6 @@ func TestUnsupportedSurface(t *testing.T) {
 
 	_, err = ic.CreateLogicalView(t.Context(), &adminpb.CreateLogicalViewRequest{Parent: parent})
 	assert.Equal(t, codes.Unimplemented, code(err))
-
-	_, err = tc.ListBackups(
-		t.Context(),
-		&adminpb.ListBackupsRequest{Parent: parent + "/clusters/" + cluster, Filter: "x"},
-	)
-	assert.Equal(t, codes.Unimplemented, code(err))
 }
 
 func TestOperations(t *testing.T) {

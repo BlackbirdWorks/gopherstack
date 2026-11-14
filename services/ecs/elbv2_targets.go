@@ -7,6 +7,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// detailPrivateIPv4 is the ENI attachment detail holding a task's private address.
+const detailPrivateIPv4 = "privateIPv4Address"
+
 // ELBTarget identifies a single ELBv2 target to register or deregister. For
 // awsvpc-mode tasks, ID is the task's ENI private IP address and Port is the
 // container port (ECS registers "ip" target-type targets for these,
@@ -233,7 +236,7 @@ func privateIPFromAttachments(attachments []TaskAttachment) (string, bool) {
 		}
 
 		for _, d := range a.Details {
-			if d.Name == "privateIPv4Address" && d.Value != "" {
+			if d.Name == detailPrivateIPv4 && d.Value != "" {
 				return d.Value, true
 			}
 		}

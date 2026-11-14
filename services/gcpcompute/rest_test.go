@@ -52,8 +52,10 @@ func seedInstances(t *testing.T, e *env) {
 	for _, v := range []struct {
 		name, mt, env string
 	}{
-		{"alpha", "e2-medium", "prod"}, {"bravo", "e2-small", "dev"},
-		{"charlie", "n2-standard-2", "prod"}, {"delta", "e2-medium", "dev"},
+		{"alpha", "e2-medium", "prod"},
+		{"bravo", "e2-small", "dev"},
+		{"charlie", "n2-standard-2", "prod"},
+		{"delta", "e2-medium", "dev"},
 	} {
 		spec := vmSpec(v.name)
 		spec.MachineType = s("zones/" + zone + "/machineTypes/" + v.mt)

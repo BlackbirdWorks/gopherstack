@@ -163,7 +163,7 @@ func (b *Backend) ListAgentStatuses(
 }
 
 // UpdateAgentStatus changes the supplied settings of an agent status.
-func (b *Backend) UpdateAgentStatus(ctx context.Context, in *UpdateAgentStatusInput) (*empty, error) {
+func (b *Backend) UpdateAgentStatus(ctx context.Context, in *UpdateAgentStatusInput) (*EmptyOutput, error) {
 	if in.State != nil {
 		if err := oneOf("State", *in.State, "ENABLED", "DISABLED"); err != nil {
 			return nil, err
@@ -228,5 +228,5 @@ func (b *Backend) UpdateAgentStatus(ctx context.Context, in *UpdateAgentStatusIn
 
 	s.Status.Stamp = b.stamp(ctx)
 
-	return &empty{}, nil
+	return &EmptyOutput{}, nil
 }

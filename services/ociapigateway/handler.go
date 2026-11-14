@@ -3,11 +3,13 @@ package ociapigateway
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +53,7 @@ type Handler struct {
 	Backend     *InMemoryBackend
 	srvMu       *lockmetrics.RWMutex
 	srv         *http.Server
+	tlsSrv      *http.Server
 	stop        chan struct{}
 	ops         map[string]opFunc
 	wg          sync.WaitGroup
@@ -99,7 +102,9 @@ func (h *Handler) ExtractOperation(c *echo.Context) string { return parseRoute(c
 // ExtractResource returns the addressed resource id for metrics.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	p := parseRoute(c.Request()).params
-	for _, k := range []string{"gatewayId", "deploymentId", "certificateId", "workRequestId"} {
+	for _, k := range []string{
+		"gatewayId", "deploymentId", "certificateId", "workRequestId", "apiId", "sdkId", "usagePlanId", "subscriberId",
+	} {
 		if v := p[k]; v != "" {
 			return v
 		}
@@ -206,7 +211,11 @@ func (h *Handler) handle(verify bool) echo.HandlerFunc {
 		q.header("opc-request-id", strings.ToUpper(uuid.NewString()))
 
 		if q.rt.op == opAdminKeys {
-			h.adminKeys(q)
+			if strings.HasSuffix(q.r.URL.Path, "/ca-bundles") {
+				h.adminCABundles(q)
+			} else {
+				h.adminKeys(q)
+			}
 
 			return nil
 		}
@@ -312,22 +321,26 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	srv := &http.Server{
 		Handler: e, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout,
 	}
+	tlsSrv := &http.Server{
+		Handler: e, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout,
+	}
 	stop := make(chan struct{})
 
 	h.srvMu.Lock("StartWorker")
-	h.srv, h.stop = srv, stop
+	h.srv, h.tlsSrv, h.stop = srv, tlsSrv, stop
 	h.srvMu.Unlock()
 
-	workerCtx := logger.WithWorker(ctx, "ociapigateway", "listener")
-	log := logger.Load(workerCtx)
-
-	log.InfoContext(workerCtx, "ociapigateway: starting dedicated listener", "port", h.Port)
-
-	h.wg.Go(func() {
-		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.ErrorContext(workerCtx, "ociapigateway: listener stopped", "error", serveErr)
-		}
+	plainLn, secureLn := splitListener(listener, &h.wg)
+	tlsLn := tls.NewListener(secureLn, &tls.Config{
+		GetConfigForClient: h.Backend.tlsConfigFor, MinVersion: tls.VersionTLS12,
 	})
+
+	workerCtx := logger.WithWorker(ctx, "ociapigateway", "listener")
+
+	logger.Load(workerCtx).InfoContext(workerCtx, "ociapigateway: starting dedicated listener", "port", h.Port)
+
+	h.serveOn(workerCtx, srv, plainLn, "listener stopped")
+	h.serveOn(workerCtx, tlsSrv, tlsLn, "TLS listener stopped")
 
 	h.wg.Go(func() {
 		t := time.NewTicker(sweepInterval)
@@ -348,11 +361,22 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+func (h *Handler) serveOn(ctx context.Context, srv *http.Server, ln net.Listener, stopped string) {
+	log := logger.Load(ctx)
+
+	h.wg.Go(func() {
+		err := srv.Serve(ln)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+			log.ErrorContext(ctx, "ociapigateway: "+stopped, "error", err)
+		}
+	})
+}
+
 // Shutdown stops the listener and the sweeper.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv, stop := h.srv, h.stop
-	h.srv, h.stop = nil, nil
+	srv, tlsSrv, stop := h.srv, h.tlsSrv, h.stop
+	h.srv, h.tlsSrv, h.stop = nil, nil, nil
 	h.srvMu.Unlock()
 
 	if srv == nil {
@@ -363,11 +387,13 @@ func (h *Handler) Shutdown(ctx context.Context) {
 
 	log := logger.Load(ctx)
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.ErrorContext(ctx, "ociapigateway: graceful shutdown failed, forcing close", "error", err)
+	for _, s := range []*http.Server{srv, tlsSrv} {
+		if err := s.Shutdown(ctx); err != nil {
+			log.ErrorContext(ctx, "ociapigateway: graceful shutdown failed, forcing close", "error", err)
 
-		if closeErr := srv.Close(); closeErr != nil {
-			log.ErrorContext(ctx, "ociapigateway: forced close also failed", "error", closeErr)
+			if closeErr := s.Close(); closeErr != nil {
+				log.ErrorContext(ctx, "ociapigateway: forced close also failed", "error", closeErr)
+			}
 		}
 	}
 

@@ -209,6 +209,55 @@ func TestMeterUsageIdempotency(t *testing.T) {
 	assert.Len(t, f.backend.UsageRecords(testProduct), 2)
 }
 
+func TestMeterUsageHourRounding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantCode string
+		offset   time.Duration
+		quantity int32
+		wantSame bool
+	}{
+		{name: "same_hour_same_quantity", offset: 20 * time.Minute, quantity: 3, wantSame: true},
+		{
+			name: "same_hour_other_quantity", offset: 20 * time.Minute, quantity: 4,
+			wantCode: "DuplicateRequestException",
+		},
+		{name: "next_hour", offset: time.Hour, quantity: 3},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			start := f.now().Add(-3 * time.Hour).Truncate(time.Hour)
+			call := func(ts time.Time, q int32) (*sdk.MeterUsageOutput, error) {
+				return f.client.MeterUsage(t.Context(), &sdk.MeterUsageInput{
+					ProductCode:    aws.String(testProduct),
+					UsageDimension: aws.String("Hosts"),
+					Timestamp:      aws.Time(ts),
+					UsageQuantity:  aws.Int32(q),
+				})
+			}
+
+			first, err := call(start.Add(5*time.Minute), 3)
+			require.NoError(t, err)
+
+			second, err := call(start.Add(5*time.Minute).Add(tc.offset), tc.quantity)
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, apiCode(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSame, aws.ToString(first.MeteringRecordId) == aws.ToString(second.MeteringRecordId))
+		})
+	}
+}
+
 func TestMeterUsageDryRun(t *testing.T) {
 	t.Parallel()
 

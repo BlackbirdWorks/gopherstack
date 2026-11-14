@@ -65,6 +65,7 @@ type Instance struct {
 	Name                       string         `json:"name"`
 	Region                     string         `json:"region"`
 	GceZone                    string         `json:"gceZone,omitempty"`
+	SecondaryGceZone           string         `json:"secondaryGceZone,omitempty"`
 	CreateTime                 string         `json:"createTime"`
 	MaintenanceVersion         string         `json:"maintenanceVersion,omitempty"`
 	SQLNetworkArchitecture     string         `json:"sqlNetworkArchitecture,omitempty"`

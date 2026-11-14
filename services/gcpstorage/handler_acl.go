@@ -78,7 +78,7 @@ func (h *Handler) aclRead(c *echo.Context, rt route, t aclTarget, base string) e
 
 		t.gen = gen
 
-		return c.JSON(http.StatusOK, map[string]any{keyKind: t.listKind(), "items": renderACLList(base, t, list)})
+		return c.JSON(http.StatusOK, map[string]any{keyKind: t.listKind(), keyItems: renderACLList(base, t, list)})
 	}
 
 	e, gen, err := h.Backend.GetACL(t, rt.entity)

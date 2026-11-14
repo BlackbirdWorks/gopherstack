@@ -14,7 +14,6 @@ func TestSDKCompleteness(t *testing.T) {
 
 	h := resourceexplorer2.NewHandler(resourceexplorer2.NewInMemoryBackend("123456789012", "us-east-1"))
 	sdkcheck.CheckCompleteness(t, &sdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetServiceIndex", "GetServiceView", "ListServiceIndexes", "ListServiceViews",
-		"ListStreamingAccessForServices",
+		"GetServiceView", "ListServiceViews", "ListStreamingAccessForServices",
 	})
 }

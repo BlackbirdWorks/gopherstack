@@ -16,6 +16,7 @@ const (
 
 // CreateTagNamespaceIn is the CreateTagNamespace request body.
 type CreateTagNamespaceIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	CompartmentID string `json:"compartmentId"`
 	Name          string `json:"name"`
@@ -31,6 +32,7 @@ type UpdateTagNamespaceIn struct {
 
 // CreateTagIn is the CreateTag request body.
 type CreateTagIn struct {
+	RetryToken     string         `json:"-"`
 	Validator      map[string]any `json:"validator"`
 	IsCostTracking *bool          `json:"isCostTracking"`
 	Tags
@@ -49,6 +51,7 @@ type UpdateTagIn struct {
 
 // CreateTagDefaultIn is the CreateTagDefault request body.
 type CreateTagDefaultIn struct {
+	RetryToken      string `json:"-"`
 	IsRequired      *bool  `json:"isRequired"`
 	CompartmentID   string `json:"compartmentId"`
 	TagDefinitionID string `json:"tagDefinitionId"`
@@ -113,6 +116,21 @@ func (b *InMemoryBackend) CreateTagNamespace(in CreateTagNamespaceIn) (tagNamesp
 	b.mu.Lock("CreateTagNamespace")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateTagNamespace",
+		in.RetryToken,
+		b.tagNS,
+		func(r *TagNamespace) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return tagNamespaceWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	if aerr := b.activeParent(in.CompartmentID); aerr != nil {
 		return tagNamespaceWire{}, "", aerr
 	}
@@ -130,6 +148,7 @@ func (b *InMemoryBackend) CreateTagNamespace(in CreateTagNamespaceIn) (tagNamesp
 		Internal: b.newInternal(),
 	}
 	b.tagNS[n.ID] = n
+	b.retry.Remember("CreateTagNamespace", in.RetryToken, n.ID, b.nowUTC())
 
 	return n.view(), n.Internal.Etag, nil
 }
@@ -288,6 +307,21 @@ func (b *InMemoryBackend) CreateTag(nsID string, in CreateTagIn) (tagWire, strin
 	b.mu.Lock("CreateTag")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateTag",
+		in.RetryToken,
+		b.tagDefs,
+		func(r *TagDef) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return tagWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	n, aerr := b.tagNSByID(nsID)
 	if aerr != nil {
 		return tagWire{}, "", aerr
@@ -313,6 +347,7 @@ func (b *InMemoryBackend) CreateTag(nsID string, in CreateTagIn) (tagWire, strin
 		NamespaceID: nsID, NamespaceName: n.Name, Validator: in.Validator, IsCostTrack: cost, Internal: b.newInternal(),
 	}
 	b.tagDefs[d.ID] = d
+	b.retry.Remember("CreateTag", in.RetryToken, d.ID, b.nowUTC())
 
 	return d.view(), d.Internal.Etag, nil
 }
@@ -450,7 +485,7 @@ func (b *InMemoryBackend) DeleteTag(nsID, name, ifMatch string) (string, error) 
 	finish := b.nowUTC().Add(transitionWindow)
 	d.LifecycleState, d.Internal.TransitionAt, d.IsCostTrack = stateDeleting, &finish, false
 
-	return b.newWR("DELETE_TAG_DEFINITION", n.CompartmentID, "tag", d.ID, "DELETED", finish), nil
+	return b.newWR(wrDeleteTagDef, n.CompartmentID, "tag", d.ID, "DELETED", finish), nil
 }
 
 func (t *TagDefault) view() tagDefaultWire {
@@ -491,6 +526,21 @@ func (b *InMemoryBackend) CreateTagDefault(in CreateTagDefaultIn) (tagDefaultWir
 	b.mu.Lock("CreateTagDefault")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate[TagDefault](
+		b,
+		"CreateTagDefault",
+		in.RetryToken,
+		b.tagDefaults,
+		nil,
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return tagDefaultWire{}, "", aerr
+		}
+
+		return r.view(), newEtag(), nil
+	}
+
 	if aerr := b.activeParent(in.CompartmentID); aerr != nil {
 		return tagDefaultWire{}, "", aerr
 	}
@@ -524,6 +574,7 @@ func (b *InMemoryBackend) CreateTagDefault(in CreateTagDefaultIn) (tagDefaultWir
 		Seq:           b.nextSeq(),
 	}
 	b.tagDefaults[t.ID] = t
+	b.retry.Remember("CreateTagDefault", in.RetryToken, t.ID, b.nowUTC())
 
 	return t.view(), newEtag(), nil
 }
@@ -618,6 +669,7 @@ func (h *Handler) createTagNamespace(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateTagNamespace(in)
 
 	return reply(q, v, etag, err)
@@ -657,6 +709,7 @@ func (h *Handler) createTag(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateTag(q.param("tagNamespaceId"), in)
 
 	return reply(q, v, etag, err)
@@ -697,6 +750,7 @@ func (h *Handler) createTagDefault(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateTagDefault(in)
 
 	return reply(q, v, etag, err)

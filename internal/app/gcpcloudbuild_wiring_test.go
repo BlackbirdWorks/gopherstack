@@ -5,15 +5,16 @@ import (
 	"testing"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
+	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -121,26 +122,23 @@ func TestReserveFixedServicePorts_GCPCloudBuild(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 8100, 8200, true},
-		{"port outside pool range", 10000, 10100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, gcpcloudbuildbackend.DefaultPort)
 
-			cli := CLI{GCPCloudBuild: gcpcloudbuildbackend.Settings{Port: gcpcloudbuildbackend.DefaultPort}}
+			cli := CLI{GCPCloudBuild: gcpcloudbuildbackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(gcpcloudbuildbackend.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }
@@ -181,4 +179,60 @@ func TestWireGCPCloudBuild_PubsubTrigger(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, builds, 1)
 	assert.Equal(t, trigger.GetId(), builds[0].GetBuildTriggerId())
+}
+
+func TestCloudBuildKMS(t *testing.T) {
+	t.Parallel()
+
+	kms := gcpkmsbackend.NewInMemoryBackend()
+	const ring = "projects/p/locations/global"
+
+	_, err := kms.CreateKeyRing(&kmspb.CreateKeyRingRequest{Parent: ring, KeyRingId: "r"})
+	require.NoError(t, err)
+
+	const key = ring + "/keyRings/r/cryptoKeys/k"
+
+	_, err = kms.CreateCryptoKey(&kmspb.CreateCryptoKeyRequest{
+		Parent: ring + "/keyRings/r", CryptoKeyId: "k", SkipInitialVersionCreation: false,
+		CryptoKey: &kmspb.CryptoKey{Purpose: kmspb.CryptoKey_ENCRYPT_DECRYPT},
+	})
+	require.NoError(t, err)
+
+	enc, err := kms.Encrypt(&kmspb.EncryptRequest{Name: key, Plaintext: []byte("s3cret")})
+	require.NoError(t, err)
+
+	dec := cloudBuildKMS{b: kms}
+
+	got, err := dec.Decrypt(key, enc.GetCiphertext())
+	require.NoError(t, err)
+	assert.Equal(t, []byte("s3cret"), got)
+
+	_, err = dec.Decrypt(key, []byte("garbage"))
+	require.Error(t, err)
+
+	svc := cloudBuildServices(map[string]service.Registerable{"GCPKMS": gcpkmsbackend.NewHandler(kms)})
+	assert.NotNil(t, svc.KMS)
+}
+
+func TestCloudBuildStoreGenerations(t *testing.T) {
+	t.Parallel()
+
+	store := cloudBuildStore{gcsObjectStore{b: gcpstoragebackend.NewInMemoryBackend()}}
+	require.NoError(t, store.EnsureBucket("p", "gen-bucket"))
+	require.NoError(t, store.WriteObject("gen-bucket", "o", []byte("v1"), ""))
+
+	data, gen, err := store.ReadObjectGeneration("gen-bucket", "o", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("v1"), data)
+	assert.Positive(t, gen)
+
+	require.NoError(t, store.WriteObject("gen-bucket", "o", []byte("v2"), ""))
+
+	latest, gen2, err := store.ReadObjectGeneration("gen-bucket", "o", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("v2"), latest)
+	assert.Greater(t, gen2, gen)
+
+	_, _, err = store.ReadObjectGeneration("gen-bucket", "o", gen+999)
+	require.Error(t, err)
 }

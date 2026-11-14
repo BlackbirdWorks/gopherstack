@@ -208,6 +208,10 @@ func (h *Handler) Reset() {
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
+	return append(customDetectionRuleOps(), h.coreSupportedOperations()...)
+}
+
+func (h *Handler) coreSupportedOperations() []string {
 	return []string{
 		opCreateDetector,
 		opGetDetector,
@@ -319,6 +323,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/"+pathMalwareProtectionPlan) ||
 			strings.HasPrefix(path, "/"+pathMalwareScan) ||
 			strings.HasPrefix(path, "/"+pathObjectMalwareScan) ||
+			strings.HasPrefix(path, "/"+pathCustomDetectionRule+"/") ||
 			// Only /organization/statistics is genuinely GuardDuty's (see
 			// topLevelPathParsers); a blanket "/organization" prefix here
 			// swallowed SecurityHub's /organization/admin/enable and
@@ -417,6 +422,10 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
+	if result, code, ok, err := h.dispatchCustomDetectionRuleOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
 	if err := checkQueryMaxResults(query); err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -530,6 +539,7 @@ var topLevelPathParsers = sync.OnceValue(func() map[string]pathParser {
 		pathMalwareScan:           parseMalwareScanPath,
 		pathObjectMalwareScan:     parseObjectMalwareScanPath,
 		pathOrganization:          parseOrganizationStatisticsPath,
+		pathCustomDetectionRule:   parseCustomRulePathOrUnknown,
 	}
 })
 
@@ -835,7 +845,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	code := "InternalServerErrorException"
 
 	switch {
-	case errors.Is(err, ErrMalwareProtPlanAlreadyExists):
+	case errors.Is(err, ErrMalwareProtPlanAlreadyExists), errors.Is(err, ErrCustomDetectionRuleConflict):
 		status, code = http.StatusConflict, errConflictException
 	case isModeledNotFound(err):
 		status, code = http.StatusNotFound, errResourceNotFound
@@ -855,7 +865,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 // Every other operation answers a missing resource with BadRequestException.
 func isModeledNotFound(err error) bool {
 	return errors.Is(err, ErrMalwareScanNotFound) || errors.Is(err, ErrMalwareProtPlanNotFound) ||
-		errors.Is(err, ErrInvestigationNotFound)
+		errors.Is(err, ErrInvestigationNotFound) ||
+		errors.Is(err, ErrCustomDetectionRuleNotFound)
 }
 
 const (

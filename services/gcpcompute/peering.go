@@ -16,6 +16,7 @@ const (
 	stackIPv4Only  = "IPV4_ONLY"
 	stackIPv4IPv6  = "IPV4_IPV6"
 	stratIndep     = "INDEPENDENT"
+	stratConsensus = "CONSENSUS"
 	dirIncoming    = "INCOMING"
 	dirOutgoing    = "OUTGOING"
 	peerRouteSub   = "SUBNET_PEERING_ROUTE"
@@ -94,6 +95,8 @@ func (b *InMemoryBackend) peeringsViewLocked(n *computeapi.Network) []*computeap
 		if peer != nil {
 			v.PeerMtu = peer.Mtu
 		}
+
+		v.ConnectionStatus = connectionStatus(p, back)
 
 		if back != nil {
 			v.State, v.StateDetails = peerActive, peerDetailOn
@@ -222,10 +225,7 @@ func validPeeringEnums(p *computeapi.NetworkPeering) *APIError {
 	}
 
 	switch p.UpdateStrategy {
-	case "", stratUnspec, stratIndep:
-	case "CONSENSUS":
-		return errField("networkPeering.updateStrategy", p.UpdateStrategy,
-			"CONSENSUS peerings are not supported by this emulator.")
+	case "", stratUnspec, stratIndep, stratConsensus:
 	default:
 		return errField("networkPeering.updateStrategy", p.UpdateStrategy, "")
 	}
@@ -234,7 +234,9 @@ func validPeeringEnums(p *computeapi.NetworkPeering) *APIError {
 		p.StackType = stackIPv4Only
 	}
 
-	p.UpdateStrategy = stratIndep
+	if p.UpdateStrategy != stratConsensus {
+		p.UpdateStrategy = stratIndep
+	}
 
 	return nil
 }
@@ -293,6 +295,21 @@ func (b *InMemoryBackend) removePeering(project, name, peering string) (*compute
 	i := slices.IndexFunc(n.Peerings, func(p *computeapi.NetworkPeering) bool { return p.Name == peering })
 	if i < 0 {
 		return nil, errField("name", peering, "Peering not found in the network.")
+	}
+
+	if n.Peerings[i].UpdateStrategy == stratConsensus {
+		peer, back := b.peerSideLocked(n, n.Peerings[i])
+		if back != nil {
+			if deleteStatus(n.Peerings[i], back) != deleteAcknowledged {
+				return nil, errInvalid("Peering '%s' uses the CONSENSUS update strategy: both networks must "+
+					"request its removal before it can be removed.", peering)
+			}
+
+			peer.Peerings = slices.DeleteFunc(
+				peer.Peerings,
+				func(p *computeapi.NetworkPeering) bool { return p == back },
+			)
+		}
 	}
 
 	n.Peerings = slices.Delete(n.Peerings, i, i+1)
@@ -476,6 +493,22 @@ func (h *Handler) registerPeeringOps() {
 
 		return opResult(h.Backend.removePeering(rq.rt.project, rq.rt.name, in.Name))
 	})
+	h.reg("networks", g, "requestRemovePeering", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[removePeeringRequest](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.requestRemovePeering(rq.rt.project, rq.rt.name, in.Name))
+	})
+	h.reg("networks", g, "cancelRequestRemovePeering", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[removePeeringRequest](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.cancelRequestRemovePeering(rq.rt.project, rq.rt.name, in.Name))
+	})
 	h.reg("networks", g, "updatePeering", func(h *Handler, rq *request) (any, error) {
 		in, raw, err := decode[updatePeeringRequest](rq)
 		if err != nil {
@@ -493,4 +526,135 @@ func (h *Handler) registerPeeringOps() {
 
 		return listBody(rq, "compute#exchangedPeeringRoutesList", entries)
 	})
+}
+
+const (
+	deleteAcknowledged = "DELETE_ACKNOWLEDGED"
+	deleteLocalReq     = "LOCAL_DELETE_REQUESTED"
+	deletePeerReq      = "PEER_DELETE_REQUESTED"
+	deleteLocalCancel  = "LOCAL_CANCEL_REQUESTED"
+	deletePeerCancel   = "PEER_CANCEL_REQUESTED"
+	updateInSync       = "IN_SYNC"
+)
+
+func storedDeleteIntent(p *computeapi.NetworkPeering) string {
+	if p == nil || p.ConnectionStatus == nil || p.ConnectionStatus.ConsensusState == nil {
+		return ""
+	}
+
+	return p.ConnectionStatus.ConsensusState.DeleteStatus
+}
+
+func setDeleteIntent(p *computeapi.NetworkPeering, v string) {
+	if v == "" {
+		p.ConnectionStatus = nil
+
+		return
+	}
+
+	p.ConnectionStatus = &computeapi.NetworkPeeringConnectionStatus{
+		ConsensusState: &computeapi.NetworkPeeringConnectionStatusConsensusState{DeleteStatus: v},
+	}
+}
+
+// deleteStatus derives the view of a consensus delete from the two stored local intents.
+func deleteStatus(local, back *computeapi.NetworkPeering) string {
+	l, r := storedDeleteIntent(local), storedDeleteIntent(back)
+
+	switch {
+	case l == deleteLocalReq && r == deleteLocalReq:
+		return deleteAcknowledged
+	case l == deleteLocalCancel:
+		return deleteLocalCancel
+	case r == deleteLocalCancel:
+		return deletePeerCancel
+	case l == deleteLocalReq:
+		return deleteLocalReq
+	case r == deleteLocalReq:
+		return deletePeerReq
+	}
+
+	return "DELETE_STATUS_UNSPECIFIED"
+}
+
+func connectionStatus(p, back *computeapi.NetworkPeering) *computeapi.NetworkPeeringConnectionStatus {
+	if p.UpdateStrategy != stratConsensus {
+		return nil
+	}
+
+	return &computeapi.NetworkPeeringConnectionStatus{
+		UpdateStrategy: stratConsensus,
+		ConsensusState: &computeapi.NetworkPeeringConnectionStatusConsensusState{
+			DeleteStatus: deleteStatus(p, back), UpdateStatus: updateInSync,
+		},
+	}
+}
+
+func (b *InMemoryBackend) consensusPeeringLocked(
+	project, name, peering string,
+) (*computeapi.Network, *computeapi.NetworkPeering, *computeapi.NetworkPeering, error) {
+	n, err := b.getNetworkLocked(project, name)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	i := slices.IndexFunc(n.Peerings, func(p *computeapi.NetworkPeering) bool { return p.Name == peering })
+	if i < 0 {
+		return nil, nil, nil, errField("name", peering, "Peering not found in the network.")
+	}
+
+	p := n.Peerings[i]
+	if p.UpdateStrategy != stratConsensus {
+		return nil, nil, nil, errInvalid("Peering '%s' does not use the CONSENSUS update strategy.", peering)
+	}
+
+	_, back := b.peerSideLocked(n, p)
+
+	return n, p, back, nil
+}
+
+func (b *InMemoryBackend) requestRemovePeering(project, name, peering string) (*computeapi.Operation, error) {
+	b.mu.Lock("RequestRemovePeering")
+	defer b.mu.Unlock()
+
+	n, p, back, err := b.consensusPeeringLocked(project, name, peering)
+	if err != nil {
+		return nil, err
+	}
+
+	if storedDeleteIntent(p) == deleteLocalReq {
+		return nil, errInvalid("A removal of peering '%s' was already requested.", peering)
+	}
+
+	setDeleteIntent(p, deleteLocalReq)
+
+	if storedDeleteIntent(back) == deleteLocalCancel {
+		setDeleteIntent(back, deleteLocalReq)
+	}
+
+	return b.newOpLocked("requestRemovePeering", netTarget(project, n), b.timing.Done), nil
+}
+
+func (b *InMemoryBackend) cancelRequestRemovePeering(project, name, peering string) (*computeapi.Operation, error) {
+	b.mu.Lock("CancelRequestRemovePeering")
+	defer b.mu.Unlock()
+
+	n, p, back, err := b.consensusPeeringLocked(project, name, peering)
+	if err != nil {
+		return nil, err
+	}
+
+	switch deleteStatus(p, back) {
+	case deleteLocalReq:
+		setDeleteIntent(p, "")
+	case deleteAcknowledged:
+		setDeleteIntent(p, deleteLocalCancel)
+	case deletePeerCancel:
+		setDeleteIntent(p, "")
+		setDeleteIntent(back, "")
+	default:
+		return nil, errInvalid("No removal request of peering '%s' is pending on this network.", peering)
+	}
+
+	return b.newOpLocked("cancelRequestRemovePeering", netTarget(project, n), b.timing.Done), nil
 }

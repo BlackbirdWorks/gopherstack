@@ -234,6 +234,12 @@ func (b *InMemoryBackend) CreateProxy(_ context.Context, in *CreateProxyInput) (
 		return nil, err
 	}
 
+	if b.nets != nil {
+		if _, _, ok := b.nets.NatGatewayNetwork(in.NatGatewayID); !ok {
+			return nil, invalid("NAT gateway %s does not exist", in.NatGatewayID)
+		}
+	}
+
 	proxyARN := b.arnFor(kindProxy, in.ProxyName)
 	if b.proxies.Has(proxyARN) {
 		return nil, invalid("A proxy named %s already exists", in.ProxyName)

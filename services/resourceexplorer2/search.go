@@ -113,6 +113,10 @@ func (b *InMemoryBackend) ListResources(
 		if clauses, err = parseQuery(filter.FilterString); err != nil {
 			return nil, err
 		}
+
+		if hasKeyword(clauses) {
+			return nil, invalid("Filters.FilterString supports filters only, not free-form keywords")
+		}
 	}
 
 	return b.run(ctx, clauses, viewARN, token, maxResults)
@@ -131,6 +135,10 @@ func (b *InMemoryBackend) run(
 		return nil, err
 	}
 
+	if !plan.withTags && usesTagFilter(clauses) {
+		return nil, invalid("the view does not include tags, so the query cannot use tag or application filters")
+	}
+
 	matched := b.gather(ctx, plan, viewClauses, clauses)
 
 	total, complete := len(matched), true
@@ -138,7 +146,7 @@ func (b *InMemoryBackend) run(
 		matched, total, complete = matched[:maxSearchResults], maxSearchResults, false
 	}
 
-	pg, err := paginate(matched, token, maxResults, maxPage)
+	pg, err := paginate(matched, token, maxResults, maxPage, maxBigPage)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +160,7 @@ func (b *InMemoryBackend) gather(ctx context.Context, plan *searchPlan, viewClau
 	}
 
 	seen := map[string]bool{}
+	scores := map[string]int{}
 
 	var out []*candidate
 
@@ -162,14 +171,20 @@ func (b *InMemoryBackend) gather(ctx context.Context, plan *searchPlan, viewClau
 				continue
 			}
 
-			if evaluate(c, viewClauses) && evaluate(c, clauses) {
+			inView, _ := evaluate(c, viewClauses)
+
+			ok, score := evaluate(c, clauses)
+			if inView && ok {
 				seen[c.arn] = true
+				scores[c.arn] = score
 				out = append(out, c)
 			}
 		}
 	}
 
-	slices.SortFunc(out, func(x, y *candidate) int { return cmp.Compare(x.arn, y.arn) })
+	slices.SortFunc(out, func(x, y *candidate) int {
+		return cmp.Or(cmp.Compare(scores[y.arn], scores[x.arn]), cmp.Compare(x.arn, y.arn))
+	})
 
 	return out
 }

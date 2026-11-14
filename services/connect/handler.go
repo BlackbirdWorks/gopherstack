@@ -121,6 +121,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		r := c.Request()
 		path := restroute.EscapedPath(r)
 
+		if strings.HasPrefix(path, attachedContentPath) {
+			return true
+		}
+
 		if httputils.ExtractServiceFromRequest(r) == signingName {
 			return slices.ContainsFunc(pathPrefixes, func(p string) bool { return strings.HasPrefix(path, p) })
 		}
@@ -148,9 +152,6 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	return params["InstanceId"]
 }
-
-// Handler returns the Echo handler.
-func (h *Handler) Handler() echo.HandlerFunc { return h.server.Handler() }
 
 func replay[I, O any](
 	h *Handler,

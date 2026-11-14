@@ -19,7 +19,7 @@ const (
 	maxUserKeys        = 10
 	accountUndeleteTTL = 30 * 24 * time.Hour
 	roleUndeleteTTL    = 7 * 24 * time.Hour
-	rolePurgeAfter     = 37 * 24 * time.Hour
+	rolePurgeAfter     = roleUndeleteTTL
 	etagLen            = 8
 )
 

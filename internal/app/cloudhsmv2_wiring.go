@@ -4,6 +4,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 )
 
 // cloudHSMNetwork backs CloudHSM clusters with EC2 subnets, security groups and HSM network interfaces.
@@ -57,6 +58,20 @@ func (n cloudHSMNetwork) CreateENI(region, subnetID, ip, securityGroupID, descri
 	return eni.ID, eni.PrivateIP, nil
 }
 
+func (n cloudHSMNetwork) AssignENIIPv6(region, subnetID, eniID string) (string, error) {
+	b := n.backend(region)
+	if b == nil || !b.SubnetHasIPv6Block(subnetID) {
+		return "", nil
+	}
+
+	addrs, err := b.AssignIpv6Addresses(eniID, 1)
+	if err != nil || len(addrs) == 0 {
+		return "", err
+	}
+
+	return addrs[0], nil
+}
+
 func (n cloudHSMNetwork) DeleteENI(region, id string) {
 	if b := n.backend(region); b != nil {
 		_ = b.DeleteNetworkInterface(id)
@@ -73,4 +88,30 @@ func wireCloudHSMNetwork(byName map[string]service.Registerable) {
 	if h, hok := byName["CloudHSMV2"].(*cloudhsmv2backend.Handler); hok {
 		h.Backend.SetNetwork(cloudHSMNetwork{regions: ec2Regions{handler: ec2H}})
 	}
+}
+
+// wireCloudHSMSharing lets CloudHSM v2 honour AWS RAM shares of backups.
+func wireCloudHSMSharing(byName map[string]service.Registerable) {
+	h, ok := byName["CloudHSMV2"].(*cloudhsmv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	if r, rok := byName["RAM"].(*rambackend.Handler); rok {
+		if s, sok := r.Backend.(interface {
+			ResourceSharedWith(resourceARN, accountID string) bool
+		}); sok {
+			h.Backend.SetSharing(cloudHSMSharing{ram: s})
+		}
+	}
+}
+
+type cloudHSMSharing struct {
+	ram interface {
+		ResourceSharedWith(resourceARN, accountID string) bool
+	}
+}
+
+func (s cloudHSMSharing) SharedWith(resourceARN, accountID string) bool {
+	return s.ram.ResourceSharedWith(resourceARN, accountID)
 }

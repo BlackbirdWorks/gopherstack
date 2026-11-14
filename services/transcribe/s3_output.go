@@ -12,13 +12,6 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-const (
-	roleAgent    = "AGENT"
-	roleCustomer = "CUSTOMER"
-)
-
-const millisPerSyntheticChar = 50
-
 const outputWriteFailure = "The S3 bucket that you specified is not accessible or does not exist."
 
 // S3Writer stores a finished job's output object.
@@ -112,59 +105,4 @@ func splitOutputLocation(location, jobName string) (string, string) {
 	bucket, key, _ := strings.Cut(rest, "/")
 
 	return bucket, outputObjectKey(key, jobName)
-}
-
-type callAnalyticsDocument struct {
-	JobName            string                       `json:"JobName"`
-	AccountID          string                       `json:"AccountId"`
-	JobStatus          string                       `json:"JobStatus"`
-	LanguageCode       string                       `json:"LanguageCode"`
-	ChannelDefinitions []ChannelDefinition          `json:"ChannelDefinitions,omitempty"`
-	Participants       []callAnalyticsPerson        `json:"Participants"`
-	Transcript         []callAnalyticsSegment       `json:"Transcript"`
-	Characteristics    callAnalyticsCharacteristics `json:"ConversationCharacteristics"`
-}
-
-type callAnalyticsPerson struct {
-	ParticipantRole string `json:"ParticipantRole"`
-}
-
-type callAnalyticsSegment struct {
-	ParticipantRole string `json:"ParticipantRole"`
-	Content         string `json:"Content"`
-	ID              string `json:"Id"`
-	Sentiment       string `json:"Sentiment"`
-	Begin           int    `json:"BeginOffsetMillis"`
-	End             int    `json:"EndOffsetMillis"`
-}
-
-type callAnalyticsCharacteristics struct {
-	TotalConversationDurationMillis int `json:"TotalConversationDurationMillis"`
-}
-
-func synthesizeCallAnalyticsJSON(job *CallAnalyticsJob) []byte {
-	text := deriveTranscriptText(job.CallAnalyticsJobName, job.Media.MediaFileURI)
-	doc := callAnalyticsDocument{
-		JobName:            job.CallAnalyticsJobName,
-		AccountID:          defaultAccountID,
-		JobStatus:          jobStatusCompleted,
-		LanguageCode:       job.LanguageCode,
-		ChannelDefinitions: job.ChannelDefinitions,
-		Participants:       []callAnalyticsPerson{{ParticipantRole: roleAgent}, {ParticipantRole: roleCustomer}},
-		Transcript: []callAnalyticsSegment{
-			{
-				ParticipantRole: roleAgent,
-				Content:         text,
-				ID:              "0",
-				End:             len(text) * millisPerSyntheticChar,
-				Sentiment:       "NEUTRAL",
-			},
-		},
-		Characteristics: callAnalyticsCharacteristics{
-			TotalConversationDurationMillis: len(text) * millisPerSyntheticChar,
-		},
-	}
-	data, _ := marshalJSON(doc)
-
-	return data
 }

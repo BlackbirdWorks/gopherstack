@@ -57,6 +57,8 @@ func (s *fakeSession) Run(_ context.Context, q string, _ map[string]any) (*bolt.
 		return nil, &bolt.Error{Code: bolt.CodeSyntax, Message: "bad query"}
 	case "PLAIN":
 		return nil, errBoom
+	case "PANIC":
+		panic("injected backend panic")
 	}
 
 	return &bolt.Result{Fields: []string{"n"}, Rows: s.f.rows, Write: strings.HasPrefix(q, "CREATE")}, nil

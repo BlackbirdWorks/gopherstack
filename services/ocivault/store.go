@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
+	"github.com/blackbirdworks/gopherstack/pkgs/ocitags"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -29,24 +31,35 @@ const (
 
 // InMemoryBackend holds every vault, key and secret under one lock.
 type InMemoryBackend struct {
-	mu      *lockmetrics.RWMutex
-	now     func() time.Time
-	vaults  map[string]*Vault
-	keys    map[string]*Key
-	secrets map[string]*Secret
-	Auth    *ociauth.Registry
-	seq     int64
+	blobs     BlobStore
+	mu        *lockmetrics.RWMutex
+	now       func() time.Time
+	vaults    map[string]*Vault
+	keys      map[string]*Key
+	secrets   map[string]*Secret
+	Auth      *ociauth.Registry
+	invoke    FunctionInvoker
+	repl      map[string]*replOp
+	retry     *ociretry.Store
+	tagLookup ocitags.Lookup
+	backupKey []byte
+	seq       int64
+	delay     time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:      lockmetrics.New("ocivault"),
-		now:     time.Now,
-		vaults:  map[string]*Vault{},
-		keys:    map[string]*Key{},
-		secrets: map[string]*Secret{},
-		Auth:    ociauth.NewRegistry(),
+		mu:        lockmetrics.New("ocivault"),
+		now:       time.Now,
+		delay:     TransitionDelay,
+		repl:      map[string]*replOp{},
+		retry:     ociretry.New(),
+		backupKey: newBackupKey(),
+		vaults:    map[string]*Vault{},
+		keys:      map[string]*Key{},
+		secrets:   map[string]*Secret{},
+		Auth:      ociauth.NewRegistry(),
 	}
 }
 
@@ -61,9 +74,29 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	b.vaults, b.keys, b.secrets = map[string]*Vault{}, map[string]*Key{}, map[string]*Secret{}
+	b.backupKey = newBackupKey()
+	b.repl = map[string]*replOp{}
+	b.retry = ociretry.New()
 	b.mu.Unlock()
 	b.Auth.Reset()
 }
+
+// SetTagLookup wires defined-tag validation against a tag namespace source (OCI Identity); nil accepts any namespace.
+func (b *InMemoryBackend) SetTagLookup(fn ocitags.Lookup) {
+	b.mu.Lock("SetTagLookup")
+	b.tagLookup = fn
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) checkTags(free map[string]string, defined map[string]map[string]any) *APIError {
+	if err := ocitags.Validate(free, defined, b.tagLookup); err != nil {
+		return newErr(err.Status, err.Code, err.Message)
+	}
+
+	return nil
+}
+
+const headerRetry = "Opc-Retry-Token"
 
 func (b *InMemoryBackend) nowUTC() time.Time { return b.now().UTC() }
 
@@ -179,17 +212,7 @@ func (b *InMemoryBackend) VaultIDForHost(hint string) (string, *APIError) {
 	defer b.mu.RUnlock()
 
 	if hint != "" {
-		if _, ok := b.vaults[hint]; ok {
-			return hint, nil
-		}
-
-		for id, v := range b.vaults {
-			if v.Prefix == hint {
-				return id, nil
-			}
-		}
-
-		return "", errNotFound("vault endpoint " + hint)
+		return b.vaultForHint(hint)
 	}
 
 	var found string
@@ -211,4 +234,20 @@ func (b *InMemoryBackend) VaultIDForHost(hint string) (string, *APIError) {
 	}
 
 	return found, nil
+}
+
+func (b *InMemoryBackend) vaultForHint(hint string) (string, *APIError) {
+	if _, ok := b.vaults[hint]; ok {
+		return hint, nil
+	}
+
+	prefix, region, isReplica := replicaHint(hint)
+
+	for id, v := range b.vaults {
+		if v.Prefix == hint || (isReplica && v.Prefix == prefix && v.liveReplica(region) != nil) {
+			return id, nil
+		}
+	}
+
+	return "", errNotFound("vault endpoint " + hint)
 }

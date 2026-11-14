@@ -8,6 +8,10 @@ const (
 	EventDeleteApplication = "com.oraclecloud.functions.deleteapplication"
 	EventCreateFunction    = "com.oraclecloud.functions.createfunction"
 	EventDeleteFunction    = "com.oraclecloud.functions.deletefunction"
+	EventUpdateApplication = "com.oraclecloud.functions.updateapplication"
+	EventUpdateFunction    = "com.oraclecloud.functions.updatefunction"
+
+	EventChangeApplicationCompartment = "com.oraclecloud.functions.changeapplicationcompartment"
 )
 
 // ResourceEvent describes an application or function lifecycle change.

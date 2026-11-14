@@ -27,6 +27,7 @@ const (
 
 // execEnv is what a job runner needs, captured when the job starts.
 type execEnv struct {
+	barriers map[int]*barrier
 	rt       Runtime
 	svc      Services
 	script   string
@@ -99,8 +100,17 @@ func (b *InMemoryBackend) runJob(ctx context.Context, ex *execEnv, g *batchpb.Ta
 		wg     sync.WaitGroup
 	)
 
-	sem := make(chan struct{}, par)
 	inOrder := g.GetSchedulingPolicy() == batchpb.TaskGroup_IN_ORDER
+
+	if !inOrder {
+		ex.barriers = newBarriers(g, ex.count)
+	}
+
+	if len(ex.barriers) > 0 {
+		par = ex.count
+	}
+
+	sem := make(chan struct{}, par)
 
 launch:
 	for i := range ex.count {
@@ -208,13 +218,15 @@ func (b *InMemoryBackend) prepare(ex *execEnv, g *batchpb.TaskGroup) error {
 
 // runTask runs one task through its attempts and reports whether it succeeded.
 func (b *InMemoryBackend) runTask(ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i int) bool {
+	defer ex.leaveBarriers(i)
+
 	b.taskEvent(ex, i, taskAssigned, nil, "")
 	b.taskEvent(ex, i, taskRunning, nil, "")
 
 	spec := g.GetTaskSpec()
 
 	for attempt := int32(0); ; attempt++ {
-		exit, note, aborted := b.runAttempt(ctx, ex, g, i)
+		exit, note, aborted := b.runAttempt(ctx, ex, g, i, attempt)
 		if aborted {
 			return false
 		}
@@ -296,22 +308,23 @@ func (b *InMemoryBackend) deadline(
 
 // attemptState tracks one attempt across its runnables.
 type attemptState struct {
-	note   string
-	bg     []*proc
-	exit   int
-	failed bool
+	note    string
+	bg      []*proc
+	exit    int
+	attempt int32
+	failed  bool
 }
 
 // runAttempt runs the task's runnables once. aborted means the job was cancelled, deleted or shut down.
 func (b *InMemoryBackend) runAttempt(
-	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i int,
+	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i int, attempt int32,
 ) (int, string, bool) {
 	var timedOut atomic.Bool
 
 	actx, cancel := b.deadline(ctx, g.GetTaskSpec().GetMaxRunDuration().AsDuration(), &timedOut)
 	defer cancel()
 
-	st := &attemptState{}
+	st := &attemptState{attempt: attempt}
 	defer func() { stopAll(st.bg) }()
 
 	for n, r := range g.GetTaskSpec().GetRunnables() {
@@ -320,6 +333,8 @@ func (b *InMemoryBackend) runAttempt(
 		}
 
 		if _, isBarrier := r.GetExecutable().(*batchpb.Runnable_Barrier_); isBarrier {
+			ex.reachBarrier(actx, n, i, st.failed)
+
 			continue
 		}
 
@@ -346,7 +361,7 @@ func (b *InMemoryBackend) step(
 	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i, n int, r *batchpb.Runnable,
 	timedOut *atomic.Bool, st *attemptState,
 ) {
-	p, code, msg := b.launch(ctx, ex, g, i, n, r)
+	p, code, msg := b.launch(ctx, ex, g, i, n, st.attempt, r)
 	if p != nil && r.GetBackground() {
 		st.bg = append(st.bg, p)
 
@@ -402,14 +417,14 @@ func (p *proc) wait(ctx context.Context) (int, string) {
 
 // launch starts one runnable. It returns the process, or an exit code and note when it could not start.
 func (b *InMemoryBackend) launch(
-	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i, n int, r *batchpb.Runnable,
+	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i, n int, attempt int32, r *batchpb.Runnable,
 ) (*proc, int, string) {
 	vars, err := b.resolveEnv(ex.svc, envLayers(g, i, r))
 	if err != nil {
 		return nil, exitStartError, err.Error()
 	}
 
-	predefined(g, i, ex.count, vars)
+	predefined(g, i, ex.count, attempt, vars)
 
 	spec, err := b.runnableSpec(ex, r, vars)
 	if err != nil {

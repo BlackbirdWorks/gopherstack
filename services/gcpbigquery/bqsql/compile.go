@@ -323,10 +323,6 @@ func (c *compiler) compileSetOp(s *setExpr, outer *scope) (*compiledQuery, *selO
 		)
 	}
 
-	if s.op == "INTERSECT ALL" || s.op == "EXCEPT ALL" {
-		return nil, nil, unsupported("%s", s.op)
-	}
-
 	cols := make([]Column, len(left.cols))
 
 	for i := range cols {
@@ -334,8 +330,28 @@ func (c *compiler) compileSetOp(s *setExpr, outer *scope) (*compiledQuery, *selO
 	}
 
 	sql := "SELECT * FROM (" + left.sql + ") " + setOpSQL()[s.op] + " SELECT * FROM (" + right.sql + ")"
+	if s.op == "INTERSECT ALL" || s.op == "EXCEPT ALL" {
+		sql = bagSetOpSQL(strings.TrimSuffix(s.op, " ALL"), left.sql, right.sql, len(cols))
+	}
 
 	return &compiledQuery{sql: sql, cols: cols, aliases: left.aliases}, nil, nil
+}
+
+// bagSetOpSQL numbers the duplicates of each row on both sides so the set operator keeps multiplicities.
+func bagSetOpSQL(op, left, right string, n int) string {
+	names := make([]string, n)
+	for i := range names {
+		names[i] = "c" + strconv.Itoa(i)
+	}
+
+	cols := strings.Join(names, ", ")
+	numbered := func(sql string) string {
+		win := "ROW_NUMBER() OVER (PARTITION BY " + cols + ") AS rn"
+
+		return "SELECT " + cols + ", " + win + " FROM (WITH t(" + cols + ") AS (" + sql + ") SELECT * FROM t)"
+	}
+
+	return "SELECT " + cols + " FROM (" + numbered(left) + " " + op + " " + numbered(right) + ")"
 }
 
 func (c *compiler) applyOrderLimit(cq *compiledQuery, sel *selOut, q *Query) error {

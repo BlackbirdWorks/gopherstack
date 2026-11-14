@@ -167,6 +167,33 @@ type StorageBackend interface {
 		detectorID string, q InvestigationsQuery,
 	) (investigations []*Investigation, nextToken string, err error)
 
+	// Custom detection rules
+	RegisterCustomDetectionRule(rule CustomDetectionRule) error
+	GetCustomDetectionRule(ruleID string) (*CustomDetectionRule, error)
+	ListCustomDetectionRules(
+		filters []DetectionRuleFilter, maxResults int32, nextToken string,
+	) ([]*CustomDetectionRule, string, error)
+	CreateCustomDetectionRuleAssociation(
+		ruleID, mode string, tags map[string]string,
+	) (*CustomDetectionRuleAssociation, error)
+	GetCustomDetectionRuleAssociation(
+		ruleID, associationID string,
+	) (*CustomDetectionRuleAssociation, map[string]string, error)
+	ListCustomDetectionRuleAssociations(
+		ruleID, mode string, maxResults int32, nextToken string,
+	) ([]*CustomDetectionRuleAssociation, string, error)
+	UpdateCustomDetectionRuleAssociation(ruleID, associationID, mode string) error
+	DeleteCustomDetectionRuleAssociation(ruleID, associationID string) error
+	CreateCustomDetectionRuleOrgConfiguration(ruleID, mode string, include, exclude []string) error
+	GetCustomDetectionRuleOrgConfiguration(ruleID, mode string) (*CustomDetectionRuleOrgConfig, error)
+	ListCustomDetectionRuleOrgConfigurations(
+		status string, maxResults int32, nextToken string,
+	) ([]*CustomDetectionRuleOrgConfig, string, error)
+	UpdateCustomDetectionRuleOrgConfiguration(ruleID, mode string, include, exclude []string) error
+	DeleteCustomDetectionRuleOrgConfiguration(ruleID, mode string) error
+	CustomRuleARN(ruleID string) string
+	CustomRuleAssociationARN(ruleID, associationID string) string
+
 	AccountID() string
 	Region() string
 	Reset()

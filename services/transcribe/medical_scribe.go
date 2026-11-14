@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"time"
 )
 
 // supportedMedicalScribeParticipantRoles returns the set of participant roles
@@ -84,7 +83,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 		)
 	}
 
-	now := time.Now()
+	now := b.now()
 	job := *input
 	job.MedicalScribeJobStatus = jobStatusCompleted
 	job.CreationTime = now

@@ -9,6 +9,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
+const (
+	keyItems         = "items"
+	keyEtag          = "etag"
+	keySelfLink      = "selfLink"
+	valTrue          = "true"
+	codeAccessDenied = "AccessDenied"
+)
+
 func itoa(n int) string { return strconv.Itoa(n) }
 
 func marshalRaw(v any) jsontext.Value {
@@ -27,3 +35,11 @@ func fmtTime(t time.Time) string {
 }
 
 func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+
+func unmarshalBody(body []byte, dst any) error {
+	if len(body) == 0 {
+		return nil
+	}
+
+	return json.Unmarshal(body, dst)
+}

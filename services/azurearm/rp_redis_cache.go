@@ -113,7 +113,8 @@ func redisConfigOf(v any) (map[string]string, error) {
 
 var redisOwnedProps = []string{ //nolint:gochecknoglobals // read-only list
 	ehFieldSKU, "enableNonSslPort", redisPropMinTLS, redisPropPublic, "redisConfiguration", "redisVersion",
-	"hostName", "port", "sslPort", "accessKeys", "instances", "linkedServers", "privateEndpointConnections",
+	"disableAccessKeyAuthentication", "hostName", "port", "sslPort", "accessKeys", "instances", "linkedServers",
+	"privateEndpointConnections",
 }
 
 // applyProps copies the request's modelled properties onto rec; fields the request omits keep their value.
@@ -129,6 +130,10 @@ func (p *RedisProvider) applyProps(rec *redisRecord, props map[string]any) error
 
 	if v, ok := props["enableNonSslPort"].(bool); ok {
 		rec.NonSSL = v
+	}
+
+	if v, ok := props["disableAccessKeyAuthentication"].(bool); ok {
+		rec.DisableKeys = v
 	}
 
 	if err := applyStringProps(rec, props); err != nil {

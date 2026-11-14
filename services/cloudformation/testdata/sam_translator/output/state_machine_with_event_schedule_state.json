@@ -1,0 +1,204 @@
+{
+  "Resources": {
+    "ScheduledStateMachine": {
+      "Properties": {
+        "DefinitionS3Location": {
+          "Bucket": "sam-demo-bucket",
+          "Key": "my_state_machine.asl.json"
+        },
+        "RoleArn": "arn:aws:iam::123456123456:role/service-role/SampleRole",
+        "Tags": [
+          {
+            "Key": "stateMachine:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::StepFunctions::StateMachine"
+    },
+    "ScheduledStateMachineSchedule1": {
+      "Properties": {
+        "Description": "Test Schedule",
+        "Name": "test-schedule",
+        "ScheduleExpression": "rate(1 minute)",
+        "State": "Enabled",
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "ScheduledStateMachine"
+            },
+            "Id": "ScheduledStateMachineSchedule1StepFunctionsTarget",
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "ScheduledStateMachineSchedule1Role",
+                "Arn"
+              ]
+            }
+          }
+        ]
+      },
+      "Type": "AWS::Events::Rule"
+    },
+    "ScheduledStateMachineSchedule1Role": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "states:StartExecution",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Ref": "ScheduledStateMachine"
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ScheduledStateMachineSchedule1RoleStartExecutionPolicy"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "ScheduledStateMachineSchedule2": {
+      "Properties": {
+        "Description": "Test Schedule",
+        "Name": "test-schedule",
+        "ScheduleExpression": "rate(1 minute)",
+        "State": {
+          "Fn::Sub": "Enabled"
+        },
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "ScheduledStateMachine"
+            },
+            "Id": "ScheduledStateMachineSchedule2StepFunctionsTarget",
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "ScheduledStateMachineSchedule2Role",
+                "Arn"
+              ]
+            }
+          }
+        ]
+      },
+      "Type": "AWS::Events::Rule"
+    },
+    "ScheduledStateMachineSchedule2Role": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "states:StartExecution",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Ref": "ScheduledStateMachine"
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ScheduledStateMachineSchedule2RoleStartExecutionPolicy"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "ScheduledStateMachineSchedule3": {
+      "Properties": {
+        "Description": "Test Schedule",
+        "Name": "test-schedule",
+        "ScheduleExpression": "rate(1 minute)",
+        "State": {
+          "Ref": "ScheduleState"
+        },
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "ScheduledStateMachine"
+            },
+            "Id": "ScheduledStateMachineSchedule3StepFunctionsTarget",
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "ScheduledStateMachineSchedule3Role",
+                "Arn"
+              ]
+            }
+          }
+        ]
+      },
+      "Type": "AWS::Events::Rule"
+    },
+    "ScheduledStateMachineSchedule3Role": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "states:StartExecution",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Ref": "ScheduledStateMachine"
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ScheduledStateMachineSchedule3RoleStartExecutionPolicy"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

@@ -13,7 +13,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-const dockerTestImage = "alpine:3.20"
+const (
+	dockerTestImage     = "alpine:3.20"
+	dockerHeaderTimeout = 10 * time.Second
+)
+
+func pullImage(t *testing.T, image string) {
+	t.Helper()
+
+	if out, err := exec.CommandContext(t.Context(), "docker", "pull", "-q", image).CombinedOutput(); err != nil {
+		t.Skipf("cannot pull %s: %v %s", image, err, out)
+	}
+}
 
 func dockerEngineHarness(t *testing.T) *engineHarness {
 	t.Helper()

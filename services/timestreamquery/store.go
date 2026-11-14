@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -49,9 +50,12 @@ type InMemoryBackend struct {
 	tagWriteBackend          TagWriteBackend
 	catalog                  Catalog
 	source                   RecordSource
+	notifier                 Notifier
+	objects                  billingexport.ObjectStore
 	nowFn                    func() time.Time
 	accountID                string
 	defaultRegion            string
+	queryTimeout             time.Duration
 }
 
 // TagWriteBackend is the seam into the Timestream Write backend, which
@@ -86,7 +90,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clientTokens:         newClientTokenCache(queryClientTokenTTL),
 		scheduledQueryTokens: newClientTokenCache(createScheduledQueryClientTokenTTL),
 		pageStore:            newNextTokenStore(),
+		queryTimeout:         DefaultQueryTimeout,
 	}
+	registerTimestreamFuncs()
 	registerAllTables(b)
 
 	return b

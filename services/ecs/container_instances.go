@@ -3,6 +3,7 @@ package ecs
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -213,6 +214,7 @@ func (b *InMemoryBackend) enrichContainerInstance(
 	clusterName string,
 ) ContainerInstance {
 	cp := *ci
+	cp.AllocatedPorts = maps.Clone(ci.AllocatedPorts)
 	cp.Attributes = b.instanceAttributesLocked(clusterName, ci.ContainerInstanceArn)
 	cp.RemainingResources = b.remainingResourcesLocked(clusterName, ci)
 

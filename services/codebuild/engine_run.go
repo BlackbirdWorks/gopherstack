@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,6 +56,7 @@ type buildRunner struct {
 	srcDir        string
 	cfg           EngineConfig
 	masked        []string
+	secretNames   map[string]bool
 	build         Build
 	succeeding    bool
 	reachedUpload bool
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) launchBuildLocked(build *Build) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	b.runs[build.ID] = &buildRun{cancel: cancel}
 
-	snap := *build
+	snap := *cloneBuild(build)
 
 	eng.wg.Go(func() {
 		defer cancel()
@@ -165,6 +167,9 @@ func (r *buildRunner) run() string {
 	}
 
 	final := r.runCommandPhases()
+	if r.reachedUpload {
+		r.collectExports()
+	}
 
 	if r.shouldUpload(final) {
 		if o := r.phase("UPLOAD_ARTIFACTS", r.upload); !o.ok() && final.ok() {
@@ -459,17 +464,23 @@ func (r *buildRunner) exportEnv() outcome {
 		return outcome{status: buildStatusFailed, code: "PARAMETER_STORE_ACCESS_ERROR", msg: err.Error()}
 	}
 
-	r.masked = masked
-	r.log.masked = masked
+	rtEnv, rtMasked, err := r.runtimeEnv()
+	if err != nil {
+		return clientError("%v", err)
+	}
 
-	all := append(r.builtinEnv(r.srcDir), resolved...)
+	r.secretNames = secretVarNames(merged)
+	r.masked = slices.Concat(masked, rtMasked)
+	r.log.masked = r.masked
+
+	all := slices.Concat(r.builtinEnv(r.srcDir), rtEnv, resolved)
 
 	r.envMap = make(map[string]string, len(all))
 	for _, v := range all {
 		r.envMap[v.Name] = v.Value
 	}
 
-	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(envFileScript(all)))
+	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(envFileScript(all), "", ""))
 	if err != nil || res.ExitCode != 0 {
 		return clientError("Failed to write build environment: %v %s", err, res.Stderr)
 	}
@@ -525,7 +536,7 @@ func (r *buildRunner) runCommandPhases() outcome {
 	for _, name := range execPhaseNames() {
 		ph := r.spec.Phases[name]
 
-		o := r.phase(strings.ToUpper(name), func() outcome { return r.runPhaseCommands(ph) })
+		o := r.phase(strings.ToUpper(name), func() outcome { return r.runPhaseCommands(name, ph) })
 		if o.ok() {
 			continue
 		}
@@ -565,8 +576,17 @@ func (r *buildRunner) continueAfterFailure(name string, ph specPhase) bool {
 	}
 }
 
-func (r *buildRunner) runPhaseCommands(ph specPhase) outcome {
-	o := r.runScripts(commandScripts(r.spec.Version, ph.Commands, r.srcDir, r.succeeding))
+func (r *buildRunner) runPhaseCommands(name string, ph specPhase) outcome {
+	user := r.spec.runAsFor(ph)
+	if user != "" {
+		r.grantWorkspace()
+	}
+
+	if name == "install" {
+		r.announceRuntimes(ph)
+	}
+
+	o := r.runScripts(commandScripts(r.spec.Version, ph.Commands, r.srcDir, r.succeeding), user)
 
 	if r.ctx.Err() != nil {
 		return o
@@ -574,7 +594,7 @@ func (r *buildRunner) runPhaseCommands(ph specPhase) outcome {
 
 	succ := r.succeeding && o.ok()
 
-	fo := r.runScripts(commandScripts(r.spec.Version, ph.Finally, r.srcDir, succ))
+	fo := r.runScripts(commandScripts(r.spec.Version, ph.Finally, r.srcDir, succ), user)
 	if o.ok() {
 		return fo
 	}
@@ -582,9 +602,9 @@ func (r *buildRunner) runPhaseCommands(ph specPhase) outcome {
 	return o
 }
 
-func (r *buildRunner) runScripts(scripts []string) outcome {
+func (r *buildRunner) runScripts(scripts []string, user string) outcome {
 	for _, s := range scripts {
-		out, code, err := r.execLogged(s)
+		out, code, err := r.execLogged(s, user)
 		if err != nil {
 			return outcome{status: buildStatusFailed, code: codeClientError, msg: err.Error()}
 		}

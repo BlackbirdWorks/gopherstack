@@ -1,8 +1,10 @@
 package transcribe
 
 import (
+	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -70,21 +72,26 @@ func (b *InMemoryBackend) resourceARN(resourceType, name string) string {
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.
 type InMemoryBackend struct {
-	s3Writer                 S3Writer
 	appConfig                any
+	mediaReader              MediaReader
+	engine                   Engine
+	s3Writer                 S3Writer
+	resourceTags             map[string]map[string]string
+	jobs                     *store.Table[TranscriptionJob]
+	inflight                 map[string]context.CancelFunc
 	medicalTranscriptionJobs *store.Table[MedicalTranscriptionJob]
 	registry                 *store.Registry
 	vocabularies             *store.Table[Vocabulary]
 	vocabularyFilters        *store.Table[VocabularyFilter]
 	callAnalyticsJobs        *store.Table[CallAnalyticsJob]
 	medicalScribeJobs        *store.Table[MedicalScribeJob]
-	jobs                     *store.Table[TranscriptionJob]
+	languageModels           *store.Table[LanguageModel]
 	medicalVocabularies      *store.Table[MedicalVocabulary]
-	resourceTags             map[string]map[string]string
+	now                      func() time.Time
 	mu                       *lockmetrics.RWMutex
 	callAnalyticsCategories  *store.Table[CallAnalyticsCategory]
-	languageModels           *store.Table[LanguageModel]
 	region                   string
+	runs                     sync.WaitGroup
 	lifecycleDelay           time.Duration
 }
 
@@ -99,6 +106,8 @@ func NewInMemoryBackendForRegion(region string) *InMemoryBackend {
 		mu:       lockmetrics.New("transcribe"),
 		registry: store.NewRegistry(),
 		region:   region,
+		now:      time.Now,
+		inflight: make(map[string]context.CancelFunc),
 	}
 	registerAllTables(b)
 	b.resourceTags = make(map[string]map[string]string)
@@ -210,4 +219,13 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// shareRuntime copies the media reader, engine and clock from the home region's backend.
+func (b *InMemoryBackend) shareRuntime(home *InMemoryBackend) {
+	home.mu.RLock("shareRuntime")
+	defer home.mu.RUnlock()
+
+	b.mediaReader, b.engine, b.now, b.lifecycleDelay, b.s3Writer = home.mediaReader, home.engine, home.now,
+		home.lifecycleDelay, home.s3Writer
 }

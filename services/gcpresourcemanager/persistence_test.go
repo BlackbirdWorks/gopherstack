@@ -154,3 +154,32 @@ func TestSeedAndReset(t *testing.T) {
 	assert.Equal(t, []string{"first-proj", "second-proj"}, b.ProjectIDs(), "reset restores the seed")
 	assert.Equal(t, "organizations/999", b.OrganizationName())
 }
+
+func TestSnapshotKeepsRetiredProjectIDs(t *testing.T) {
+	t.Parallel()
+
+	src := newEnv(t, withRetention(time.Hour))
+	proj := src.grpc.createProject(t, "retired-id", "")
+
+	del, err := src.grpc.projects.DeleteProject(
+		t.Context(),
+		&resourcemanagerpb.DeleteProjectRequest{Name: proj.GetName()},
+	)
+	require.NoError(t, err)
+
+	_, err = del.Wait(t.Context())
+	require.NoError(t, err)
+
+	src.clock.Advance(2 * time.Hour)
+
+	_, err = src.grpc.projects.GetProject(t.Context(), &resourcemanagerpb.GetProjectRequest{Name: proj.GetName()})
+	require.Equal(t, codes.PermissionDenied, codeOf(err))
+
+	dst := newEnv(t, withRetention(time.Hour))
+	require.NoError(t, dst.backend.Restore(t.Context(), src.backend.Snapshot(t.Context())))
+
+	_, err = dst.grpc.projects.CreateProject(t.Context(), &resourcemanagerpb.CreateProjectRequest{
+		Project: &resourcemanagerpb.Project{ProjectId: "retired-id", DisplayName: "again"},
+	})
+	assert.Equal(t, codes.AlreadyExists, codeOf(err))
+}

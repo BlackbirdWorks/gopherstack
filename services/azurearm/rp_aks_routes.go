@@ -107,9 +107,10 @@ var containerServiceRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && isAKSScope(segs, aksPoolActSegs) &&
-				segAt(segs, aksPoolSegIdx, aksPoolType) && aksLast(segs) == aksActionUpgradeNode
+				segAt(segs, aksPoolSegIdx, aksPoolType) &&
+				(aksLast(segs) == aksActionUpgradeNode || aksLast(segs) == aksActionAbort)
 		},
-		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSUpgradeNode(c, segs) },
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSPoolAction(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -213,17 +214,25 @@ func (h *Handler) handleAKSClusterAction(c *echo.Context, segs []string) error {
 	}
 }
 
-func (h *Handler) handleAKSUpgradeNode(c *echo.Context, segs []string) error {
+func (h *Handler) handleAKSPoolAction(c *echo.Context, segs []string) error {
 	p, id, ok := h.aksFor(c, segs, aksPoolActSegs-1)
 	if !ok {
 		return nil
 	}
 
-	if err := p.upgradeNodeImage(id); err != nil {
+	var err error
+
+	if aksLast(segs) == aksActionAbort {
+		err = p.abortPoolOperation(c.Request().Context(), id)
+	} else {
+		err = p.upgradeNodeImage(id)
+	}
+
+	if err != nil {
 		return h.writeAPIError(c, err)
 	}
 
-	h.setNSOperation(c, id, false)
+	h.setNSOperation(c, id, aksLast(segs) == aksActionAbort)
 
 	return c.NoContent(http.StatusAccepted)
 }

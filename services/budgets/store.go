@@ -19,6 +19,13 @@ type SpendSource interface {
 	Spend(start, end time.Time, filters map[string][]string, metric string) (float64, bool)
 }
 
+// ExpressionSpendSource is a SpendSource that also evaluates a FilterExpression tree.
+type ExpressionSpendSource interface {
+	SpendExpression(
+		start, end time.Time, expr *Expression, filters map[string][]string, metric string,
+	) (float64, bool)
+}
+
 // Delivery is one alert to send to subscribers.
 type Delivery struct {
 	AccountID   string

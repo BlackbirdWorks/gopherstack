@@ -130,10 +130,7 @@ func TestRoleEtagConflictAndUndeleteWindow(t *testing.T) {
 	_, err = e.client.UndeleteRole(ctx, &adminpb.UndeleteRoleRequest{Name: role.GetName(), Etag: role.GetEtag()})
 	requireCode(t, codes.Aborted, err)
 
-	e.clk.advance(8 * 24 * time.Hour)
-
-	_, err = e.client.UndeleteRole(ctx, &adminpb.UndeleteRoleRequest{Name: role.GetName()})
-	requireCode(t, codes.FailedPrecondition, err)
+	e.clk.advance(6 * 24 * time.Hour)
 
 	_, err = e.client.CreateRole(
 		ctx,
@@ -141,13 +138,16 @@ func TestRoleEtagConflictAndUndeleteWindow(t *testing.T) {
 	)
 	requireCode(t, codes.AlreadyExists, err)
 
-	e.clk.advance(40 * 24 * time.Hour)
+	e.clk.advance(2 * 24 * time.Hour)
+
+	_, err = e.client.UndeleteRole(ctx, &adminpb.UndeleteRoleRequest{Name: role.GetName()})
+	requireCode(t, codes.NotFound, err)
 
 	_, err = e.client.CreateRole(
 		ctx,
 		&adminpb.CreateRoleRequest{Parent: project, RoleId: "etagRole", Role: &adminpb.Role{}},
 	)
-	require.NoError(t, err, "the id is reusable once the deleted role is permanently purged")
+	require.NoError(t, err, "the id is reusable once the deleted role is permanently deleted after 7 days")
 }
 
 func TestCreateRoleValidation(t *testing.T) {

@@ -26,3 +26,7 @@ func errInvalid(format string, a ...any) error {
 func errPrecondition(format string, a ...any) error {
 	return status.Error(codes.FailedPrecondition, fmt.Sprintf(format, a...))
 }
+
+func errNotFoundMsg(format string, a ...any) error {
+	return status.Error(codes.NotFound, fmt.Sprintf(format, a...))
+}

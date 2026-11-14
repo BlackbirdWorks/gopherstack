@@ -77,6 +77,30 @@ var (
 	// ErrWebAuthnCredentialNotFound is returned when a WebAuthn/passkey credential does not exist.
 	ErrWebAuthnCredentialNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 
+	// ErrWebAuthnNotEnabled: the pool has no passkey configuration and does not allow WEB_AUTHN sign-in.
+	ErrWebAuthnNotEnabled = awserr.New("WebAuthnNotEnabledException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnConfigurationMissing: the pool has neither a relying party ID nor a domain.
+	ErrWebAuthnConfigurationMissing = awserr.New("WebAuthnConfigurationMissingException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnChallengeNotFound: the registration challenge is missing, used or expired.
+	ErrWebAuthnChallengeNotFound = awserr.New("WebAuthnChallengeNotFoundException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnClientMismatch: the access token belongs to a different app client than StartWebAuthnRegistration saw.
+	ErrWebAuthnClientMismatch = awserr.New("WebAuthnClientMismatchException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnOriginNotAllowed: the credential's origin does not align with the relying party ID.
+	ErrWebAuthnOriginNotAllowed = awserr.New("WebAuthnOriginNotAllowedException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnRelyingPartyMismatch: the credential is bound to a different relying party ID.
+	ErrWebAuthnRelyingPartyMismatch = awserr.New("WebAuthnRelyingPartyMismatchException", awserr.ErrInvalidParameter)
+
+	// ErrWebAuthnCredentialNotSupported: the authenticator or attestation is not supported.
+	ErrWebAuthnCredentialNotSupported = awserr.New(
+		"WebAuthnCredentialNotSupportedException",
+		awserr.ErrInvalidParameter,
+	)
+
 	// ErrAuthEventNotFound is returned when an adaptive-authentication event does not exist.
 	ErrAuthEventNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 

@@ -2,10 +2,12 @@ package ociloadbalancer
 
 import (
 	"crypto/tls"
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -19,6 +21,7 @@ const (
 
 type createLBIn struct {
 	Tags
+	RetryToken      string                     `json:"-"`
 	ShapeDetails    *ShapeDetails              `json:"shapeDetails"`
 	IsPrivate       *bool                      `json:"isPrivate"`
 	DeleteProtected *bool                      `json:"isDeleteProtectionEnabled"`
@@ -126,6 +129,10 @@ func (b *InMemoryBackend) checkSubnets(ids []string, private bool) (string, *API
 
 func (b *InMemoryBackend) validateCreate(in *createLBIn) (string, *APIError) {
 	if err := b.checkCompartment(in.CompartmentID); err != nil {
+		return "", err
+	}
+
+	if err := b.checkTags(in.Tags); err != nil {
 		return "", err
 	}
 
@@ -248,7 +255,7 @@ func newLB() *LoadBalancer {
 // CreateLoadBalancer creates a load balancer in CREATING state and returns its work request id.
 func (b *InMemoryBackend) CreateLoadBalancer(in createLBIn) (string, error) {
 	b.mu.Lock("CreateLoadBalancer")
-	wr, err := b.createLB(&in)
+	wr, err := b.createLBOnce(&in)
 	b.mu.Unlock()
 
 	if err != nil {
@@ -256,6 +263,26 @@ func (b *InMemoryBackend) CreateLoadBalancer(in createLBIn) (string, error) {
 	}
 
 	b.dp.sync()
+
+	return wr, nil
+}
+
+func (b *InMemoryBackend) createLBOnce(in *createLBIn) (string, error) {
+	if v, ok := b.retry.Lookup("CreateLoadBalancer", in.RetryToken, b.nowUTC()); ok {
+		id, wr := ociretry.Split(v)
+		if lb, live := b.lbs[id]; !live || lb.State == stateDeleting || lb.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	wr, err := b.createLB(in)
+	if err != nil {
+		return "", err
+	}
+
+	b.retry.Remember("CreateLoadBalancer", in.RetryToken, ociretry.Join(b.workReqs[wr].LoadBalancerID, wr), b.nowUTC())
 
 	return wr, nil
 }
@@ -314,10 +341,10 @@ func cidrFor(lb *LoadBalancer, cidr string) string {
 // Mutate applies fn to a copy of the load balancer, validates the result, publishes it and returns the
 // id of the work request that tracks the change.
 func (b *InMemoryBackend) Mutate(
-	id, ifMatch, wrType string, refConflict bool, fn func(lb *LoadBalancer) *APIError,
+	id, ifMatch, wrType, token string, refConflict bool, fn func(lb *LoadBalancer) *APIError,
 ) (string, error) {
 	b.mu.Lock("Mutate")
-	wr, err := b.mutate(id, ifMatch, wrType, refConflict, fn)
+	wr, err := b.mutateOnce(id, ifMatch, wrType, token, refConflict, fn)
 	b.reapKeys(id)
 	b.mu.Unlock()
 
@@ -326,6 +353,88 @@ func (b *InMemoryBackend) Mutate(
 	}
 
 	b.dp.sync()
+
+	return wr, nil
+}
+
+// resourceKeys names every sub-resource of a load balancer, so a create can be traced to what it added.
+func resourceKeys(lb *LoadBalancer) map[string]struct{} {
+	out := map[string]struct{}{}
+
+	add := func(kind string, names []string) {
+		for _, n := range names {
+			out[kind+"/"+n] = struct{}{}
+		}
+	}
+
+	add("listeners", slices.Collect(maps.Keys(lb.Listeners)))
+	add("hostnames", slices.Collect(maps.Keys(lb.Hostnames)))
+	add("sslCipherSuites", slices.Collect(maps.Keys(lb.SSLCipherSuites)))
+	add("certificates", slices.Collect(maps.Keys(lb.Certificates)))
+	add("pathRouteSets", slices.Collect(maps.Keys(lb.PathRouteSets)))
+	add("ruleSets", slices.Collect(maps.Keys(lb.RuleSets)))
+	add("routingPolicies", slices.Collect(maps.Keys(lb.RoutingPolicies)))
+
+	for name, bs := range lb.BackendSets {
+		out["backendSets/"+name] = struct{}{}
+
+		for _, be := range bs.Backends {
+			out["backendSets/"+name+"/backends/"+be.Name] = struct{}{}
+		}
+	}
+
+	return out
+}
+
+// mutateOnce replays a remembered token, or runs the mutation and remembers the resource it created.
+func (b *InMemoryBackend) mutateOnce(
+	id, ifMatch, wrType, token string, refConflict bool, fn func(lb *LoadBalancer) *APIError,
+) (string, error) {
+	scope := wrType + "/" + id
+	now := b.nowUTC()
+
+	if v, ok := b.retry.Lookup(scope, token, now); ok {
+		key, wr := ociretry.Split(v)
+
+		lb, live := b.lbs[id]
+		if !live || lb.State == stateDeleting || lb.State == stateDeleted {
+			return "", errInvalidatedToken()
+		}
+
+		if _, has := resourceKeys(lb)[key]; key != "" && !has {
+			return "", errInvalidatedToken()
+		}
+
+		return wr, nil
+	}
+
+	var before map[string]struct{}
+
+	if lb, live := b.lbs[id]; live && token != "" {
+		before = resourceKeys(lb)
+	}
+
+	wr, err := b.mutate(id, ifMatch, wrType, refConflict, fn)
+	if err != nil || token == "" {
+		return wr, err
+	}
+
+	added := []string{}
+
+	for k := range resourceKeys(b.lbs[id]) {
+		if _, had := before[k]; !had {
+			added = append(added, k)
+		}
+	}
+
+	slices.Sort(added)
+
+	key := ""
+	if len(added) > 0 {
+		key = added[0]
+	}
+
+	b.retry.Remember(scope, token, ociretry.Join(key, wr), now)
 
 	return wr, nil
 }
@@ -550,8 +659,8 @@ func checkPortSharing(lb *LoadBalancer) *APIError {
 }
 
 // UpdateLoadBalancer changes mutable load balancer properties.
-func (b *InMemoryBackend) UpdateLoadBalancer(id, ifMatch string, in updateLBIn) (string, error) {
-	return b.Mutate(id, ifMatch, "UpdateLoadBalancer", false, func(lb *LoadBalancer) *APIError {
+func (b *InMemoryBackend) UpdateLoadBalancer(id, ifMatch, token string, in updateLBIn) (string, error) {
+	return b.Mutate(id, ifMatch, "UpdateLoadBalancer", token, false, func(lb *LoadBalancer) *APIError {
 		if in.IPMode != "" && in.IPMode != "IPV4" || in.Ipv6SubnetCidr != nil || len(in.ReservedIPs) > 0 {
 			return errUnsupported("ipMode, ipv6SubnetCidr and reservedIps changes")
 		}
@@ -580,6 +689,10 @@ func (b *InMemoryBackend) UpdateLoadBalancer(id, ifMatch string, in updateLBIn) 
 			lb.RequestIDHeader = defaultRequestIDHeader
 		}
 
+		if err := b.checkTags(in.Tags); err != nil {
+			return err
+		}
+
 		lb.Tags.merge(in.Tags)
 
 		return nil
@@ -587,8 +700,8 @@ func (b *InMemoryBackend) UpdateLoadBalancer(id, ifMatch string, in updateLBIn) 
 }
 
 // UpdateShape changes the load balancer shape.
-func (b *InMemoryBackend) UpdateShape(id, ifMatch string, in updateShapeIn) (string, error) {
-	return b.Mutate(id, ifMatch, "UpdateLoadBalancerShape", false, func(lb *LoadBalancer) *APIError {
+func (b *InMemoryBackend) UpdateShape(id, ifMatch, token string, in updateShapeIn) (string, error) {
+	return b.Mutate(id, ifMatch, "UpdateLoadBalancerShape", token, false, func(lb *LoadBalancer) *APIError {
 		if err := checkShape(in.ShapeName, in.ShapeDetails); err != nil {
 			return err
 		}
@@ -600,8 +713,8 @@ func (b *InMemoryBackend) UpdateShape(id, ifMatch string, in updateShapeIn) (str
 }
 
 // UpdateNSGs replaces the network security groups.
-func (b *InMemoryBackend) UpdateNSGs(id, ifMatch string, in nsgIn) (string, error) {
-	return b.Mutate(id, ifMatch, "UpdateNetworkSecurityGroups", false, func(lb *LoadBalancer) *APIError {
+func (b *InMemoryBackend) UpdateNSGs(id, ifMatch, token string, in nsgIn) (string, error) {
+	return b.Mutate(id, ifMatch, "UpdateNetworkSecurityGroups", token, false, func(lb *LoadBalancer) *APIError {
 		lb.NSGs = in.NSGs
 
 		return nil
@@ -609,8 +722,8 @@ func (b *InMemoryBackend) UpdateNSGs(id, ifMatch string, in nsgIn) (string, erro
 }
 
 // ChangeCompartment moves a load balancer to another compartment.
-func (b *InMemoryBackend) ChangeCompartment(id, ifMatch string, in changeCompartmentIn) (string, error) {
-	return b.Mutate(id, ifMatch, "ChangeLoadBalancerCompartment", false, func(lb *LoadBalancer) *APIError {
+func (b *InMemoryBackend) ChangeCompartment(id, ifMatch, token string, in changeCompartmentIn) (string, error) {
+	return b.Mutate(id, ifMatch, "ChangeLoadBalancerCompartment", token, false, func(lb *LoadBalancer) *APIError {
 		if err := b.checkCompartment(in.CompartmentID); err != nil {
 			return err
 		}

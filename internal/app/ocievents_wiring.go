@@ -76,6 +76,16 @@ func objectEvent(e ociobjectstorage.ObjectEvent) ocievents.Event {
 	}
 }
 
+func bucketEvent(e ociobjectstorage.BucketEvent) ocievents.Event {
+	return ocievents.Event{
+		Time: e.Time, EventType: e.EventType, Source: eventSourceObjectStorage, CompartmentID: e.CompartmentID,
+		ResourceName: e.BucketName, ResourceID: e.BucketID, FreeformTags: e.FreeformTags, DefinedTags: e.DefinedTags,
+		AdditionalDetails: map[string]any{
+			"namespace": e.Namespace, "publicAccessType": e.PublicAccessType, "eTag": e.ETag,
+		},
+	}
+}
+
 func functionsEvent(e ocifunctions.ResourceEvent) ocievents.Event {
 	return ocievents.Event{
 		Time: e.Time, EventType: e.EventType, Source: "functions", CompartmentID: e.CompartmentID,
@@ -84,7 +94,7 @@ func functionsEvent(e ocifunctions.ResourceEvent) ocievents.Event {
 }
 
 // wireOCIEvents shares OCI Identity keys and compartments, connects the action targets (Notifications,
-// Streaming, Functions) and hooks the event producers (Object Storage, Functions).
+// Streaming, Functions) and hooks the event producers (Object Storage objects and buckets, Functions).
 func wireOCIEvents(byName map[string]service.Registerable) {
 	evH, ok := byName["OCIEvents"].(*ocievents.Handler)
 	if !ok {
@@ -95,6 +105,8 @@ func wireOCIEvents(byName map[string]service.Registerable) {
 		evH.Backend.Auth.Link(identityH.Backend.Auth)
 		evH.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 		evH.Backend.SetCompartmentTree(identityH.Backend.CompartmentWithin)
+		evH.Backend.SetTagLookup(identityH.Backend.TagDefinition)
+		evH.Backend.SetCompartmentNamer(identityH.Backend.CompartmentName)
 	}
 
 	if h, found := byName["OCINotifications"].(*ocinotifications.Handler); found {
@@ -112,5 +124,6 @@ func wireOCIEvents(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCIObjectStorage"].(*ociobjectstorage.Handler); found {
 		h.Backend.SetObjectEventSink(func(e ociobjectstorage.ObjectEvent) { evH.Backend.Emit(objectEvent(e)) })
+		h.Backend.SetBucketEventSink(func(e ociobjectstorage.BucketEvent) { evH.Backend.Emit(bucketEvent(e)) })
 	}
 }

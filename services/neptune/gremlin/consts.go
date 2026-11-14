@@ -3,6 +3,11 @@ package gremlin
 // Repeated wire and step names.
 const (
 	opAnd        = "and"
+	opMin        = "min"
+	opMax        = "max"
+	opMinus      = "minus"
+	opMult       = "mult"
+	opDiv        = "div"
 	opOr         = "or"
 	opWithin     = "within"
 	opBetween    = "between"
@@ -34,5 +39,7 @@ const (
 	tokID        = "id"
 	stepSum      = "sum"
 	jsonCode     = "code"
+	labelVertex  = "vertex"
+	termToList   = "toList"
 	jsonReqID    = "requestId"
 )

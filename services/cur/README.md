@@ -9,17 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 7 (7 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 6 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- columns: bill/lineItem/product/pricing/reservation/savingsPlan/discount core columns are present, but only those the cost ledger can fill carry values (the rest are empty cells); resourceTags/*, costCategory/* and the long tail of product/* attribute columns are absent
-- MANUAL_DISCOUNT_COMPATIBILITY: accepted but adds no columns
-- ResourceId and tags: lineItem/ResourceId is empty because the cost ledger has no per-resource data
-- lastDelivery: emitted as RFC 3339; the real service string format is unverified
-- ATHENA artifacts: crawler template is minimal; cost_and_usage_data_status.parquet (one row, status=READY) is written next to the data but its exact key and schema are recalled, unverified
+- columns: costCategory/* columns are absent (cost category rules carry no expression to evaluate) and product/* attribute columns beyond instanceType, productFamily, servicename, servicecode, usagetype, region and location are absent because the ledger has no further product attributes
+- ResourceId and resourceTags/*: columns fill from ledger rows, but no emulated service writes a resource ID or tags into the ledger, so the seeded rows leave them empty
+- ATHENA artifacts: the crawler-cfn.yml template holds only the Glue database and crawler; the real template's three IAM roles, two Lambda functions and S3 notification are not published beyond that resource list
 - BillingViewArn: format-checked only, no billing view backend
 
 ## More

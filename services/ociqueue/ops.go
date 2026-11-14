@@ -19,7 +19,10 @@ func buildOps() map[string]opFunc {
 		opPutMessages: (*Handler).putMessages, opGetMessages: (*Handler).getMessages,
 		opUpdateMessage: (*Handler).updateMessage, opUpdateMessages: (*Handler).updateMessages,
 		opDeleteMessage: (*Handler).deleteMessage, opDeleteMessages: (*Handler).deleteMessages,
-		opGetStats: (*Handler).getStats, opListChannels: (*Handler).listChannels,
+		opCreateGroup: (*Handler).createConsumerGroup, opGetGroup: (*Handler).getConsumerGroup,
+		opListGroups: (*Handler).listConsumerGroups, opUpdateGroup: (*Handler).updateConsumerGroup,
+		opDeleteGroup: (*Handler).deleteConsumerGroup,
+		opGetStats:    (*Handler).getStats, opListChannels: (*Handler).listChannels,
 	}
 }
 

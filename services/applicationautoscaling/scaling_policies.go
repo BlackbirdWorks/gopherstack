@@ -368,7 +368,7 @@ func policyMatchesFilter(p *ScalingPolicy, f DescribeScalingPoliciesFilter, name
 // returns the NextToken for the following page (empty on the last page).
 // Returns ErrInvalidNextToken if f.NextToken fails to decode.
 func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilter) ([]*ScalingPolicy, string, error) {
-	if err := validateEnums(f.ServiceNamespace, f.ScalableDimension); err != nil {
+	if err := validateDescribeFilter(f.ServiceNamespace, f.ScalableDimension, f.ResourceID != ""); err != nil {
 		return nil, "", err
 	}
 

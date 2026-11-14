@@ -91,6 +91,10 @@ func (b *InMemoryBackend) CreateWorkspace(ctx context.Context, in CreateWorkspac
 		}
 	}
 
+	if err := b.checkKMSKey(ctx, in.KMSKeyARN); err != nil {
+		return wWorkspace{}, err
+	}
+
 	sc := b.scopeOf(ctx)
 
 	b.mu.Lock("CreateWorkspace")

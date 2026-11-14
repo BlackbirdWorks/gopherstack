@@ -2,9 +2,7 @@ package iceberg
 
 import (
 	"encoding/binary"
-	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,88 +54,7 @@ func NewSnapshotID() int64 {
 func (m *TableMetadata) PlanAppend(
 	currentLocation string, prev []ManifestFile, files []DataFile, now time.Time,
 ) (*AppendPlan, error) {
-	spec := m.DefaultSpec()
-	snapID := NewSnapshotID()
-	seq := m.LastSequenceNumber + 1
-	tsMS := now.UnixMilli()
-
-	var parent *int64
-
-	var prevSummary map[string]string
-
-	if cur, ok := m.CurrentSnapshot(); ok {
-		id := cur.SnapshotID
-		parent, prevSummary = &id, cur.Summary
-		tsMS = max(tsMS, cur.TimestampMS)
-	}
-
-	base := strings.TrimSuffix(m.Location, "/") + "/metadata/"
-
-	entries := make([]ManifestEntry, 0, len(files))
-
-	var rows, size int64
-
-	for _, f := range files {
-		f.Content = ContentData
-		entries = append(entries, ManifestEntry{
-			Status: StatusAdded, SnapshotID: &snapID, SequenceNumber: &seq, DataFile: f,
-		})
-		rows += f.RecordCount
-		size += f.FileSize
-	}
-
-	manifestBody, err := EncodeManifest(m, spec, ContentData, entries)
-	if err != nil {
-		return nil, err
-	}
-
-	manifestLoc := base + uuid.NewString() + "-m0.avro"
-	list := make([]ManifestFile, 0, 1+len(prev))
-	list = append(list, ManifestFile{
-		Path: manifestLoc, Length: int64(len(manifestBody)), SpecID: spec.SpecID, Content: ContentData,
-		SequenceNumber: seq, MinSequenceNumber: seq, AddedSnapshotID: snapID,
-		AddedFiles: len(files), AddedRows: rows,
-	})
-	list = append(list, prev...)
-
-	listBody, err := EncodeManifestList(snapID, parent, seq, list)
-	if err != nil {
-		return nil, err
-	}
-
-	listLoc := fmt.Sprintf("%ssnap-%d-1-%s.avro", base, snapID, uuid.NewString())
-	schemaID := m.CurrentSchemaID
-	snap := Snapshot{
-		SnapshotID: snapID, ParentSnapshotID: parent, SequenceNumber: seq, TimestampMS: tsMS,
-		ManifestList: listLoc, SchemaID: &schemaID,
-		Summary: map[string]string{
-			summaryOp: "append", summaryAdded: strconv.Itoa(len(files)),
-			summaryRecords: strconv.FormatInt(rows, 10), summarySize: strconv.FormatInt(size, 10),
-			totalRecords:    strconv.FormatInt(summaryInt(prevSummary, totalRecords)+rows, 10),
-			totalFiles:      strconv.FormatInt(summaryInt(prevSummary, totalFiles)+int64(len(files)), 10),
-			totalSize:       strconv.FormatInt(summaryInt(prevSummary, totalSize)+size, 10),
-			totalDeletes:    strconv.FormatInt(summaryInt(prevSummary, totalDeletes), 10),
-			totalPosDeletes: strconv.FormatInt(summaryInt(prevSummary, totalPosDeletes), 10),
-			totalEqDeletes:  strconv.FormatInt(summaryInt(prevSummary, totalEqDeletes), 10),
-		},
-	}
-
-	next := m.AppendSnapshot(snap, currentLocation, now)
-	metaLoc := next.NextMetadataLocation()
-
-	body, err := marshalMetadata(next)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AppendPlan{
-		Metadata: next, MetadataLocation: metaLoc,
-		Objects: []Object{
-			{Location: manifestLoc, Body: manifestBody},
-			{Location: listLoc, Body: listBody},
-			{Location: metaLoc, Body: body},
-		},
-	}, nil
+	return m.PlanCommit(currentLocation, prev, nil, Change{Operation: OpAppend, AddData: files}, now)
 }
 
 func marshalMetadata(m *TableMetadata) ([]byte, error) {

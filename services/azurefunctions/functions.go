@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -134,7 +135,7 @@ func (b *InMemoryBackend) Functions(ctx context.Context, name string) ([]Functio
 		return nil, nil
 	}
 
-	servable, zipData, worker := a.servable(), a.Zip, ""
+	servable, zipData, settings, worker, flex := a.servable(), a.Zip, maps.Clone(a.Settings), "", a.Flex
 	if rc, rcErr := chooseRuntime(a.Settings, a.LinuxFx); rcErr == nil {
 		worker = rc.worker
 	}
@@ -158,6 +159,10 @@ func (b *InMemoryBackend) Functions(ctx context.Context, name string) ([]Functio
 	}
 
 	if !errors.Is(err, errNoRuntime) && !errors.Is(err, errNoHost) {
+		return nil, err
+	}
+
+	if zipData, err = b.sitePackage(ctx, settings, zipData, flex); err != nil {
 		return nil, err
 	}
 

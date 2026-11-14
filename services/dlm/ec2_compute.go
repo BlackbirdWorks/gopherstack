@@ -235,3 +235,15 @@ func (c ec2Compute) DeprecateImage(region, imageID string, at time.Time) error {
 		at.UTC().Format(imageDeprecationLayout),
 	) //nolint:wrapcheck // logged by the scheduler
 }
+
+// zoneNameForID resolves a zone ID such as use1-az1 to the region's zone name, or "" when none matches.
+func zoneNameForID(region, id string) string {
+	for letter := 'a'; letter <= 'z'; letter++ {
+		name := region + string(letter)
+		if ec2backend.AvailabilityZoneID(name) == id {
+			return name
+		}
+	}
+
+	return ""
+}

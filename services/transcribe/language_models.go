@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 )
 
 // supportedBaseModelNames returns the set of base model names for custom language models.
@@ -63,7 +62,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 		return nil, fmt.Errorf("%w: language model %s already exists", ErrAlreadyExists, input.ModelName)
 	}
 
-	now := time.Now()
+	now := b.now()
 	m := *input
 	m.ModelStatus = modelStatusCompleted
 	m.CreateTime = now
@@ -125,7 +124,7 @@ func (b *InMemoryBackend) UpdateLanguageModel(
 		m.Encryption = &cp
 	}
 
-	m.LastModifiedTime = time.Now()
+	m.LastModifiedTime = b.now()
 
 	out := *m
 	b.observeLanguageModel(&out)

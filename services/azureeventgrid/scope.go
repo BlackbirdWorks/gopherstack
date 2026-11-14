@@ -1,7 +1,5 @@
 package azureeventgrid
 
-import "strings"
-
 // Scope addresses the owner of event subscriptions: a custom topic (Topic only),
 // a domain (Domain only), a domain topic (both) or an Azure Resource Manager
 // scope such as a subscription, resource group or resource (Resource only).
@@ -9,18 +7,6 @@ type Scope struct {
 	Domain   string
 	Topic    string
 	Resource string
-}
-
-func (s Scope) leaf() string {
-	if s.Resource != "" {
-		return s.Resource[strings.LastIndex(s.Resource, "/")+1:]
-	}
-
-	if s.Topic != "" {
-		return s.Topic
-	}
-
-	return s.Domain
 }
 
 type scopeInfo struct {

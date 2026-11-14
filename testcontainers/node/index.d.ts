@@ -9,6 +9,7 @@ export declare class GopherstackContainer {
   withServices(...names: string[]): this;
   withPersistence(hostDir: string): this;
   withDockerSocket(): this;
+  withUser(user: string): this;
   withEnv(key: string, value: string): this;
   start(): Promise<StartedGopherstackContainer>;
 }

@@ -126,7 +126,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log := logger.Load(workerCtx)
 
 	srv := gcpenforce.NewServer(
-		ctx, "secretmanager.googleapis.com", grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor),
+		ctx, "secretmanager.googleapis.com", grpc.ChainUnaryInterceptor(
+			logInterceptor(log), regionalInterceptor,
+			h.Backend.Audit.UnaryInterceptor(auditPolicy(), h.Backend.now),
+		),
 	)
 	secretmanagerpb.RegisterSecretManagerServiceServer(srv, &server{b: h.Backend})
 

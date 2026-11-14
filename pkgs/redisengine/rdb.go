@@ -693,7 +693,7 @@ func (r *rdbReader) value(typ byte, kd *keyDump) error {
 
 		return r.zset(kd, typ == rdbTypeZSet2)
 	default:
-		return fmt.Errorf("%w: encoded value type %d for key %q", ErrUnsupportedRDB, typ, kd.Key)
+		return r.packedValue(typ, kd)
 	}
 }
 
@@ -809,4 +809,43 @@ func (r *rdbReader) score(binary2 bool) (float64, error) {
 	}
 
 	return f, nil
+}
+
+func (r *rdbReader) packedValue(typ byte, kd *keyDump) error {
+	switch typ {
+	case rdbTypeListZiplist:
+		kd.Type = typeList
+
+		return r.packedList(kd, decodeZiplist)
+	case rdbTypeIntset:
+		kd.Type = typeSet
+
+		return r.intset(kd)
+	case rdbTypeZSetZiplist:
+		kd.Type = typeZSet
+
+		return r.packedZSet(kd, decodeZiplist)
+	case rdbTypeHashZiplist:
+		kd.Type = typeHash
+
+		return r.packedHash(kd, decodeZiplist)
+	case rdbTypeListQuicklist, rdbTypeQuicklist2:
+		kd.Type = typeList
+
+		return r.quicklist(kd, typ == rdbTypeQuicklist2)
+	case rdbTypeHashListpack:
+		kd.Type = typeHash
+
+		return r.packedHash(kd, decodeListpack)
+	case rdbTypeZSetListpack:
+		kd.Type = typeZSet
+
+		return r.packedZSet(kd, decodeListpack)
+	case rdbTypeSetListpack:
+		kd.Type = typeSet
+
+		return r.packedSet(kd, decodeListpack)
+	default:
+		return fmt.Errorf("%w: encoded value type %d for key %q", ErrUnsupportedRDB, typ, kd.Key)
+	}
 }

@@ -3,6 +3,7 @@ package azurecontainerregistry
 import (
 	"encoding/base64"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -114,6 +115,12 @@ func (h *Handler) tokenPost(w http.ResponseWriter, r *http.Request, reg string) 
 
 // tokenGet is the Docker token endpoint: Basic credentials in, access token out.
 func (h *Handler) tokenGet(w http.ResponseWriter, r *http.Request, reg string) {
+	if r.Header.Get("Authorization") == "" && h.Backend.anonymousPull(reg) {
+		h.issueAccess(w, r, reg, r.URL.Query().Get("service"), anonymousScopes(r.URL.Query()["scope"]))
+
+		return
+	}
+
 	if !h.basicValid(r, reg) {
 		challengeToken(w)
 
@@ -121,6 +128,22 @@ func (h *Handler) tokenGet(w http.ResponseWriter, r *http.Request, reg string) {
 	}
 
 	h.issueAccess(w, r, reg, r.URL.Query().Get("service"), r.URL.Query()["scope"])
+}
+
+// anonymousScopes keeps only the pull action of repository scopes; anonymous callers never get more.
+func anonymousScopes(scopes []string) []string {
+	out := make([]string, 0, len(scopes))
+
+	for _, s := range scopes {
+		parts := strings.Split(s, ":")
+		if len(parts) != 3 || parts[0] != scopeRepo || !slices.Contains(strings.Split(parts[2], ","), actionPull) {
+			continue
+		}
+
+		out = append(out, scopeRepo+":"+parts[1]+":"+actionPull)
+	}
+
+	return out
 }
 
 func (h *Handler) basicValid(r *http.Request, reg string) bool {

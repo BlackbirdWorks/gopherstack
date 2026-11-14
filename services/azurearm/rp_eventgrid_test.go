@@ -21,6 +21,7 @@ var errBadSchema = errors.New("bad schema")
 
 type fakeEventGrid struct {
 	topics map[string]string
+	maps   map[string]map[string]any
 	subs   map[string]map[string]any
 	pulls  map[string]map[string]any
 	nsKeys map[string]string
@@ -34,14 +35,17 @@ type fakeEventGrid struct {
 
 func newFakeEventGrid() *fakeEventGrid {
 	return &fakeEventGrid{
-		topics: map[string]string{}, subs: map[string]map[string]any{}, pulls: map[string]map[string]any{},
+		topics: map[string]string{}, maps: map[string]map[string]any{}, subs: map[string]map[string]any{},
+		pulls:  map[string]map[string]any{},
 		nsKeys: map[string]string{}, nsts: map[string]bool{}, nss: map[string]bool{},
 		domains: map[string]azurearm.EventGridDomain{}, domainTopics: map[string]bool{},
 		scoped: map[string]map[string]any{},
 	}
 }
 
-func (f *fakeEventGrid) PutTopic(name, _, schema string) (azurearm.EventGridTopic, error) {
+func (f *fakeEventGrid) PutTopic(name, _, schema string, mapping map[string]any) (azurearm.EventGridTopic, error) {
+	f.maps[name] = mapping
+
 	if schema == "Custom" {
 		return azurearm.EventGridTopic{}, errBadSchema
 	}
@@ -930,4 +934,23 @@ func TestEventGridHandlerSubscriptionPatch(t *testing.T) {
 			assert.Equal(t, "Succeeded", props["provisioningState"])
 		})
 	}
+}
+
+func TestEventGridProvider_TopicInputSchemaMapping(t *testing.T) {
+	t.Parallel()
+
+	dp := newFakeEventGrid()
+	p := azurearm.NewEventGridProvider(azurearm.EventGridEndpointConfig{}, dp)
+	mapping := map[string]any{
+		"inputSchemaMappingType": "Json",
+		"properties":             map[string]any{"eventType": map[string]any{"sourceField": "kind"}},
+	}
+
+	body, err := p.Put(t.Context(), egID([]string{"topics"}, "ct"), map[string]any{
+		"location":   "westus",
+		"properties": map[string]any{"inputSchema": "CustomEventSchema", "inputSchemaMapping": mapping},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, mapping, dp.maps["ct"], "the mapping reaches the data plane")
+	assert.Equal(t, mapping, props(body)["inputSchemaMapping"], "the mapping round-trips")
 }

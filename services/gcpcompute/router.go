@@ -205,8 +205,8 @@ func validateBgp(bgp *computeapi.RouterBgp) *APIError {
 
 	switch bgp.AdvertiseMode {
 	case "":
-		bgp.AdvertiseMode = "DEFAULT"
-	case "DEFAULT", "CUSTOM":
+		bgp.AdvertiseMode = instFromDefault
+	case instFromDefault, "CUSTOM":
 	default:
 		return errField("resource.bgp.advertiseMode", bgp.AdvertiseMode, "")
 	}
@@ -224,6 +224,14 @@ func (b *InMemoryBackend) finishRouterLocked(
 	old *routerRec,
 ) (*routerRec, *APIError) {
 	if err := validateBgp(r.Bgp); err != nil {
+		return nil, err
+	}
+
+	if err := b.normalizeRouterInterfacesLocked(project, region, r); err != nil {
+		return nil, err
+	}
+
+	if err := normalizeBgpPeers(r); err != nil {
 		return nil, err
 	}
 
@@ -355,6 +363,10 @@ func (b *InMemoryBackend) deleteRouter(project, region, name string) (*computeap
 		return nil, err
 	}
 
+	if uerr := b.lbInUseLocked("router", r.Router.SelfLink); uerr != nil {
+		return nil, uerr
+	}
+
 	delete(b.routers, key(project, region, name))
 
 	return b.newOpLocked("delete", routerTarget(project, region, r.Router), b.timing.Done), nil
@@ -382,7 +394,9 @@ func (b *InMemoryBackend) updateRouter(
 	}
 
 	if next.Network != "" && next.Network != cur.Router.Network {
-		return nil, errField("resource.network", next.Network, "Field is not updatable.")
+		if n, nerr := b.resolveNetworkLocked(project, next.Network); nerr != nil || n.SelfLink != cur.Router.Network {
+			return nil, errField("resource.network", next.Network, "Field is not updatable.")
+		}
 	}
 
 	next.Name, next.Network, next.Id, next.Kind = cur.Router.Name, cur.Router.Network, cur.Router.Id, cur.Router.Kind
@@ -422,7 +436,7 @@ func (b *InMemoryBackend) routerStatus(project, region, name string) (*computeap
 		return nil, err
 	}
 
-	res := &computeapi.RouterStatus{Network: rec.Router.Network}
+	res := &computeapi.RouterStatus{Network: rec.Router.Network, BgpPeerStatus: b.bgpPeerStatusesLocked(rec.Router)}
 	now := b.now().UTC()
 
 	for _, nat := range rec.Router.Nats {

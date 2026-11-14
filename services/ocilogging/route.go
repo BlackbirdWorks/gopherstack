@@ -27,6 +27,12 @@ const (
 	opUpdateAgentConfig = "UpdateUnifiedAgentConfiguration"
 	opDeleteAgentConfig = "DeleteUnifiedAgentConfiguration"
 	opChangeAgentComp   = "ChangeUnifiedAgentConfigurationCompartment"
+	opCreateSavedSearch = "CreateLogSavedSearch"
+	opGetSavedSearch    = "GetLogSavedSearch"
+	opListSavedSearches = "ListLogSavedSearches"
+	opUpdateSavedSearch = "UpdateLogSavedSearch"
+	opDeleteSavedSearch = "DeleteLogSavedSearch"
+	opChangeSavedComp   = "ChangeLogSavedSearchCompartment"
 	opListServices      = "ListServices"
 	opGetWorkRequest    = "GetWorkRequest"
 	opListWorkRequests  = "ListWorkRequests"
@@ -44,6 +50,7 @@ const (
 	groupPath           = mgmtBase + "/logGroups/{logGroupId}"
 	logPath             = groupPath + "/logs/{logId}"
 	agentPath           = mgmtBase + "/unifiedAgentConfigurations/{unifiedAgentConfigurationId}"
+	savedSearchPath     = mgmtBase + "/logSavedSearches/{logSavedSearchId}"
 	workRequestPath     = mgmtBase + "/workRequests/{workRequestId}"
 )
 
@@ -67,6 +74,12 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPut, Path: agentPath, Op: opUpdateAgentConfig},
 	{Method: http.MethodDelete, Path: agentPath, Op: opDeleteAgentConfig},
 	{Method: http.MethodPost, Path: agentPath + "/actions/changeCompartment", Op: opChangeAgentComp},
+	{Method: http.MethodPost, Path: mgmtBase + "/logSavedSearches", Op: opCreateSavedSearch},
+	{Method: http.MethodGet, Path: mgmtBase + "/logSavedSearches", Op: opListSavedSearches},
+	{Method: http.MethodGet, Path: savedSearchPath, Op: opGetSavedSearch},
+	{Method: http.MethodPut, Path: savedSearchPath, Op: opUpdateSavedSearch},
+	{Method: http.MethodDelete, Path: savedSearchPath, Op: opDeleteSavedSearch},
+	{Method: http.MethodPost, Path: savedSearchPath + "/actions/changeCompartment", Op: opChangeSavedComp},
 	{Method: http.MethodGet, Path: mgmtBase + "/v2/registry/services", Op: opListServices},
 	{Method: http.MethodGet, Path: mgmtBase + "/workRequests", Op: opListWorkRequests},
 	{Method: http.MethodGet, Path: workRequestPath, Op: opGetWorkRequest},

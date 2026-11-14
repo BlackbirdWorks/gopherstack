@@ -57,7 +57,7 @@ func (b *InMemoryBackend) GetCmekSettings(name string) (*loggingpb.CmekSettings,
 	return &loggingpb.CmekSettings{Name: name}, nil
 }
 
-// UpdateCmekSettings stores the key used for new log buckets; the key is not validated against Cloud KMS.
+// UpdateCmekSettings stores the key used for new log buckets, validated against Cloud KMS when wired.
 func (b *InMemoryBackend) UpdateCmekSettings(
 	req *loggingpb.UpdateCmekSettingsRequest,
 ) (*loggingpb.CmekSettings, error) {
@@ -76,6 +76,10 @@ func (b *InMemoryBackend) UpdateCmekSettings(
 	}
 
 	if err = checkMask(req.GetUpdateMask(), "kms_key_name", "kms_key_version_name"); err != nil {
+		return nil, err
+	}
+
+	if err = checkCmekKey(b.keyChecker(), in.GetKmsKeyName(), ""); err != nil {
 		return nil, err
 	}
 
@@ -151,7 +155,15 @@ func (b *InMemoryBackend) UpdateSettings(req *loggingpb.UpdateSettingsRequest) (
 		cur, _ = proto.Clone(s).(*loggingpb.Settings)
 	}
 
+	prevKey := cur.GetKmsKeyName()
+
 	applySettingsMask(cur, in, req.GetUpdateMask().GetPaths())
+
+	if cur.GetKmsKeyName() != prevKey {
+		if err = checkCmekKey(b.keys, cur.GetKmsKeyName(), cur.GetStorageLocation()); err != nil {
+			return nil, err
+		}
+	}
 
 	if cur.GetKmsKeyName() != "" {
 		cur.KmsServiceAccountId = logServiceAccount(parent)

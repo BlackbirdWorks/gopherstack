@@ -89,8 +89,13 @@ func validateFilter(f *SearchFilter) (string, error) {
 		return "", nil
 	}
 
-	if _, err := parseQuery(f.FilterString); err != nil {
+	clauses, err := parseQuery(f.FilterString)
+	if err != nil {
 		return "", err
+	}
+
+	if hasKeyword(clauses) {
+		return "", invalid("Filters.FilterString supports filters only, not free-form keywords")
 	}
 
 	return f.FilterString, nil
@@ -306,7 +311,7 @@ func (b *InMemoryBackend) ListViews(ctx context.Context, token string, maxResult
 		arns = append(arns, v.ARN)
 	}
 
-	return paginate(arns, token, maxResults, maxViewPage)
+	return paginate(arns, token, maxResults, maxViewPage, maxViewListPage)
 }
 
 // BatchGetView returns the requested views and an error entry for each that cannot be returned.

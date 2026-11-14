@@ -341,12 +341,16 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 		return nil, prepErr
 	}
 
+	if b.dockerOn() {
+		return b.createDockerGroup(ctx, region, opts, prep)
+	}
+
 	need := len(prep.plans)
 	if prep.adoptID != "" {
 		need--
 	}
 
-	engines, err := b.startShardEngines(need, opts.Port)
+	engines, err := b.startShardEngines(ctx, opts.Engine, need, opts.Port)
 	if err != nil {
 		return nil, err
 	}
@@ -368,6 +372,7 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 
 // preparedGroup is the validated topology of a replication group about to be created.
 type preparedGroup struct {
+	docker      [][]*clusterEngine
 	adoptID     string
 	plans       []shardPlan
 	clusterMode bool
@@ -569,15 +574,17 @@ func (b *InMemoryBackend) insertGroupLocked(
 		adopted = c
 	}
 
-	if err := b.restoreGroupDataLocked(region, opts, prep, engines, adopted != nil); err != nil {
-		return nil, err
+	if prep.docker == nil {
+		if err := b.restoreGroupDataLocked(region, opts, prep, engines, adopted != nil); err != nil {
+			return nil, err
+		}
 	}
 
 	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
 	rg.ClusterModeEnabled = prep.clusterMode && opts.ClusterMode != statusDisabled
 	b.buildTopologyLocked(
 		rg,
-		memberTemplate{opts: opts, region: region},
+		memberTemplate{opts: opts, region: region, docker: prep.docker},
 		prep.plans,
 		prep.clusterMode,
 		engines,
@@ -673,6 +680,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroupFull")
 	defer b.mu.Unlock()
+	defer b.syncDockerACLsLocked()
 
 	region := getRegion(ctx, b.region)
 	rg, exists := b.replicationGroupsStore(region).Get(id)

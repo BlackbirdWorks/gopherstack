@@ -275,6 +275,10 @@ func (p *ContainerRegistryProvider) putRegistry(
 		rec.host = h
 	}
 
+	if err = p.syncAnonymousPull(rec); err != nil {
+		return nil, err
+	}
+
 	p.res[acrKey(id.ResourceGroup, acrKindRegistry, rec.name)] = rec
 
 	return p.registryBody(id, rec, info)
@@ -396,12 +400,17 @@ func (p *ContainerRegistryProvider) Patch(
 	id ResourceID,
 	body map[string]any,
 ) (map[string]any, error) {
-	if classifyACRPath(id) != acrKindRegistry {
+	kind := classifyACRPath(id)
+	if kind == acrKindUnsupported {
 		return nil, errUnsupportedACRType(id)
 	}
 
 	p.mu.Lock("Patch")
 	defer p.mu.Unlock()
+
+	if kind != acrKindRegistry {
+		return p.patchChild(id, kind, body)
+	}
 
 	rec, ok := p.registry(id.ResourceGroup, id.LeafName())
 	if !ok {
@@ -446,6 +455,10 @@ func (p *ContainerRegistryProvider) patchProps(
 	rec *storedACR, info ContainerRegistryInfo, props map[string]any,
 ) (ContainerRegistryInfo, error) {
 	maps.Copy(rec.extra, acrExtra(map[string]any{fieldProperties: props}))
+
+	if err := p.syncAnonymousPull(rec); err != nil {
+		return info, err
+	}
 
 	if admin, ok := props[acrPropAdmin].(bool); ok && admin != info.AdminEnabled {
 		updated, err := p.dataPlane.PutRegistry(rec.name, admin)

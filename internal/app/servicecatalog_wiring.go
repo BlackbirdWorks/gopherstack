@@ -167,7 +167,7 @@ func (s *serviceCatalogStacks) CreateStack(
 		return servicecatalogbackend.StackInfo{}, err
 	}
 
-	return stackInfoOf(st), nil
+	return settledStackInfo(ctx, bk, st)
 }
 
 func (s *serviceCatalogStacks) UpdateStack(
@@ -184,7 +184,7 @@ func (s *serviceCatalogStacks) UpdateStack(
 		return servicecatalogbackend.StackInfo{}, err
 	}
 
-	return stackInfoOf(st), nil
+	return settledStackInfo(ctx, bk, st)
 }
 
 func (s *serviceCatalogStacks) DeleteStack(ctx context.Context, nameOrID string) error {
@@ -193,7 +193,28 @@ func (s *serviceCatalogStacks) DeleteStack(ctx context.Context, nameOrID string)
 		return err
 	}
 
-	return bk.DeleteStack(ctx, nameOrID)
+	if err = bk.DeleteStack(ctx, nameOrID); err != nil {
+		return err
+	}
+
+	_, err = bk.WaitForStack(ctx, nameOrID)
+	if errors.Is(err, cfnbackend.ErrStackNotFound) {
+		return nil
+	}
+
+	return err
+}
+
+// settledStackInfo waits out the stack's async provisioning, as callers here need its final status.
+func settledStackInfo(
+	ctx context.Context, bk cfnbackend.StorageBackend, st *cfnbackend.Stack,
+) (servicecatalogbackend.StackInfo, error) {
+	settled, err := bk.WaitForStack(ctx, st.StackID)
+	if err != nil {
+		return servicecatalogbackend.StackInfo{}, err
+	}
+
+	return stackInfoOf(settled), nil
 }
 
 func (s *serviceCatalogStacks) DescribeStack(
@@ -279,7 +300,13 @@ func (s *serviceCatalogStacks) ExecuteChangeSet(ctx context.Context, stackName, 
 		return err
 	}
 
-	return bk.ExecuteChangeSet(ctx, stackName, changeSetName, false, false)
+	if err = bk.ExecuteChangeSet(ctx, stackName, changeSetName, false, false); err != nil {
+		return err
+	}
+
+	_, err = bk.WaitForStack(ctx, stackName)
+
+	return err
 }
 
 func (s *serviceCatalogStacks) DeleteChangeSet(ctx context.Context, stackName, changeSetName string) error {

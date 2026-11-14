@@ -11,7 +11,7 @@ import (
 const (
 	wrapAlgAES    = "RSA_OAEP_AES_SHA256"
 	wrapAlgSHA256 = "RSA_OAEP_SHA256"
-	wrapKeyBits   = 2048
+	wrapKeyBits   = 4096
 )
 
 // WrappedImportKey is the wrapped key material of an import request.
@@ -119,43 +119,60 @@ func unwrapImport(v *Vault, w WrappedImportKey) ([]byte, *APIError) {
 }
 
 // ImportKey creates a key from wrapped external key material.
-func (b *InMemoryBackend) ImportKey(vaultID string, in ImportKeyIn) (keyWire, string, error) {
+func (b *InMemoryBackend) ImportKey(vaultID, token string, in ImportKeyIn) (KeyWire, string, error) {
 	if aerr := validateCreateKey(&in.CreateKeyIn); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	b.mu.Lock("ImportKey")
 	defer b.mu.Unlock()
 
+	scope := "ImportKey/" + vaultID
+	if id, ok := b.retrySeen(scope, token); ok {
+		k, live := b.keys[id]
+		if !live || k.State == stateDeleted {
+			return KeyWire{}, "", errInvalidatedToken()
+		}
+
+		return keyView(k), k.Etag, nil
+	}
+
 	v, aerr := b.activeVault(vaultID)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	mat, aerr := unwrapImport(v, in.WrappedImportKey)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	if aerr = checkMaterial(in.KeyShape, mat); aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
 	k, aerr := b.storeKey(v, in.CreateKeyIn, mat, originExternal)
 	if aerr != nil {
-		return keyWire{}, "", aerr
+		return KeyWire{}, "", aerr
 	}
 
-	return keyView(k, stateEnabling), k.Etag, nil
+	b.retryNote(scope, token, k.ID)
+
+	return keyView(k), k.Etag, nil
 }
 
 // ImportKeyVersion adds wrapped external key material as a new current version.
 func (b *InMemoryBackend) ImportKeyVersion(
-	vaultID, keyID string,
+	vaultID, keyID, token string,
 	in ImportKeyVersionIn,
 ) (keyVersionWire, string, error) {
 	b.mu.Lock("ImportKeyVersion")
 	defer b.mu.Unlock()
+
+	scope := "ImportKeyVersion/" + keyID
+	if id, ok := b.retrySeen(scope, token); ok {
+		return b.replayKeyVersion(vaultID, keyID, id)
+	}
 
 	k, v, aerr := b.writableKey(vaultID, keyID, "")
 	if aerr != nil {
@@ -176,7 +193,8 @@ func (b *InMemoryBackend) ImportKeyVersion(
 	}
 
 	kv := b.addVersion(k, v.Prefix, originExternal, mat)
-	k.Etag = newEtag()
+	b.touchKey(k)
+	b.retryNote(scope, token, kv.ID)
 
 	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
 }

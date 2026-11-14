@@ -4,8 +4,6 @@ import (
 	"database/sql/driver"
 	"net/url"
 	"time"
-
-	sqlitedriver "modernc.org/sqlite"
 )
 
 type scalarFn = func(*fnCtx, []driver.Value) (driver.Value, error)
@@ -61,7 +59,7 @@ func scalarDefs() []scalarDef {
 		{tsPart(isoWeek), "week", 1}, {tsPart(isoWeek), "week_of_year", 1}, {tsPart(quarterOf), "quarter", 1},
 		{tsPart(func(t time.Time) int64 { return int64(t.Minute()) }), "minute", 1},
 		{tsPart(func(t time.Time) int64 { return int64(t.Second()) }), "second", 1},
-		{tsPart(func(t time.Time) int64 { return int64(t.Nanosecond() / int(time.Millisecond)) }), "millisecond", 1},
+		{tsPart(func(t time.Time) int64 { return int64(t.Nanosecond() / int(time.Millisecond)) }), unitMillisecond, 1},
 	}
 }
 
@@ -71,13 +69,18 @@ func registerExtraFuncs() {
 			d.fn = atLeastArgs(variadicMin(d.name), d.fn)
 		}
 
+		switch d.name {
+		case unitMinute, unitSecond, unitMillisecond:
+			d.fn = intervalAware(d.name, d.fn)
+		}
+
 		if d.name == "rand" {
-			sqlitedriver.MustRegisterScalarFunction(d.name, d.nargs, d.fn)
+			registerNondeterministic(d.name, d.nargs, d.fn)
 
 			continue
 		}
 
-		sqlitedriver.MustRegisterDeterministicScalarFunction(d.name, d.nargs, d.fn)
+		registerScalar(d.name, d.nargs, d.fn)
 	}
 }
 

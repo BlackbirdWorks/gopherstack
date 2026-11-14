@@ -1,6 +1,8 @@
 services:
   gopherstack:
     build: ../..
+    # The image runs as UID 65532; root can open the Docker socket without a group-add.
+    user: "0:0"
     ports:
       - "8000:8000"
       - "10000-10100:10000-10100"

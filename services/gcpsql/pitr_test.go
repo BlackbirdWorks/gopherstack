@@ -92,7 +92,8 @@ func TestPointInTimeClone(t *testing.T) {
 		},
 		{
 			name: "after latest", version: "POSTGRES_16", at: now.Add(time.Hour).Format(time.RFC3339Nano),
-			want: http.StatusBadRequest, wantMsg: "after the latest recovery time",
+			want:    http.StatusBadRequest,
+			wantMsg: "Clone the instance with a time that's earlier than this recovery time.",
 		},
 		{
 			name: "before earliest", version: "POSTGRES_16", at: now.Add(-3 * time.Hour).Format(time.RFC3339Nano),
@@ -100,7 +101,7 @@ func TestPointInTimeClone(t *testing.T) {
 		},
 		{
 			name: "malformed", version: "POSTGRES_16", at: "yesterday",
-			want: http.StatusBadRequest, wantMsg: "Failed to parse date/time",
+			want: http.StatusBadRequest, wantMsg: "Invalid time format: Failed to parse input,",
 		},
 	}
 

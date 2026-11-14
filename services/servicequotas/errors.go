@@ -20,6 +20,7 @@ var (
 	ErrQuotaExceeded                    = errors.New("quota exceeded")
 	ErrResourceAlreadyExists            = errors.New("resource already exists")
 	ErrServiceQuotaTemplateNotInUse     = errors.New("quota request template is not in use")
+	ErrTemplatesNotAvailableInRegion    = errors.New("templates not available in region")
 	ErrTooManyTags                      = errors.New("too many tags")
 	errUnknownOperation                 = errors.New("unknown operation")
 )
@@ -45,6 +46,7 @@ func errorTable() map[error]awserr.APIError {
 		ErrQuotaExceeded:                    apiErr("QuotaExceededException", http.StatusBadRequest),
 		ErrResourceAlreadyExists:            apiErr("ResourceAlreadyExistsException", http.StatusBadRequest),
 		ErrServiceQuotaTemplateNotInUse:     apiErr("ServiceQuotaTemplateNotInUseException", http.StatusBadRequest),
+		ErrTemplatesNotAvailableInRegion:    apiErr("TemplatesNotAvailableInRegionException", http.StatusBadRequest),
 		ErrTooManyTags:                      apiErr("TooManyTagsException", http.StatusBadRequest),
 		errUnknownOperation:                 apiErr("IllegalArgumentException", http.StatusBadRequest),
 	}

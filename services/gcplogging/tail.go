@@ -1,6 +1,8 @@
 package gcplogging
 
 import (
+	"time"
+
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -9,10 +11,11 @@ import (
 )
 
 const (
-	tailBuffer     = 1024
-	tailBatch      = 100
-	maxTailSubs    = 10
-	maxTailParents = 100
+	tailBuffer      = 1024
+	tailBatch       = 100
+	maxTailSubs     = 10
+	maxTailParents  = 100
+	maxBufferWindow = time.Minute
 )
 
 type tailSub struct {
@@ -104,6 +107,10 @@ func (b *InMemoryBackend) newTail(req *loggingpb.TailLogEntriesRequest) (*tailSu
 	names := req.GetResourceNames()
 	if len(names) == 0 || len(names) > maxTailParents {
 		return nil, errInvalid("resource_names must contain between 1 and %d resources.", maxTailParents)
+	}
+
+	if w := req.GetBufferWindow(); w != nil && (w.AsDuration() < 0 || w.AsDuration() > maxBufferWindow) {
+		return nil, errInvalid("buffer_window must be between 0 and %d milliseconds.", maxBufferWindow.Milliseconds())
 	}
 
 	f, err := compileFilter(req.GetFilter())

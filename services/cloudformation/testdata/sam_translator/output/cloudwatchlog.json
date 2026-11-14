@@ -1,0 +1,92 @@
+{
+  "Resources": {
+    "TriggeredFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip",
+          "S3ObjectVersion": "3Tcgv52_0GaDvhDva4YciYeqRyPnpIcO"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "TriggeredFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "TriggeredFunctionCWLogEvent": {
+      "DependsOn": [
+        "TriggeredFunctionCWLogEventPermission"
+      ],
+      "Properties": {
+        "DestinationArn": {
+          "Fn::GetAtt": [
+            "TriggeredFunction",
+            "Arn"
+          ]
+        },
+        "FilterPattern": "My filter pattern",
+        "LogGroupName": "MyCWLogGroup"
+      },
+      "Type": "AWS::Logs::SubscriptionFilter"
+    },
+    "TriggeredFunctionCWLogEventPermission": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "TriggeredFunction"
+        },
+        "Principal": "logs.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${__LogGroupName__}:*",
+            {
+              "__LogGroupName__": "MyCWLogGroup"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "TriggeredFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

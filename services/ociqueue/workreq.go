@@ -16,6 +16,7 @@ type wrResourceWire struct {
 	EntityURI  string `json:"entityUri,omitempty"`
 }
 
+// WorkRequestWire is the work request wire shape.
 type WorkRequestWire struct {
 	TimeAccepted    time.Time        `json:"timeAccepted"`
 	TimeStarted     *time.Time       `json:"timeStarted,omitempty"`
@@ -35,8 +36,12 @@ type wrLogWire struct {
 
 // newWR records a work request that completes with the resource transition.
 func (b *InMemoryBackend) newWR(op, compartment, id, action, uri string, finish time.Time) string {
+	return b.newWRFor("queue", op, compartment, id, action, uri, finish)
+}
+
+func (b *InMemoryBackend) newWRFor(entity, op, compartment, id, action, uri string, finish time.Time) string {
 	wr := &WorkRequest{
-		ID: newOCID("queueworkrequest"), Operation: op, CompartmentID: compartment, EntityType: "queue",
+		ID: newOCID("queueworkrequest"), Operation: op, CompartmentID: compartment, EntityType: entity,
 		EntityID: id, EntityURI: uri, Action: action, Accepted: b.nowUTC(), FinishAt: finish, Seq: b.nextSeq(),
 	}
 	b.workReqs[wr.ID] = wr

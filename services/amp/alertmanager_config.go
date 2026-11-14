@@ -3,7 +3,9 @@ package amp
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -116,6 +118,7 @@ type amConfig struct {
 	root      *amRoute
 	receivers map[string]*amReceiver
 	inhibit   []amInhibit
+	templates []string
 }
 
 // alertManagerConfigYAML extracts the inner alertmanager_config document from an AMP definition.
@@ -129,6 +132,26 @@ func alertManagerConfigYAML(def []byte) ([]byte, error) {
 	}
 
 	return []byte(doc.Config), nil
+}
+
+// alertManagerTemplateFiles returns the template_files bodies of an AMP definition, ordered by file name.
+func alertManagerTemplateFiles(def []byte) ([]string, error) {
+	var doc struct {
+		Files map[string]string `yaml:"template_files"`
+	}
+
+	if err := yaml.Unmarshal(def, &doc); err != nil {
+		return nil, err
+	}
+
+	names := slices.Sorted(maps.Keys(doc.Files))
+	out := make([]string, 0, len(names))
+
+	for _, n := range names {
+		out = append(out, doc.Files[n])
+	}
+
+	return out, nil
 }
 
 func parseMatcher(raw string) (*promql.Matcher, error) {

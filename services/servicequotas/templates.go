@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -19,7 +20,27 @@ type TemplateView struct {
 	Item    TemplateItem
 }
 
+const maxTemplateItems = 10
+
+// optInRegions are the Regions disabled by default (docs.aws.amazon.com/accounts manage-acct-regions).
+var optInRegions = map[string]bool{ //nolint:gochecknoglobals // immutable lookup table
+	"af-south-1": true, "ap-east-1": true, "ap-east-2": true, "ap-south-2": true, "ap-southeast-3": true,
+	"ap-southeast-4": true, "ap-southeast-5": true, "ap-southeast-6": true, "ap-southeast-7": true,
+	"ca-west-1": true, "eu-central-2": true, "eu-south-1": true, "eu-south-2": true, "il-central-1": true,
+	"me-central-1": true, "me-south-1": true, "mx-central-1": true,
+}
+
+// templatesAvailable reports whether quota request templates work in the Region (commercial, non opt-in).
+func templatesAvailable(region string) bool {
+	return !optInRegions[region] && !strings.HasPrefix(region, "cn-") && !strings.HasPrefix(region, "us-gov-")
+}
+
 func (b *InMemoryBackend) orgCheckLocked(s scope) error {
+	if !templatesAvailable(s.region) {
+		return fail(ErrTemplatesNotAvailableInRegion,
+			"Quota request templates are not available in the Region %s", s.region)
+	}
+
 	if b.orgs == nil {
 		return fail(ErrNoAvailableOrganization, "The account is not a member of an organization")
 	}
@@ -43,6 +64,18 @@ func (b *InMemoryBackend) orgCheckLocked(s scope) error {
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) templateCountLocked(account string) int {
+	n := 0
+
+	for _, t := range b.templates.All() {
+		if t.Account == account {
+			n++
+		}
+	}
+
+	return n
 }
 
 func templateKey(s scope, region, serviceCode, quotaCode string) string {
@@ -97,8 +130,14 @@ func (b *InMemoryBackend) PutTemplateItem(
 			"DesiredValue %v must be greater than the default value %v", *desired, def.Default)
 	}
 
+	key := templateKey(s, region, serviceCode, quotaCode)
+	if _, exists := b.templates.Get(key); !exists && b.templateCountLocked(s.account) >= maxTemplateItems {
+		return TemplateView{}, fail(ErrQuotaExceeded,
+			"A quota request template holds at most %d quota increase requests", maxTemplateItems)
+	}
+
 	item := &TemplateItem{
-		Key: templateKey(s, region, serviceCode, quotaCode), Account: s.account, AwsRegion: region,
+		Key: key, Account: s.account, AwsRegion: region,
 		ServiceCode: serviceCode, QuotaCode: quotaCode, DesiredValue: *desired,
 	}
 	b.templates.Put(item)

@@ -39,3 +39,17 @@ func validateNamespaceDimension(serviceNamespace, scalableDimension string) erro
 
 	return nil
 }
+
+// validateDescribeFilter adds the documented rule that a ScalableDimension filter needs a resource ID
+// (docs.aws.amazon.com/autoscaling/application/APIReference/API_DescribeScalingPolicies.html).
+func validateDescribeFilter(serviceNamespace, scalableDimension string, hasResourceID bool) error {
+	if err := validateEnums(serviceNamespace, scalableDimension); err != nil {
+		return err
+	}
+
+	if scalableDimension != "" && !hasResourceID {
+		return fmt.Errorf("%w: ScalableDimension requires a ResourceId", ErrValidation)
+	}
+
+	return nil
+}

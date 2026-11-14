@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/amqp1"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -21,8 +22,7 @@ type amqpConn struct {
 	b       *InMemoryBackend
 	mu      *lockmetrics.RWMutex
 	replies map[string]chan *amqp1.Outgoing
-	rights  []string
-	claimed bool
+	claims  map[string][]string
 	tagSeq  uint64
 }
 
@@ -41,7 +41,7 @@ func unauthorized() *amqp1.Error {
 	return &amqp1.Error{Condition: amqp1.CondUnauthorized, Description: noClaim}
 }
 
-func (c *amqpConn) can(right string) bool {
+func (c *amqpConn) can(right, hub string) bool {
 	if !c.h.ValidateSAS {
 		return true
 	}
@@ -49,10 +49,16 @@ func (c *amqpConn) can(right string) bool {
 	c.mu.RLock("can")
 	defer c.mu.RUnlock()
 
-	return c.claimed && hasRight(c.rights, right)
+	for audience, rights := range c.claims {
+		if audienceCovers(audience, hub) && hasRight(rights, right) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (c *amqpConn) authenticated() bool {
+func (c *amqpConn) authenticated(hub string) bool {
 	if !c.h.ValidateSAS {
 		return true
 	}
@@ -60,13 +66,22 @@ func (c *amqpConn) authenticated() bool {
 	c.mu.RLock("authenticated")
 	defer c.mu.RUnlock()
 
-	return c.claimed
+	for audience := range c.claims {
+		if audienceCovers(audience, hub) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (c *amqpConn) grant(rights []string) {
+func (c *amqpConn) grant(audience string, rights []string) {
 	c.mu.Lock("grant")
-	c.claimed = true
-	c.rights = rights
+	if c.claims == nil {
+		c.claims = map[string][]string{}
+	}
+
+	c.claims[strs.Fold(audience)] = rights
 	c.mu.Unlock()
 }
 
@@ -209,7 +224,7 @@ func (c *amqpConn) AttachReceiver(a *amqp1.Attach) (amqp1.ReceiverEndpoint, *amq
 }
 
 func (c *amqpConn) attachWriter(a *amqp1.Attach, addr amqpAddr) (amqp1.ReceiverEndpoint, *amqp1.Error) {
-	if !c.can(RightSend) {
+	if !c.can(RightSend, addr.hub) {
 		return nil, unauthorized()
 	}
 
@@ -245,7 +260,7 @@ func (*failedReader) Release(*amqp1.Outgoing)                         {}
 func (*failedReader) Close()                                          {}
 
 func (c *amqpConn) attachReader(a *amqp1.Attach, addr amqpAddr) (amqp1.SenderEndpoint, *amqp1.Error) {
-	if !c.can(RightListen) {
+	if !c.can(RightListen, addr.hub) {
 		return nil, unauthorized()
 	}
 

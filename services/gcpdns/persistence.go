@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	dnsapi "google.golang.org/api/dns/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -17,6 +18,8 @@ type backendSnapshot struct {
 	Zones            map[string]*zoneRec       `json:"zones"`
 	Policies         map[string]*dnsapi.Policy `json:"policies"`
 	ResponsePolicies map[string]*responseRec   `json:"responsePolicies"`
+	IAM              map[string]*iampb.Policy  `json:"iam,omitempty"`
+	IAMSeq           uint64                    `json:"iamSeq,omitempty"`
 	Version          int                       `json:"version"`
 }
 
@@ -25,8 +28,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	pols, seq := b.iam.Snapshot()
+
 	return persistence.MarshalSnapshot(ctx, "gcpdns", backendSnapshot{
 		Version: snapshotVersion, Zones: b.zones, Policies: b.policies, ResponsePolicies: b.respPols,
+		IAM: pols, IAMSeq: seq,
 	})
 }
 
@@ -49,6 +55,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.resetMaps()
+	b.iam.Restore(snap.IAM, snap.IAMSeq)
 
 	for k, rec := range snap.Zones {
 		if rec == nil || rec.Zone == nil {

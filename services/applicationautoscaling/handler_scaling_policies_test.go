@@ -313,8 +313,10 @@ func TestHandler_DescribeScalingPolicies_RicherFilters(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name:      "filter_by_scalable_dimension",
-			body:      map[string]any{"ScalableDimension": "dynamodb:table:ReadCapacityUnits"},
+			name: "filter_by_scalable_dimension",
+			body: map[string]any{
+				"ResourceId": "table/t1", "ScalableDimension": "dynamodb:table:ReadCapacityUnits",
+			},
 			wantCount: 1,
 		},
 		{

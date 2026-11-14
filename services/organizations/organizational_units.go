@@ -81,7 +81,7 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 	}
 	b.ousByParent[parentID][name] = ouID
 	b.setTagsLocked(ouID, tags)
-	b.attachDefaultSCPLocked(ouID)
+	b.attachDefaultPoliciesLocked(ouID)
 	ou.Path = b.ouPathLocked(ou)
 
 	return ou, nil

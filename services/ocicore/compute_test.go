@@ -512,6 +512,52 @@ func TestInstanceActions(t *testing.T) {
 	}
 }
 
+func TestUpdateInstanceMetadataReplaces(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	f := e.fixture(t)
+
+	i, err := e.launch(t, f.pub, func(d *core.LaunchInstanceDetails) {
+		d.Metadata = map[string]string{"ssh_authorized_keys": "ssh-rsa AAAA test", "a": "1"}
+	})
+	require.NoError(t, err)
+	e.settle()
+
+	tests := []struct {
+		meta    map[string]string
+		want    map[string]string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "replace keeps immutable keys",
+			meta: map[string]string{"ssh_authorized_keys": "ssh-rsa AAAA test", "b": "2"},
+			want: map[string]string{"ssh_authorized_keys": "ssh-rsa AAAA test", "b": "2"},
+		},
+		{name: "removing ssh keys", meta: map[string]string{"b": "2"}, wantErr: true},
+		{name: "changing ssh keys", meta: map[string]string{"ssh_authorized_keys": "other"}, wantErr: true},
+		{
+			name:    "adding user data",
+			meta:    map[string]string{"ssh_authorized_keys": "ssh-rsa AAAA test", "user_data": "ZWNobyBoaQ=="},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		r, uerr := e.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: i.Id, Metadata: tt.meta})
+		if tt.wantErr {
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, uerr).GetHTTPStatusCode(), tt.name)
+
+			continue
+		}
+
+		require.NoError(t, uerr, tt.name)
+		assert.Equal(t, tt.want, r.Metadata, tt.name)
+	}
+}
+
 func TestUpdateInstance(t *testing.T) {
 	t.Parallel()
 

@@ -44,8 +44,9 @@ func errEtag() *APIError {
 
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
-func errTooLarge(msg string) *APIError {
-	return newErr(http.StatusRequestEntityTooLarge, "RequestEntityTooLarge", msg)
+func errInvalidatedToken() *APIError {
+	return newErr(http.StatusConflict, "InvalidatedRetryToken",
+		"The retry token was used by an earlier request whose resource has since been deleted")
 }
 
 func errThrottled(msg string) *APIError {

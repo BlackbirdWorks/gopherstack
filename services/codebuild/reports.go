@@ -3,11 +3,14 @@ package codebuild
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func (b *InMemoryBackend) buildReportGroupARN(name string) string {
@@ -95,7 +98,7 @@ func (b *InMemoryBackend) BatchGetReports(arns []string) ([]*Report, []string) {
 	notFound := make([]string, 0, len(arns))
 
 	for _, a := range arns {
-		if r, ok := b.reports.Get(a); ok {
+		if r, ok := b.reports.Get(a); ok && !reportExpired(r) {
 			out := *r
 			found = append(found, &out)
 		} else {
@@ -130,7 +133,7 @@ func (b *InMemoryBackend) ListReports(statusFilter string) []string {
 	arns := make([]string, 0, len(items))
 
 	for _, r := range items {
-		if statusFilter != "" && r.Status != statusFilter {
+		if (statusFilter != "" && r.Status != statusFilter) || reportExpired(r) {
 			continue
 		}
 
@@ -158,7 +161,7 @@ func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter
 	arns := make([]string, 0, len(group))
 
 	for _, r := range group {
-		if statusFilter != "" && r.Status != statusFilter {
+		if (statusFilter != "" && r.Status != statusFilter) || reportExpired(r) {
 			continue
 		}
 
@@ -295,6 +298,10 @@ func (b *InMemoryBackend) DescribeCodeCoverages(reportArn string, q CoverageQuer
 
 	out := []CodeCoverage{}
 
+	if rep, live := b.reports.Get(reportArn); live && reportExpired(rep) {
+		return out, nil
+	}
+
 	if d, ok := b.reportDetails.Get(reportArn); ok {
 		for _, c := range d.Coverages {
 			if (q.MinLine == nil || c.LineCoveragePercentage >= *q.MinLine) &&
@@ -326,7 +333,7 @@ func (b *InMemoryBackend) DescribeTestCases(reportArn string, q TestCaseQuery) (
 	b.mu.RLock("DescribeTestCases")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.reports.Get(reportArn); !ok {
+	if rep, ok := b.reports.Get(reportArn); !ok || reportExpired(rep) {
 		return nil, ErrNotFound
 	}
 
@@ -344,10 +351,24 @@ func (b *InMemoryBackend) DescribeTestCases(reportArn string, q TestCaseQuery) (
 	return out, nil
 }
 
-// GetReportGroupTrend returns an empty stats map once reportGroupArn is
-// confirmed to exist; no report-execution data is modeled. Real AWS declares
-// ResourceNotFoundException for this op.
-func (b *InMemoryBackend) GetReportGroupTrend(reportGroupArn string) (map[string]any, error) {
+// maxTrendReports is the default and ceiling of NumOfReports (GetReportGroupTrendInput.NumOfReports: 100 when omitted).
+const maxTrendReports = 100
+
+// TrendPoint is one analysed report's value for the requested trend field.
+type TrendPoint struct {
+	ReportArn string
+	Data      string
+}
+
+// TrendResult is the stats and per-report data GetReportGroupTrend returns.
+type TrendResult struct {
+	Stats   map[string]string
+	RawData []TrendPoint
+}
+
+// GetReportGroupTrend accumulates field over the group's most recent reports; ResourceNotFoundException
+// for an unknown group (real AWS declares it for this op).
+func (b *InMemoryBackend) GetReportGroupTrend(reportGroupArn, field string, num int32) (*TrendResult, error) {
 	b.mu.RLock("GetReportGroupTrend")
 	defer b.mu.RUnlock()
 
@@ -355,5 +376,94 @@ func (b *InMemoryBackend) GetReportGroupTrend(reportGroupArn string) (map[string
 		return nil, ErrNotFound
 	}
 
-	return map[string]any{}, nil
+	reps := slices.DeleteFunc(slices.Clone(b.reportsByGroup.Get(reportGroupArn)), reportExpired)
+	sort.SliceStable(reps, func(i, j int) bool {
+		if reps[i].Created != reps[j].Created {
+			return reps[i].Created > reps[j].Created
+		}
+
+		return reps[i].Arn < reps[j].Arn
+	})
+
+	limit := maxTrendReports
+	if num > 0 && int(num) < limit {
+		limit = int(num)
+	}
+
+	res := &TrendResult{Stats: map[string]string{}}
+	values := make([]float64, 0, limit)
+
+	for _, r := range reps {
+		if len(values) == limit {
+			break
+		}
+
+		v, ok := trendValue(r, field)
+		if !ok {
+			continue
+		}
+
+		values = append(values, v)
+		res.RawData = append(res.RawData, TrendPoint{ReportArn: r.Arn, Data: formatTrend(v)})
+	}
+
+	if len(values) > 0 {
+		sum := 0.0
+		for _, v := range values {
+			sum += v
+		}
+
+		res.Stats["average"] = formatTrend(sum / float64(len(values)))
+		res.Stats["max"] = formatTrend(slices.Max(values))
+		res.Stats["min"] = formatTrend(slices.Min(values))
+	}
+
+	return res, nil
 }
+
+func formatTrend(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// trendValue reads one ReportGroupTrendFieldType from a report's summary; ok is false when the report
+// has no summary of the field's kind.
+func trendValue(r *Report, field string) (float64, bool) {
+	if t := r.TestSummary; t != nil {
+		switch field {
+		case "TOTAL":
+			return float64(t.Total), true
+		case "DURATION":
+			return float64(t.DurationInNanoSeconds), true
+		case "PASS_RATE":
+			if t.Total == 0 {
+				return 0, true
+			}
+
+			return float64(t.StatusCounts[testStatusSucceeded]) * percent / float64(t.Total), true
+		}
+	}
+
+	if c := r.CodeCoverageSummary; c != nil {
+		switch field {
+		case "LINE_COVERAGE":
+			return c.LineCoveragePercentage, true
+		case "LINES_COVERED":
+			return float64(c.LinesCovered), true
+		case "LINES_MISSED":
+			return float64(c.LinesMissed), true
+		case "BRANCH_COVERAGE":
+			return c.BranchCoveragePercentage, true
+		case "BRANCHES_COVERED":
+			return float64(c.BranchesCovered), true
+		case "BRANCHES_MISSED":
+			return float64(c.BranchesMissed), true
+		}
+	}
+
+	return 0, false
+}
+
+// reportExpired reports whether a report is past its 30-day availability; a zero Expired never expires.
+func reportExpired(r *Report) bool {
+	return r.Expired > 0 && r.Expired <= awstime.Epoch(time.Now())
+}
+
+const percent = 100

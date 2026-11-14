@@ -7,6 +7,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // DialTimeout bounds each upstream dial.
@@ -57,6 +59,7 @@ func (p *Proxy) acceptLoop() {
 		p.conns.Store(conn, struct{}{})
 		p.wg.Go(func() {
 			defer p.conns.Delete(conn)
+			defer logger.Recover(context.Background(), "sgfilter.proxy", func(any) { _ = conn.Close() })
 
 			p.serve(conn)
 		})
@@ -77,6 +80,17 @@ func (p *Proxy) Close() {
 		})
 	})
 	p.wg.Wait()
+}
+
+// DropConnections closes every open client connection while the listener keeps accepting.
+func (p *Proxy) DropConnections() {
+	p.conns.Range(func(k, _ any) bool {
+		if c, ok := k.(net.Conn); ok {
+			_ = c.Close()
+		}
+
+		return true
+	})
 }
 
 func (p *Proxy) serve(client net.Conn) {

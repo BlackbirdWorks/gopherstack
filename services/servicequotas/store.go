@@ -30,6 +30,12 @@ type OrgDirectory interface {
 	OrganizationOf(accountID string) (OrgInfo, bool)
 }
 
+// SupportDesk opens and inspects the AWS Support cases behind quota increase requests.
+type SupportDesk interface {
+	OpenCase(subject, body string) (caseID string, err error)
+	CaseResolved(caseID string) bool
+}
+
 // UsageSource reports current usage of a quota; ok is false when usage is not tracked.
 type UsageSource interface {
 	QuotaUsage(account, region, serviceCode, quotaCode string) (float64, bool)
@@ -50,6 +56,7 @@ type InMemoryBackend struct {
 	catalog       *Catalog
 	orgs          OrgDirectory
 	usage         UsageSource
+	desk          SupportDesk
 	notifier      Notifier
 	notices       *store.Table[AutoNotice]
 	accountID     string
@@ -94,6 +101,14 @@ func (b *InMemoryBackend) SetOrgDirectory(d OrgDirectory) {
 	defer b.mu.Unlock()
 
 	b.orgs = d
+}
+
+// SetSupportDesk wires the Support backend that holds the cases of quota increase requests.
+func (b *InMemoryBackend) SetSupportDesk(d SupportDesk) {
+	b.mu.Lock("SetSupportDesk")
+	defer b.mu.Unlock()
+
+	b.desk = d
 }
 
 // SetUsageSource wires the usage lookup used by utilization reports.

@@ -139,6 +139,7 @@ func (l *endpointListener) acceptLoop() {
 
 		l.wg.Go(func() {
 			defer l.conns.remove(conn)
+			defer logger.Recover(context.Background(), "rds.endpoint", func(any) { _ = conn.Close() })
 
 			l.serve(conn)
 		})

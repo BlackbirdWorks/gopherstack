@@ -27,6 +27,8 @@ type translator struct {
 	unresolved    []string
 	unnestAliases []string
 	nUnnest       int
+	intervals     bool
+	embedded      bool
 }
 
 type scope struct {
@@ -52,6 +54,8 @@ func renamedFunc(lw string) string {
 		return "athena_hour"
 	case "regexp_like":
 		return "athena_regexp_like"
+	case kindRow:
+		return "athena_row"
 	case "strpos":
 		return "instr"
 	case "if":
@@ -176,6 +180,12 @@ func collectCTEs(toks []token) map[string]bool {
 // translateSQL rewrites Presto/Trino SQL into SQLite SQL and resolves every
 // table reference through resolve.
 func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string, []string, error) {
+	return translateSQLFor(sql, resolve, false)
+}
+
+// translateSQLFor translates for Athena or, when embedded, for another service that shares the engine
+// and registers its own to_milliseconds and parse_duration.
+func translateSQLFor(sql string, resolve func(parts []string) resolvedRef, embedded bool) (string, []string, error) {
 	toks, err := tokenize(sql)
 	if err != nil {
 		return "", nil, err
@@ -186,12 +196,19 @@ func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string,
 		return "", nil, err
 	}
 
+	toks, intervals, err := rewriteIntervals(toks)
+	if err != nil {
+		return "", nil, err
+	}
+
 	toks = addNullsLast(toks)
 
 	x := &translator{
-		resolve: resolve, ctes: collectCTEs(toks),
+		resolve: resolve, ctes: collectCTEs(toks), intervals: intervals, embedded: embedded,
 		qualifiers: map[string]bool{}, structCols: map[string]bool{},
 	}
+	learnRowAliases(toks, x.structCols)
+
 	out := x.rewriteStructFields(x.rewriteUnnestRefs(x.translate(toks)))
 
 	if x.err != nil {
@@ -295,16 +312,10 @@ func plainWord(toks []token, i, nxt int, lw string) (token, bool) {
 	}
 }
 
-// preWord handles plain words and INTERVAL literals ahead of scope tracking.
+// preWord handles plain words ahead of scope tracking.
 func (x *translator) preWord(toks []token, i, nxt int, lw string, out []token) ([]token, int, bool) {
 	if res, ok := plainWord(toks, i, nxt, lw); ok {
 		return append(out, res), i, true
-	}
-
-	if lw == "interval" && nxt >= 0 && toks[nxt].kind == tkString {
-		res, end := x.interval(toks, i, out)
-
-		return res, end, true
 	}
 
 	return nil, 0, false
@@ -366,6 +377,10 @@ func (x *translator) rewriteCall(
 	}
 
 	if r := renamedFunc(lw); r != "" {
+		return []token{{kind: tkWord, text: r}}, i, stack, true
+	}
+
+	if r, ok := athenaFunc(lw); ok && (!x.embedded || !isEmbedderOwned(lw)) {
 		return []token{{kind: tkWord, text: r}}, i, stack, true
 	}
 
@@ -526,16 +541,22 @@ func (x *translator) castCall(toks []token, open int) ([]token, int) {
 
 	var sql string
 
-	switch base := typeBase(typ); base {
-	case typeDate:
+	switch base := typeBase(typ); {
+	case strings.Contains(typ, "row("):
+		sql = "athena_row_cast('" + strings.ReplaceAll(typ, "'", "''") + "', " + expr + ")"
+	case strings.HasPrefix(base, kwInterval):
+		sql = "athena_iv_cast('" + intervalCastKind(base) + "', " + expr + ")"
+	case x.intervals && (base == typeVarchar || base == typeChar || base == columnTypeString):
+		sql = "CAST(athena_iv_str(" + expr + ") AS " + sqliteCastType(base, typ) + ")"
+	case base == typeDate:
 		sql = "date(" + expr + ")"
-	case typeTimestamp:
+	case base == typeTimestamp:
 		sql = "datetime(" + expr + ")"
 	default:
 		sql = "CAST(" + expr + " AS " + sqliteCastType(base, typ) + ")"
 	}
 
-	return []token{{kind: tkWord, text: sql}}, closeIdx
+	return retokenize(sql), closeIdx
 }
 
 func tokenTexts(toks []token) []string {
@@ -555,7 +576,7 @@ func typeBase(typ string) string {
 
 func sqliteCastType(base, full string) string {
 	switch base {
-	case typeVarchar, "char", columnTypeString:
+	case typeVarchar, typeChar, columnTypeString:
 		return "TEXT"
 	case typeTinyint, typeSmallint, typeInteger, typeInt, typeBigint, typeBoolean:
 		return sqlInteger
@@ -625,5 +646,26 @@ func (x *translator) extractCall(toks []token, open int) ([]token, int) {
 
 	expr := joinTokens(x.translate(inner[fromIdx+1:]))
 
-	return []token{{kind: tkWord, text: "CAST(strftime('" + format + "', " + expr + ") AS INTEGER)"}}, closeIdx
+	if x.intervals {
+		return retokenize("athena_iv_part('" + field + "', " + expr + ")"), closeIdx
+	}
+
+	return retokenize("CAST(strftime('" + format + "', " + expr + ") AS INTEGER)"), closeIdx
+}
+
+func intervalCastKind(typ string) string {
+	if strings.Contains(typ, unitYear) || strings.Contains(typ, unitMonth) {
+		return "ym"
+	}
+
+	return "dt"
+}
+
+// retokenize keeps generated SQL visible to the later rewrite passes; it falls back to one token.
+func retokenize(sql string) []token {
+	if toks, err := tokenize(sql); err == nil {
+		return toks
+	}
+
+	return []token{{kind: tkWord, text: sql}}
 }

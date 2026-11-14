@@ -3,6 +3,8 @@ package transcribe
 import (
 	"errors"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -27,9 +29,25 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend := NewInMemoryBackendForRegion(region)
 	backend.SetAppConfig(ctx.Config)
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok && cp.GetTranscribeSettings().Engine == EngineDocker {
+		enableDockerEngine(ctx, backend, cp.GetTranscribeSettings())
+	}
+
 	handler := NewHandler(backend)
 
 	handler.EnableRegions()
 
 	return handler, nil
+}
+
+func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend, settings Settings) {
+	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+	if err != nil {
+		ctx.Logger.Warn("Transcribe: container runtime unavailable; jobs will use empty transcripts", "error", err)
+
+		return
+	}
+
+	backend.SetEngine(NewVoskEngine(VoskConfig{Runtime: rt, Image: settings.EngineImage, ModelDir: settings.ModelDir}))
 }

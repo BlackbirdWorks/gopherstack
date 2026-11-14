@@ -95,9 +95,13 @@ func TestSDK_ServiceSAS(t *testing.T) {
 			require.NoError(t, err)
 			upload(t, fc, 0, "sas")
 
-			props, err := viaSAS.GetProperties(ctx(t), nil)
+			pager := viaSAS.NewRootDirectoryClient().NewListFilesAndDirectoriesPager(nil)
+			page, err := pager.NextPage(ctx(t))
 			require.NoError(t, err)
-			assert.NotEmpty(t, props.ETag)
+			require.Len(t, page.Segment.Files, 1)
+
+			_, err = viaSAS.GetProperties(ctx(t), nil)
+			requireCode(t, err, fileerror.AuthorizationResourceTypeMismatch)
 		}},
 		{name: "file sas reads", check: func(t *testing.T, _ *env, sc *share.Client) {
 			t.Helper()
@@ -200,8 +204,15 @@ func TestBearerAndAnonymous(t *testing.T) {
 	}{
 		{
 			name: "bearer accepted",
-			hdr:  map[string]string{"Authorization": "Bearer token", "x-ms-version": "2026-02-06"},
+			hdr: map[string]string{
+				"Authorization": "Bearer token", "x-ms-version": "2026-02-06", "x-ms-file-request-intent": "backup",
+			},
 			want: http.StatusOK,
+		},
+		{
+			name: "bearer without intent",
+			hdr:  map[string]string{"Authorization": "Bearer token", "x-ms-version": "2026-02-06"},
+			want: http.StatusBadRequest,
 		},
 		{name: "anonymous accepted", want: http.StatusOK},
 		{
@@ -273,9 +284,9 @@ func TestUnroutableRequests(t *testing.T) {
 			want:   http.StatusBadRequest,
 		},
 		{
-			name:   "hard link unsupported",
+			name:   "link restype on share root",
 			method: http.MethodPut,
-			path:   "/acct/share/f?restype=hardlink",
+			path:   "/acct/share?restype=hardlink",
 			want:   http.StatusBadRequest,
 		},
 		{name: "file op on share root", method: http.MethodGet, path: "/acct/share", want: http.StatusBadRequest},

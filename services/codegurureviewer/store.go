@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -29,6 +30,7 @@ type InMemoryBackend struct {
 	mu            *lockmetrics.RWMutex
 	now           func() time.Time
 	appConfig     any
+	keys          cmek.KeyChecker
 	accountID     string
 	region        string
 	dwellOverride time.Duration

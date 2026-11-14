@@ -132,7 +132,10 @@ func TestOCIVaultProxy(t *testing.T) {
 	seed := func(t *testing.T) seeded {
 		t.Helper()
 
-		v := ocivault.NewHandler(ocivault.NewInMemoryBackend())
+		vb := ocivault.NewInMemoryBackend()
+		vb.SetTransitionDelay(0)
+
+		v := ocivault.NewHandler(vb)
 		vault, _, err := v.Backend.CreateVault(ocivault.CreateVaultIn{
 			CompartmentID: ociComp, DisplayName: "vault-one", VaultType: "DEFAULT",
 		}, "")

@@ -10,15 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 func newInMemHandlerWithPortAlloc(t *testing.T) *lambda.Handler {
 	t.Helper()
 
-	pa, err := portalloc.New(20000, 20050)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 50)
 
 	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 	closeBackend(t, bk)
@@ -147,14 +146,12 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		funcName  string
-		portRange [2]int
+		name     string
+		funcName string
 	}{
 		{
-			name:      "creates_url_with_http",
-			portRange: [2]int{20100, 20200},
-			funcName:  "http-url-fn",
+			name:     "creates_url_with_http",
+			funcName: "http-url-fn",
 		},
 	}
 
@@ -162,8 +159,7 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			bk := lambda.NewInMemoryBackend(
 				nil,

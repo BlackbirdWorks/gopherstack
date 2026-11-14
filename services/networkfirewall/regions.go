@@ -16,6 +16,7 @@ func (h *Handler) EnableRegions() {
 		bk.SetSubnetResolver(h.Backend.resolver())
 		bk.SetTransitionDelay(h.Backend.transitionDelay())
 		bk.SetTransitGatewayResolver(h.Backend.tgwResolver())
+		bk.SetNetworkResolver(h.Backend.netResolver())
 
 		p := NewHandler(bk)
 		p.AccountID = h.AccountID
@@ -58,6 +59,15 @@ func (h *Handler) SetSubnetResolver(r SubnetResolver) {
 
 	for _, p := range h.peers.All() {
 		p.Backend.SetSubnetResolver(r)
+	}
+}
+
+// SetTransitGatewayResolver wires EC2 transit gateway lookups into the home backend and every sibling.
+func (h *Handler) SetTransitGatewayResolver(r TransitGatewayResolver) {
+	h.Backend.SetTransitGatewayResolver(r)
+
+	for _, p := range h.peers.All() {
+		p.Backend.SetTransitGatewayResolver(r)
 	}
 }
 

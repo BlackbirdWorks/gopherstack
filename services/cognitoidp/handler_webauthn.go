@@ -6,18 +6,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// handleCompleteWebAuthnRegistration authenticates the access token and persists the
-// supplied WebAuthn credential (id + authenticator attachment) on the user's account.
+// handleCompleteWebAuthnRegistration verifies the RegistrationResponseJSON against the pending
+// challenge and stores the passkey on the authenticated user.
 func (h *Handler) handleCompleteWebAuthnRegistration(
 	_ context.Context,
 	in *completeWebAuthnRegistrationInput,
 ) (*completeWebAuthnRegistrationOutput, error) {
-	credentialID, _ := in.Credential["id"].(string)
-	attachment, _ := in.Credential["authenticatorAttachment"].(string)
-	transports := credentialTransports(in.Credential)
-
-	_, err := h.Backend.CompleteWebAuthnRegistration(in.AccessToken, credentialID, attachment, transports)
-	if err != nil {
+	if _, err := h.Backend.CompleteWebAuthnRegistration(in.AccessToken, in.Credential); err != nil {
 		return nil, err
 	}
 

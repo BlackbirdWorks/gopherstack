@@ -58,6 +58,7 @@ func FamilyOf(engine string) Family {
 type Column struct {
 	Name     string
 	Native   string
+	DMS      DMSType
 	Kind     Kind
 	Nullable bool
 }
@@ -136,33 +137,66 @@ const (
 
 // TargetColumn is a column on the target; Source indexes the originating source column.
 type TargetColumn struct {
+	Expr *Expr
 	Column
 	Source int
+	// Computed marks an add-column column evaluated from Expr; Before marks a before-image column.
+	Computed bool
+	Before   bool
 }
 
 // TargetTable is a source table after mapping rules.
 type TargetTable struct {
-	Schema       string
-	Name         string
-	SourceSchema string
-	SourceName   string
-	Columns      []TargetColumn
-	PK           []string
-	SourceFamily Family
+	Schema         string
+	Name           string
+	SourceSchema   string
+	SourceName     string
+	KeyName        string
+	Columns        []TargetColumn
+	PK             []string
+	SourceFamily   Family
+	KeyUnique      bool
+	HasBeforeImage bool
 }
 
 // Key is "schema.table" on the target.
 func (t TargetTable) Key() string { return t.Schema + "." + t.Name }
 
-// Project selects and orders a source row's values for the target.
+// ProjectCtx carries what computed and before-image columns need to fill in one row.
+type ProjectCtx struct {
+	Time     time.Time
+	Now      time.Time
+	Op       Op
+	Position string
+	Before   Row
+	Full     bool
+}
+
+// Project selects and orders a full-load source row's values for the target.
 func (t TargetTable) Project(r Row) Row {
+	return t.ProjectWith(r, ProjectCtx{Full: true, Now: time.Now()})
+}
+
+// ProjectWith is Project for a change row: r is the row image, pc.Before feeds the before-image columns.
+func (t TargetTable) ProjectWith(r Row, pc ProjectCtx) Row {
 	if r == nil {
 		return nil
 	}
 
+	ec := &EvalCtx{Row: r, Op: pc.Op, Time: pc.Time, Now: pc.Now, Position: pc.Position, Full: pc.Full}
 	out := make(Row, len(t.Columns))
+
 	for i, c := range t.Columns {
-		if c.Source < len(r) {
+		switch {
+		case c.Computed:
+			if c.Expr != nil {
+				out[i] = c.DMS.Cast(c.Expr.Eval(ec))
+			}
+		case c.Before:
+			if pc.Before != nil && c.Source < len(pc.Before) && !pc.Full {
+				out[i] = pc.Before[c.Source]
+			}
+		case c.Source < len(r):
 			out[i] = r[c.Source]
 		}
 	}

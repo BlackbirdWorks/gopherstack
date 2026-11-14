@@ -29,6 +29,8 @@ func (b *InMemoryBackend) settleAll() {
 	for _, np := range b.pools {
 		settlePool(np, now)
 	}
+
+	b.settleExtras(now)
 }
 
 func (b *InMemoryBackend) settleCluster(c *Cluster, now time.Time) {
@@ -46,6 +48,8 @@ func (b *InMemoryBackend) settleCluster(c *Cluster, now time.Time) {
 			c.State, c.TimeDeleted = stateDeleted, &at
 		}
 	}
+
+	b.settleClusterExtras(c, now)
 
 	if c.MigrateState == migratePending && due(c.MigrateScheduled, now) {
 		c.MigrateState, c.Endpoints.Kubernetes = migrateCompleted, ""

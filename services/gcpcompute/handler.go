@@ -28,6 +28,7 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
+	groupTickInterval = time.Second
 )
 
 type request struct {
@@ -131,13 +132,15 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 var readVerbs = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	verbList: true, verbAggList: true, verbGet: true, "getRouterStatus": true, "getFromFamily": true,
-	"listPeeringRoutes": true, "getRule": true, "serialPort": true, "getGuestAttributes": true,
+	"listPeeringRoutes": true, "getStatus": true, "getRule": true, "serialPort": true,
+	"getGuestAttributes": true, "referrers": true,
 }
 
 var verbMethods = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
 	verbInsert: http.MethodPost, verbDelete: http.MethodDelete, verbPatch: http.MethodPatch, verbUpdate: http.MethodPut,
 	"updatePeering": http.MethodPatch, "updateShieldedInstanceConfig": http.MethodPatch,
-	"setShieldedInstanceIntegrityPolicy": http.MethodPatch,
+	"setShieldedInstanceIntegrityPolicy": http.MethodPatch, "updateNetworkInterface": http.MethodPatch,
+	"updateDisplayDevice": http.MethodPatch, "updateAccessConfig": http.MethodPost,
 }
 
 func methodFor(verb string) string {
@@ -200,6 +203,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		if apiErr = checkLocation(rt); apiErr != nil {
 			return h.fail(c, apiErr)
+		}
+
+		if rt.collection == collMIG || rt.collection == collGroups || rt.collection == collMIGResize {
+			h.Backend.TickGroups(r.Context())
 		}
 
 		body, err := readBody(c)
@@ -303,6 +310,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	log.InfoContext(workerCtx, "gcpcompute: starting dedicated listener", "port", h.Port)
 
+	go h.tickLoop(ctx)
+
 	go func() {
 		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "gcpcompute: listener stopped", "error", serveErr)
@@ -330,6 +339,20 @@ func (h *Handler) Shutdown(ctx context.Context) {
 
 		if closeErr := srv.Close(); closeErr != nil {
 			log.ErrorContext(ctx, "gcpcompute: forced close also failed", "error", closeErr)
+		}
+	}
+}
+
+func (h *Handler) tickLoop(ctx context.Context) {
+	t := time.NewTicker(groupTickInterval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.Backend.TickGroups(ctx)
 		}
 	}
 }

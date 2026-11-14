@@ -5,6 +5,8 @@ import "slices"
 // Traversal is a parsed Gremlin traversal: the steps after g (or inside an anonymous __).
 type Traversal struct {
 	Steps []Step
+	// Sources are the bytecode source instructions (withSideEffect, tx, ...).
+	Sources []Step
 }
 
 // Step is one step with its arguments and the modulators ("by", "from", modTimes, ...) that follow it.

@@ -194,7 +194,7 @@ func (b *Backend) UpdatePrompt(ctx context.Context, in *UpdatePromptInput) (*pro
 }
 
 // DeletePrompt removes a prompt.
-func (b *Backend) DeletePrompt(inst, id string) (*empty, error) {
+func (b *Backend) DeletePrompt(inst, id string) (*EmptyOutput, error) {
 	b.mu.Lock("DeletePrompt")
 	defer b.mu.Unlock()
 

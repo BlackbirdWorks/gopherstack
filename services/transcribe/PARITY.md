@@ -66,15 +66,60 @@ families:
   language_code_allowlist_derived: {status: ok, note: "FIXED this pass (gopherstack-z6e7): supportedLanguageCodes() was a hardcoded 42-entry list; re-diffing against the pinned SDK's types.LanguageCode.Values() (transcribe@v1.58.4, types/enums.go:259) found 75 missing codes, not the 12 the triggering issue described -- the earlier gap note undercounted. Fixed by deriving supportedLanguageCodes() directly from sdktypes.LanguageCode(\"\").Values() (validation.go) instead of hand-copying, so it cannot drift again on a future SDK bump. Confirmed no reverse direction: every one of the old 42 hardcoded codes is a subset of the SDK enum (no code gopherstack accepted that AWS rejects). Also audited every other hand-maintained allowlist in the service (MediaFormat, VocabularyFilterMethod, RedactionType, RedactionOutput, SubtitleFormat, CallAnalyticsInputType, BaseModelName, MedicalSpecialty, MedicalType, MedicalContentIdentificationType) against their SDK enums -- all matched exactly, none drifted. Regression test: transcription_jobs_test.go's every_sdk_enum_code_accepted iterates types.LanguageCode.Values() directly against StartTranscriptionJob."}
   filter_value_semantics: {status: ok, note: "2026-08-30 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): audited every List op's filter matching, this service's declared-but-previously-unexamined axis. All 9 backend List methods (ListVocabularies, ListMedicalVocabularies, ListVocabularyFilters, ListTranscriptionJobs, ListMedicalTranscriptionJobs, ListMedicalScribeJobs, ListCallAnalyticsJobs, ListLanguageModels, ListCallAnalyticsCategories -- the last has no filter params at all) use a uniform, correct AND-of-(equality-on-Status/StateEquals, matchesNameContains-substring) shape; matchesNameContains (store.go) is case-insensitive per its own doc citation of the AWS 'the search is not case sensitive' wording, confirmed against each caller with no per-caller disagreement (the shared-matcher-with-disagreeing-callers shape from other services' passes does not apply here -- every List op's Status/StateEquals/NameContains semantics match verbatim). No enum-mismatch: Status/StateEquals values are compared directly against internally-stored state strings, not a separately-validated user enum, so there is no unrecognized-value branch to get wrong. VocabularyFilterMethod (transcription_jobs.go) is validated against supportedVocabularyFilterMethods() but never applied to transcript content -- confirmed this is the same genuine-impossibility class as ContentRedaction and the language-model axis: transcript_synthesis.go's deriveTranscriptText/synthesizeTranscriptJSON produce wholly synthetic placeholder text (job name + media filename), so there is no real transcript content for a filter method to act on; not a value-applied-wrong bug, already covered by this service's standing synthetic-content disclosure."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Emulator behaviour, not transcription: without --transcribe-engine=docker (TRANSCRIBE_ENGINE, or --engines=docker) jobs finish with a valid transcript document whose transcript is empty and whose items are [] -- no words are invented. The media object is still read from S3 and validated, and the document, subtitle files and redacted transcript are written to the output bucket or the managed fetch URL. The docker engine (pinned Vosk image, small per-language models cached locally) produces real text and word timings for 16-bit PCM WAV media in 18 language codes."
+  - "StartMedicalScribeJob still reports synthetic s3://synthetic-transcripts/ output locations and writes no objects (gopherstack-49qct.78 covered transcription, medical transcription and call analytics only)."
+  - "Under the docker engine, ShowSpeakerLabels, ContentRedaction and MedicalContentIdentificationType jobs FAIL (Vosk cannot diarize or detect PII); only ChannelIdentification and single-stream transcription are real. Vocabularies, vocabulary filters and custom language models are not applied to recognition."
+  - "IdentifyLanguage/IdentifyMultipleLanguages still report the first LanguageOptions entry with a fixed IdentifiedLanguageScore; no language is detected from audio."
+  - "Docker engine decodes 16-bit PCM WAV only (no FLAC/MP3/MP4/OGG/AMR/WebM decoding); other formats pass sniffing but FAIL under the engine. Call Analytics sentiment, loudness, talk-time, categories and summaries are not produced."
+  - "Medical transcript and Call Analytics JSON follow the batch schema and the documented post-call field names respectively; PHI entity annotations and the Categories/IssuesDetected sections are not emitted (unverified against a live AWS document)."
 structural_gaps:
-  - "CallAnalyticsJobDetails.Skipped: skipped features (insufficient conversation content, safety guidelines) come from analysing real audio; the synthetic transcript is never evaluated."
+  - "CallAnalyticsJobDetails.Skipped: skipped features (insufficient conversation content, safety guidelines) come from analysing real audio; the emulator evaluates none of the Call Analytics features."
   - "OutputEncryptionKMSKeyId on StartCallAnalyticsJob, StartMedicalScribeJob and StartMedicalTranscriptionJob: no response type echoes the key and no S3/KMS output pipeline exists to encrypt with it."
 deferred: []
-leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed. New backend struct fields (LanguageIdSettings, FailureReason x3, MedicalScribeOutput synthesis) are all pure additive struct fields going through the existing generic store.Table snapshot/restore path (store_setup.go) -- no new tables, no new lock paths, no persistence.go changes needed."}
+leaks: {status: clean, note: "goroutines exist only for docker-engine recognition runs: Handler.Shutdown cancels and joins them and removes the engine containers; otherwise no janitors; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed. New backend struct fields (LanguageIdSettings, FailureReason x3, MedicalScribeOutput synthesis) are all pure additive struct fields going through the existing generic store.Table snapshot/restore path (store_setup.go) -- no new tables, no new lock paths, no persistence.go changes needed."}
 ---
 
 ## Notes
+
+**2026-11-01 (transcribe output + opt-in speech engine, gopherstack-49qct.78):**
+Jobs no longer complete with invented text. Transcription, Medical Transcription
+and Call Analytics jobs run QUEUED/IN_PROGRESS/COMPLETED/FAILED on an
+injectable clock (`SetClock`, `SetLifecycleDelay`). On settling, the media
+object named by `MediaFileUri` is read from the in-process S3 backend
+(`s3://` and S3 https URLs), its container is sniffed from the header
+(WAV/FLAC/OGG/MP3/MP4/AMR/WebM) and the transcript document is PUT to
+`OutputBucketName`/`OutputKey` (Call Analytics: `OutputLocation`) or kept as a
+service-managed output behind a fetchable emulator URL
+(`<endpoint>/_gopherstack/transcribe/output/<region>/<kind>/<job>/<token>/asrOutput.json`,
+standing in for the 15-minute presigned S3 URL; it does not expire). Subtitle
+files (vtt/srt) and the redacted transcript are written beside the transcript
+and `Subtitles.SubtitleFileUris` / `RedactedTranscriptFileUri` point at them.
+FailureReason texts for unsupported format, format mismatch, sample-rate
+mismatch, too many channels and file size are the strings documented on
+`types.CallAnalyticsJob.FailureReason`; the unreadable-media text is the console
+wording and is unverified against the SDK docs. Standalone backends without an
+S3 backend skip media inspection.
+
+**Default (no engine) is emulator behaviour, not transcription:** the document
+is valid (jobName, accountId, results.transcripts, results.items,
+results.audio_segments, status) but `transcript` is empty and `items` is `[]`;
+nothing is invented. `speaker_labels` reports zero speakers and
+`channel_labels` two empty channels when requested.
+
+**Opt-in engine:** `--transcribe-engine=docker` (`TRANSCRIBE_ENGINE`, or
+`--engines=auto|docker`) runs Vosk (Kaldi, offline) in the pinned
+`alphacep/kaldi-vosk-server` image (285 MB compressed, 1.09 GB on disk, Python
+3.9 + vosk 0.3.45) with a small per-language model (35-50 MB, sha256-pinned,
+downloaded once into the user cache dir or `--transcribe-model-dir`). Words,
+timings and confidences come from the recognizer. One warm container per
+model; `--transcribe-engine-image` overrides the image. Languages: en-US/GB/IN,
+de-DE, es-ES/US, fr-FR/CA, it-IT, pt-BR/PT, ru-RU, zh-CN, ja-JP, hi-IN, ko-KR,
+nl-NL, tr-TR; other codes FAIL with a reason. Why Vosk: it is offline, gives
+per-word start/end/confidence natively, runs on CPU with a 40 MB model, and its
+server image already carries Python; whisper.cpp was not chosen because its
+images also need a separate model download and the chunked output has no native
+word-level timings without extra flags.
 
 **2026-09-19 (list-summary-shapes sweep):** member-by-member diffed the 7
 census-flagged List ops against real SDK item types via `cmd/structfielddiff`.

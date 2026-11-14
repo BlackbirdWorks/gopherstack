@@ -32,6 +32,10 @@ func (b *InMemoryBackend) GetDatabase(catalog, name string) (*Database, error) {
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
+	if cat, ok := b.s3TablesView(catalog); ok {
+		return s3TablesDatabase(cat, catalog, name)
+	}
+
 	if b.isGlueBacked(catalog) {
 		gd, err := b.glueSource.GetDatabase(name)
 		if err != nil {
@@ -63,7 +67,13 @@ func (b *InMemoryBackend) ListDatabases(catalog string) ([]Database, error) {
 
 	var out []Database
 
-	if b.isGlueBacked(catalog) {
+	if cat, ok := b.s3TablesView(catalog); ok {
+		var err error
+
+		if out, err = s3TablesDatabases(cat, catalog); err != nil {
+			return nil, err
+		}
+	} else if b.isGlueBacked(catalog) {
 		for _, gd := range b.glueSource.GetDatabases() {
 			out = append(out, *glueDatabaseToAthena(catalog, gd))
 		}
@@ -91,6 +101,10 @@ func (b *InMemoryBackend) GetTableMetadata(catalog, database, table string) (*Ta
 
 	b.mu.RLock("GetTableMetadata")
 	defer b.mu.RUnlock()
+
+	if cat, ok := b.s3TablesView(catalog); ok {
+		return s3TablesTable(cat, catalog, database, table)
+	}
 
 	if b.isGlueBacked(catalog) {
 		gt, err := b.glueSource.GetTable(database, table)
@@ -138,7 +152,13 @@ func (b *InMemoryBackend) ListTableMetadata(catalog, database, expr string) ([]T
 
 	var out []TableMetadata
 
-	if b.isGlueBacked(catalog) {
+	if cat, ok := b.s3TablesView(catalog); ok {
+		var err error
+
+		if out, err = s3TablesTables(cat, catalog, database, re); err != nil {
+			return nil, err
+		}
+	} else if b.isGlueBacked(catalog) {
 		var err error
 
 		out, err = b.listGlueTables(catalog, database, re)

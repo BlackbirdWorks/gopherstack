@@ -5,6 +5,7 @@ import {
   backendInfo,
   currentCloud,
   loadBackendInfo,
+  regionCatalogAvailable,
   servedAzureServices,
   setCloud,
   syncCloudFromUrl,
@@ -92,5 +93,20 @@ describe("loadBackendInfo", () => {
     await loadBackendInfo(fetchFn);
     expect(backendInfo().services).toBeNull();
     expect(servedAzureServices()).toEqual([]);
+  });
+});
+
+describe("regionCatalogAvailable", () => {
+  it.each([
+    ["EC2 disabled", { services: ["AzureARM"], disabled: ["EC2", "S3"] }, false],
+    ["EC2 served", { services: ["EC2"], disabled: ["S3"] }, true],
+    ["nothing disabled", { services: ["EC2"], disabled: [] }, true],
+  ])("%s", async (_name, health, want) => {
+    const fetchFn = ((url: string) =>
+      Promise.resolve(
+        url.includes("health") ? jsonResponse(health) : jsonResponse({ allocated: [] }),
+      )) as unknown as typeof fetch;
+    await loadBackendInfo(fetchFn);
+    expect(regionCatalogAvailable()).toBe(want);
   });
 });

@@ -103,11 +103,43 @@ func (a *azureEventHubsAdapter) GetRule(ns, hub, name string) (azurearm.EventHub
 	return azurearm.EventHubRule{PrimaryKey: r.PrimaryKey, SecondaryKey: r.SecondaryKey, Rights: r.Rights}, true
 }
 
+func (a *azureEventHubsAdapter) ListRules(ns string) ([]azurearm.EventHubRuleEntry, error) {
+	rules, err := a.backend.ListRules(ns)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]azurearm.EventHubRuleEntry, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, azurearm.EventHubRuleEntry{
+			Hub: r.Hub, Name: r.Rule.Name,
+			PrimaryKey: r.Rule.PrimaryKey, SecondaryKey: r.Rule.SecondaryKey, Rights: r.Rule.Rights,
+		})
+	}
+
+	return out, nil
+}
+
 func (a *azureEventHubsAdapter) DeleteRule(ns, hub, name string) error {
 	return ignoreMissing(
 		a.backend.DeleteRule(ns, hub, name), azureeventhubs.ErrRuleNotFound,
 		azureeventhubs.ErrNamespaceNotFound, azureeventhubs.ErrHubNotFound,
 	)
+}
+
+func (a *azureEventHubsAdapter) RegenerateRuleKey(
+	ns, hub, name, keyType, key string,
+) (azurearm.EventHubRule, error) {
+	r, err := a.backend.RegenerateRuleKey(ns, hub, name, keyType, key)
+	if errors.Is(err, azureeventhubs.ErrRuleNotFound) {
+		return azurearm.EventHubRule{}, azurearm.ErrEventHubRuleNotFound
+	}
+
+	if err != nil {
+		return azurearm.EventHubRule{}, err
+	}
+
+	return azurearm.EventHubRule{PrimaryKey: r.PrimaryKey, SecondaryKey: r.SecondaryKey, Rights: r.Rights}, nil
 }
 
 func ignoreMissing(err error, missing ...error) error {

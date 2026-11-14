@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -68,21 +68,12 @@ const (
 
 // Handler is the Echo HTTP handler for Azure Blob Storage operations.
 type Handler struct {
-	Backend StorageBackend
-	srvMu   *lockmetrics.RWMutex
-	srv     *http.Server
-	// Endpoint is e.g. "http://127.0.0.1:10000" -- used to build
-	// ServiceEndpoint in list responses.
-	Endpoint string
-	// Port is the TCP port StartWorker binds. Set from Settings at Init time
-	// (see provider.go); defaults to DefaultPort. Unlike a per-resource
-	// ephemeral allocation, this is a single fixed, protocol-conventional
-	// port (mirroring services/iot's MQTT broker) -- there is no fallback
-	// pool, so StartWorker fails fast if it's unavailable rather than
-	// silently binding a different port.
-	Port int
-	// EnforcePublicAccess makes anonymous requests honour container
-	// public-access levels; off, anonymous access is unrestricted.
+	Backend             StorageBackend
+	Events              BlobEventSink
+	srvMu               *lockmetrics.RWMutex
+	srv                 *http.Server
+	Endpoint            string
+	Port                int
 	EnforcePublicAccess bool
 }
 
@@ -203,6 +194,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleAccountLevel(c)
 		case blob == "":
 			return h.handleContainerLevel(c, container)
+		case h.Events != nil:
+			return h.serveBlobEvents(c, account, container, blob)
 		default:
 			return h.handleBlobLevel(c, container, blob)
 		}
@@ -910,6 +903,12 @@ func (h *Handler) writeXML(c *echo.Context, status int, v any) error {
 
 // writeError writes a standard Azure Storage REST error body.
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
+	c.Response().Header().Set("X-Ms-Error-Code", code)
+
+	if c.Request().Method == http.MethodHead {
+		return c.NoContent(status)
+	}
+
 	return h.writeXML(c, status, azureError{Code: code, Message: message})
 }
 
@@ -946,12 +945,12 @@ const (
 // (UseDevelopmentStorage=true-style config) would silently end up talking to
 // the wrong port. Failing fast surfaces the conflict instead.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("azureblob: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))

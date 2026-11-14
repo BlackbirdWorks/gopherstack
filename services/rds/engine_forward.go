@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // tcpForwarder fronts a MySQL-family container so client connections are counted and can resume a paused cluster.
@@ -85,6 +86,7 @@ func (f *tcpForwarder) acceptLoop() {
 
 		f.wg.Go(func() {
 			defer f.conns.remove(conn)
+			defer logger.Recover(context.Background(), "rds.forward", func(any) { _ = conn.Close() })
 
 			f.serve(conn)
 		})

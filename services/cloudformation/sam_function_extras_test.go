@@ -130,8 +130,8 @@ func TestSAMTransform_FunctionExtrasFailures(t *testing.T) {
 		},
 		{
 			name:   "destination_without_arn",
-			props:  "      EventInvokeConfig:\n        DestinationConfig:\n          OnSuccess:\n            Type: SNS\n",
-			reason: "Destination",
+			props:  "      EventInvokeConfig:\n        DestinationConfig:\n          OnSuccess:\n            Type: Lambda\n",
+			reason: "Destination is required",
 		},
 	}
 

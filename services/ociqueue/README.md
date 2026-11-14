@@ -8,22 +8,19 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 19 (12 ok, 7 partial) |
-| Feature families | 11 (10 ok, 1 partial) |
-| Known gaps | 9 |
+| Feature families | 12 (11 ok, 1 partial) |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Consumer groups (CreateConsumerGroup, GetConsumerGroup, ListConsumerGroups, UpdateConsumerGroup, DeleteConsumerGroup) are not routed, the consumerGroupId query parameter is ignored by the data plane and the CONSUMER_GROUPS capability is rejected.
-- The LARGE_MESSAGES capability is rejected; only the standard 128 KiB message limit exists.
-- The DLQ cannot be consumed: the SDK has no API to read dead lettered messages, so they are only counted by GetStats and cleared by PurgeQueue.
-- Limits (retention 10 to 604800 s, visibility 0 to 43200 s, poll timeout 0 to 30 s, DLQ count 0 to 20, batch of 20 messages, 128 KiB per message, 512 KiB per request, 64 character channel ids) and the channelConsumptionLimit semantics are recalled from the Oracle documentation and SDK comments, not verified against the live service.
-- channelFilter is an exact match on GetMessages and a substring match on ListChannels; the live matching rules are unverified.
-- Throughput limits and per-queue storage quotas (and therefore channelConsumptionLimit enforcement) are not applied.
+- The LARGE_MESSAGES capability is rejected; the 256 KB standard message limit applies and the capability's larger limit is not documented in the pages read.
+- The 64 character channel id limit and the 1 to 100 channelConsumptionLimit range are undocumented (the SDK describes channelConsumptionLimit only as the percentage of queue capacity one channel may use); deadLetterQueueDeliveryCount 0 disables the DLQ per the SDK while the overview states a range of 1 to 20.
+- channelFilter is an exact match on GetMessages and a substring match on ListChannels; the documentation says a filter can match several channels (one is chosen at random) but not how ids are matched.
+- The documented service limits (1,000 requests/s per API per queue, 10 MB/s ingress and egress, 2 GB storage per queue and 20 GB per tenancy, 100,000 in-flight messages, 256 channels per queue, 10 queues per tenancy per region) and channelConsumptionLimit are not enforced; their error codes are undocumented.
 - Messages are held in memory and in snapshots, so large backlogs grow the snapshot.
-- opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
-- Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace; systemTags are never set.
+- IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
 
 ## More
 

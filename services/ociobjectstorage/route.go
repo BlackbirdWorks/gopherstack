@@ -8,52 +8,64 @@ import (
 
 // Operation names, matching the OCI SDK operation names.
 const (
-	opGetNamespace         = "GetNamespace"
-	opGetNamespaceMetadata = "GetNamespaceMetadata"
-	opUpdateNamespaceMeta  = "UpdateNamespaceMetadata"
-	opListBuckets          = "ListBuckets"
-	opCreateBucket         = "CreateBucket"
-	opGetBucket            = "GetBucket"
-	opHeadBucket           = "HeadBucket"
-	opUpdateBucket         = "UpdateBucket"
-	opDeleteBucket         = "DeleteBucket"
-	opListObjects          = "ListObjects"
-	opListObjectVersions   = "ListObjectVersions"
-	opPutObject            = "PutObject"
-	opGetObject            = "GetObject"
-	opHeadObject           = "HeadObject"
-	opDeleteObject         = "DeleteObject"
-	opCreateMultipart      = "CreateMultipartUpload"
-	opUploadPart           = "UploadPart"
-	opCommitMultipart      = "CommitMultipartUpload"
-	opAbortMultipart       = "AbortMultipartUpload"
-	opListMultipartUploads = "ListMultipartUploads"
-	opListMultipartParts   = "ListMultipartUploadParts"
-	opCopyObject           = "CopyObject"
-	opRenameObject         = "RenameObject"
-	opRestoreObjects       = "RestoreObjects"
-	opUpdateStorageTier    = "UpdateObjectStorageTier"
-	opBatchDeleteObjects   = "BatchDeleteObjects"
-	opMakeBucketWritable   = "MakeBucketWritable"
-	opCreatePAR            = "CreatePreauthenticatedRequest"
-	opListPARs             = "ListPreauthenticatedRequests"
-	opGetPAR               = "GetPreauthenticatedRequest"
-	opDeletePAR            = "DeletePreauthenticatedRequest"
-	opPutLifecycle         = "PutObjectLifecyclePolicy"
-	opGetLifecycle         = "GetObjectLifecyclePolicy"
-	opDeleteLifecycle      = "DeleteObjectLifecyclePolicy"
-	opCreateRetention      = "CreateRetentionRule"
-	opGetRetention         = "GetRetentionRule"
-	opListRetention        = "ListRetentionRules"
-	opUpdateRetention      = "UpdateRetentionRule"
-	opDeleteRetention      = "DeleteRetentionRule"
-	opGetWorkRequest       = "GetWorkRequest"
-	opListWorkRequests     = "ListWorkRequests"
-	opDeleteWorkRequest    = "CancelWorkRequest"
-	opListWRErrors         = "ListWorkRequestErrors"
-	opListWRLogs           = "ListWorkRequestLogs"
-	opAdminKeys            = "ManageAPIKeys"
-	opUnknown              = "Unknown"
+	opGetNamespace           = "GetNamespace"
+	opGetNamespaceMetadata   = "GetNamespaceMetadata"
+	opUpdateNamespaceMeta    = "UpdateNamespaceMetadata"
+	opListBuckets            = "ListBuckets"
+	opCreateBucket           = "CreateBucket"
+	opGetBucket              = "GetBucket"
+	opHeadBucket             = "HeadBucket"
+	opUpdateBucket           = "UpdateBucket"
+	opDeleteBucket           = "DeleteBucket"
+	opListObjects            = "ListObjects"
+	opListObjectVersions     = "ListObjectVersions"
+	opPutObject              = "PutObject"
+	opGetObject              = "GetObject"
+	opHeadObject             = "HeadObject"
+	opDeleteObject           = "DeleteObject"
+	opCreateMultipart        = "CreateMultipartUpload"
+	opUploadPart             = "UploadPart"
+	opCommitMultipart        = "CommitMultipartUpload"
+	opAbortMultipart         = "AbortMultipartUpload"
+	opListMultipartUploads   = "ListMultipartUploads"
+	opListMultipartParts     = "ListMultipartUploadParts"
+	opCopyObject             = "CopyObject"
+	opRenameObject           = "RenameObject"
+	opRestoreObjects         = "RestoreObjects"
+	opUpdateStorageTier      = "UpdateObjectStorageTier"
+	opBatchDeleteObjects     = "BatchDeleteObjects"
+	opMakeBucketWritable     = "MakeBucketWritable"
+	opCreatePAR              = "CreatePreauthenticatedRequest"
+	opListPARs               = "ListPreauthenticatedRequests"
+	opGetPAR                 = "GetPreauthenticatedRequest"
+	opDeletePAR              = "DeletePreauthenticatedRequest"
+	opPutLifecycle           = "PutObjectLifecyclePolicy"
+	opGetLifecycle           = "GetObjectLifecyclePolicy"
+	opDeleteLifecycle        = "DeleteObjectLifecyclePolicy"
+	opCreateRetention        = "CreateRetentionRule"
+	opGetRetention           = "GetRetentionRule"
+	opListRetention          = "ListRetentionRules"
+	opUpdateRetention        = "UpdateRetentionRule"
+	opDeleteRetention        = "DeleteRetentionRule"
+	opGetWorkRequest         = "GetWorkRequest"
+	opListWorkRequests       = "ListWorkRequests"
+	opDeleteWorkRequest      = "CancelWorkRequest"
+	opListWRErrors           = "ListWorkRequestErrors"
+	opListWRLogs             = "ListWorkRequestLogs"
+	opCreateReplication      = "CreateReplicationPolicy"
+	opGetReplication         = "GetReplicationPolicy"
+	opListReplications       = "ListReplicationPolicies"
+	opDeleteReplication      = "DeleteReplicationPolicy"
+	opListReplicationSources = "ListReplicationSources"
+	opReencryptObject        = "ReencryptObject"
+	opReencryptBucket        = "ReencryptBucket"
+	opCreatePrivateEndpoint  = "CreatePrivateEndpoint"
+	opGetPrivateEndpoint     = "GetPrivateEndpoint"
+	opListPrivateEndpoints   = "ListPrivateEndpoints"
+	opUpdatePrivateEndpoint  = "UpdatePrivateEndpoint"
+	opDeletePrivateEndpoint  = "DeletePrivateEndpoint"
+	opAdminKeys              = "ManageAPIKeys"
+	opUnknown                = "Unknown"
 )
 
 type route struct {
@@ -176,6 +188,8 @@ func parseNamespace(m string, segs []string) route {
 		}
 
 		return rt
+	case segs[bucketsAt] == "pe":
+		return parsePrivateEndpoint(m, segs)
 	case segs[bucketsAt] != "b":
 		return route{op: opUnknown}
 	}
@@ -200,6 +214,28 @@ func parseNamespace(m string, segs []string) route {
 	}
 
 	return parseBucketSub(rt, m, segs[subIdx:])
+}
+
+func parsePrivateEndpoint(m string, segs []string) route {
+	const (
+		listLen = 3
+		itemLen = 4
+	)
+
+	rt := route{ns: unesc(segs[1])}
+
+	switch len(segs) {
+	case listLen:
+		rt.op = map[string]string{http.MethodPost: opCreatePrivateEndpoint, http.MethodGet: opListPrivateEndpoints}[m]
+	case itemLen:
+		rt.id = unesc(segs[3])
+		rt.op = map[string]string{
+			http.MethodGet: opGetPrivateEndpoint, http.MethodPost: opUpdatePrivateEndpoint,
+			http.MethodDelete: opDeletePrivateEndpoint,
+		}[m]
+	}
+
+	return orUnknown(rt)
 }
 
 func orUnknown(rt route) route {
@@ -273,9 +309,24 @@ func parseBucketConfig(rt route, m string, sub []string) route {
 		rt.op = map[string]string{
 			http.MethodGet: opGetRetention, http.MethodPut: opUpdateRetention, http.MethodDelete: opDeleteRetention,
 		}[m]
+	case "replicationPolicies", "replicationSources":
+		return parseReplication(rt, m, sub)
 	case "objectversions":
 		rt.op = map[string]string{http.MethodGet: opListObjectVersions}[m]
 	case "actions":
+		if len(rest) >= 2 && rest[0] == "reencrypt" && m == http.MethodPost {
+			rt.object = unesc(strings.Join(rest[1:], "/"))
+			rt.op = opReencryptObject
+
+			break
+		}
+
+		if len(rest) == 1 && rest[0] == "reencrypt" && m == http.MethodPost {
+			rt.op = opReencryptBucket
+
+			break
+		}
+
 		if len(rest) == 1 && m == http.MethodPost {
 			rt.op = map[string]string{
 				"copyObject": opCopyObject, "renameObject": opRenameObject, "restoreObjects": opRestoreObjects,
@@ -284,6 +335,27 @@ func parseBucketConfig(rt route, m string, sub []string) route {
 			}[rest[0]]
 		}
 	}
+
+	return orUnknown(rt)
+}
+
+func parseReplication(rt route, m string, sub []string) route {
+	rest := sub[1:]
+
+	if sub[0] == "replicationSources" {
+		rt.op = map[string]string{http.MethodGet: opListReplicationSources}[m]
+
+		return orUnknown(rt)
+	}
+
+	if len(rest) == 0 {
+		rt.op = map[string]string{http.MethodPost: opCreateReplication, http.MethodGet: opListReplications}[m]
+
+		return orUnknown(rt)
+	}
+
+	rt.id = unesc(rest[0])
+	rt.op = map[string]string{http.MethodGet: opGetReplication, http.MethodDelete: opDeleteReplication}[m]
 
 	return orUnknown(rt)
 }

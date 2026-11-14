@@ -44,7 +44,8 @@ type authPath struct {
 func authKnownType(t string) bool {
 	switch strings.ToLower(t) {
 	case strings.ToLower(authRoleDefinitions), strings.ToLower(authRoleAssignments), strings.ToLower(authLocks),
-		strings.ToLower(authPolicyDefinitions), strings.ToLower(authPolicySets), strings.ToLower(authPolicyAssignments):
+		strings.ToLower(authPolicyDefinitions), strings.ToLower(authPolicySets), strings.ToLower(authPolicyAssignments),
+		strings.ToLower(authPolicyExemptions):
 		return true
 	}
 
@@ -54,7 +55,7 @@ func authKnownType(t string) bool {
 func canonicalAuthType(t string) string {
 	for _, c := range []string{
 		authRoleDefinitions, authRoleAssignments, authLocks, authPolicyDefinitions, authPolicySets,
-		authPolicyAssignments,
+		authPolicyAssignments, authPolicyExemptions,
 	} {
 		if strings.EqualFold(c, t) {
 			return c

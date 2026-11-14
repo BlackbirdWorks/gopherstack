@@ -189,11 +189,7 @@ func featuresFor(profile string) []string {
 	return slices.Clone(sslFeatures)
 }
 
-func prepSSLPolicy(_ *InMemoryBackend, c lbCtx, in *computeapi.SslPolicy, _ map[string]any) *APIError {
-	if c.scope != scopeGlobal {
-		return errInvalid("SSL policies are global in this emulator.")
-	}
-
+func prepSSLPolicy(_ *InMemoryBackend, _ lbCtx, in *computeapi.SslPolicy, _ map[string]any) *APIError {
 	if in.Profile == "" {
 		in.Profile = profCompatible
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -24,12 +24,11 @@ func TestInvokePublishedVersionKeepsCode(t *testing.T) {
 		{name: "latest", qualifier: "$LATEST"},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(19700+i*20, 19710+i*20)
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			bk := lambda.NewInMemoryBackend(
 				newMockDockerClient(),
@@ -45,7 +44,7 @@ func TestInvokePublishedVersionKeepsCode(t *testing.T) {
 				Handler: "index.handler", ZipData: tinyZip(t), Timeout: 3,
 			}))
 
-			_, err = bk.PublishVersion("zipfn", "")
+			_, err := bk.PublishVersion("zipfn", "")
 			require.NoError(t, err)
 
 			_, _, _, status, invokeErr := bk.InvokeFunctionWithQualifier(

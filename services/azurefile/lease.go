@@ -63,18 +63,18 @@ func (l *leaseInfo) setHeaders(h http.Header, now time.Time) {
 
 // check validates an operation's supplied lease id against the lease.
 func (l *leaseInfo) check(supplied string, now time.Time, file bool) *apiError {
-	idMismatch, notPresent := "LeaseIdMismatchWithLeaseOperation", "LeaseNotPresentWithLeaseOperation"
+	kind := "FileShare"
 	if file {
-		idMismatch, notPresent = "LeaseIdMismatchWithFileOperation", "LeaseNotPresentWithFileOperation"
+		kind = "File"
 	}
 
 	if l.active(now) {
 		switch {
 		case supplied == "":
-			return newErr(http.StatusPreconditionFailed, "LeaseIdMissing",
+			return newErr(http.StatusPreconditionFailed, "LeaseIdMissingWith"+kind+"Operation",
 				"There is currently a lease on the resource and no lease ID was specified in the request.")
 		case supplied != l.ID:
-			return newErr(http.StatusPreconditionFailed, idMismatch,
+			return newErr(http.StatusPreconditionFailed, "LeaseIdMismatchWith"+kind+"Operation",
 				"The lease ID specified did not match the lease ID for the resource.")
 		}
 
@@ -82,7 +82,12 @@ func (l *leaseInfo) check(supplied string, now time.Time, file bool) *apiError {
 	}
 
 	if supplied != "" {
-		return newErr(http.StatusPreconditionFailed, notPresent,
+		if supplied == l.ID && l.State != "" {
+			return newErr(http.StatusPreconditionFailed, "LeaseLostWith"+kind+"Operation",
+				"A lease ID was specified, but the lease for the resource has expired.")
+		}
+
+		return newErr(http.StatusPreconditionFailed, "LeaseNotPresentWith"+kind+"Operation",
 			"There is currently no lease on the resource.")
 	}
 
@@ -114,13 +119,21 @@ func newLeaseID(proposed string) string {
 	return uuid.NewString()
 }
 
-func errLeaseMismatch() *apiError {
-	return newErr(http.StatusConflict, "LeaseIdMismatchWithLeaseOperation",
+func leaseKind(fileLease bool) string {
+	if fileLease {
+		return "File"
+	}
+
+	return "FileShare"
+}
+
+func errLeaseMismatch(fileLease bool) *apiError {
+	return newErr(http.StatusConflict, "LeaseIdMismatchWith"+leaseKind(fileLease)+"LeaseOperation",
 		"The lease ID specified did not match the lease ID for the resource.")
 }
 
-func errLeaseNotPresent() *apiError {
-	return newErr(http.StatusConflict, "LeaseNotPresentWithLeaseOperation",
+func errLeaseNotPresent(fileLease bool) *apiError {
+	return newErr(http.StatusConflict, "LeaseNotPresentWith"+leaseKind(fileLease)+"LeaseOperation",
 		"There is currently no lease on the resource.")
 }
 
@@ -130,11 +143,11 @@ func (l *leaseInfo) apply(req leaseRequest, now time.Time, fileLease bool) (leas
 	case "acquire":
 		return l.acquire(req, now, fileLease)
 	case "renew":
-		return l.renew(req, now)
+		return l.renew(req, now, fileLease)
 	case "release":
-		return l.release(req, now)
+		return l.release(req, now, fileLease)
 	case "change":
-		return l.change(req, now)
+		return l.change(req, now, fileLease)
 	case "break":
 		return l.breakLease(req, now, fileLease)
 	}
@@ -176,14 +189,14 @@ func (l *leaseInfo) acquire(req leaseRequest, now time.Time, fileLease bool) (le
 	return leaseResult{ID: id, Status: http.StatusCreated}, nil
 }
 
-func (l *leaseInfo) renew(req leaseRequest, now time.Time) (leaseResult, *apiError) {
+func (l *leaseInfo) renew(req leaseRequest, now time.Time, fileLease bool) (leaseResult, *apiError) {
 	state := l.effective(now)
 	if state == leaseAvail {
-		return leaseResult{}, errLeaseNotPresent()
+		return leaseResult{}, errLeaseNotPresent(fileLease)
 	}
 
 	if req.LeaseID != l.ID {
-		return leaseResult{}, errLeaseMismatch()
+		return leaseResult{}, errLeaseMismatch(fileLease)
 	}
 
 	if state == leaseBreaking || state == leaseBroken {
@@ -200,13 +213,13 @@ func (l *leaseInfo) renew(req leaseRequest, now time.Time) (leaseResult, *apiErr
 	return leaseResult{ID: l.ID, Status: http.StatusOK}, nil
 }
 
-func (l *leaseInfo) release(req leaseRequest, now time.Time) (leaseResult, *apiError) {
+func (l *leaseInfo) release(req leaseRequest, now time.Time, fileLease bool) (leaseResult, *apiError) {
 	if l.effective(now) == leaseAvail {
-		return leaseResult{}, errLeaseNotPresent()
+		return leaseResult{}, errLeaseNotPresent(fileLease)
 	}
 
 	if req.LeaseID != l.ID {
-		return leaseResult{}, errLeaseMismatch()
+		return leaseResult{}, errLeaseMismatch(fileLease)
 	}
 
 	*l = leaseInfo{}
@@ -214,10 +227,10 @@ func (l *leaseInfo) release(req leaseRequest, now time.Time) (leaseResult, *apiE
 	return leaseResult{Status: http.StatusOK}, nil
 }
 
-func (l *leaseInfo) change(req leaseRequest, now time.Time) (leaseResult, *apiError) {
+func (l *leaseInfo) change(req leaseRequest, now time.Time, fileLease bool) (leaseResult, *apiError) {
 	state := l.effective(now)
 	if state != leaseLeased && state != leaseBreaking {
-		return leaseResult{}, errLeaseNotPresent()
+		return leaseResult{}, errLeaseNotPresent(fileLease)
 	}
 
 	if req.Proposed == "" {
@@ -225,7 +238,7 @@ func (l *leaseInfo) change(req leaseRequest, now time.Time) (leaseResult, *apiEr
 	}
 
 	if req.LeaseID != l.ID && req.LeaseID != req.Proposed {
-		return leaseResult{}, errLeaseMismatch()
+		return leaseResult{}, errLeaseMismatch(fileLease)
 	}
 
 	if state == leaseBreaking {
@@ -241,11 +254,11 @@ func (l *leaseInfo) change(req leaseRequest, now time.Time) (leaseResult, *apiEr
 func (l *leaseInfo) breakLease(req leaseRequest, now time.Time, fileLease bool) (leaseResult, *apiError) {
 	state := l.effective(now)
 	if state == leaseAvail {
-		return leaseResult{}, errLeaseNotPresent()
+		return leaseResult{}, errLeaseNotPresent(fileLease)
 	}
 
 	if req.LeaseID != "" && req.LeaseID != l.ID {
-		return leaseResult{}, errLeaseMismatch()
+		return leaseResult{}, errLeaseMismatch(fileLease)
 	}
 
 	if state == leaseExpired || state == leaseBroken {

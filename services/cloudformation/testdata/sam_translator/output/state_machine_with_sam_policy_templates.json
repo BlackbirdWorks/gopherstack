@@ -1,0 +1,491 @@
+{
+  "Resources": {
+    "NestedWorkflow": {
+      "Properties": {
+        "DefinitionString": {
+          "Fn::Join": [
+            "\n",
+            [
+              "{",
+              "    \"Comment\": \"An example ASL file for nested workflows\",",
+              "    \"StartAt\": \"NestedStateOne\",",
+              "    \"States\": {",
+              "        \"NestedStateOne\": {",
+              "            \"Next\": \"NestedStateTwo\",",
+              "            \"Result\": {",
+              "                \"Value\": \"MyValue\"",
+              "            },",
+              "            \"Type\": \"Pass\"",
+              "        },",
+              "        \"NestedStateTwo\": {",
+              "            \"End\": true,",
+              "            \"Resource\": \"${definition_substitution_1}\",",
+              "            \"Type\": \"Task\"",
+              "        }",
+              "    }",
+              "}"
+            ]
+          ]
+        },
+        "DefinitionSubstitutions": {
+          "definition_substitution_1": {
+            "Fn::GetAtt": [
+              "StarterLambda",
+              "Arn"
+            ]
+          }
+        },
+        "RoleArn": "arn:aws:iam::123456123456:role/service-role/SampleRole",
+        "StateMachineType": "STANDARD",
+        "Tags": [
+          {
+            "Key": "stateMachine:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::StepFunctions::StateMachine"
+    },
+    "OutputStore": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "TableName": "MySimpleTable"
+      },
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "ProcessingQueue": {
+      "Type": "AWS::SQS::Queue"
+    },
+    "ProcessingWorkflow": {
+      "Properties": {
+        "DefinitionString": {
+          "Fn::Join": [
+            "\n",
+            [
+              "{",
+              "    \"Comment\": \"An example ASL file with parallel states\",",
+              "    \"StartAt\": \"StateOne\",",
+              "    \"States\": {",
+              "        \"StateOne\": {",
+              "            \"Next\": \"StateTwo\",",
+              "            \"Result\": {",
+              "                \"Value\": \"MyValue\"",
+              "            },",
+              "            \"Type\": \"Pass\"",
+              "        },",
+              "        \"StateTwo\": {",
+              "            \"Branches\": [",
+              "                {",
+              "                    \"StartAt\": \"BranchOne_StateOne\",",
+              "                    \"States\": {",
+              "                        \"BranchOne_StateFour\": {",
+              "                            \"Choices\": [",
+              "                                {",
+              "                                    \"Next\": \"ValueIsZero\",",
+              "                                    \"NumericEquals\": 0,",
+              "                                    \"Variable\": \"$.value\"",
+              "                                },",
+              "                                {",
+              "                                    \"Next\": \"ValueIsOne\",",
+              "                                    \"NumericEquals\": 1,",
+              "                                    \"Variable\": \"$.value\"",
+              "                                }",
+              "                            ],",
+              "                            \"Type\": \"Choice\"",
+              "                        },",
+              "                        \"BranchOne_StateOne\": {",
+              "                            \"Next\": \"BranchOne_StateTwo\",",
+              "                            \"Resource\": \"${definition_substitution_1}\",",
+              "                            \"Type\": \"Task\"",
+              "                        },",
+              "                        \"BranchOne_StateThree\": {",
+              "                            \"Next\": \"BranchOne_StateFour\",",
+              "                            \"Parameters\": {",
+              "                                \"FunctionName\": \"${definition_substitution_2}\"",
+              "                            },",
+              "                            \"Resource\": \"arn:aws:states:::lambda:invoke\",",
+              "                            \"Type\": \"Task\"",
+              "                        },",
+              "                        \"BranchOne_StateTwo\": {",
+              "                            \"Next\": \"BranchOne_StateThree\",",
+              "                            \"Parameters\": {",
+              "                                \"MessageBody.$\": \"$.input.message\",",
+              "                                \"QueueUrl\": \"${definition_substitution_3}\"",
+              "                            },",
+              "                            \"Resource\": \"arn:aws:states:::sqs:sendMessage.waitForTaskToken\",",
+              "                            \"Type\": \"Task\"",
+              "                        },",
+              "                        \"ValueIsOne\": {",
+              "                            \"Type\": \"Succeed\"",
+              "                        },",
+              "                        \"ValueIsZero\": {",
+              "                            \"Type\": \"Fail\"",
+              "                        }",
+              "                    }",
+              "                },",
+              "                {",
+              "                    \"StartAt\": \"BranchTwo_StateOne\",",
+              "                    \"States\": {",
+              "                        \"BranchTwo_StateOne\": {",
+              "                            \"Next\": \"BranchTwo_StateTwo\",",
+              "                            \"Parameters\": {",
+              "                                \"Input\": {",
+              "                                    \"KeyA\": \"ValueA\",",
+              "                                    \"KeyC\": \"ValueC\"",
+              "                                },",
+              "                                \"StateMachineArn\": \"${definition_substitution_4}\"",
+              "                            },",
+              "                            \"Resource\": \"arn:aws:states:::states:startExecution.sync\",",
+              "                            \"Type\": \"Task\"",
+              "                        },",
+              "                        \"BranchTwo_StateThree\": {",
+              "                            \"Type\": \"Succeed\"",
+              "                        },",
+              "                        \"BranchTwo_StateTwo\": {",
+              "                            \"Next\": \"BranchTwo_StateThree\",",
+              "                            \"Parameters\": {",
+              "                                \"Item\": {",
+              "                                    \"Body\": {",
+              "                                        \"S.$\": \"$.MessageDetails.Body\"",
+              "                                    },",
+              "                                    \"MessageId\": {",
+              "                                        \"S.$\": \"$.MessageDetails.MessageId\"",
+              "                                    }",
+              "                                },",
+              "                                \"TableName\": \"${definition_substitution_5}\"",
+              "                            },",
+              "                            \"Resource\": \"arn:aws:states:::dynamodb:putItem\",",
+              "                            \"Type\": \"Task\"",
+              "                        }",
+              "                    }",
+              "                }",
+              "            ],",
+              "            \"End\": true,",
+              "            \"Type\": \"Parallel\"",
+              "        }",
+              "    }",
+              "}"
+            ]
+          ]
+        },
+        "DefinitionSubstitutions": {
+          "definition_substitution_1": {
+            "Fn::GetAtt": [
+              "StarterLambda",
+              "Arn"
+            ]
+          },
+          "definition_substitution_2": {
+            "Ref": "ResolverLambda"
+          },
+          "definition_substitution_3": {
+            "Ref": "ProcessingQueue"
+          },
+          "definition_substitution_4": {
+            "Ref": "NestedWorkflow"
+          },
+          "definition_substitution_5": {
+            "Ref": "OutputStore"
+          }
+        },
+        "RoleArn": {
+          "Fn::GetAtt": [
+            "ProcessingWorkflowRole",
+            "Arn"
+          ]
+        },
+        "StateMachineType": "STANDARD",
+        "Tags": [
+          {
+            "Key": "stateMachine:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::StepFunctions::StateMachine"
+    },
+    "ProcessingWorkflowRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "states.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "lambda:InvokeFunction"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Sub": [
+                      "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${functionName}*",
+                      {
+                        "functionName": {
+                          "Ref": "StarterLambda"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ProcessingWorkflowRolePolicy0"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "sqs:SendMessage*"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Sub": [
+                      "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${queueName}",
+                      {
+                        "queueName": {
+                          "Fn::GetAtt": [
+                            "ProcessingQueue",
+                            "QueueName"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ProcessingWorkflowRolePolicy1"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "lambda:InvokeFunction"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Sub": [
+                      "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${functionName}*",
+                      {
+                        "functionName": {
+                          "Ref": "ResolverLambda"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ProcessingWorkflowRolePolicy2"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "states:StartExecution"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Sub": [
+                      "arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${stateMachineName}",
+                      {
+                        "stateMachineName": {
+                          "Fn::GetAtt": [
+                            "NestedWorkflow",
+                            "Name"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "PolicyName": "ProcessingWorkflowRolePolicy3"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:BatchWriteItem"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::Sub": [
+                        "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${tableName}",
+                        {
+                          "tableName": {
+                            "Ref": "OutputStore"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "Fn::Sub": [
+                        "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${tableName}/index/*",
+                        {
+                          "tableName": {
+                            "Ref": "OutputStore"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "PolicyName": "ProcessingWorkflowRolePolicy4"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "stateMachine:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "ResolverLambda": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "resolver.zip"
+        },
+        "Handler": "resolver.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "ResolverLambdaRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.11",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "ResolverLambdaRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "StarterLambda": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "starter.zip"
+        },
+        "Handler": "starter.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "StarterLambdaRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "StarterLambdaRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

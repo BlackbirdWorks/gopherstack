@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -27,13 +27,11 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 		wantEvent  types.EventType
 		name       string
 		fnName     string
-		portBase   int
 		maxRetries int32
 	}{
 		{
 			name:       "success",
 			fnName:     "durasync-ok",
-			portBase:   21200,
 			maxRetries: 0,
 			respond: func(t *testing.T, port int, requestID string) {
 				t.Helper()
@@ -45,7 +43,6 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 		{
 			name:       "failure_after_retries_exhausted",
 			fnName:     "durasync-fail",
-			portBase:   21300,
 			maxRetries: 0, // no retries: the first (and only) failure is terminal
 			respond: func(t *testing.T, port int, requestID string) {
 				t.Helper()
@@ -60,9 +57,7 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			portRange := [2]int{tt.portBase, tt.portBase + 50}
-			pa, err := portalloc.New(portRange[0], portRange[1])
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			bk := lambda.NewInMemoryBackend(
 				newMockDockerClient(), pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -77,7 +72,7 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 
 			fnName := tt.fnName
 
-			_, err = client.CreateFunction(t.Context(), &lambdasdk.CreateFunctionInput{
+			_, err := client.CreateFunction(t.Context(), &lambdasdk.CreateFunctionInput{
 				FunctionName:  aws.String(fnName),
 				PackageType:   types.PackageTypeImage,
 				Code:          &types.FunctionCode{ImageUri: aws.String("myimage:latest")},
@@ -120,7 +115,7 @@ func TestAsyncDurableInvoke_RecordsCompletion(t *testing.T) {
 			)
 
 			require.Eventually(t, func() bool {
-				for p := portRange[0]; p < portRange[1]; p++ {
+				for p := range pa.Allocated() {
 					req, reqErr := http.NewRequestWithContext(
 						t.Context(), http.MethodGet,
 						fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,

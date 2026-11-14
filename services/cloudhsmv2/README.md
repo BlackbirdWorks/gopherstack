@@ -9,19 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 7 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; the EC2 backend assigns IPv6 addresses from a fixed 2001:db8:: prefix, not the subnet IPv6 CIDR, so none is allocated
-- Backups: no daily automatic backups; only the lifecycle points listed in the backups family
-- DescribeBackups Shared: only PutResourcePolicy grants are consulted; RAM resource shares are not
 - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
-- ModifyCluster: the 7 day HsmTypeRollbackExpiration window is an assumption, the SDK does not state it
-- CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; no IAM is modeled
+- CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; API_ModifyCluster lists both without a trigger, and IAM denials come from the shared enforcement middleware as AccessDeniedException
 - CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported
 
 ### Structural gaps

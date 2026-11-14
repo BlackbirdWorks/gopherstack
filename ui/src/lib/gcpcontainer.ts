@@ -169,6 +169,23 @@ export async function deleteCluster(
   );
 }
 
+export type Kubeconfig = { yaml: string; hasToken: boolean };
+
+/** Fetches the cluster's kubeconfig; it can carry the cluster-admin token, so call it only on an explicit reveal. */
+export async function getKubeconfig(
+  clusterPath: string,
+  fetchFn: FetchFn = fetch,
+): Promise<Kubeconfig> {
+  const body = await restCall(
+    GKE_PROXY_BASE,
+    "POST",
+    `/${clusterPath}:kubeconfig`,
+    undefined,
+    fetchFn,
+  );
+  return { yaml: str(body.kubeconfig), hasToken: body.hasToken === true };
+}
+
 export async function listOperations(
   project: string,
   fetchFn: FetchFn = fetch,

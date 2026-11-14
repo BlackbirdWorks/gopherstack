@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 32 (30 ok, 2 partial) |
+| PARITY entries audited | 40 (38 ok, 2 partial) |
 | Feature families | 7 (5 ok, 2 partial) |
 | Known gaps | 9 |
 | Deferred items | 0 |
@@ -15,15 +15,15 @@
 
 ### Known gaps
 
-- HeatWave cluster operations (AddHeatWaveCluster, GetHeatWaveCluster, UpdateHeatWaveCluster, DeleteHeatWaveCluster, Start/Stop/RestartHeatWaveCluster, the memory estimate operations) are not routed; isHeatWaveClusterAttached is always false.
-- Read replicas (CreateReplica and friends), blue/green deployments, ControlledUpdateDbSystem, GenerateDbSystemStatus/GetDbSystemStatus, ListMaintenanceEvents, CopyBackup, ExportBackup, ValidateBackup, CancelBackupDeletion, GenerateChannelStatus/GetChannelStatus and CancelWorkRequest are not routed.
+- HeatWave memory estimates (GenerateHeatWaveClusterMemoryEstimate, GetHeatWaveClusterMemoryEstimate) are not routed: the estimate lists per-table memory of the live schemas, which only a running MySQL engine could supply (oci-go-sdk mysql/heat_wave_cluster_memory_estimate.go); Stop/Start of the DB system does not change the HeatWave cluster state.
+- Read replicas (CreateReplica and friends), blue/green deployments, ControlledUpdateDbSystem, GenerateDbSystemStatus/GetDbSystemStatus, ListMaintenanceEvents, CopyBackup, ExportBackup, ValidateBackup, GenerateChannelStatus/GetChannelStatus and CancelWorkRequest are not routed.
 - Source types PITR and IMPORTURL for CreateDbSystem are rejected 400; the PITR policy flag is stored and pointInTimeRecoveryDetails reports creation time to now, but no point-in-time restore exists.
 - Channels are state only: no replication is configured on the target server, the source is never contacted and statuses are not generated.
 - Configuration variables are validated and stored but not applied to the MySQL server, even under the docker engine; shutdownType, crashRecovery, databaseMode, accessMode, isHighlyAvailable (a single container), secureConnections, rest, databaseConsole, readEndpoint and maintenance schedules are stored and echoed only.
-- Backups are logical dumps (mysqldump of user schemas, no accounts) held in the service state and in persistence snapshots, not in Object Storage; INCREMENTAL backups are full dumps; softDelete/DELETE_SCHEDULED is not modelled. A backup taken before the docker engine was enabled restores to an empty server.
+- Backups are logical dumps (mysqldump of user schemas, no accounts) held in the service state and in persistence snapshots, not in Object Storage; INCREMENTAL backups are full dumps; CancelBackupDeletion restarts the retention window because the documentation only says the state reverts to ACTIVE; a backup taken before the docker engine was enabled restores to an empty server.
 - Under the docker engine the endpoint is 127.0.0.1 with a random published port; portX (X protocol) is not published and the configured port/portX only apply to the state-only endpoint.
-- Shape and version catalogues are representative (documented shape names; 8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0), the free-shape HA rule, the 1 to 35 day automatic and 1 to 365 day manual retention ranges, the 50 to 131072 GB storage range and the reserved administrator names come from the Oracle documentation and SDK comments on 2026-10-29; default ordering, DELETED visibility in lists and the exact 400 versus 404 for dangling references are unverified.
-- opc-retry-token idempotency, service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified.
+- MySQL versions are a static representative set (8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0, default 8.4.6) while the documentation lists availability by date (8.0 closed to new systems, 8.4.9 and 9.7.0 LTS current); dataStorageSizeInGBs is accepted from 50 to 131072 inclusive where creating-db-system.html says the value should be greater than 50 and less than 131072 (loose wording kept inclusive); default ordering, DELETED visibility in lists and the exact 400 versus 404 for dangling references are not published (checked creating-db-system.html and the mysql SDK comments)
+- Service limits, IAM policy checks, resource principals and instance principals are not applied and only API-key signatures are verified.
 
 ## More
 

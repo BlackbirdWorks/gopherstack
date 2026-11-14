@@ -6,7 +6,13 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp/internal/esdk"
 )
+
+// DataKey is a KMS-generated data key for an AWS Encryption SDK message.
+type DataKey = esdk.DataKey
+
+const cognitoUserPoolECID = "userpool-id"
 
 // ErrInvalidEmailRoleAccessPolicy is returned when the pool's SES SourceArn identity cannot be used.
 var ErrInvalidEmailRoleAccessPolicy = awserr.New("InvalidEmailRoleAccessPolicyException", awserr.ErrInvalidParameter)
@@ -31,26 +37,27 @@ const (
 	FlowAuthentication  = "Authentication"
 )
 
-// CodeEncrypter encrypts a one-time code under a KMS key for CustomEmailSender/CustomSMSSender Lambdas.
-type CodeEncrypter interface {
-	EncryptCode(ctx context.Context, keyID string, plaintext []byte) ([]byte, error)
+// DataKeyGenerator is the KMS GenerateDataKey call the AWS Encryption SDK message needs.
+type DataKeyGenerator interface {
+	GenerateDataKey(ctx context.Context, keyID string, encCtx map[string]string) (*DataKey, error)
 }
 
-// SetCodeEncrypter wires the KMS-backed encrypter used for custom sender triggers.
-func (b *InMemoryBackend) SetCodeEncrypter(e CodeEncrypter) {
-	b.mu.Lock("SetCodeEncrypter")
+// SetDataKeyGenerator wires the KMS-backed generator used for custom sender triggers.
+func (b *InMemoryBackend) SetDataKeyGenerator(g DataKeyGenerator) {
+	b.mu.Lock("SetDataKeyGenerator")
 	defer b.mu.Unlock()
 
-	b.codeEncrypter = e
+	b.dataKeys = g
 }
 
 // customSender is a rendered CustomEmailSender/CustomSMSSender invocation, minus the encrypted code.
 type customSender struct {
 	inv         LambdaTriggerInvoker
-	enc         CodeEncrypter
+	enc         DataKeyGenerator
 	event       map[string]any
 	functionARN string
 	keyID       string
+	poolID      string
 }
 
 func (b *InMemoryBackend) customSenderFor(
@@ -68,7 +75,7 @@ func (b *InMemoryBackend) customSenderFor(
 	call := b.prepareTrigger(pool, key, prefix+req.Flow, "", user.Username,
 		map[string]any{
 			customSenderTypeKey:    reqType,
-			"clientMetadata":       map[string]any{},
+			"clientMetadata":       stringMapToAny(req.ClientMetadata),
 			eventKeyUserAttributes: stringMapToAny(user.Attributes),
 		}, map[string]any{})
 	if call == nil {
@@ -78,7 +85,7 @@ func (b *InMemoryBackend) customSenderFor(
 	keyID, _ := pool.LambdaConfig[lambdaConfigKMSKeyID].(string)
 
 	return &customSender{
-		inv: call.inv, enc: b.codeEncrypter, event: call.event, functionARN: call.functionARN, keyID: keyID,
+		inv: call.inv, enc: b.dataKeys, event: call.event, functionARN: call.functionARN, keyID: keyID, poolID: pool.ID,
 	}
 }
 
@@ -87,7 +94,14 @@ func (c *customSender) send(ctx context.Context, code string) error {
 		return fmt.Errorf("%w: custom sender requires a KMS key", ErrCodeDeliveryFailure)
 	}
 
-	blob, err := c.enc.EncryptCode(ctx, c.keyID, []byte(code))
+	encCtx := map[string]string{cognitoUserPoolECID: c.poolID}
+
+	dk, err := c.enc.GenerateDataKey(ctx, c.keyID, encCtx)
+	if err != nil {
+		return fmt.Errorf("%w: generating data key: %w", ErrCodeDeliveryFailure, err)
+	}
+
+	blob, err := esdk.Encrypt([]byte(code), encCtx, dk)
 	if err != nil {
 		return fmt.Errorf("%w: encrypting code: %w", ErrCodeDeliveryFailure, err)
 	}

@@ -2,30 +2,34 @@ package ociqueue
 
 import (
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
-	minRetention     = 10
-	maxRetention     = 604800
-	defaultRetention = 86400
-	maxVisibility    = 43200
-	defaultVisible   = 30
-	maxPollTimeout   = 30
-	defaultTimeout   = 30
-	maxDLQCount      = 20
-	defaultDLQCount  = 5
-	maxChannelLimit  = 100
+	minRetention       = 10
+	maxRetention       = 604800
+	defaultRetention   = 86400
+	maxVisibility      = 43200
+	minQueueVisibility = 1
+	defaultVisible     = 30
+	maxPollTimeout     = 30
+	defaultTimeout     = 30
+	maxDLQCount        = 20
+	defaultDLQCount    = 5
+	maxChannelLimit    = 100
 )
 
 // CreateQueueIn is the CreateQueue request body.
 type CreateQueueIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	Retention    *int             `json:"retentionInSeconds"`
 	Visibility   *int             `json:"visibilityInSeconds"`
@@ -68,6 +72,7 @@ type QueueWire struct {
 	Name             string                    `json:"displayName"`
 	LifecycleState   string                    `json:"lifecycleState"`
 	MessagesEndpoint string                    `json:"messagesEndpoint"`
+	Capabilities     []capabilityWire          `json:"capabilities,omitempty"`
 	Retention        int                       `json:"retentionInSeconds"`
 	Visibility       int                       `json:"visibilityInSeconds"`
 	Timeout          int                       `json:"timeoutInSeconds"`
@@ -92,7 +97,7 @@ func queueView(q *Queue, endpoint string) QueueWire {
 		ID: q.ID, CompartmentID: q.CompartmentID, Name: q.Name, LifecycleState: q.State, MessagesEndpoint: endpoint,
 		Retention: q.Retention, Visibility: q.Visibility, Timeout: q.Timeout, DLQCount: q.DLQCount,
 		ChannelLimit: q.ChannelLimit, TimeCreated: q.TimeCreated, TimeUpdated: q.TimeUpdated,
-		FreeformTags: q.Tags.FreeformTags, DefinedTags: q.Tags.DefinedTags,
+		FreeformTags: q.Tags.FreeformTags, DefinedTags: q.Tags.DefinedTags, Capabilities: capabilitiesOf(q),
 	}
 	if q.KMSKeyID != "" {
 		w.KMSKeyID = &q.KMSKeyID
@@ -131,12 +136,90 @@ func firstErr(errs ...*APIError) *APIError {
 	return nil
 }
 
-func checkCapabilities(c []jsontext.Value) *APIError {
-	if len(c) > 0 {
-		return errParam("capabilities are not supported by this emulator")
+// capabilityIn is the CONSUMER_GROUPS capability request; LARGE_MESSAGES is not supported.
+type capabilityIn struct {
+	PrimaryEnabled  *bool   `json:"isPrimaryConsumerGroupEnabled"`
+	PrimaryName     *string `json:"primaryConsumerGroupDisplayName"`
+	PrimaryFilter   *string `json:"primaryConsumerGroupFilter"`
+	PrimaryDLQCount *int    `json:"primaryConsumerGroupDeadLetterQueueDeliveryCount"`
+	Type            string  `json:"type"`
+}
+
+type capabilityWire struct {
+	PrimaryDLQCount *int   `json:"primaryConsumerGroupDeadLetterQueueDeliveryCount,omitempty"`
+	Type            string `json:"type"`
+	PrimaryName     string `json:"primaryConsumerGroupDisplayName"`
+	PrimaryFilter   string `json:"primaryConsumerGroupFilter"`
+	PrimaryEnabled  bool   `json:"isPrimaryConsumerGroupEnabled"`
+}
+
+func parseCapabilities(raw []jsontext.Value) (*capabilityIn, *APIError) {
+	var out *capabilityIn
+
+	for _, v := range raw {
+		var c capabilityIn
+		if err := json.Unmarshal(v, &c, jsonx.V1()); err != nil {
+			return nil, errParam("capabilities entries must be objects with a type")
+		}
+
+		if c.Type != groupTypeKey {
+			return nil, errParam("capability " + c.Type + " is not supported by this emulator")
+		}
+
+		if c.PrimaryFilter != nil && *c.PrimaryFilter != "" {
+			return nil, errParam("the primary consumer group cannot have a filter")
+		}
+
+		if aerr := firstErr(
+			inRange("primaryConsumerGroupDeadLetterQueueDeliveryCount", c.PrimaryDLQCount, 0, maxDLQCount),
+			validateOptName(c.PrimaryName),
+		); aerr != nil {
+			return nil, aerr
+		}
+
+		out = &c
 	}
 
-	return nil
+	return out, nil
+}
+
+func validateOptName(n *string) *APIError {
+	if n == nil {
+		return nil
+	}
+
+	return validateName(*n)
+}
+
+func applyCapability(q *Queue, c *capabilityIn) {
+	if c == nil {
+		return
+	}
+
+	q.GroupsOn = true
+
+	if c.PrimaryEnabled != nil {
+		q.PrimaryOff = !*c.PrimaryEnabled
+	}
+
+	if c.PrimaryName != nil {
+		q.PrimaryName = *c.PrimaryName
+	}
+
+	if c.PrimaryDLQCount != nil {
+		q.PrimaryDLQ = c.PrimaryDLQCount
+	}
+}
+
+func capabilitiesOf(q *Queue) []capabilityWire {
+	if !q.GroupsOn {
+		return nil
+	}
+
+	return []capabilityWire{{
+		Type: groupTypeKey, PrimaryEnabled: !q.PrimaryOff, PrimaryName: q.primaryName(),
+		PrimaryDLQCount: q.PrimaryDLQ,
+	}}
 }
 
 func def(v *int, d int) int {
@@ -169,20 +252,35 @@ func (b *InMemoryBackend) mutableQueue(id string) (*Queue, *APIError) {
 	return q, nil
 }
 
+func (b *InMemoryBackend) replayCreate(wrID string) (string, error) {
+	wr, ok := b.workReqs[wrID]
+	if !ok {
+		return "", errInvalidatedToken()
+	}
+
+	if q, found := b.queues[wr.EntityID]; !found || q.State == stateDeleting || q.State == stateDeleted {
+		return "", errInvalidatedToken()
+	}
+
+	return wrID, nil
+}
+
 // CreateQueue creates a queue in CREATING state and returns its work request.
 func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 	if in.Compartment == "" {
 		return "", errMissing("compartmentId is required")
 	}
 
+	caps, capErr := parseCapabilities(in.Capabilities)
+
 	if aerr := firstErr(
+		capErr,
 		validateName(in.Name),
 		inRange("retentionInSeconds", in.Retention, minRetention, maxRetention),
-		inRange("visibilityInSeconds", in.Visibility, 0, maxVisibility),
+		inRange("visibilityInSeconds", in.Visibility, minQueueVisibility, maxVisibility),
 		inRange("timeoutInSeconds", in.Timeout, 0, maxPollTimeout),
 		inRange("deadLetterQueueDeliveryCount", in.DLQCount, 0, maxDLQCount),
 		inRange("channelConsumptionLimit", in.ChannelLimit, 1, maxChannelLimit),
-		checkCapabilities(in.Capabilities),
 	); aerr != nil {
 		return "", aerr
 	}
@@ -191,6 +289,14 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 	defer b.mu.Unlock()
 
 	now := b.nowUTC()
+	if wr, ok := b.retry.Lookup("CreateQueue", in.RetryToken, now); ok {
+		return b.replayCreate(wr)
+	}
+
+	if aerr := b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	q := &Queue{
 		ID: newOCID("queue"), CompartmentID: in.Compartment, Name: in.Name, State: stateCreating,
 		TimeCreated: now, TimeUpdated: now, TransitionAt: b.transitionAt(), Tags: in.Tags, Etag: newEtag(),
@@ -207,9 +313,13 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 		q.KMSKeyID = *in.KMSKeyID
 	}
 
+	applyCapability(q, caps)
 	b.queues[q.ID] = q
 
-	return b.newWR("CREATE_QUEUE", q.CompartmentID, q.ID, "CREATED", "/queues/"+q.ID, *q.TransitionAt), nil
+	wr := b.newWR("CREATE_QUEUE", q.CompartmentID, q.ID, "CREATED", "/queues/"+q.ID, *q.TransitionAt)
+	b.retry.Remember("CreateQueue", in.RetryToken, wr, now)
+
+	return wr, nil
 }
 
 // GetQueue returns one queue and its etag.
@@ -269,12 +379,14 @@ func (b *InMemoryBackend) ListQueues(
 
 // UpdateQueue changes the mutable settings of a queue; it passes through UPDATING.
 func (b *InMemoryBackend) UpdateQueue(id, ifMatch string, in UpdateQueueIn) (string, error) {
+	caps, capErr := parseCapabilities(in.Capabilities)
+
 	if aerr := firstErr(
-		inRange("visibilityInSeconds", in.Visibility, 0, maxVisibility),
+		capErr,
+		inRange("visibilityInSeconds", in.Visibility, minQueueVisibility, maxVisibility),
 		inRange("timeoutInSeconds", in.Timeout, 0, maxPollTimeout),
 		inRange("deadLetterQueueDeliveryCount", in.DLQCount, 0, maxDLQCount),
 		inRange("channelConsumptionLimit", in.ChannelLimit, 1, maxChannelLimit),
-		checkCapabilities(in.Capabilities),
 	); aerr != nil {
 		return "", aerr
 	}
@@ -299,6 +411,10 @@ func (b *InMemoryBackend) UpdateQueue(id, ifMatch string, in UpdateQueueIn) (str
 		return "", aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return "", aerr
+	}
+
 	if in.KMSKeyID != nil && *in.KMSKeyID != "" {
 		if aerr = b.checkKey(*in.KMSKeyID); aerr != nil {
 			return "", aerr
@@ -308,6 +424,7 @@ func (b *InMemoryBackend) UpdateQueue(id, ifMatch string, in UpdateQueueIn) (str
 	}
 
 	applyUpdate(q, in)
+	applyCapability(q, caps)
 	q.State, q.TransitionAt, q.TimeUpdated, q.Etag = stateUpdating, b.transitionAt(), b.nowUTC(), newEtag()
 	q.notify()
 
@@ -383,10 +500,6 @@ func (b *InMemoryBackend) PurgeQueue(id, ifMatch string, in PurgeIn) (string, er
 		return "", errParam("purgeType must be NORMAL, DLQ or BOTH")
 	}
 
-	if in.ConsumerGroupID != nil && *in.ConsumerGroupID != "" {
-		return "", errParam("consumer groups are not supported by this emulator")
-	}
-
 	b.mu.Lock("PurgeQueue")
 	defer b.mu.Unlock()
 
@@ -401,16 +514,23 @@ func (b *InMemoryBackend) PurgeQueue(id, ifMatch string, in PurgeIn) (string, er
 		return "", aerr
 	}
 
+	lanes, aerr := purgeLanes(q, in.ConsumerGroupID)
+	if aerr != nil {
+		return "", aerr
+	}
+
 	drop := func(m *Message) bool {
 		return len(in.ChannelIDs) == 0 || slices.Contains(in.ChannelIDs, m.Channel)
 	}
 
-	if in.PurgeType != "DLQ" {
-		q.Messages = slices.DeleteFunc(q.Messages, drop)
-	}
+	for _, ln := range lanes {
+		if in.PurgeType != "DLQ" {
+			*ln.msgs = slices.DeleteFunc(*ln.msgs, drop)
+		}
 
-	if in.PurgeType != "NORMAL" {
-		q.DLQ = slices.DeleteFunc(q.DLQ, drop)
+		if in.PurgeType != "NORMAL" {
+			*ln.dlq = slices.DeleteFunc(*ln.dlq, drop)
+		}
 	}
 
 	q.TimeUpdated = b.nowUTC()
@@ -418,6 +538,22 @@ func (b *InMemoryBackend) PurgeQueue(id, ifMatch string, in PurgeIn) (string, er
 
 	return b.newWR("PURGE_QUEUE", q.CompartmentID, q.ID, "UPDATED", "/queues/"+q.ID,
 		b.nowUTC().Add(b.transition)), nil
+}
+
+// purgeLanes picks the groups a purge applies to: the special value "all" means every group.
+func purgeLanes(q *Queue, group *string) ([]lane, *APIError) {
+	if group != nil && *group == "all" {
+		return q.lanes(), nil
+	}
+
+	id := ""
+	if group != nil {
+		id = *group
+	}
+
+	ln, aerr := q.laneFor(id)
+
+	return []lane{ln}, aerr
 }
 
 type changeCompartmentIn struct {
@@ -429,6 +565,8 @@ func (h *Handler) createQueue(q *req) error {
 	if err := q.decode(&in); err != nil {
 		return err
 	}
+
+	in.RetryToken = q.r.Header.Get(headerRetry)
 
 	wr, err := h.Backend.CreateQueue(in)
 

@@ -186,6 +186,10 @@ func (b *InMemoryBackend) CreateMountTarget(ctx context.Context, in CreateMountT
 		}
 	}
 
+	if err = b.checkMountTargetQuotas(fs.ID, info, known); err != nil {
+		return nil, err
+	}
+
 	mt := &MountTarget{
 		ID:                 awsid.New("fsmt-"),
 		FileSystemID:       fs.ID,
@@ -330,6 +334,35 @@ func (b *InMemoryBackend) DeleteMountTarget(ctx context.Context, id string) erro
 
 	if b.beginDelete(&mt.Lifecycle) {
 		b.removeMountTarget(mt)
+	}
+
+	return nil
+}
+
+// checkMountTargetQuotas enforces one mount target per AZ and one VPC per file system. Callers hold the lock.
+func (b *InMemoryBackend) checkMountTargetQuotas(fileSystemID string, info SubnetInfo, known bool) error {
+	if !known {
+		return nil
+	}
+
+	for _, mt := range b.mountTargets.All() {
+		if mt.FileSystemID != fileSystemID {
+			continue
+		}
+
+		if _, gone := b.state(&mt.Lifecycle); gone {
+			continue
+		}
+
+		if info.VPCID != "" && mt.VPCID != "" && mt.VPCID != info.VPCID {
+			return quotaExceeded("File system " + fileSystemID + " already has mount targets in VPC " + mt.VPCID)
+		}
+
+		if info.AvailabilityZoneID != "" && mt.AvailabilityZoneID == info.AvailabilityZoneID {
+			return quotaExceeded(
+				"File system " + fileSystemID + " already has a mount target in " + info.AvailabilityZoneID,
+			)
+		}
 	}
 
 	return nil

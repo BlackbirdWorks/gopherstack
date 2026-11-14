@@ -3,6 +3,7 @@ package azureeventhubs
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -491,6 +492,51 @@ func (b *InMemoryBackend) GetRule(nsName, hubName, name string) (Rule, error) {
 	return ruleView(r), nil
 }
 
+// Key types accepted by RegenerateRuleKey.
+const (
+	KeyTypePrimary   = "PrimaryKey"
+	KeyTypeSecondary = "SecondaryKey"
+)
+
+const maxRuleKeyLen = 256
+
+// RegenerateRuleKey replaces one of a rule's keys with key, or a fresh random key when key is empty; tokens signed
+// with the old value stop validating.
+func (b *InMemoryBackend) RegenerateRuleKey(nsName, hubName, name, keyType, key string) (Rule, error) {
+	if len(key) > maxRuleKeyLen {
+		return Rule{}, errInvalidKey
+	}
+
+	if keyType != KeyTypePrimary && keyType != KeyTypeSecondary {
+		return Rule{}, errInvalidKeyType
+	}
+
+	b.mu.Lock("RegenerateRuleKey")
+	defer b.mu.Unlock()
+
+	ns, err := b.nsLocked(nsName)
+	if err != nil {
+		return Rule{}, err
+	}
+
+	r, ok := ns.Rules[ruleKey(hubName, name)]
+	if !ok {
+		return Rule{}, ErrRuleNotFound
+	}
+
+	if key == "" {
+		key = newKey()
+	}
+
+	if keyType == KeyTypePrimary {
+		r.PrimaryKey = key
+	} else {
+		r.SecondaryKey = key
+	}
+
+	return ruleView(r), nil
+}
+
 // DeleteRule removes an authorization rule; the namespace root rule is protected.
 func (b *InMemoryBackend) DeleteRule(nsName, hubName, name string) error {
 	b.mu.Lock("DeleteRule")
@@ -528,4 +574,26 @@ func (b *InMemoryBackend) NamespaceNames() []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// ListRules returns the authorization rules of a namespace and its hubs, sorted by scope and name.
+func (b *InMemoryBackend) ListRules(nsName string) ([]RuleScope, error) {
+	b.mu.RLock("ListRules")
+	defer b.mu.RUnlock()
+
+	ns, err := b.nsLocked(nsName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]RuleScope, 0, len(ns.Rules))
+	for _, r := range ns.Rules {
+		out = append(out, RuleScope{Hub: r.Hub, Rule: ruleView(r)})
+	}
+
+	slices.SortFunc(out, func(x, y RuleScope) int {
+		return strings.Compare(ruleKey(x.Hub, x.Rule.Name), ruleKey(y.Hub, y.Rule.Name))
+	})
+
+	return out, nil
 }

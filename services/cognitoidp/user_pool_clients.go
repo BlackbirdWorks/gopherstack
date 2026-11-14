@@ -3,9 +3,13 @@ package cognitoidp
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // DeleteUserPoolClient removes the app client with the given client ID from the given pool.
@@ -56,6 +60,27 @@ func (b *InMemoryBackend) ListUserPoolClients(userPoolID string) ([]*UserPoolCli
 	return out, nil
 }
 
+var pinnedClientIDRe = regexp.MustCompile(`^[\w+]{1,128}$`)
+
+// newClientID returns the ID pinned by a "_custom_id_:<id>" client name (LocalStack convention), else a
+// random one. Callers hold b.mu.
+func (b *InMemoryBackend) newClientID(clientName string) (string, error) {
+	pinned, ok := strings.CutPrefix(clientName, tags.CustomIDKey+":")
+	if !ok {
+		return randomAlphanumeric(clientIDLen), nil
+	}
+
+	if err := tags.ValidatePinnedID(pinned, pinnedClientIDRe, "[\\w+]{1,128}"); err != nil {
+		return "", fmt.Errorf("%w: %s", ErrInvalidParameter, err.Error())
+	}
+
+	if _, exists := b.clients.Get(pinned); exists {
+		return "", fmt.Errorf("%w: client %q already exists", ErrInvalidParameter, pinned)
+	}
+
+	return pinned, nil
+}
+
 // CreateUserPoolClient creates a new app client for the given user pool.
 func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*UserPoolClient, error) {
 	b.mu.Lock("CreateUserPoolClient")
@@ -65,8 +90,13 @@ func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	clientID, err := b.newClientID(clientName)
+	if err != nil {
+		return nil, err
+	}
+
 	client := &UserPoolClient{
-		ClientID:   randomAlphanumeric(clientIDLen),
+		ClientID:   clientID,
 		ClientName: clientName,
 		UserPoolID: userPoolID,
 		CreatedAt:  time.Now(),
@@ -221,8 +251,13 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	writeAttrs := make([]string, len(opts.WriteAttributes))
 	copy(writeAttrs, opts.WriteAttributes)
 
+	clientID, err := b.newClientID(clientName)
+	if err != nil {
+		return nil, err
+	}
+
 	client := &UserPoolClient{
-		ClientID:                        randomAlphanumeric(clientIDLen),
+		ClientID:                        clientID,
 		ClientName:                      clientName,
 		UserPoolID:                      userPoolID,
 		CreatedAt:                       time.Now(),

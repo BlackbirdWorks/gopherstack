@@ -203,7 +203,7 @@ func stepAddV(x *exec, s *Step, t *trav) ([]*trav, error) {
 	}
 
 	if label == "" {
-		label = "vertex"
+		label = labelVertex
 	}
 
 	id, props, err := x.creationProps(s, t)

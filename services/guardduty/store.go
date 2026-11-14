@@ -118,6 +118,10 @@ type InMemoryBackend struct {
 	// gained an unexported detectorID field, making it a "dirty" table.
 	malwareScanSettings *store.Table[MalwareScanSettings]
 
+	customDetectionRules   *store.Table[CustomDetectionRule]
+	customRuleAssociations *store.Table[CustomDetectionRuleAssociation]
+	customRuleOrgConfigs   *store.Table[CustomDetectionRuleOrgConfig]
+
 	// appConfig is service.AppContext.Config, captured for lazy sibling-service
 	// lookups -- see cross_service.go's SetAppConfig.
 	appConfig any

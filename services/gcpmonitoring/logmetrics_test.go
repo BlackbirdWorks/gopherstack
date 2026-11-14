@@ -186,3 +186,56 @@ func TestLogBasedMetricAlert(t *testing.T) {
 	assert.Equal(t, logErrors, decode(t, msgs[0]).Incident.Metric.Type)
 	assert.Equal(t, "api", mustLabels(t, msgs[0])["svc"])
 }
+
+func TestLogBasedMetricPerMinuteDeltas(t *testing.T) {
+	t.Parallel()
+
+	t0 := epoch()
+	src := &fakeLogs{metrics: []gcpmonitoring.LogMetric{{
+		Name: "errors", CreateTime: t0.Add(-time.Hour),
+		Descriptor: &metricpb.MetricDescriptor{
+			MetricKind: metricpb.MetricDescriptor_DELTA, ValueType: metricpb.MetricDescriptor_INT64,
+		},
+		Series: []gcpmonitoring.LogMetricSeries{{
+			Labels: map[string]string{"svc": "api"}, Count: 9,
+			Windows: []gcpmonitoring.LogMetricWindow{
+				{Start: t0.Add(-3 * time.Minute), Count: 4},
+				{Start: t0.Add(-2 * time.Minute), Count: 3},
+				{Start: t0, Count: 2},
+			},
+		}},
+	}}}
+
+	tests := []struct {
+		name string
+		now  time.Time
+		want []float64
+	}{
+		{"completed minutes only", t0, []float64{3, 4}},
+		{"minute in progress ends at now", t0.Add(30 * time.Second), []float64{2, 3, 4}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			e.handler.Backend.SetLogMetricSource(src)
+			e.clk.set(tt.now)
+
+			got := e.list(t, &monitoringpb.ListTimeSeriesRequest{
+				Filter: `metric.type = "` + logErrors + `"`, Interval: interval(t0.Add(-10*time.Minute), tt.now),
+			})
+			require.Len(t, got, 1)
+			assert.Equal(t, tt.want, values(got[0]), "newest first, one DELTA point per minute")
+			assert.Equal(t, metricpb.MetricDescriptor_DELTA, got[0].GetMetricKind())
+
+			p := got[0].GetPoints()[0]
+			assert.LessOrEqual(
+				t,
+				p.GetInterval().GetEndTime().AsTime().Sub(p.GetInterval().GetStartTime().AsTime()),
+				time.Minute,
+			)
+		})
+	}
+}

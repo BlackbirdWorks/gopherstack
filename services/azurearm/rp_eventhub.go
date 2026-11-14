@@ -39,6 +39,7 @@ type EventHubEndpointConfig struct {
 type storedEHNamespace struct {
 	tags          map[string]string
 	sku           map[string]any
+	identity      map[string]any
 	extra         map[string]any
 	createdAt     time.Time
 	name          string
@@ -72,6 +73,7 @@ type EventHubProvider struct {
 	hubs            map[string]*storedEHHub
 	groups          map[string]*storedEHGroup
 	networkRuleSets map[string]map[string]any
+	drConfigs       map[string]*storedEHDR
 	cfg             EventHubEndpointConfig
 }
 
@@ -95,6 +97,7 @@ func NewEventHubProvider(cfg EventHubEndpointConfig, dataPlane EventHubs) *Event
 		hubs:            make(map[string]*storedEHHub),
 		groups:          make(map[string]*storedEHGroup),
 		networkRuleSets: make(map[string]map[string]any),
+		drConfigs:       make(map[string]*storedEHDR),
 		cfg:             cfg,
 		dataPlane:       dataPlane,
 	}
@@ -116,6 +119,8 @@ func (p *EventHubProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: ehNamespacesType + "/" + ehHubsType + "/" + ehRulesType, APIVersions: v, HasChildren: false},
 		{Type: ehNamespacesType + "/" + ehRulesType, APIVersions: v, HasChildren: false},
 		{Type: ehNamespacesType + "/" + ehNetworkRuleSetType, APIVersions: v, HasChildren: false},
+		{Type: ehNamespacesType + "/" + ehDRType, APIVersions: v, HasChildren: true},
+		{Type: ehNamespacesType + "/" + ehDRType + "/" + ehRulesType, APIVersions: v, HasChildren: false},
 	}
 }
 
@@ -129,6 +134,8 @@ const (
 	ehKindNSRule
 	ehKindHubRule
 	ehKindNetworkRuleSet
+	ehKindDR
+	ehKindDRRule
 )
 
 func classifyEventHubPath(id ResourceID) ehKind {
@@ -145,6 +152,10 @@ func classifyEventHubPath(id ResourceID) ehKind {
 		return ehKindHubRule
 	case "namespaces/networkrulesets":
 		return ehKindNetworkRuleSet
+	case "namespaces/disasterrecoveryconfigs":
+		return ehKindDR
+	case "namespaces/disasterrecoveryconfigs/authorizationrules":
+		return ehKindDRRule
 	}
 
 	return ehKindUnsupported
@@ -184,18 +195,24 @@ func (p *EventHubProvider) Put(ctx context.Context, id ResourceID, body map[stri
 	p.mu.Lock("Put")
 	defer p.mu.Unlock()
 
+	if err := p.rejectSecondaryWrite(id); err != nil {
+		return nil, err
+	}
+
 	switch classifyEventHubPath(id) {
 	case ehKindNamespace:
 		return p.putNamespace(ctx, id, body)
 	case ehKindHub:
-		return p.putHub(id, body)
+		return p.replicated(id, func() (map[string]any, error) { return p.putHub(id, body) })
 	case ehKindGroup:
-		return p.putGroup(id, body)
+		return p.replicated(id, func() (map[string]any, error) { return p.putGroup(id, body) })
+	case ehKindDR:
+		return p.putDR(id, body)
 	case ehKindNSRule, ehKindHubRule:
 		return p.putRule(id, body)
 	case ehKindNetworkRuleSet:
 		return p.putNetworkRuleSet(id, body)
-	case ehKindUnsupported:
+	case ehKindDRRule, ehKindUnsupported:
 	}
 
 	return nil, errUnsupportedEventHubType(id)
@@ -226,6 +243,15 @@ func (p *EventHubProvider) Get(_ context.Context, id ResourceID) (map[string]any
 		}
 
 		return networkRuleSetBody(id, p.networkRuleSets[ehKey(id.ResourceGroup, id.Names[0])]), nil
+	case ehKindDR:
+		c, err := p.drOf(id)
+		if err != nil {
+			return nil, err
+		}
+
+		return p.drBody(id, c), nil
+	case ehKindDRRule:
+		return p.drRuleBodyFor(id)
 	case ehKindUnsupported:
 	}
 
@@ -237,20 +263,26 @@ func (p *EventHubProvider) Delete(_ context.Context, id ResourceID) error {
 	p.mu.Lock("Delete")
 	defer p.mu.Unlock()
 
+	if err := p.rejectSecondaryWrite(id); err != nil {
+		return err
+	}
+
 	switch classifyEventHubPath(id) {
 	case ehKindNamespace:
 		return p.deleteNamespace(id.ResourceGroup, id.LeafName())
 	case ehKindHub:
-		return p.deleteHub(id.ResourceGroup, id.Names[0], id.LeafName())
+		return p.replicatedErr(id, func() error { return p.deleteHub(id.ResourceGroup, id.Names[0], id.LeafName()) })
 	case ehKindGroup:
-		return p.deleteGroup(id)
+		return p.replicatedErr(id, func() error { return p.deleteGroup(id) })
+	case ehKindDR:
+		return p.deleteDR(id)
 	case ehKindNSRule, ehKindHubRule:
 		return p.deleteRule(id)
 	case ehKindNetworkRuleSet:
 		delete(p.networkRuleSets, ehKey(id.ResourceGroup, id.Names[0]))
 
 		return nil
-	case ehKindUnsupported:
+	case ehKindDRRule, ehKindUnsupported:
 	}
 
 	return errUnsupportedEventHubType(id)
@@ -263,6 +295,12 @@ func (p *EventHubProvider) List(_ context.Context, id ResourceID) ([]map[string]
 
 	var out []map[string]any
 
+	if classifyEventHubPath(id) != ehKindNamespace && classifyEventHubPath(id) != ehKindUnsupported {
+		if err := p.requireListParent(id); err != nil {
+			return nil, err
+		}
+	}
+
 	switch classifyEventHubPath(id) {
 	case ehKindNamespace:
 		out = p.listNamespaces(id)
@@ -270,7 +308,11 @@ func (p *EventHubProvider) List(_ context.Context, id ResourceID) ([]map[string]
 		out = p.listHubs(id)
 	case ehKindGroup:
 		out = p.listGroups(id)
-	case ehKindNSRule, ehKindHubRule, ehKindNetworkRuleSet, ehKindUnsupported:
+	case ehKindDR:
+		out = p.listDR(id)
+	case ehKindNSRule, ehKindHubRule, ehKindDRRule:
+		out = p.listRules(id)
+	case ehKindNetworkRuleSet, ehKindUnsupported:
 	}
 
 	sort.Slice(out, func(i, j int) bool { return nameField(out[i]) < nameField(out[j]) })
@@ -287,6 +329,7 @@ func (p *EventHubProvider) Reset() {
 	p.hubs = make(map[string]*storedEHHub)
 	p.groups = make(map[string]*storedEHGroup)
 	p.networkRuleSets = make(map[string]map[string]any)
+	p.drConfigs = make(map[string]*storedEHDR)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.
@@ -319,6 +362,7 @@ func (p *EventHubProvider) deleteNamespace(rg, name string) error {
 		}
 	}
 
+	p.dropNamespaceConfigs(rg, name)
 	delete(p.namespaces, key)
 	delete(p.networkRuleSets, key)
 
@@ -393,6 +437,10 @@ func eventHubErrorDetails(err error) (errorEntry, bool) {
 		{ErrEventHubNotFound, "The event hub was not found."},
 		{ErrEventHubConsumerGroupNotFound, "The consumer group was not found."},
 		{ErrEventHubRuleNotFound, "The authorization rule was not found."},
+	}
+
+	if e, ok := eventHubDRErrorDetails(err); ok {
+		return e, true
 	}
 
 	for _, m := range msgs {

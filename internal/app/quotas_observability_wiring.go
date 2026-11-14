@@ -59,6 +59,8 @@ func (a quotasOrgAdapter) AccountInfo(accountID string) (oambackend.AccountInfo,
 
 // wireQuotaAndObservabilityOrganizations gives Service Quotas and OAM their Organizations lookups.
 func wireQuotaAndObservabilityOrganizations(byName map[string]service.Registerable) {
+	wireQuotaSupport(byName)
+
 	orgH, ok := byName["Organizations"].(*organizationsbackend.Handler)
 	if !ok || orgH.Backend == nil {
 		return

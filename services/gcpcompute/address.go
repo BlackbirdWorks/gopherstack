@@ -69,6 +69,12 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 		}
 	}
 
+	for _, g := range b.vpnGateways {
+		for _, vi := range g.VpnInterfaces {
+			used[vi.IpAddress], used[vi.Ipv6Address] = true, true
+		}
+	}
+
 	return used
 }
 
@@ -118,6 +124,8 @@ func (b *InMemoryBackend) usedInternalLocked(subnetLink string) map[netip.Addr]b
 			if a, err := netip.ParseAddr(nic.NetworkIP); err == nil {
 				used[a] = true
 			}
+
+			markPrimaryAliases(used, nic)
 		}
 	}
 
@@ -172,6 +180,14 @@ func (b *InMemoryBackend) addressUsersLocked(a *computeapi.Address) []string {
 
 func addressUsedBy(a *computeapi.Address, inst *computeapi.Instance) bool {
 	for _, nic := range inst.NetworkInterfaces {
+		if a.IpVersion == ipv6 {
+			if usesV6(a, nic) {
+				return true
+			}
+
+			continue
+		}
+
 		if a.AddressType == addrInternal {
 			if nic.Subnetwork == a.Subnetwork && nic.NetworkIP == a.Address {
 				return true
@@ -214,8 +230,8 @@ func (b *InMemoryBackend) buildAddressLocked(
 		return nil, err
 	}
 
-	if in.IpVersion != "" && in.IpVersion != "IPV4" {
-		return nil, errField("resource.ipVersion", in.IpVersion, "Only IPV4 addresses are supported.")
+	if in.IpVersion != "" && in.IpVersion != ipv4 && in.IpVersion != ipv6 && in.IpVersion != "UNSPECIFIED_VERSION" {
+		return nil, errField("resource.ipVersion", in.IpVersion, "Must be IPV4 or IPV6.")
 	}
 
 	typ := in.AddressType
@@ -228,18 +244,7 @@ func (b *InMemoryBackend) buildAddressLocked(
 		AddressType: typ, Labels: in.Labels, LabelFingerprint: labelFP(in.Labels), IpVersion: "IPV4",
 	}
 
-	var err *APIError
-
-	switch typ {
-	case addrExternal:
-		err = b.buildExternalLocked(region, in, a)
-	case addrInternal:
-		err = b.buildInternalLocked(project, region, in, a)
-	default:
-		err = errField("resource.addressType", typ, "Must be EXTERNAL or INTERNAL.")
-	}
-
-	if err != nil {
+	if err := b.buildAddressKindLocked(project, region, in, a); err != nil {
 		return nil, err
 	}
 
@@ -253,10 +258,31 @@ func (b *InMemoryBackend) buildAddressLocked(
 	return a, nil
 }
 
+func (b *InMemoryBackend) buildAddressKindLocked(project, region string, in, a *computeapi.Address) *APIError {
+	switch {
+	case in.IpVersion == ipv6:
+		return b.buildIPv6Locked(project, region, in, a)
+	case a.AddressType == addrExternal:
+		return b.buildExternalLocked(region, in, a)
+	case a.AddressType == addrInternal && region == "":
+		return b.buildGlobalInternalLocked(project, in, a)
+	case a.AddressType == addrInternal:
+		return b.buildInternalLocked(project, region, in, a)
+	}
+
+	return errField("resource.addressType", a.AddressType, "Must be EXTERNAL or INTERNAL.")
+}
+
 func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.Address) *APIError {
 	if in.Subnetwork != "" || in.Network != "" {
 		return errInvalid(
 			"Invalid value for field 'resource.subnetwork': EXTERNAL addresses cannot specify a network or subnetwork.",
+		)
+	}
+
+	if in.PrefixLength != 0 {
+		return errInvalid(
+			"Invalid value for field 'resource.prefixLength': only valid for IPV6 and VPC_PEERING ranges.",
 		)
 	}
 
@@ -295,12 +321,12 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 }
 
 func (b *InMemoryBackend) buildInternalLocked(project, region string, in, a *computeapi.Address) *APIError {
-	if region == "" {
-		return errField(
-			"resource.addressType",
-			addrInternal,
-			"Global internal addresses are not supported by this emulator.",
-		)
+	if in.PrefixLength != 0 {
+		return errInvalid("Invalid value for field 'resource.prefixLength': only valid for global VPC_PEERING ranges.")
+	}
+
+	if in.Network != "" {
+		return errInvalid("Invalid value for field 'resource.network': only valid for INTERNAL VPC_PEERING addresses.")
 	}
 
 	if in.Subnetwork == "" {

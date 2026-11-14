@@ -10,6 +10,9 @@ ops:
   ManagedZones.Create: {wire: ok, errors: partial, state: ok, persist: ok, note: "Returns the ManagedZone (v1 does not return an operation). name must match [a-z]([-a-z0-9]*[a-z0-9])? up to 63 chars, dnsName a lower-cased FQDN with trailing dot, description is required. Public zones get a random int64 id, four nameServers (ns-cloud-{a-e}{1-4}.googledomains.com.) and visibility public; private zones keep privateVisibilityConfig networks/gkeClusters and have no nameServers. forwardingConfig and peeringConfig are validated (private only, mutually exclusive, targets need an address) and stored. Every zone starts with change 0 holding the default SOA (serial 1, 21600 3600 259200 300, hostmaster cloud-dns-hostmaster.google.com.) and NS records (TTL 21600; private zones use ns-gcp-private.googledomains.com.). 409 alreadyExists on a duplicate name. The wording of validation messages was chosen without a production reference."}
   ManagedZones.Get: {wire: ok, errors: ok, state: ok, persist: n/a, note: "404 notFound \"The 'parameters.managedZone' resource named 'x' does not exist.\""}
   ManagedZones.List: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Ordered by name; paged through pkgs/page (default 100); dnsName filter; an empty list omits managedZones."}
+  ManagedZones.GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST managedZones/{z}:getIamPolicy; an empty policy when none is set (docs.cloud.google.com/dns/docs/reference/rest/v1/managedZones/getIamPolicy). Policies live in pkgs/gcpiampolicy."}
+  ManagedZones.SetIamPolicy: {wire: ok, errors: partial, state: ok, persist: ok, note: "Replaces the policy; a stale etag is 409 (status code unverified)."}
+  ManagedZones.TestIamPermissions: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Echoes requested dns.* permissions as granted: callers are not authenticated."}
   ManagedZones.Delete: {wire: ok, errors: partial, state: ok, persist: ok, note: "204; a zone holding anything besides its apex SOA and NS is 400 containerNotEmpty (message text unverified)."}
   ManagedZones.Patch: {wire: ok, errors: ok, state: ok, persist: ok, note: "JSON merge into the stored zone; returns a done Operation (type update) with zoneContext old/new values, readable through managedZoneOperations. name, dnsName and visibility are immutable (400 invalid). Changing dnssecConfig.state from off to on/transfer generates the DNSKEYs, back to off drops them; nonExistence and defaultKeySpecs only change while off."}
   ManagedZones.Update: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT: replaces the mutable fields (an omitted dnssecConfig turns DNSSEC off); same Operation result and immutability rules as Patch."}
@@ -54,14 +57,15 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; requests go through telemetry. No dashboard page."}
 items_still_open:
-  - "managedZones.getIamPolicy, setIamPolicy and testIamPermissions are not routed (404); dns/v1beta2 and dns/v2 are not served."
   - "Responses are never DNSSEC-signed (no RRSIG/NSEC/NSEC3); DNSKEY private keys are discarded and DNSSEC state transfer is stored only."
   - "Response policies and rules, server policies, private zones, forwarding and peering are stored but have no effect on resolution; routing policies are answered as the union of their items."
   - "Error message texts (validation, containerNotEmpty, quota) and a few conditions (rrsets.* calls appearing in the change history, change completion timing, project number, non-fixed quota values) were chosen without a production reference."
-  - "The rrsets list filter parameter, zone cloudLoggingConfig effects (no query logs), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration."
+  - "Zone cloudLoggingConfig effects (no query logs: the dns_queries log name and dns_query resource labels are not published), reverse-lookup and Service Directory zones are not implemented beyond storing their configuration."
 leaks: {status: clean, note: "Background resources are the REST http.Server and the pkgs/dns UDP and TCP servers, both stopped and joined by Shutdown; tests run under testleak."}
 ---
 
 # GCPDNS parity notes
 
 Cloud DNS (`dns.googleapis.com/dns/v1`) is checked against `google.golang.org/api/dns/v1`: every request and response in the tests goes through that client, and the DNS data plane is checked with a real DNS client over UDP and TCP.
+
+Pass 2026-11-13: /dns/v1beta2/ is served by the v1 handlers (deprecated routing policy members geoPolicy and wrrPolicy are folded into geo and wrr, setting both is 400; https://docs.cloud.google.com/dns/docs/reference/rest/v1beta2/resourceRecordSets). /dns/v2/projects/{p}/locations/global/... is served by the same handlers with the locations segment stripped (the v2 discovery document has only location global as the example default; other locations are 404); v2 list responses carry no header.operationId. rrsets.list filter implements the documented AIP-160 forms name="d", name=has_suffix("d") and AND type="T" (the SDK Filter comment); name and type parameters with filter are 400.

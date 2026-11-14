@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"net/http"
 
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
@@ -84,6 +85,29 @@ func (t logSinkTables) InsertRows(project, dataset, table string, rows []map[str
 
 	if errs, bad := res["insertErrors"]; bad {
 		return fmt.Errorf("insert into %s.%s: %w: %v", dataset, table, errLogSinkRowsRejected, errs)
+	}
+
+	return nil
+}
+
+func (t logSinkTables) CreateDataset(project, dataset string) error {
+	_, err := t.b.CreateDataset(project, map[string]any{
+		"datasetReference": map[string]any{"projectId": project, "datasetId": dataset},
+	})
+	if apiErr, ok := errors.AsType[*gcpbigquerybackend.APIError](err); ok && apiErr.Status == http.StatusConflict {
+		return fmt.Errorf("%w: %s.%s", gcploggingbackend.ErrDatasetExists, project, dataset)
+	}
+
+	if err != nil {
+		return fmt.Errorf("create dataset %s: %w", dataset, err)
+	}
+
+	return nil
+}
+
+func (t logSinkTables) DeleteDataset(project, dataset string) error {
+	if err := t.b.DeleteDataset(project, dataset, true); err != nil {
+		return fmt.Errorf("delete dataset %s: %w", dataset, err)
 	}
 
 	return nil

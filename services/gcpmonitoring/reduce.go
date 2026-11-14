@@ -144,7 +144,7 @@ func commonResourceType(members []*aSeries) string {
 
 func reducedType(r reducer, vt metricpb.MetricDescriptor_ValueType) metricpb.MetricDescriptor_ValueType {
 	switch r {
-	case reduceMean, reduceStddev, reduceFracTrue:
+	case reduceMean, reduceStddev, reduceFracTrue, reducePct99, reducePct95, reducePct50, reducePct05:
 		return vtDouble
 	case reduceCount, reduceCountTrue, reduceCountFalse:
 		return vtInt64

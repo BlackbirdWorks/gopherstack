@@ -6,14 +6,18 @@ import (
 )
 
 const (
-	maxRequestBytes   = 1 << 20
-	maxKeyBytes       = 256
-	maxPartitionBytes = 1 << 20
-	maxGetLimit       = 10000
-	tailOne           = 1
-	tailTwo           = 2
-	tailThree         = 3
-	hashMask          = 0x7fffffff
+	maxRequestBytes       = 1 << 20
+	maxKeyBytes           = 256
+	maxPartitionBytes     = 1 << 20
+	maxPartitionReadBytes = 2 << 20
+	maxGetLimit           = 10000
+	maxGetsPerSecond      = 5
+	maxGroupsPerStream    = 50
+	maxGetWindows         = 1024
+	tailOne               = 1
+	tailTwo               = 2
+	tailThree             = 3
+	hashMask              = 0x7fffffff
 )
 
 type putEntryIn struct {
@@ -123,13 +127,13 @@ func (b *InMemoryBackend) PutMessages(streamID string, in putMessagesIn) (putRes
 	}
 
 	if total > maxRequestBytes {
-		return putResultWire{}, errTooLarge("The request exceeds the maximum size of 1 MiB")
+		return putResultWire{}, errParam("Request size is limited to 1 MiB.")
 	}
 
 	b.mu.Lock("PutMessages")
 	defer b.mu.Unlock()
 
-	s, aerr := b.activeStream(streamID)
+	s, aerr := b.dataStream(streamID)
 	if aerr != nil {
 		return putResultWire{}, aerr
 	}

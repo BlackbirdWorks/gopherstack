@@ -126,6 +126,7 @@ type InMemoryBackend struct {
 	indexes        map[string]*adminpb.Index
 	ops            *gcplro.Store
 	lastCommit     time.Time
+	lastTxnRead    time.Time
 	lastSweep      time.Time
 	changes        []change
 	nextIndex      int64
@@ -174,6 +175,7 @@ func (b *InMemoryBackend) Reset() {
 	b.changes = nil
 	b.nextIndex = 0
 	b.lastCommit = time.Time{}
+	b.lastTxnRead = time.Time{}
 	b.mu.Unlock()
 	b.ops.Reset()
 }
@@ -253,6 +255,10 @@ func (b *InMemoryBackend) beginLocked(opts *datastorepb.TransactionOptions, part
 				return "", nil, err
 			}
 		}
+	}
+
+	if t.readTime.After(b.lastTxnRead) {
+		b.lastTxnRead = t.readTime
 	}
 
 	b.txns[id] = t

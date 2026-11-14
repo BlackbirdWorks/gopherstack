@@ -87,6 +87,19 @@ func (b *InMemoryBackend) activeStream(id string) (*Stream, *APIError) {
 	return s, nil
 }
 
+func (b *InMemoryBackend) dataStream(id string) (*Stream, *APIError) {
+	s, aerr := b.liveStream(id)
+	if aerr != nil {
+		return nil, aerr
+	}
+
+	if s.State != stateActive && s.State != stateUpdating {
+		return nil, errState("Stream " + id + " is in state " + s.State + "; the operation requires ACTIVE")
+	}
+
+	return s, nil
+}
+
 func (b *InMemoryBackend) nameTaken(poolID, name, except string) bool {
 	for _, s := range b.streams {
 		if s.PoolID == poolID && s.Name == name && s.ID != except && s.State != stateDeleted &&
@@ -161,6 +174,10 @@ func (b *InMemoryBackend) CreateStream(in CreateStreamIn, endpoint string) (stre
 
 	if b.nameTaken(pool.ID, in.Name, "") {
 		return streamWire{}, "", "", errExists("A stream named " + in.Name + " already exists in the stream pool")
+	}
+
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return streamWire{}, "", "", aerr
 	}
 
 	s := &Stream{
@@ -243,6 +260,10 @@ func (b *InMemoryBackend) UpdateStream(
 		return streamWire{}, "", "", aerr
 	}
 
+	if aerr = b.checkTags(in.Tags); aerr != nil {
+		return streamWire{}, "", "", aerr
+	}
+
 	if in.PoolID != nil && *in.PoolID != s.PoolID {
 		pool, perr := b.livePool(*in.PoolID)
 		if perr != nil {
@@ -257,8 +278,8 @@ func (b *InMemoryBackend) UpdateStream(
 	}
 
 	s.Tags.merge(in.Tags)
-	s.Etag = newEtag()
-	wr := b.newWR("UPDATE_STREAM", s.CompartmentID, "stream", s.ID, "UPDATED", "/streams/"+s.ID, b.nowUTC())
+	s.State, s.TransitionAt, s.Etag = stateUpdating, b.transitionAt(), newEtag()
+	wr := b.newWR("UPDATE_STREAM", s.CompartmentID, "stream", s.ID, "UPDATED", "/streams/"+s.ID, *s.TransitionAt)
 
 	return streamView(s, endpoint), s.Etag, wr, nil
 }
@@ -300,9 +321,9 @@ func (b *InMemoryBackend) ChangeStreamCompartment(id, ifMatch, compartment strin
 		return "", aerr
 	}
 
-	s.CompartmentID, s.Etag = compartment, newEtag()
+	s.CompartmentID, s.State, s.TransitionAt, s.Etag = compartment, stateUpdating, b.transitionAt(), newEtag()
 
-	return b.newWR("UPDATE_STREAM", compartment, "stream", s.ID, "UPDATED", "/streams/"+s.ID, b.nowUTC()), nil
+	return b.newWR("UPDATE_STREAM", compartment, "stream", s.ID, "UPDATED", "/streams/"+s.ID, *s.TransitionAt), nil
 }
 
 func (h *Handler) createStream(q *req) error {

@@ -131,6 +131,10 @@ func (w graphsonWriter) element(v any) any {
 		return w.property(t)
 	case *Path:
 		return w.path(t)
+	case *Tree:
+		return w.tree(t)
+	case *SubGraph:
+		return w.subgraph(t)
 	}
 
 	return typed("g:String", keyOf(v))
@@ -364,6 +368,23 @@ func decodeBytecodeJSON(val any) (any, error) {
 		tr.add(Step{Name: name, Args: args})
 	}
 
+	srcs, _ := m["source"].([]any)
+	for _, raw := range srcs {
+		parts, _ := raw.([]any)
+		if len(parts) == 0 {
+			continue
+		}
+
+		name, _ := parts[0].(string)
+
+		args, err := decodeGraphSONList(parts[1:])
+		if err != nil {
+			return nil, err
+		}
+
+		tr.Sources = append(tr.Sources, Step{Name: name, Args: args})
+	}
+
 	return tr, nil
 }
 
@@ -422,4 +443,62 @@ func connective(op string, value any) (Pred, error) {
 	}
 
 	return p, nil
+}
+
+func (w graphsonWriter) tree(t *Tree) any {
+	entries := make([]any, t.Len())
+
+	for i := range entries {
+		k, c := t.Entry(i)
+		entries[i] = map[string]any{"key": w.value(k), "value": w.tree(c)}
+	}
+
+	return typed("g:Tree", entries)
+}
+
+func (w graphsonWriter) subgraph(g *SubGraph) any {
+	vs := make([]any, len(g.Vertices))
+
+	for i, v := range g.Vertices {
+		vs[i] = typed("g:Vertex", map[string]any{tokID: v.ID, tokLabel: v.Label, "properties": w.vertexProps(v.Props)})
+	}
+
+	es := make([]any, len(g.Edges))
+
+	for i, e := range g.Edges {
+		es[i] = typed("g:Edge", map[string]any{
+			tokID: e.Edge.ID, tokLabel: e.Edge.Label,
+			"inVLabel": e.Edge.InLabel, "outVLabel": e.Edge.OutLabel, "inV": e.Edge.InID, "outV": e.Edge.OutID,
+			"properties": w.edgeProps(e.Props),
+		})
+	}
+
+	return typed("tinker:graph", map[string]any{"vertices": vs, "edges": es})
+}
+
+func (w graphsonWriter) vertexProps(props []GraphProp) map[string]any {
+	out := make(map[string]any, len(props))
+
+	for _, p := range props {
+		vps := make([]any, len(p.Vals))
+		for i, v := range p.Vals {
+			vps[i] = typed("g:VertexProperty", map[string]any{
+				tokID: w.value(p.IDs[i]), tokValue: w.value(v), tokLabel: p.Key,
+			})
+		}
+
+		out[p.Key] = vps
+	}
+
+	return out
+}
+
+func (w graphsonWriter) edgeProps(props []GraphProp) map[string]any {
+	out := make(map[string]any, len(props))
+
+	for _, p := range props {
+		out[p.Key] = typed("g:Property", map[string]any{tokKey: p.Key, tokValue: w.value(p.Vals[0])})
+	}
+
+	return out
 }

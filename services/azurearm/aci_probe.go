@@ -7,12 +7,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -65,7 +65,7 @@ func aciProbeTLSConfig(rawURL string) *tls.Config {
 		return cfg
 	}
 
-	if ip, perr := netip.ParseAddr(u.Hostname()); perr == nil && ip.IsLoopback() {
+	if httpclient.IsLoopbackHost(u.Hostname()) {
 		cfg.InsecureSkipVerify = true
 	}
 
@@ -312,6 +312,7 @@ func (e *ACIEngine) startGate(run *aciRun, front, back int) error {
 
 func (e *ACIEngine) forward(run *aciRun, conn net.Conn, back int) {
 	defer conn.Close()
+	defer logger.Recover(run.ctx, "azurearm.aci_forward", nil)
 
 	if !e.groupReady(run) {
 		return

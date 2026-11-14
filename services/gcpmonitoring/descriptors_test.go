@@ -10,6 +10,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/genproto/googleapis/api/label"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
+	"google.golang.org/grpc/codes"
 )
 
 func TestMetricDescriptorLifecycle(t *testing.T) {
@@ -151,4 +152,88 @@ func TestBuiltinAndResourceDescriptors(t *testing.T) {
 		Name: proj + "/monitoredResourceDescriptors/nope",
 	})
 	assert.Equal(t, "NotFound", codeOf(err).String())
+}
+
+func TestExplicitDescriptorRejectsUnknownLabels(t *testing.T) {
+	t.Parallel()
+
+	const typ = "custom.googleapis.com/app/explicit"
+
+	tests := []struct {
+		labels   map[string]string
+		name     string
+		wantCode codes.Code
+		explicit bool
+		restore  bool
+	}{
+		{
+			name:     "declared label",
+			explicit: true,
+			restore:  false,
+			labels:   map[string]string{"route": "/a"},
+			wantCode: codes.OK,
+		},
+		{
+			name:     "unknown label",
+			explicit: true,
+			restore:  false,
+			labels:   map[string]string{"route": "/a", "extra": "x"},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "unknown label after restore",
+			explicit: true,
+			restore:  true,
+			labels:   map[string]string{"extra": "x"},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "auto-created descriptor grows",
+			explicit: false,
+			restore:  false,
+			labels:   map[string]string{"route": "/a", "extra": "x"},
+			wantCode: codes.OK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			c := e.metric(t)
+
+			if tt.explicit {
+				_, err := c.CreateMetricDescriptor(t.Context(), &monitoringpb.CreateMetricDescriptorRequest{
+					Name: proj, MetricDescriptor: &metricpb.MetricDescriptor{
+						Type: typ, MetricKind: metricpb.MetricDescriptor_GAUGE,
+						ValueType: metricpb.MetricDescriptor_DOUBLE,
+						Labels:    []*label.LabelDescriptor{{Key: "route"}},
+					},
+				})
+				require.NoError(t, err)
+			}
+
+			if tt.restore {
+				snap := e.handler.Backend.Snapshot(t.Context())
+				e = newEnv(t)
+				require.NoError(t, e.handler.Backend.Restore(t.Context(), snap))
+				c = e.metric(t)
+			}
+
+			err := c.CreateTimeSeries(t.Context(), &monitoringpb.CreateTimeSeriesRequest{
+				Name: proj, TimeSeries: []*monitoringpb.TimeSeries{
+					gaugeDouble(typ, tt.labels, instance("i-1"), epoch(), 1),
+				},
+			})
+			assert.Equal(t, tt.wantCode, codeOf(err))
+
+			if tt.wantCode == codes.OK && !tt.explicit {
+				got, gerr := c.GetMetricDescriptor(t.Context(),
+					&monitoringpb.GetMetricDescriptorRequest{Name: proj + "/metricDescriptors/" + typ})
+				require.NoError(t, gerr)
+				assert.Len(t, got.GetLabels(), 2)
+			}
+		})
+	}
 }

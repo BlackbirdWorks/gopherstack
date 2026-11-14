@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/ociretry"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,11 +14,13 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Streams map[string]*Stream  `json:"streams"`
-	Alarms  map[string]*Alarm   `json:"alarms"`
-	Auth    []ociauth.KeyRecord `json:"authKeys"`
-	Version int                 `json:"version"`
-	Seq     int64               `json:"seq"`
+	Streams      map[string]*Stream           `json:"streams"`
+	Alarms       map[string]*Alarm            `json:"alarms"`
+	Suppressions map[string]*AlarmSuppression `json:"alarmSuppressions"`
+	Retry        map[string]ociretry.Entry    `json:"retryTokens"`
+	Auth         []ociauth.KeyRecord          `json:"authKeys"`
+	Version      int                          `json:"version"`
+	Seq          int64                        `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -28,7 +31,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocimonitoring", backendSnapshot{
-		Version: snapshotVersion, Streams: b.streams, Alarms: b.alarms, Auth: keys, Seq: b.seq,
+		Version:      snapshotVersion,
+		Streams:      b.streams,
+		Alarms:       b.alarms,
+		Suppressions: b.suppressions,
+		Auth:         keys,
+		Seq:          b.seq,
+		Retry:        b.retry.Entries(),
 	})
 }
 
@@ -55,7 +64,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.streams, b.alarms, b.seq = snap.Streams, snap.Alarms, snap.Seq
+	b.streams, b.alarms, b.suppressions, b.seq = snap.Streams, snap.Alarms, snap.Suppressions, snap.Seq
+	b.retry.Load(snap.Retry)
 	b.Auth.Load(snap.Auth)
 
 	return nil
@@ -76,7 +86,8 @@ func nullCheck[T any](kind string, m *map[string]*T) error {
 }
 
 func checkSnapshot(snap *backendSnapshot) error {
-	for _, err := range []error{nullCheck("stream", &snap.Streams), nullCheck("alarm", &snap.Alarms)} {
+	for _, err := range []error{nullCheck("stream", &snap.Streams), nullCheck("alarm", &snap.Alarms),
+		nullCheck("alarm suppression", &snap.Suppressions)} {
 		if err != nil {
 			return err
 		}

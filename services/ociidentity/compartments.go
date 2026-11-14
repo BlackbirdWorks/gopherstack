@@ -17,6 +17,7 @@ const (
 
 // CreateCompartmentIn is the CreateCompartment request body.
 type CreateCompartmentIn struct {
+	RetryToken string `json:"-"`
 	Tags
 	CompartmentID string `json:"compartmentId"`
 	Name          string `json:"name"`
@@ -180,6 +181,21 @@ func (b *InMemoryBackend) CreateCompartment(in CreateCompartmentIn) (compartment
 	b.mu.Lock("CreateCompartment")
 	defer b.mu.Unlock()
 
+	if r, hit, aerr := replayCreate(
+		b,
+		"CreateCompartment",
+		in.RetryToken,
+		b.compartment,
+		func(r *Compartment) string { return r.LifecycleState },
+	); hit ||
+		aerr != nil {
+		if aerr != nil {
+			return compartmentWire{}, "", aerr
+		}
+
+		return r.view(), r.Internal.Etag, nil
+	}
+
 	if aerr := b.activeParent(in.CompartmentID); aerr != nil {
 		return compartmentWire{}, "", aerr
 	}
@@ -201,6 +217,7 @@ func (b *InMemoryBackend) CreateCompartment(in CreateCompartmentIn) (compartment
 		Internal: b.newInternal(),
 	}
 	b.compartment[c.ID] = c
+	b.retry.Remember("CreateCompartment", in.RetryToken, c.ID, b.nowUTC())
 
 	return c.view(), c.Internal.Etag, nil
 }
@@ -512,6 +529,7 @@ func (h *Handler) createCompartment(q *req) error {
 		return err
 	}
 
+	in.RetryToken = q.r.Header.Get(headerRetry)
 	v, etag, err := h.Backend.CreateCompartment(in)
 
 	return reply(q, v, etag, err)

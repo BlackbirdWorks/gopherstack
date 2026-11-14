@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 
 	b.mu.Lock("CreateWorkgroup")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	if _, ok := b.slWorkgroups.Get(workgroupName); ok {
 		return nil, fmt.Errorf(
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error) {
 	b.mu.Lock("GetWorkgroup")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error)
 func (b *InMemoryBackend) ListWorkgroups(ownerAccount string, maxResults int, nextToken string) ([]*Workgroup, string) {
 	b.mu.Lock("ListWorkgroups")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	if ownerAccount != "" && ownerAccount != b.accountID {
 		return []*Workgroup{}, ""
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParam
 
 	b.mu.Lock("UpdateWorkgroup")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
@@ -231,7 +231,7 @@ func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParam
 func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, error) {
 	b.mu.Lock("DeleteWorkgroup")
 	defer b.mu.Unlock()
-	b.settleServerlessLocked(time.Now())
+	b.settleServerlessLocked(b.slNowLocked())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {

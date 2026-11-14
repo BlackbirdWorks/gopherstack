@@ -36,6 +36,17 @@ type Compute interface {
 	SubnetworkExists(project, region, subnetwork string) bool
 	SecondaryRange(project, region, subnetwork, rangeName string) (string, bool)
 	MachineTypeExists(machineType string) bool
+	EachSubnetwork(project string, fn func(SubnetInfo))
+}
+
+// SubnetInfo describes one subnetwork of the Compute Engine emulator, with resource paths relative to the API root.
+type SubnetInfo struct {
+	Secondary   map[string]string
+	Network     string
+	Subnetwork  string
+	CIDR        string
+	Region      string
+	NetworkProj string
 }
 
 type poolRec struct {
@@ -54,6 +65,7 @@ type clusterRec struct {
 	Project  string
 	Cluster  *containerpb.Cluster
 	Rotation *rotationRec
+	JWK      *containerpb.Jwk
 	Failure  string
 	DeleteOp string
 	Pools    []*poolRec

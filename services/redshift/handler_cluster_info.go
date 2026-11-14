@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 )
 
 const modelVersion10 = "1.0"
@@ -28,8 +29,23 @@ type describeAccountAttributesResponse struct {
 	Result  xmlDescribeAccountAttributesResult `xml:"DescribeAccountAttributesResult"`
 }
 
-func (h *Handler) handleDescribeAccountAttributes(_ url.Values) (any, error) {
-	return &describeAccountAttributesResponse{Xmlns: redshiftXMLNS}, nil
+const (
+	attrMaxDeferMaintenanceDuration  = "max-defer-maintenance-duration"
+	maxDeferMaintenanceDurationValue = "45"
+)
+
+func (h *Handler) handleDescribeAccountAttributes(vals url.Values) (any, error) {
+	names := parseStringList(vals, "AttributeNames.AttributeName.")
+	resp := &describeAccountAttributesResponse{Xmlns: redshiftXMLNS}
+
+	if len(names) == 0 || slices.Contains(names, attrMaxDeferMaintenanceDuration) {
+		resp.Result.AccountAttributeList.Attributes = []xmlAccountAttribute{{
+			AttributeName:   attrMaxDeferMaintenanceDuration,
+			AttributeValues: maxDeferMaintenanceDurationValue,
+		}}
+	}
+
+	return resp, nil
 }
 
 // ---- DescribeClusterTracks ----

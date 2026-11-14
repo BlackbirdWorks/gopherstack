@@ -262,3 +262,50 @@ func (s *server) UpdateVPCSCConfig(
 ) (*artifactregistrypb.VPCSCConfig, error) {
 	return s.b.UpdateVPCSCConfig(in)
 }
+
+func (s *server) ImportAptArtifacts(
+	ctx context.Context, in *artifactregistrypb.ImportAptArtifactsRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ImportAptArtifacts(ctx, in)
+}
+
+func (s *server) ImportYumArtifacts(
+	ctx context.Context, in *artifactregistrypb.ImportYumArtifactsRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ImportYumArtifacts(ctx, in)
+}
+
+func (s *server) CreateAttachment(
+	ctx context.Context, in *artifactregistrypb.CreateAttachmentRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.CreateAttachment(ctx, in)
+}
+
+func (s *server) GetAttachment(
+	_ context.Context, in *artifactregistrypb.GetAttachmentRequest,
+) (*artifactregistrypb.Attachment, error) {
+	return s.b.GetAttachment(in.GetName())
+}
+
+func (s *server) ListAttachments(
+	_ context.Context, in *artifactregistrypb.ListAttachmentsRequest,
+) (*artifactregistrypb.ListAttachmentsResponse, error) {
+	items, next, err := s.b.ListAttachments(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &artifactregistrypb.ListAttachmentsResponse{Attachments: items, NextPageToken: next}, nil
+}
+
+func (s *server) DeleteAttachment(
+	_ context.Context, in *artifactregistrypb.DeleteAttachmentRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteAttachment(in.GetName())
+}
+
+func (s *server) ExportArtifact(
+	_ context.Context, in *artifactregistrypb.ExportArtifactRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ExportArtifact(in)
+}

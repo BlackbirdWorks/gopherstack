@@ -286,12 +286,3 @@ func TestCmekAndSettings(t *testing.T) {
 	_, err = cfg.GetSettings(t.Context(), &loggingpb.GetSettingsRequest{Name: "bogus"})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
-
-func TestUnsupportedLinks(t *testing.T) {
-	t.Parallel()
-
-	cfg := newEnv(t, true).config(t)
-
-	_, err := cfg.GetLink(t.Context(), &loggingpb.GetLinkRequest{Name: loc + "/buckets/_Default/links/l"})
-	assert.Equal(t, codes.Unimplemented, status.Code(err))
-}

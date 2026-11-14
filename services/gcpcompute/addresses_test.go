@@ -102,7 +102,12 @@ func TestRegionalAddresses(t *testing.T) {
 			status: 400,
 			reason: "required",
 		},
-		{addr: &computepb.Address{Name: s("v6"), IpVersion: s("IPV6")}, name: "ipv6", status: 400, reason: "invalid"},
+		{
+			addr:   &computepb.Address{Name: s("v6"), IpVersion: s("IPV6")},
+			name:   "ipv6 needs subnetwork",
+			status: 400,
+			reason: "required",
+		},
 		{
 			addr:   &computepb.Address{Name: s("tier"), NetworkTier: s("SILVER")},
 			name:   "bad tier",

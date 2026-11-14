@@ -43,6 +43,10 @@ func (b *InMemoryBackend) CreateInstance(in *redispb.CreateInstanceRequest) (*lo
 		rec.authString = newAuthString()
 	}
 
+	if err = b.checkCreateKey(pb.GetCustomerManagedKey(), n.location); err != nil {
+		return nil, err
+	}
+
 	if err = b.insert(n.full(), rec); err != nil {
 		return nil, err
 	}
@@ -118,7 +122,7 @@ func (b *InMemoryBackend) GetInstance(name string) (*redispb.Instance, error) {
 		return nil, errInstanceNotFound(n.full())
 	}
 
-	return cloneInstance(rec.pb), nil
+	return b.viewLocked(rec.pb), nil
 }
 
 // ListInstances lists instances under a location, or every location with "-".
@@ -154,7 +158,7 @@ func (b *InMemoryBackend) ListInstances(in *redispb.ListInstancesRequest) ([]*re
 
 	all := make([]*redispb.Instance, 0, len(names))
 	for _, name := range names {
-		all = append(all, cloneInstance(b.instances[name].pb))
+		all = append(all, b.viewLocked(b.instances[name].pb))
 	}
 	b.mu.RUnlock()
 
@@ -195,6 +199,10 @@ func (b *InMemoryBackend) readyLocked(name string) (*instRec, resName, error) {
 	rec, ok := b.instances[n.full()]
 	if !ok {
 		return nil, n, errInstanceNotFound(n.full())
+	}
+
+	if b.suspendedLocked(rec.pb) {
+		return nil, n, errPrecondition("Instance %q is suspended: its customer-managed key is unavailable.", n.full())
 	}
 
 	if rec.pb.GetState() != redispb.Instance_READY || rec.exports > 0 {

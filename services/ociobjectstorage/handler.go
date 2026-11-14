@@ -345,6 +345,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 			select {
 			case <-t.C:
 				h.Backend.SweepLifecycle()
+				h.Backend.SweepAsync()
 			case <-stop:
 				return
 			case <-ctx.Done():

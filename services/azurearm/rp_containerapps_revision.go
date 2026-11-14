@@ -324,6 +324,7 @@ func (p *ContainerAppsProvider) retireOld(key string) {
 func (p *ContainerAppsProvider) setStopped(ctx context.Context, id ResourceID, stopped bool) (map[string]any, error) {
 	p.opMu.Lock("setStopped")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	key := acaKey(id.ResourceGroup, id.LeafName())
 

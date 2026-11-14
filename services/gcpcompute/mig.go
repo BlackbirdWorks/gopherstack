@@ -227,21 +227,34 @@ func normalizeUpdatePolicy(
 		return nil, errField("resource.updatePolicy.type", p.Type, "")
 	}
 
-	def := func(v **computeapi.FixedOrPercent) {
+	if p.ReplacementMethod == "" {
+		p.ReplacementMethod = replaceSubstitute
+	}
+
+	if p.ReplacementMethod != replaceSubstitute && p.ReplacementMethod != replaceRecreate {
+		return nil, errField("resource.updatePolicy.replacementMethod", p.ReplacementMethod, "")
+	}
+
+	def := func(v **computeapi.FixedOrPercent, n int) {
 		if *v == nil {
-			*v = &computeapi.FixedOrPercent{Fixed: int64(zones)}
+			*v = &computeapi.FixedOrPercent{Fixed: int64(n)}
 		}
 	}
 
-	def(&p.MaxSurge)
-	def(&p.MaxUnavailable)
-
-	if p.MinimalAction == "" {
-		p.MinimalAction = "REPLACE"
+	surge := zones
+	if p.ReplacementMethod == replaceRecreate {
+		surge = 0
 	}
 
-	if p.ReplacementMethod == "" {
-		p.ReplacementMethod = "SUBSTITUTE"
+	def(&p.MaxSurge, surge)
+	def(&p.MaxUnavailable, zones)
+
+	if err := validUpdatePolicy(p); err != nil {
+		return nil, err
+	}
+
+	if p.MinimalAction == "" {
+		p.MinimalAction = minActionReplace
 	}
 
 	return p, nil
@@ -313,6 +326,10 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 
 	if m.TargetSize < 0 {
 		return errField("resource.targetSize", "", "Must not be negative.")
+	}
+
+	if err := validStatefulPolicy(m.StatefulPolicy); err != nil {
+		return err
 	}
 
 	if m.TargetSize > math.MaxInt32 {
@@ -469,7 +486,7 @@ func (b *InMemoryBackend) deleteMIG(project, scope, loc, name string) (*computea
 	}
 
 	for _, m := range liveMembers(r) {
-		b.removeMemberInstanceLocked(project, m)
+		b.removeMemberInstanceLocked(project, r, m, true)
 	}
 
 	for k, a := range b.scalers {
@@ -565,9 +582,7 @@ func (b *InMemoryBackend) commitMIGLocked(
 
 	b.applyScalerLocked(rec)
 
-	if next.UpdatePolicy.Type == updateProactive {
-		b.rollOutdatedLocked(project, rec)
-	}
+	b.rollStepLocked(project, rec)
 
 	if err := b.reconcileLocked(rec); err != nil {
 		rec.Mgr = old
@@ -658,13 +673,51 @@ func (b *InMemoryBackend) setMIGTargetPools(
 		return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
 	}
 
+	region := loc
+	if scope == scopeZone {
+		region = regionOfZone(loc)
+	}
+
+	pools := make([]string, 0, len(in.TargetPools))
+
 	for _, p := range in.TargetPools {
 		if strings.TrimSpace(p) == "" {
 			return nil, errField("targetPools", p, "")
 		}
+
+		self, lerr := lbResolve(b, targetPoolSpec(), lbCtx{project: project, scope: scopeRegion, loc: region},
+			"targetPools", p)
+		if lerr != nil {
+			return nil, lerr
+		}
+
+		pools = append(pools, self)
 	}
 
-	rec.Mgr.TargetPools, rec.Mgr.Fingerprint = in.TargetPools, newFingerprint()
+	rec.Mgr.TargetPools, rec.Mgr.Fingerprint = pools, newFingerprint()
 
 	return b.newOpLocked(opMIG+"setTargetPools", migOpTarget(project, rec.Mgr), b.timing.Done), nil
+}
+
+func validUpdatePolicy(p *computeapi.InstanceGroupManagerUpdatePolicy) *APIError {
+	for _, v := range []*computeapi.FixedOrPercent{p.MaxSurge, p.MaxUnavailable} {
+		if v.Fixed < 0 || v.Percent < 0 || v.Percent > maxPercent || (v.Fixed != 0 && v.Percent != 0) {
+			return errInvalid("Invalid value for field 'resource.updatePolicy': either fixed or percent in 0-100.")
+		}
+	}
+
+	if p.MaxSurge.Fixed == 0 && p.MaxSurge.Percent == 0 && p.MaxUnavailable.Fixed == 0 &&
+		p.MaxUnavailable.Percent == 0 {
+		return errInvalid(
+			"Invalid value for field 'resource.updatePolicy': maxSurge or maxUnavailable must be greater than 0.",
+		)
+	}
+
+	if p.ReplacementMethod == replaceRecreate && (p.MaxSurge.Fixed != 0 || p.MaxSurge.Percent != 0) {
+		return errInvalid(
+			"Invalid value for field 'resource.updatePolicy.maxSurge': must be 0 with the RECREATE replacement method.",
+		)
+	}
+
+	return nil
 }
