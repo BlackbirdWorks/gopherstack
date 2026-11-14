@@ -143,6 +143,22 @@ func dimensionFilterKey(dim string) string {
 		return "UsageType"
 	case "LINKED_ACCOUNT":
 		return "LinkedAccount"
+	case "AZ":
+		return "AZ"
+	case "INSTANCE_TYPE":
+		return "InstanceType"
+	case "OPERATION":
+		return "Operation"
+	case "PURCHASE_TYPE":
+		return "PurchaseType"
+	case "USAGE_TYPE_GROUP":
+		return "UsageTypeGroup"
+	case "BILLING_ENTITY":
+		return "BillingEntity"
+	case "INVOICING_ENTITY":
+		return "InvoicingEntity"
+	case "LEGAL_ENTITY_NAME":
+		return "LegalEntityName"
 	default:
 		return ""
 	}

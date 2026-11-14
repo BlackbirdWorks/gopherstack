@@ -16,10 +16,9 @@ families:
   delivery: {status: ok, note: "worker ticker (1m) delivers each report once per HOURLY/DAILY/MONTHLY slot; writes CSV .csv.gz/.csv.zip or .snappy.parquet plus name-Manifest.json under prefix/name/yyyymmdd-yyyymmdd/[assemblyId/] (OVERWRITE_REPORT drops the assembly directory, ATHENA uses prefix/name/name/year=/month=/); REDSHIFT, QUICKSIGHT and ATHENA artifacts written and listed in additionalArtifactKeys; ReportStatus lastStatus SUCCESS, ERROR_NO_BUCKET, ERROR_PERMISSIONS"}
   rows: {status: ok, note: "rows come from the Cost Explorer ledger via GetCostAndUsage (daily); HOURLY splits each day into 24 equal rows, MONTHLY sums per service/region/usage type/account; with no Cost Explorer wired the file holds headers only"}
 items_still_open:
-  - columns: bill/lineItem/product/pricing/reservation/savingsPlan/discount core columns are present, but only those the cost ledger can fill carry values (the rest are empty cells); resourceTags/*, costCategory/* and the long tail of product/* attribute columns are absent
-  - MANUAL_DISCOUNT_COMPATIBILITY: accepted but adds no columns
-  - ResourceId and tags: lineItem/ResourceId is empty because the cost ledger has no per-resource data
-  - ATHENA artifacts: crawler template is minimal; cost_and_usage_data_status.parquet (one row, status=READY) is written next to the data but its exact key and schema are recalled, unverified
+  - columns: costCategory/* columns are absent (cost category rules carry no expression to evaluate) and product/* attribute columns beyond instanceType, productFamily, servicename, servicecode, usagetype, region and location are absent because the ledger has no further product attributes
+  - ResourceId and resourceTags/*: columns fill from ledger rows, but no emulated service writes a resource ID or tags into the ledger, so the seeded rows leave them empty
+  - ATHENA artifacts: the crawler-cfn.yml template holds only the Glue database and crawler; the real template's three IAM roles, two Lambda functions and S3 notification are not published beyond that resource list
   - BillingViewArn: format-checked only, no billing view backend
 gaps: []
 structural_gaps: []
@@ -35,3 +34,8 @@ ResourceNotFoundException, ValidationException.
 ## 2026-11-13 lastDelivery
 
 ReportStatus.lastDelivery uses the documented layout 20060102T150405Z (API_cur_ReportStatus: pattern [0-9]{8}[T][0-9]{6}([Z]|[+-][0-9]{4})); snapshot values stored as RFC 3339 are re-rendered on read.
+
+## Verified against documentation
+- Athena status table: `status STRING` Parquet under `<prefix>/<report>/cost_and_usage_data_status/` with values READY/UPDATING (docs.aws.amazon.com/cur/latest/userguide/create-manual-cur-table.html); the file name inside the directory is not published.
+- MANUAL_DISCOUNT_COMPATIBILITY removes the discount/EdpDiscount and discount/TotalDiscount columns, mirroring the CUR 2.0 removal of `discount` and `discount_total_discount` (table-dictionary-cur2.html); BundledDiscount stays.
+- lineItem/Operation, AvailabilityZone, product/instanceType and productFamily, LineItemType and resourceTags/user:* come from ledger fields (ce CostEntry via billingexport.CostLine).

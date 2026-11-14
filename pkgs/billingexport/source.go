@@ -33,7 +33,10 @@ type CostLine struct {
 	Usage            float64
 }
 
-const keyFields = 12
+const (
+	keyFields   = 12
+	chargeUsage = "Usage"
+)
 
 // Key identifies the dimensions a monthly roll-up merges lines on.
 func (l CostLine) Key() string {
@@ -53,8 +56,8 @@ func (l CostLine) Key() string {
 // LineItemType maps the ledger charge type onto a CUR lineItem/LineItemType value.
 func (l CostLine) LineItemType() string {
 	switch l.ChargeType {
-	case "", "Usage":
-		return "Usage"
+	case "", chargeUsage:
+		return chargeUsage
 	case "Support", "Subscription", "Upfront":
 		return "Fee"
 	case "Recurring":
@@ -67,8 +70,8 @@ func (l CostLine) LineItemType() string {
 // ChargeCategory maps the ledger charge type onto a FOCUS ChargeCategory value.
 func (l CostLine) ChargeCategory() string {
 	switch l.ChargeType {
-	case "", "Usage":
-		return "Usage"
+	case "", chargeUsage:
+		return chargeUsage
 	case "Tax":
 		return "Tax"
 	case "Credit":

@@ -5,7 +5,20 @@ import "strings"
 // ExcludeChargeTypeFilter is the LedgerSpend filter key listing charge types to leave out.
 const ExcludeChargeTypeFilter = "ExcludeChargeType"
 
-const chargeTypeUsage = "Usage"
+const (
+	chargeTypeUsage    = "Usage"
+	purchaseOnDemand   = "On Demand"
+	billingEntityAWS   = "AWS"
+	invoicingEntityAWS = "Amazon Web Services, Inc."
+)
+
+func entryPurchaseType(e CostEntry) string {
+	if e.PurchaseType == "" {
+		return purchaseOnDemand
+	}
+
+	return e.PurchaseType
+}
 
 func entryChargeType(e CostEntry) string {
 	if e.ChargeType == "" {
@@ -17,10 +30,26 @@ func entryChargeType(e CostEntry) string {
 
 // budgetFilterDims maps Budgets cost-filter keys onto the ledger dimensions this backend models.
 var budgetFilterDims = map[string]string{ //nolint:gochecknoglobals // immutable lookup
-	"Service":       dimKeyService,
-	mapKeyRegion:    dimKeyRegion,
-	"UsageType":     dimKeyUsageType,
-	"LinkedAccount": dimKeyLinkedAccount,
+	"Service":          dimKeyService,
+	mapKeyRegion:       dimKeyRegion,
+	"UsageType":        dimKeyUsageType,
+	"LinkedAccount":    dimKeyLinkedAccount,
+	"AZ":               dimKeyAZ,
+	mapKeyInstanceType: dimKeyInstanceType,
+	"Operation":        dimKeyOperation,
+	"PurchaseType":     dimKeyPurchaseType,
+	"UsageTypeGroup":   dimKeyUsageTypeGroup,
+	"BillingEntity":    dimKeyBillingEntity,
+	"InvoicingEntity":  dimKeyInvoicingEntity,
+	"LegalEntityName":  dimKeyLegalEntity,
+}
+
+// LedgerEntries returns a copy of the ledger entries with start <= date < end (YYYY-MM-DD).
+func (b *InMemoryBackend) LedgerEntries(start, end string) []CostEntry {
+	b.mu.RLock("LedgerEntries")
+	defer b.mu.RUnlock()
+
+	return b.costLedgerInBucket(start, end)
 }
 
 // LedgerSpend sums metric over ledger entries with start <= date < end (YYYY-MM-DD).

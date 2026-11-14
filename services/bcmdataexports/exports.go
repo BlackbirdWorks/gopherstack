@@ -14,14 +14,16 @@ import (
 )
 
 const (
-	maxExports      = 50
+	maxCURExports   = 5
+	maxTableExports = 2
 	maxNameLen      = 128
 	maxDescLen      = 1024
 	maxQueryLen     = 36000
 	maxTags         = 50
 	maxTagKeyLen    = 128
 	maxTagValueLen  = 256
-	maxPageSize     = 100
+	maxPageSize     = 300
+	defaultPage     = 100
 	maxExecutions   = 50
 	arnResourcePart = "export/"
 )
@@ -171,7 +173,7 @@ func validateTags(list []tags.KV) (map[string]string, error) {
 
 func limitOf(maxResults *int32) (int, error) {
 	if maxResults == nil {
-		return maxPageSize, nil
+		return defaultPage, nil
 	}
 
 	if *maxResults < 1 || int(*maxResults) > maxPageSize {
@@ -249,8 +251,8 @@ func (b *InMemoryBackend) CreateExport(w *exportWire, tagList []tags.KV) (string
 		}
 	}
 
-	if b.exports.Len() >= maxExports {
-		return "", fail(ErrServiceQuotaExceeded, "an account can have at most %d exports", maxExports)
+	if table, limit := b.tableQuotaLocked(e); limit > 0 && b.exportsOfTableLocked(table) >= limit {
+		return "", quotaExceeded("Export", e.Name, "an account can have at most %d exports of table %s", limit, table)
 	}
 
 	now := b.now()
@@ -525,4 +527,38 @@ func ListTables(token string, maxResults *int32) (page.Page[tableWire], error) {
 	}
 
 	return page.New(out, token, limit, maxPageSize), nil
+}
+
+func tableOfExport(e *Export) string {
+	q, err := parseQuery(e.Query)
+	if err != nil {
+		return ""
+	}
+
+	return q.table
+}
+
+func (b *InMemoryBackend) tableQuotaLocked(e *Export) (string, int) {
+	table := tableOfExport(e)
+
+	switch table {
+	case "":
+		return "", 0
+	case tableCUR:
+		return table, maxCURExports
+	default:
+		return table, maxTableExports
+	}
+}
+
+func (b *InMemoryBackend) exportsOfTableLocked(table string) int {
+	n := 0
+
+	for _, o := range b.exports.All() {
+		if tableOfExport(o) == table {
+			n++
+		}
+	}
+
+	return n
 }
