@@ -140,6 +140,10 @@ func (b *InMemoryBackend) CreateChannel(in *eventarcpb.CreateChannelRequest) (*l
 		return nil, errExists("Channel %q already exists.", ch.GetName())
 	}
 
+	if err = b.checkKey(ch.GetCryptoKeyName(), location); err != nil {
+		return nil, err
+	}
+
 	if !in.GetValidateOnly() {
 		if b.svc.PubSub != nil {
 			if _, err = b.svc.PubSub.CreateTopic(&pubsubpb.Topic{Name: topic}); err != nil {
@@ -255,6 +259,12 @@ func (b *InMemoryBackend) UpdateChannel(in *eventarcpb.UpdateChannelRequest) (*l
 
 	if err = validateChannel(next); err != nil {
 		return nil, err
+	}
+
+	if next.GetCryptoKeyName() != rec.pb.GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
+		}
 	}
 
 	next.UpdateTime = b.ts()
@@ -526,6 +536,12 @@ func (b *InMemoryBackend) UpdateGoogleChannelConfig(
 			next.Labels = src.GetLabels()
 		default:
 			return nil, errInvalid("Unsupported update_mask path %q for GoogleChannelConfig.", p)
+		}
+	}
+
+	if next.GetCryptoKeyName() != b.configs[name].GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
 		}
 	}
 

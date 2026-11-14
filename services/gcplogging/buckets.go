@@ -89,6 +89,10 @@ func (b *InMemoryBackend) CreateBucket(req *loggingpb.CreateBucketRequest) (*log
 		pb.RetentionDays = defaultRetentionDays
 	}
 
+	if err := b.checkBucketKey(pb); err != nil {
+		return nil, err
+	}
+
 	bd := newBucketData(pb)
 	b.buckets[name] = bd
 	b.putAllLogsView(name, now)
@@ -238,6 +242,12 @@ func (b *InMemoryBackend) UpdateBucket(req *loggingpb.UpdateBucketRequest) (*log
 
 	if err := validateBucketFields(next); err != nil {
 		return nil, err
+	}
+
+	if next.GetCmekSettings().GetKmsKeyName() != bd.pb.GetCmekSettings().GetKmsKeyName() {
+		if err := b.checkBucketKey(next); err != nil {
+			return nil, err
+		}
 	}
 
 	if next.GetRetentionDays() == 0 {

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -69,6 +70,7 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	secrets   map[string]*secretRec
 	publisher TopicPublisher
+	keys      cmek.Checker
 	etagSeq   uint64
 }
 
@@ -399,6 +401,10 @@ func (b *InMemoryBackend) CreateSecret(req *secretmanagerpb.CreateSecretRequest)
 	}
 
 	pb.Name = name
+	if err = b.checkKeysForWrite(pb); err != nil {
+		return nil, err
+	}
+
 	pb.CreateTime = timestamppb.New(b.now())
 	pb.Etag = b.nextEtag()
 	pb.PolicyMember = nil

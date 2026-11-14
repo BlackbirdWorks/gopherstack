@@ -36,8 +36,10 @@ items_still_open:
   - "RestoreDatabase and ListDatabaseOperations are UNIMPLEMENTED: restoring would create emulator databases the backend does not track. Backups created through the proxy live only in the emulator and are lost on restart."
   - "User-managed instance configs (Create/Update/DeleteInstanceConfig), instance partitions, MoveInstance, autoscaling_config, and replica_compute_capacity are not implemented."
   - "The emulator runs every instance in its single emulator-config with 1 node; node_count and processing_units are metadata only, and the data plane is one shared emulator process."
-  - "Customer-managed encryption on databases is UNIMPLEMENTED; backend instance and database create_time values are not shared with the emulator."
+  - "Customer-managed encryption is validated on CreateDatabase for single-region instance configs only (kms_key_names coverage of a multi-region config's replicas is not checked); backend instance and database create_time values are not shared with the emulator."
 leaks: {status: clean, note: "Background resources are the grpc.Server, the emulator container with its gRPC client and the operation jobs, all stopped and joined by Shutdown and Reset."}
 ---
 
 Initial implementation (2026-10-22): instance admin in-process, database metadata in-process with DDL executed by the official emulator image, data plane proxied. Verified against cloud.google.com/go/spanner v1.95.0 (data, instance and database admin clients) in services/gcpspanner, and against the hashicorp/google provider (google_spanner_instance, google_spanner_database) in test/terraform/gcp.
+
+Pass 2026-11-13: CreateDatabase encryption_config (kms_key_name / kms_key_names) resolves against gcpkms when wired (UNIMPLEMENTED when it is not): keys must exist, be ENCRYPT_DECRYPT with an enabled primary version and, on regional-<region> configs, sit in that region. Database.encryption_info reports CUSTOMER_MANAGED_ENCRYPTION with the primary key version and an encryption_status of FAILED_PRECONDITION while a key is unusable (Spanner CMEK documentation, cloud.google.com/spanner/docs/cmek).

@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -37,6 +38,7 @@ type channelRec struct {
 // InMemoryBackend holds all Eventarc state under one lock.
 type InMemoryBackend struct {
 	svc        Services
+	keys       cmek.Checker
 	after      AfterFunc
 	ops        *gcplro.Store
 	now        func() time.Time

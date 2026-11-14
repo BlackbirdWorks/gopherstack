@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
@@ -12,54 +11,33 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-const (
-	ceDayLayout = "2006-01-02"
-	ceDimension = "DIMENSION"
-)
+const ceDayLayout = "2006-01-02"
 
 // ceCostSource derives daily cost lines from the Cost Explorer ledger.
 type ceCostSource struct{ ce *cebackend.InMemoryBackend }
 
 func (c ceCostSource) CostLines(start, end time.Time) []billingexport.CostLine {
-	groupBy := []cebackend.GroupBySpec{
-		{Type: ceDimension, Key: "SERVICE"},
-		{Type: ceDimension, Key: "REGION"},
-		{Type: ceDimension, Key: "USAGE_TYPE"},
-		{Type: ceDimension, Key: "LINKED_ACCOUNT"},
-	}
-	metrics := []string{"BlendedCost", "UnblendedCost", "UsageQuantity"}
+	entries := c.ce.LedgerEntries(start.Format(ceDayLayout), end.Format(ceDayLayout))
+	lines := make([]billingexport.CostLine, 0, len(entries))
 
-	var lines []billingexport.CostLine
+	for i := range entries {
+		e := &entries[i]
 
-	period := c.ce.GetCostAndUsage(start.Format(ceDayLayout), end.Format(ceDayLayout), "DAILY", metrics, groupBy, nil)
-
-	for _, r := range period {
-		day, err := time.Parse(ceDayLayout, r.TimePeriod["Start"])
+		day, err := time.Parse(ceDayLayout, e.Date)
 		if err != nil {
 			continue
 		}
 
-		for _, g := range r.Groups {
-			if len(g.Keys) < len(groupBy) {
-				continue
-			}
-
-			lines = append(lines, billingexport.CostLine{
-				Day: day, Service: g.Keys[0], Region: g.Keys[1], UsageType: g.Keys[2], Account: g.Keys[3],
-				Blended:   metricAmount(g.Metrics, "BlendedCost"),
-				Unblended: metricAmount(g.Metrics, "UnblendedCost"),
-				Usage:     metricAmount(g.Metrics, "UsageQuantity"),
-			})
-		}
+		lines = append(lines, billingexport.CostLine{
+			Day: day, Service: e.Service, Region: e.Region, UsageType: e.UsageType, Account: e.Account,
+			AvailabilityZone: e.AvailabilityZone, InstanceType: e.InstanceType, Operation: e.Operation,
+			ChargeType: e.ChargeType, PurchaseType: e.PurchaseType, ProductFamily: e.ProductFamily,
+			UsageTypeGroup: e.UsageTypeGroup, ResourceID: e.ResourceID, Tags: e.Tags,
+			Blended: e.BlendedCost, Unblended: e.UnblendedCost, Usage: e.UsageQuantity,
+		})
 	}
 
 	return lines
-}
-
-func metricAmount(m map[string]cebackend.MetricValue, name string) float64 {
-	v, _ := strconv.ParseFloat(m[name].Amount, 64)
-
-	return v
 }
 
 // wireBillingExports connects CUR and Data Exports to S3 (delivery sink) and Cost Explorer (row source).

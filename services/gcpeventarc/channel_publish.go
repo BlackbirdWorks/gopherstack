@@ -38,10 +38,17 @@ func (b *InMemoryBackend) PublishToChannel(channel string, events []map[string]a
 
 	b.mu.RLock("PublishToChannel")
 
-	if _, ok := b.channels[channel]; !ok {
+	rec, ok := b.channels[channel]
+	if !ok {
 		b.mu.RUnlock()
 
 		return errNotFound("Channel %q not found.", channel)
+	}
+
+	if err := b.checkKey(rec.pb.GetCryptoKeyName(), ""); err != nil {
+		b.mu.RUnlock()
+
+		return err
 	}
 
 	var jobs []channelJob

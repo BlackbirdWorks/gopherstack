@@ -57,6 +57,12 @@ func (h *Handler) finishInsert(c *echo.Context, bucket, name string, data []byte
 		return errRequired("name")
 	}
 
+	delete(meta, keyKMSKeyName)
+
+	if k := c.QueryParam(keyKMSKeyName); k != "" {
+		meta[keyKMSKeyName] = marshalRaw(k)
+	}
+
 	meta, apiErr := withUploadKey(c.Request(), meta)
 	if apiErr != nil {
 		return apiErr
@@ -134,6 +140,12 @@ func (h *Handler) startResumable(c *echo.Context, bucket string, pre Preconds) e
 
 	if name == "" {
 		return errRequired("name")
+	}
+
+	delete(meta, keyKMSKeyName)
+
+	if k := c.QueryParam(keyKMSKeyName); k != "" {
+		meta[keyKMSKeyName] = marshalRaw(k)
 	}
 
 	meta, apiErr := withUploadKey(r, meta)

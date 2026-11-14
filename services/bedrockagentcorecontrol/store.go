@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -48,6 +49,7 @@ type InMemoryBackend struct {
 	idem      *idempotency.Memo
 	now       func() time.Time
 	refs      References
+	keys      cmek.KeyChecker
 	jwks      JWKSProvider
 	outbound  *http.Client
 	kinds     map[string]*kindSpec

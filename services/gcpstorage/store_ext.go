@@ -26,7 +26,39 @@ type CopyRequest struct {
 	DstName       string
 	SrcKeySHA     string
 	DstKeySHA     string
+	DstKMSKey     string
 	SrcGeneration int64
+}
+
+// copyMeta builds the destination metadata of a copy: the request's, else the source's, plus the encryption keys.
+func copyMeta(req CopyRequest, src *Object) Patch {
+	meta := req.Meta
+	if meta == nil {
+		meta = inheritMeta(src)
+	} else if _, ok := meta[keyContentType]; !ok {
+		meta = maps.Clone(meta)
+		meta[keyContentType] = marshalRaw(src.ContentType)
+	}
+
+	meta = maps.Clone(meta)
+	delete(meta, keyCustomerKeySHA)
+	delete(meta, keyKMSKeyName)
+
+	if req.DstKeySHA != "" {
+		meta[keyCustomerKeySHA] = marshalRaw(req.DstKeySHA)
+	}
+
+	if req.DstKMSKey != "" {
+		meta[keyKMSKeyName] = marshalRaw(req.DstKMSKey)
+	}
+
+	for _, k := range []string{keyPredefined, keyACL} {
+		if raw, ok := req.ACL[k]; ok {
+			meta[k] = raw
+		}
+	}
+
+	return meta
 }
 
 // CopyObject copies an object. A nil Meta inherits the source metadata;
@@ -64,26 +96,7 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		return nil, apiErr
 	}
 
-	meta := req.Meta
-	if meta == nil {
-		meta = inheritMeta(src)
-	} else if _, ok := meta[keyContentType]; !ok {
-		meta = maps.Clone(meta)
-		meta[keyContentType] = marshalRaw(src.ContentType)
-	}
-
-	meta = maps.Clone(meta)
-	delete(meta, keyCustomerKeySHA)
-
-	if req.DstKeySHA != "" {
-		meta[keyCustomerKeySHA] = marshalRaw(req.DstKeySHA)
-	}
-
-	for _, k := range []string{keyPredefined, keyACL} {
-		if raw, ok := req.ACL[k]; ok {
-			meta[k] = raw
-		}
-	}
+	meta := copyMeta(req, src)
 
 	if apiErr := b.guardMutation(dstBk, dstBk.live(req.DstName)); apiErr != nil {
 		return nil, apiErr

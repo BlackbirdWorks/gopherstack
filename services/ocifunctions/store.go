@@ -38,6 +38,7 @@ type InMemoryBackend struct {
 	exec       *executor
 	sink       func(ResourceEvent)
 	tagLookup  ocitags.Lookup
+	keyState   func(string) (string, bool)
 	pending    []ResourceEvent
 	transition time.Duration
 	seq        int64

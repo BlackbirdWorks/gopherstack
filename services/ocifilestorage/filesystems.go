@@ -162,6 +162,7 @@ func (b *InMemoryBackend) newFileSystem(in createFSIn) (*FileSystem, *APIError) 
 	for _, aerr := range []*APIError{
 		b.checkCompartment(in.CompartmentID), checkName(name),
 		b.checkPolicyFor(in.FilesystemSnapshotPolicyID, in.AvailabilityDomain), checkLocks(in.Locks),
+		b.checkKmsKey(in.KmsKeyID),
 	} {
 		if aerr != nil {
 			return nil, aerr
@@ -360,6 +361,10 @@ func (b *InMemoryBackend) UpdateFileSystem(
 	}
 
 	if in.KmsKeyID != nil {
+		if aerr = b.checkKmsKey(*in.KmsKeyID); aerr != nil {
+			return FileSystem{}, "", aerr
+		}
+
 		e.W.KmsKeyID = *in.KmsKeyID
 	}
 

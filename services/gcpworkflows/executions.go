@@ -85,6 +85,9 @@ func (b *InMemoryBackend) CreateExecution(in *executionspb.CreateExecutionReques
 	}
 
 	wf := rec.latest()
+	if err = cmekProblem(b.keys, wf.GetCryptoKeyName()); err != nil {
+		return nil, err
+	}
 	prog := b.programLocked(rec, wf)
 
 	if prog == nil {

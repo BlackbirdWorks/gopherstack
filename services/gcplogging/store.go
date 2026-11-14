@@ -6,6 +6,7 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -59,6 +60,7 @@ type InMemoryBackend struct {
 	metrics    map[string]*metricRec
 	settings   map[string]*loggingpb.Settings
 	cmek       map[string]*loggingpb.CmekSettings
+	keys       cmek.Checker
 	seeded     map[string]bool
 	filters    map[string]*filter
 	tails      *tailHub

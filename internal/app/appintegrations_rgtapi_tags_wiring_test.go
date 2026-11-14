@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
 
 func TestInitializeServices_AppIntegrationsTagsWiring(t *testing.T) {
@@ -26,8 +27,14 @@ func TestInitializeServices_AppIntegrationsTagsWiring(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	kmsH, ok := byName["KMS"].(*kmsbackend.Handler)
+	require.True(t, ok)
+
+	key, err := kmsH.Backend.CreateKey(ctx, &kmsbackend.CreateKeyInput{})
+	require.NoError(t, err)
+
 	di, err := h.Backend.CreateDataIntegration(ctx, &appintegrationsbackend.CreateDataIntegrationInput{
-		Name: "di", KmsKey: "k", Tags: tags,
+		Name: "di", KmsKey: key.KeyMetadata.KeyID, Tags: tags,
 	})
 	require.NoError(t, err)
 

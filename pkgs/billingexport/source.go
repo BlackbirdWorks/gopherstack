@@ -4,6 +4,9 @@ package billingexport
 
 import (
 	"context"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -11,14 +14,70 @@ import (
 
 // CostLine is one day of cost for a service/region/usage-type/account combination.
 type CostLine struct {
-	Day       time.Time
-	Service   string
-	Region    string
-	UsageType string
-	Account   string
-	Blended   float64
-	Unblended float64
-	Usage     float64
+	Day              time.Time
+	Tags             map[string]string
+	Service          string
+	Region           string
+	UsageType        string
+	Account          string
+	AvailabilityZone string
+	InstanceType     string
+	Operation        string
+	ChargeType       string
+	PurchaseType     string
+	ProductFamily    string
+	UsageTypeGroup   string
+	ResourceID       string
+	Blended          float64
+	Unblended        float64
+	Usage            float64
+}
+
+const keyFields = 12
+
+// Key identifies the dimensions a monthly roll-up merges lines on.
+func (l CostLine) Key() string {
+	parts := make([]string, 0, keyFields+len(l.Tags))
+	parts = append(parts,
+		l.Service, l.Region, l.UsageType, l.Account, l.AvailabilityZone, l.InstanceType, l.Operation,
+		l.ChargeType, l.PurchaseType, l.ProductFamily, l.UsageTypeGroup, l.ResourceID,
+	)
+
+	for _, k := range slices.Sorted(maps.Keys(l.Tags)) {
+		parts = append(parts, k+"="+l.Tags[k])
+	}
+
+	return strings.Join(parts, "\x00")
+}
+
+// LineItemType maps the ledger charge type onto a CUR lineItem/LineItemType value.
+func (l CostLine) LineItemType() string {
+	switch l.ChargeType {
+	case "", "Usage":
+		return "Usage"
+	case "Support", "Subscription", "Upfront":
+		return "Fee"
+	case "Recurring":
+		return "RIFee"
+	default:
+		return l.ChargeType
+	}
+}
+
+// ChargeCategory maps the ledger charge type onto a FOCUS ChargeCategory value.
+func (l CostLine) ChargeCategory() string {
+	switch l.ChargeType {
+	case "", "Usage":
+		return "Usage"
+	case "Tax":
+		return "Tax"
+	case "Credit":
+		return "Credit"
+	case "Refund", "Discount":
+		return "Adjustment"
+	default:
+		return "Purchase"
+	}
 }
 
 // CostSource yields the daily cost lines with start <= Day < end.

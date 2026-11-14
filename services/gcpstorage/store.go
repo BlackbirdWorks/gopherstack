@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
@@ -38,6 +39,7 @@ type InMemoryBackend struct {
 	softBkts  []*Bucket
 	clock     atomic.Pointer[clockFn]
 	keys      KeyResolver
+	kms       cmek.Checker
 	observers []ObjectObserver
 	// Audit records Cloud Audit Logs entries for bucket and object changes.
 	Audit   gcpaudit.Emitter
@@ -201,6 +203,10 @@ func (b *InMemoryBackend) createBucket(project string, p Patch) (*Bucket, error)
 		return nil, errConflict("Your previous request to create the named bucket succeeded and you already own it.")
 	}
 
+	if apiErr := b.checkBucketKMS(bk, nil); apiErr != nil {
+		return nil, apiErr
+	}
+
 	b.buckets[name] = bk
 
 	return bk.clone(), nil
@@ -286,6 +292,10 @@ func (b *InMemoryBackend) updateBucket(name string, p Patch, replace bool, pre P
 	}
 
 	if apiErr := next.finalizePolicies(prevRet, prevSoft, b.now().UTC()); apiErr != nil {
+		return nil, apiErr
+	}
+
+	if apiErr := b.checkBucketKMS(next, bk); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -418,6 +428,10 @@ func (b *InMemoryBackend) newObject(bk *Bucket, name string, data []byte, p Patc
 	o.ACL = acl
 	o.CRC32C, o.MD5 = crc32cOf(data), md5Of(data)
 	o.CustomerKeySHA256 = p.str(keyCustomerKeySHA)
+
+	if apiErr = b.applyObjectKMS(bk, o, p); apiErr != nil {
+		return nil, apiErr
+	}
 
 	if want := p.str("crc32c"); want != "" && want != o.CRC32C {
 		return nil, errInvalid("Provided CRC32C \"" + want + "\" doesn't match calculated CRC32C \"" + o.CRC32C + "\".")

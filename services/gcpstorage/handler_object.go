@@ -213,7 +213,7 @@ func (h *Handler) copyObject(c *echo.Context, rt route) error {
 		return apiErr
 	}
 
-	req := CopyRequest{SrcKeySHA: srcKey, DstKeySHA: dstKey,
+	req := CopyRequest{SrcKeySHA: srcKey, DstKeySHA: dstKey, DstKMSKey: q.Get("destinationKmsKeyName"),
 		SrcBucket: rt.bucket, SrcName: rt.object, SrcGeneration: srcGen,
 		DstBucket: rt.dstBucket, DstName: rt.dstObject, DstPre: dstPre, SrcPre: srcPre,
 	}
@@ -300,6 +300,12 @@ func (h *Handler) composeObject(c *echo.Context, rt route) error {
 	}
 
 	meta = withDestinationACL(c, meta)
+
+	delete(meta, keyKMSKeyName)
+
+	if k := c.QueryParam("kmsKeyName"); k != "" {
+		meta[keyKMSKeyName] = marshalRaw(k)
+	}
 
 	o, err := h.Backend.ComposeObject(rt.bucket, rt.object, sources, meta, pre, keySHA)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -39,6 +40,7 @@ type InMemoryBackend struct {
 	wg        *sync.WaitGroup
 	instances map[string]*instRec
 	emu       *emulator
+	keys      cmek.Checker
 	etagSeq   uint64
 }
 

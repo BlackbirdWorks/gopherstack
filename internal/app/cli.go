@@ -3880,6 +3880,7 @@ func wireCrossServiceDependencies(
 	wireOCIFileStorage(byName)
 	wireOCIObjectStoragePrivateEndpoints(byName)
 	wireOCICoreVault(byName)
+	wireOCIKeyLookups(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -4037,6 +4038,8 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireBudgets(byName)
 	wireSignin(byName)
 	wireS3VectorsKMS(byName)
+	wireGCPCMEK(byName)
+	wireAWSKeyLookups(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.

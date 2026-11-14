@@ -116,6 +116,10 @@ func (b *InMemoryBackend) CreateWorkflow(in *workflowspb.CreateWorkflowRequest) 
 		return nil, err
 	}
 
+	if err = b.checkKey(in.GetWorkflow().GetCryptoKeyName(), location); err != nil {
+		return nil, err
+	}
+
 	name := workflowName(project, location, in.GetWorkflowId())
 
 	b.mu.RLock("CreateWorkflow")
@@ -428,6 +432,12 @@ func (b *InMemoryBackend) UpdateWorkflow(in *workflowspb.UpdateWorkflowRequest) 
 
 	if err = validateWorkflow(next); err != nil {
 		return nil, err
+	}
+
+	if next.GetCryptoKeyName() != cur.GetCryptoKeyName() {
+		if err = b.checkKey(next.GetCryptoKeyName(), location); err != nil {
+			return nil, err
+		}
 	}
 
 	next.ServiceAccount = normalizeAccount(project, next.GetServiceAccount())

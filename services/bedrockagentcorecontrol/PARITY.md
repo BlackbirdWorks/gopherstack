@@ -199,7 +199,7 @@ items_still_open:
   - Unverified against AgentCore documentation (recalled only): HTTP 401/403 split and WWW-Authenticate challenge text, AND semantics of allowedAudience, allowedClients, allowedScopes and customClaims, tools/list page size of 100, Lambda client-context member names and the text-content wrapping of Lambda results, OpenAPI flattening of parameters and body into one input schema, supported MCP protocol versions
   - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
   - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
-  - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
+  - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles are checked for ARN shape only
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes
   - GetMemory: the view query parameter is validated (full, without_decryption) but both views return the same document; the API Reference does not say what without_decryption omits
@@ -237,3 +237,5 @@ Success statuses come from the HTTP/1.1 line of each operation's Response Syntax
 ### 2026-11-13
 
 Creates return ServiceQuotaExceededException (402) at the documented resource-count limits per account and Region: runtimes 1,000, endpoints 10 per runtime (the DEFAULT endpoint is not counted), gateways 1,000, targets 100 per gateway, memories 150, code interpreters 1,000, browsers 1,000, browser profiles 100, capacity providers 1,000, configuration bundles 1,000, evaluators 10,000, online evaluation configurations 1,000, policy engines 1,000, policies 1,000 per engine, registries 10, API key / OAuth2 / payment credential providers 50 each, workload identities 11,000.
+
+Pass 2026-11-13: every kmsKeyArn and encryptionKeyArn member (including kmsConfiguration.kmsKeyArn) resolves against the KMS emulator when wired: an existing, enabled, symmetric ENCRYPT_DECRYPT key is required, else ValidationException (the error code is the emulator's choice; the API Reference gives none).

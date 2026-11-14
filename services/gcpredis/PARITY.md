@@ -33,10 +33,12 @@ items_still_open:
   - "STANDARD_HA and read replicas are metadata only: one server serves both the primary and read endpoint (read_endpoint equals host), and failover swaps zone labels."
   - "RDB persistence_config is recorded but no periodic snapshots are taken (the emulator's own snapshot persistence covers restarts)."
   - "After a restore every instance starts on a new port and, for TLS, a new CA."
-  - "Cross-region replication, customer-managed keys, maintenance_version and suspension reasons are stored or empty but not modelled."
+  - "Cross-region replication and maintenance_version are stored or empty but not modelled."
 leaks: {status: clean, note: "Background resources are the grpc.Server, per-instance Redis servers and operation jobs, all stopped and joined by Shutdown and Reset."}
 ---
 
 Initial implementation (2026-10-21): CloudRedis gRPC and REST verified against cloud.google.com/go/redis v1.26.0 through the official client in the unit and integration tests, and against the hashicorp/google provider (google_redis_instance) in test/terraform/gcp.
 
 Pass 2026-11-13: ImportInstance decodes the packed RDB encodings through pkgs/redisengine (ziplist, intset, quicklist and quicklist2, listpack hashes, sets and sorted sets), verified against RDB files written by redis 6.2, 7.0 and 7.2 servers (pkgs/redisengine/testdata).
+
+Pass 2026-11-13: customer_managed_key resolves against gcpkms when wired: CreateInstance fails (instance not created) unless the key exists in the instance's region with an enabled primary version and ENCRYPT_DECRYPT purpose; global and multi-region keys do not match a region. An instance whose key later becomes unusable reads with no state and suspension_reasons CUSTOMER_MANAGED_KEY_ISSUE, rejects mutating calls, and resumes when the key is usable again (docs.cloud.google.com/memorystore/docs/redis/about-cmek).

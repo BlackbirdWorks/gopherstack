@@ -36,8 +36,9 @@ items_still_open:
   - "SECRET_ROTATE delivery is a single best-effort publish per due time (no 7-day retry), failures are dropped; a one-shot rotation clears next_rotation_time (inferred, not documented); TOPIC_CONFIGURED and other event types are not sent."
   - "Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed."
   - "Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list."
-  - "Customer-managed encryption keys are stored and echoed in replication_status but never used or validated against Cloud KMS."
 leaks: {status: clean, note: "Background resources are the grpc.Server and the expiry janitor goroutine, both stopped and joined by Shutdown."}
 ---
 
 Initial implementation (2026-10-18): SecretManagerService gRPC verified against cloud.google.com/go/secretmanager v1.22.0 through the official client in sdk_test.go.
+
+Pass 2026-11-13: customer-managed keys resolve against gcpkms when wired (internal/app): the key must exist, be ENCRYPT_DECRYPT with an enabled primary version and sit in the replica's location, `global` for automatic replication or the secret's location for a regional secret (docs.cloud.google.com/secret-manager/docs/cmek). AddSecretVersion fails when any key is unusable and AccessSecretVersion fails when every CMEK replica key is unusable (the page: creating or accessing a version "returns an error" when the key is unavailable). The gRPC codes (INVALID_ARGUMENT for missing, mismatched or wrong-purpose keys, FAILED_PRECONDITION for a disabled key) are the emulator's choice; the page gives none.

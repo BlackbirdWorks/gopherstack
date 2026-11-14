@@ -6,6 +6,8 @@ import (
 	"cel.dev/cel-go/cel"
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 )
 
 const (
@@ -19,6 +21,12 @@ const (
 )
 
 func (b *InMemoryBackend) validateAdvanced(m proto.Message) error {
+	if key := getString(m, "crypto_key_name"); key != "" {
+		if err := b.checkKey(key, cmek.Location(getString(m, "name"))); err != nil {
+			return err
+		}
+	}
+
 	switch r := m.(type) {
 	case *eventarcpb.Enrollment:
 		return b.validateEnrollmentLocked(r)

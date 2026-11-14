@@ -94,7 +94,7 @@ items_still_open:
   - "NFS data plane is NFSv3 over TCP on a loopback port per mount target without portmapper or NLM; clients mount with explicit port and mountport (mount -o port=N,mountport=N,nolock,tcp). The mount target's private IP lives in OCI Core only. Snapshots are full copies taken while writes may be in flight (not atomic) and meteredBytes counts apparent sizes with no deduplication; exclusiveBytes is always 0."
   - "Replication cycle phases and deltaProgress are timer-driven state (structural): no byte counters. With the nfs engine each cycle copies the whole snapshot tree to the target rather than a delta. Cross-region targets are not modelled (the emulator has one region)."
   - "Hydration of clones is a timer (4 transition periods); the data is copied at creation with the nfs engine."
-  - "Not modelled: IAM policy enforcement and quotas, NSG rule enforcement on the mount target, security attributes (ZPR) beyond storage, kmsKeyId validation against OCI Vault, opc-dry-run, and Kerberos ticket validation against keytabs."
+  - "Not modelled: IAM policy enforcement and quotas, NSG rule enforcement on the mount target, security attributes (ZPR) beyond storage, opc-dry-run, and Kerberos ticket validation against keytabs."
 ---
 
 # OCI File Storage parity
@@ -105,3 +105,5 @@ Control plane for File Storage API 20171215 (74 operations, all of oci-go-sdk fi
 
 - Mount target shapes are 1, 20, 40 and 80 Gbps (Content/File/Tasks/managingmounttargets.htm, performance table); UpgradeShape and ScheduleDowngradeShape reject any other value (the old ceiling of 20 was wrong).
 - Replication: minimum interval 15 minutes, at most 3 replications per source file system, and a file system with a snapshot policy attached cannot be a target (Content/File/Tasks/FSreplication.htm, "Limitations and Considerations"; LimitExceeded is 400 per Content/API/References/apierrors.htm, which also lists Conflict as 409).
+
+Pass 2026-11-13: kmsKeyId on CreateFileSystem and UpdateFileSystem is validated against OCI Vault when wired (404 NotAuthorizedOrNotFound for an unknown key, 409 IncorrectState when it is not ENABLED), as the other OCI services do.

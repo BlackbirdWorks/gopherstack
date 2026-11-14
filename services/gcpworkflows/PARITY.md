@@ -34,7 +34,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policy methods are not part of the Workflows API."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. No dashboard page."}
 items_still_open:
-  - "execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; CMEK (crypto_key_name) is stored, not used."
+  - "execution_history_level, execution step history (Executions step entries) and automatic call logging are stored but not produced; already running executions are not failed when their CMEK key is disabled."
   - "Quotas are only partly modelled: 100000 steps per execution and a call depth of 20 are enforced; the 512 KB result/argument rules, concurrent execution limits, QUEUED state and the 1 year execution timeout are not."
   - "Variable use is not statically checked: undefined variables, writes to non-shared parent variables inside parallel steps and loop-variable scope leaks fail at run time instead of at deployment."
   - "experimental.executions.run/map, the in() function form and non-UTF-8 charsets are not implemented; get_type value names, the exact text of runtime error messages and deployment error messages, and the code of the failed CreateWorkflow operation were chosen without a production reference."
@@ -47,3 +47,5 @@ leaks: {status: clean, note: "Background resources are the grpc.Server and its s
 Verified 2026-11-13: an UpdateWorkflow without update_mask replaces the entire workflow (workflows.proto UpdateWorkflowRequest.update_mask: "If not present, the entire workflow will be updated"); argument size limit 32KB is per docs.cloud.google.com/workflows/docs/reference/executions/rest/v1/projects.locations.workflows.executions, while docs.cloud.google.com/workflows/quotas lists 512 KB cumulative variable/argument data, 2 MB response size, 10,000 concurrent and 100,000 queued executions per region, 1 year duration, none with a documented error.
 
 Initial implementation (2026-10-25): google.cloud.workflows.v1 Workflows and google.cloud.workflows.executions.v1 Executions verified against cloud.google.com/go/workflows v1.20.0 through the official clients in the package tests; the language semantics follow the Google Cloud Workflows syntax and standard library reference (docs.cloud.google.com/workflows/docs/reference), with the interpreter in pkgs/wfinterp.
+
+Pass 2026-11-13: crypto_key_name resolves against gcpkms when wired: CreateWorkflow and UpdateWorkflow require an existing ENCRYPT_DECRYPT key with an enabled primary version in the workflow's region, and CreateExecution fails with FAILED_PRECONDITION "The provided Cloud KMS key version has been disabled." once it is disabled (docs.cloud.google.com/workflows/docs/use-cmek).

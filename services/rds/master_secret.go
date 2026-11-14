@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -10,6 +11,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/cmek"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
@@ -59,7 +62,77 @@ func parseMasterSecretRequest(vals url.Values) MasterSecretRequest {
 
 func (s MasterSecret) managed() bool { return s.MasterUserSecretARN != "" }
 
+const managedSecretKeyAlias = "alias/aws/secretsmanager"
+
+// SetKeyChecker resolves master user secret keys against AWS KMS; nil disables the lookup.
+func (b *InMemoryBackend) SetKeyChecker(c cmek.KeyChecker) {
+	b.mu.Lock("SetKeyChecker")
+	defer b.mu.Unlock()
+
+	b.keys = c
+}
+
+func (b *InMemoryBackend) keyContext() context.Context {
+	return awsmeta.WithRegion(context.Background(), b.region)
+}
+
+// checkSecretKey requires a MasterUserSecretKmsKeyId to name a usable key (KMSKeyNotAccessibleFault otherwise).
+func (b *InMemoryBackend) checkSecretKey(keyID string) error {
+	if b.keys == nil || keyID == "" {
+		return nil
+	}
+
+	if err := b.keys.CheckKey(b.keyContext(), keyID); err != nil {
+		return fmt.Errorf("%w: KMS key %s: %w", ErrKMSKeyNotAccessible, keyID, err)
+	}
+
+	return nil
+}
+
+// surfacedSecretKey is the KmsKeyId reported for the secret: the requested key, else the ARN of the
+// aws/secretsmanager managed key (rds-secrets-manager.html shows that ARN in MasterUserSecret).
+func (b *InMemoryBackend) surfacedSecretKey(keyID string) string {
+	if keyID != "" || b.keys == nil {
+		return keyID
+	}
+
+	r, ok := b.keys.(cmek.KeyResolver)
+	if !ok {
+		return ""
+	}
+
+	keyARN, err := r.ResolveKeyARN(b.keyContext(), managedSecretKeyAlias)
+	if err != nil {
+		return ""
+	}
+
+	return keyARN
+}
+
+// sameSecretKey reports whether two key references name the same key.
+func (b *InMemoryBackend) sameSecretKey(a, c string) bool {
+	if a == c {
+		return true
+	}
+
+	r, ok := b.keys.(cmek.KeyResolver)
+	if !ok {
+		return false
+	}
+
+	ctx := b.keyContext()
+
+	aARN, errA := r.ResolveKeyARN(ctx, a)
+	cARN, errC := r.ResolveKeyARN(ctx, c)
+
+	return errA == nil && errC == nil && aARN == cARN
+}
+
 func (b *InMemoryBackend) newMasterSecret(kind, user, kmsKeyID string) (MasterSecret, error) {
+	if err := b.checkSecretKey(kmsKeyID); err != nil {
+		return MasterSecret{}, err
+	}
+
 	name := "rds!" + kind + "-" + uuid.NewString()
 	secretARN := arn.Build("secretsmanager", b.region, b.accountID, "secret:"+name)
 
@@ -77,7 +150,7 @@ func (b *InMemoryBackend) newMasterSecret(kind, user, kmsKeyID string) (MasterSe
 	return MasterSecret{
 		MasterUserSecretARN:      secretARN,
 		MasterUserSecretStatus:   masterSecretStatusActive,
-		MasterUserSecretKmsKeyID: kmsKeyID,
+		MasterUserSecretKmsKeyID: b.surfacedSecretKey(kmsKeyID),
 	}, nil
 }
 
@@ -188,7 +261,7 @@ func (b *InMemoryBackend) updateMasterSecret(
 				"%w: MasterUserSecretKmsKeyId requires ManageMasterUserPassword", ErrInvalidParameterCombination,
 			)
 		}
-		if req.MasterUserSecretKmsKeyID != cur.MasterUserSecretKmsKeyID {
+		if !b.sameSecretKey(req.MasterUserSecretKmsKeyID, cur.MasterUserSecretKmsKeyID) {
 			return cur, fmt.Errorf(
 				"%w: the KMS key of a managed master user secret can't be changed", ErrInvalidParameterCombination,
 			)

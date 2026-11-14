@@ -199,6 +199,10 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
+	if aerr := b.checkImagePolicyKeys(in.ImagePolicy); aerr != nil {
+		return appWire{}, "", "", aerr
+	}
+
 	if aerr := b.checkTags(in.Tags); aerr != nil {
 		return appWire{}, "", "", aerr
 	}
@@ -281,6 +285,10 @@ func (b *InMemoryBackend) UpdateApplication(id, ifMatch string, in appIn) (strin
 
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
+
+	if aerr := b.checkImagePolicyKeys(in.ImagePolicy); aerr != nil {
+		return "", aerr
+	}
 
 	a, aerr := b.activeApp(id)
 	if aerr != nil {

@@ -127,6 +127,7 @@ type InMemoryBackend struct {
 	compartment func(string) bool
 	net         *Network
 	secret      SecretFunc
+	keyState    func(string) (string, bool)
 	dp          dataPlane
 	onClose     func()
 	transition  time.Duration
