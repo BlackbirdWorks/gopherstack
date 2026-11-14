@@ -64,7 +64,7 @@ func matchRoute(routes []route, method string, segs []string) (*route, map[strin
 }
 
 func buildRoutes() []route {
-	return slices.Concat(secretRoutes(), keyRoutes(), certRoutes())
+	return slices.Concat(secretRoutes(), keyRoutes(), certRoutes(), notificationRoutes())
 }
 
 // ListResponse is the paged list envelope.
@@ -201,4 +201,18 @@ func getSecret(h *Handler, rc *reqCtx) (int, any, error) {
 
 func updateSecret(h *Handler, rc *reqCtx, in *UpdateSecretRequest) (int, any, error) {
 	return reply(h.Backend.UpdateSecret(rc.vault, rc.base, rc.params["name"], rc.params["version"], in))
+}
+
+func notificationRoutes() []route {
+	return []route{
+		rt(http.MethodGet, "/_gopherstack/notifications", "ListLifetimeNotifications",
+			func(h *Handler, rc *reqCtx) (int, any, error) {
+				out, err := h.Backend.Notifications(rc.vault)
+				if err != nil {
+					return 0, nil, err
+				}
+
+				return listPage(rc, out)
+			}),
+	}
 }

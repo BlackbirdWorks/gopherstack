@@ -16,8 +16,8 @@ const (
 )
 
 // Janitor runs key rotation policies and certificate AutoRenew lifetime
-// actions. Notify and EmailContacts actions are never delivered: there is no
-// Event Grid or mail transport in the emulator.
+// actions, and records Notify and EmailContacts actions (no Event Grid or mail
+// transport exists to deliver them).
 type Janitor struct {
 	Backend  *InMemoryBackend
 	Interval time.Duration
@@ -50,13 +50,25 @@ func (j *Janitor) sweep(ctx context.Context) {
 			"keysRotated", stats.Rotated, "certsRenewed", stats.Renewed)
 	}
 
+	for _, n := range stats.Notified {
+		logger.Load(ctx).InfoContext(ctx, "azurekeyvault: would send lifetime notification (recorded, not delivered)",
+			"vault", n.Vault, "kind", n.Kind, "object", n.Object, "action", n.Action, "event", n.Event,
+			"to", n.Recipients)
+	}
+
 	telemetry.RecordWorkerTask(janitorService, janitorComponent, "success")
 }
 
 // sweepStats tallies one sweep pass.
 type sweepStats struct {
-	Rotated int
-	Renewed int
+	Notified []vaultNotification
+	Rotated  int
+	Renewed  int
+}
+
+type vaultNotification struct {
+	Vault string
+	LifetimeNotification
 }
 
 // sweepOnce applies every due lifetime action in every vault under one lock.
@@ -72,6 +84,10 @@ func (b *InMemoryBackend) sweepOnce() sweepStats {
 		v.sweep(now.Unix())
 		total.Rotated += v.rotateDueKeys(now)
 		total.Renewed += v.renewDueCerts(now)
+
+		for _, n := range v.notifyDue(now) {
+			total.Notified = append(total.Notified, vaultNotification{Vault: v.Name, LifetimeNotification: n})
+		}
 	}
 
 	return total

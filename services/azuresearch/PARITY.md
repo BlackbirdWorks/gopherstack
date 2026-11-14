@@ -32,13 +32,10 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here; the Create Index reference lists only 201 and a generic ErrorResponse) and null ordering in $orderby are not documented anywhere fetched."
   - "Semantic ranking, spell correction, answers/captions, vectorizers (text/image vector queries), vector thresholds and compression, debug subscores and maxTextRecallSize are not implemented."
-  - "HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; the euclidean, dotProduct and hamming score formulas are not documented (the vector relevance page documents only cosine, which matches)."
   - "Indexers run synchronously inside search.run and do not report inProgress; no document cracking for PDF/Office/images, no AI skills (only Split, Merge, Shaper), no knowledge store, projections or enrichment cache, and no Azure SQL or ADLS Gen2 sources (the emulated Blob Storage has no hierarchical namespace)."
   - "Bearer tokens are accepted without validation and data-plane RBAC roles are not modelled."
   - "Language analyzers are approximations (light stemmer, short stop lists), custom tokenizers/filters are a subset (supported: PatternTokenizer, PatternReplace, Length, Elision, Limit, NGramV2 and EdgeNGramV2 token filters, Mapping and PatternReplace char filters, html_strip; the n-gram order is Lucene's and not documented on the Create Index page), token offsets after a char filter refer to the filtered text, COMMENTS regex flag is rejected (RE2 has no equivalent), and normalizers and the Microsoft language tokenizers are rejected."
-  - "Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters, but the docs give no formulas, so they are not verified against the service."
   - "ARM: private endpoint connections (created by Microsoft.Network), network security perimeter configurations, the upgrade action, customer-managed encryption enforcement, semanticSearch and IP rule enforcement are not implemented (properties round-trip only); usage quotas per SKU are the documented defaults (unverified for raised quotas)."
 leaks: {status: clean, note: "Shutdown cancels the scheduler, closes the HTTPS server and waits for both goroutines."}
 ---
@@ -54,3 +51,9 @@ The data plane is multi-tenant: one listener (default 10015) serves every servic
 Sources fetched: azure-rest-api-specs search/resource-manager 2025-05-01 (search.json, SearchListOperations.json, SharedPrivateLinkResources examples) and search/data-plane 2025-09-01 searchservice.json (HnswParameters), Microsoft Learn vector-search-ranking and index-add-scoring-profiles.
 - ARM: the operations list (50 entries) is served at /providers/Microsoft.Search/operations; shared private link resources are stored per service (PUT/GET/list/DELETE, status Pending, persisted, shown in the service body).
 - Data plane: hnswParameters m 4-10, efConstruction 100-1000, efSearch 100-1000 are enforced; scoring profiles enforce filterable function fields, field type per function, interpolation values, no quadratic/logarithmic on tag, positive text weights and the functionAggregation enum (product multiplies).
+
+## Emulator choices where the vendor is silent
+
+- No Go data-plane SDK exists, so the data plane is verified against documented REST shapes only; error message texts, the 403 body, the index-exists status (400 here; the Create Index reference lists only 201 and a generic ErrorResponse) and null ordering in $orderby are not documented anywhere fetched.
+- HNSW is an exact scan: no approximate recall behaviour and no efSearch effect; the euclidean, dotProduct and hamming score formulas are not documented (the vector relevance page documents only cosine, which matches).
+- Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters, but the docs give no formulas, so they are not verified against the service.

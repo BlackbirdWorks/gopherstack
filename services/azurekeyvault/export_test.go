@@ -1,6 +1,9 @@
 package azurekeyvault
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // SetClock overrides the backend clock for tests.
 func SetClock(b *InMemoryBackend, now func() time.Time) { b.now = now }
@@ -14,3 +17,6 @@ func SweepLifetimeActions(b *InMemoryBackend) (int, int) {
 
 	return s.Rotated, s.Renewed
 }
+
+// SweepJanitor runs one janitor sweep with ctx so tests can observe its logging.
+func SweepJanitor(ctx context.Context, b *InMemoryBackend) { (&Janitor{Backend: b}).sweep(ctx) }
