@@ -177,7 +177,7 @@ func avroPrimitiveSchema(base string) (any, bool) {
 		return "float", true
 	case typeDouble:
 		return "double", true
-	case columnTypeString, typeVarchar, "char":
+	case columnTypeString, typeVarchar, typeChar:
 		return "string", true
 	case "binary", "varbinary":
 		return "bytes", true

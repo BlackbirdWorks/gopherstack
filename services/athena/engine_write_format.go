@@ -70,6 +70,12 @@ func encodeJSONLines(res *sqlResult, rows []int, cols []outCol) []byte {
 			buf.WriteByte(':')
 
 			v, null := res.cell(r, c.src)
+			if !null && res.columns[c.src].typ == kindRow {
+				buf.WriteString(v)
+
+				continue
+			}
+
 			buf.WriteString(jsonLiteral(v, null, c.typ))
 		}
 
@@ -82,7 +88,7 @@ func encodeJSONLines(res *sqlResult, rows []int, cols []outCol) []byte {
 // jsonLiteral renders a cell as a JSON value typed by its column type.
 func jsonLiteral(v string, null bool, typ string) string {
 	if null {
-		return "null"
+		return kwNull
 	}
 
 	switch kindOf(typ) {

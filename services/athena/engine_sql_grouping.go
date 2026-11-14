@@ -101,10 +101,6 @@ func splitGroupingBlock(toks []token) (groupingBlock, bool, error) {
 		return groupingBlock{}, false, nil
 	}
 
-	if depthZeroWord(toks, 0, "union", kwIntersect, kwExcept) >= 0 {
-		return groupingBlock{}, false, errGrouping("GROUPING SETS combined with set operations is not supported")
-	}
-
 	sel := depthZeroWord(toks, 0, "select")
 	if sel < 0 || sel > g {
 		return groupingBlock{}, false, errGrouping("mismatched input 'GROUP'")
@@ -609,9 +605,20 @@ func expandGroupingSets(toks []token) ([]token, error) {
 		return nil, err
 	}
 
+	if out, ok, serr := expandSetOperation(toks); ok || serr != nil {
+		return out, serr
+	}
+
+	out, _, err := expandGroupingBlock(toks)
+
+	return out, err
+}
+
+// expandGroupingBlock expands one SELECT; changed=false leaves toks untouched.
+func expandGroupingBlock(toks []token) ([]token, bool, error) {
 	blk, ok, err := splitGroupingBlock(toks)
 	if err != nil || !ok {
-		return toks, err
+		return toks, false, err
 	}
 
 	parts := make([][]groupSet, len(blk.groupBy))
@@ -628,6 +635,12 @@ func expandGroupingSets(toks []token) ([]token, error) {
 	}
 
 	all := blk.allExprs(sets)
+
+	outer, tail, err := blk.prepareOrder()
+	if err != nil {
+		return nil, false, err
+	}
+
 	branches := make([]string, len(sets))
 
 	for i, s := range sets {
@@ -635,20 +648,21 @@ func expandGroupingSets(toks []token) ([]token, error) {
 
 		branches[i], err = blk.branchSQL(br, s)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
-	sql := joinTokens(
-		blk.prefix,
-	) + "SELECT * FROM (" + strings.Join(
-		branches,
-		" UNION ALL ",
-	) + ") " + joinTokens(
-		blk.tail,
-	)
+	union := strings.Join(branches, " UNION ALL ")
+	sql := joinTokens(blk.prefix) + "SELECT * FROM (" + union + ") " + joinTokens(tail)
 
-	return tokenize(sql)
+	if outer != "" {
+		sql = joinTokens(blk.prefix) + "SELECT " + outer + " FROM (SELECT * FROM (" + union + ") " +
+			joinTokens(tail) + ")"
+	}
+
+	out, err := tokenize(sql)
+
+	return out, true, err
 }
 
 func branchFor(all []groupExpr, set groupSet) *branch {

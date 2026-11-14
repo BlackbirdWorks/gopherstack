@@ -403,6 +403,10 @@ func (p *writePlan) precheckInsert(ctx context.Context) statementOutcome {
 
 // apply writes the SELECT result and registers the Glue table or partitions.
 func (p *writePlan) apply(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	if out := rejectIntervalColumns(res); out.failed {
+		return out
+	}
+
 	switch p.stmt.kind {
 	case writeInsert:
 		return p.applyInsert(ctx, res, limits)
@@ -881,6 +885,16 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 	if err != nil {
 		return stmtFail(athenaErrTypeSyntax, "HIVE_WRITER_CLOSE_ERROR: cannot write s3://%s/%s%s: %s",
 			bucket, locPrefix, name, err)
+	}
+
+	return stmtOK()
+}
+
+func rejectIntervalColumns(res *sqlResult) statementOutcome {
+	for _, c := range res.columns {
+		if strings.HasPrefix(c.typ, "interval ") {
+			return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: Unsupported Hive type: %s", c.typ)
+		}
 	}
 
 	return stmtOK()
