@@ -31,6 +31,21 @@ const (
 	opDeleteBackup      = "DeleteBackup"
 	opChangeBackupComp  = "ChangeBackupCompartment"
 	opCancelBackupDel   = "CancelBackupDeletion"
+	opGenDBStatus       = "GenerateDbSystemStatus"
+	opGetDBStatus       = "GetDbSystemStatus"
+	opGenChannelStatus  = "GenerateChannelStatus"
+	opGetChannelStatus  = "GetChannelStatus"
+	opGenEstimate       = "GenerateHeatWaveClusterMemoryEstimate"
+	opGetEstimate       = "GetHeatWaveClusterMemoryEstimate"
+	opControlledUpdate  = "ControlledUpdateDbSystem"
+	opListMaintenance   = "ListMaintenanceEvents"
+	opValidateBackup    = "ValidateBackup"
+	opCopyBackup        = "CopyBackup"
+	opCreateReplica     = "CreateReplica"
+	opGetReplica        = "GetReplica"
+	opListReplicas      = "ListReplicas"
+	opUpdateReplica     = "UpdateReplica"
+	opDeleteReplica     = "DeleteReplica"
 	opCreateChannel     = "CreateChannel"
 	opGetChannel        = "GetChannel"
 	opListChannels      = "ListChannels"
@@ -55,6 +70,7 @@ const (
 	base                = "/20190415"
 	dbSystemPath        = base + "/dbSystems/{dbSystemId}"
 	backupPath          = base + "/backups/{backupId}"
+	replicaPath         = base + "/replicas/{replicaId}"
 	channelPath         = base + "/channels/{channelId}"
 	configPath          = base + "/configurations/{configurationId}"
 	workRequestPath     = base + "/workRequests/{workRequestId}"
@@ -96,6 +112,25 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodDelete, Path: backupPath, Op: opDeleteBackup},
 	{Method: http.MethodPost, Path: backupPath + "/actions/changeCompartment", Op: opChangeBackupComp},
 	{Method: http.MethodPost, Path: backupPath + "/actions/cancelDeletion", Op: opCancelBackupDel},
+	{Method: http.MethodPost, Path: dbSystemPath + "/actions/generateDbSystemStatus", Op: opGenDBStatus},
+	{Method: http.MethodGet, Path: dbSystemPath + "/dbSystemStatus", Op: opGetDBStatus},
+	{Method: http.MethodPost, Path: channelPath + "/actions/generateChannelStatus", Op: opGenChannelStatus},
+	{Method: http.MethodGet, Path: channelPath + "/channelStatus", Op: opGetChannelStatus},
+	{
+		Method: http.MethodPost,
+		Path:   dbSystemPath + "/heatWaveClusterMemoryEstimate/actions/generate",
+		Op:     opGenEstimate,
+	},
+	{Method: http.MethodGet, Path: dbSystemPath + "/heatWaveClusterMemoryEstimate", Op: opGetEstimate},
+	{Method: http.MethodPost, Path: dbSystemPath + "/actions/controlledUpdate", Op: opControlledUpdate},
+	{Method: http.MethodGet, Path: dbSystemPath + "/maintenanceEvents", Op: opListMaintenance},
+	{Method: http.MethodPost, Path: backupPath + "/actions/validate", Op: opValidateBackup},
+	{Method: http.MethodPost, Path: base + "/backups/actions/copy", Op: opCopyBackup},
+	{Method: http.MethodPost, Path: base + "/replicas", Op: opCreateReplica},
+	{Method: http.MethodGet, Path: base + "/replicas", Op: opListReplicas},
+	{Method: http.MethodGet, Path: replicaPath, Op: opGetReplica},
+	{Method: http.MethodPut, Path: replicaPath, Op: opUpdateReplica},
+	{Method: http.MethodDelete, Path: replicaPath, Op: opDeleteReplica},
 	{Method: http.MethodPost, Path: base + "/channels", Op: opCreateChannel},
 	{Method: http.MethodGet, Path: base + "/channels", Op: opListChannels},
 	{Method: http.MethodGet, Path: channelPath, Op: opGetChannel},

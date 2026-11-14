@@ -151,7 +151,7 @@ func (b *InMemoryBackend) channelTarget(in ChannelTargetIn, cur *ChannelTarget) 
 
 func (b *InMemoryBackend) channelDocs(c *Channel) (Doc, Doc) {
 	src := Doc{
-		keySourceType: c.Source.SourceType, "hostname": c.Source.Hostname, "port": c.Source.Port,
+		keySourceType: c.Source.SourceType, "hostname": c.Source.Hostname, keyPort: c.Source.Port,
 		"username": c.Source.Username, "sslMode": c.Source.SslMode,
 	}
 	tgt := Doc{

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	gremlingo "github.com/apache/tinkerpop/gremlin-go/v3/driver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -62,7 +63,12 @@ func awaitDockerCluster(t *testing.T, b *neptune.InMemoryBackend, id, want strin
 func containerScript(t *testing.T, c neptune.DBCluster, script string) []string {
 	t.Helper()
 
-	rs, err := gremlinClient(t, c).Submit(script)
+	cl, err := gremlingo.NewClient(gremlinWS(c))
+	require.NoError(t, err)
+
+	defer cl.Close()
+
+	rs, err := cl.Submit(script)
 	require.NoError(t, err)
 
 	all, err := rs.All()

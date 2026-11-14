@@ -53,6 +53,10 @@ func (b *InMemoryBackend) settleAll() {
 	for _, c := range b.channels {
 		settleChannel(c, now)
 	}
+
+	for _, r := range b.replicas {
+		settleReplica(r, now)
+	}
 }
 
 func (b *InMemoryBackend) settleID(id string) {
@@ -68,6 +72,10 @@ func (b *InMemoryBackend) settleID(id string) {
 
 	if c, ok := b.channels[id]; ok {
 		settleChannel(c, now)
+	}
+
+	if r, ok := b.replicas[id]; ok {
+		settleReplica(r, now)
 	}
 }
 
@@ -182,13 +190,16 @@ type UpdateDBSystemIn struct {
 	Maintenance    map[string]any            `json:"maintenance"`
 	DisplayName    *string                   `json:"displayName"`
 	DBManagement   string                    `json:"databaseManagement"`
-	DatabaseMode   string                    `json:"databaseMode"`
-	AccessMode     string                    `json:"accessMode"`
-	CrashRecovery  string                    `json:"crashRecovery"`
+	scope          string
+	DatabaseMode   string `json:"databaseMode"`
+	AccessMode     string `json:"accessMode"`
+	CrashRecovery  string `json:"crashRecovery"`
 }
 
 type updateEffect struct {
+	config     bool
 	structural bool
+	pitr       bool
 	admin      bool
 	version    bool
 }
@@ -215,6 +226,10 @@ func (b *InMemoryBackend) applyUpdate(n *DBSystem, in UpdateDBSystemIn) (updateE
 	del, aerr2 := mergeDeletion(n.Deletion, in.Deletion)
 
 	if aerr = firstErr(aerr, aerr2); aerr != nil {
+		return fx, aerr
+	}
+
+	if aerr = validatePitrPolicy(n.Shape, pol); aerr != nil {
 		return fx, aerr
 	}
 
@@ -460,6 +475,10 @@ func (b *InMemoryBackend) UpdateDBSystem(id, ifMatch string, in UpdateDBSystemIn
 	b.mu.Lock("UpdateDbSystem")
 	defer b.mu.Unlock()
 
+	return b.updateLocked(id, ifMatch, in)
+}
+
+func (b *InMemoryBackend) updateLocked(id, ifMatch string, in UpdateDBSystemIn) (string, error) {
 	s, aerr := b.mutable(id, ifMatch, stateActive, stateInactive)
 	if aerr != nil {
 		return "", aerr
@@ -472,11 +491,11 @@ func (b *InMemoryBackend) UpdateDBSystem(id, ifMatch string, in UpdateDBSystemIn
 		return "", aerr
 	}
 
-	if (fx.admin || fx.version) && b.eng != nil && s.State != stateActive {
-		return "", errState("DB system " + id + " must be ACTIVE to change the administrator or MySQL version")
+	if aerr = b.engineEffects(s, &n, &fx); aerr != nil {
+		return "", aerr
 	}
 
-	prev := s.State
+	prev, old := s.State, *s
 	*s = n
 
 	if !fx.structural {
@@ -487,39 +506,110 @@ func (b *InMemoryBackend) UpdateDBSystem(id, ifMatch string, in UpdateDBSystemIn
 		return wr, nil
 	}
 
-	engineJob := b.eng != nil && (fx.admin || fx.version)
+	engineJob := b.eng != nil && (fx.admin || fx.version || fx.pitr || fx.config)
 	wr := b.begin(s, wrUpdateDBSystem, prev, engineJob)
 
-	if engineJob {
-		b.spawn(s.ID, wr, b.updateWork(s, fx), func(s *DBSystem) { s.State = prev })
+	if !engineJob {
+		b.recordUpdateEvents(&old, s, s.TransitionAt, in.scope)
+
+		return wr, nil
 	}
+
+	ids := b.markInheritingReplicas(s, fx.version || fx.config)
+
+	b.spawn(s.ID, wr, b.replicaGuard(ids, b.updateWork(s, fx, ids)), func(s *DBSystem) {
+		s.State = prev
+		b.setReplicaStates(ids, stateActive)
+
+		now := b.nowUTC()
+		b.recordUpdateEvents(&old, s, &now, in.scope)
+	})
 
 	return wr, nil
 }
 
-func (b *InMemoryBackend) updateWork(s *DBSystem, fx updateEffect) func(ctx context.Context) error {
+// engineEffects works out what an update asks of the running server and rejects what it cannot do in this state.
+func (b *InMemoryBackend) engineEffects(s, n *DBSystem, fx *updateEffect) *APIError {
+	if b.pitrToggled(s, n) {
+		fx.pitr = true
+		fx.structural = fx.structural || b.eng != nil
+		b.applyPitrState(n)
+	}
+
+	if b.eng != nil && s.State == stateActive && s.ConfigID != n.ConfigID &&
+		len(b.configOverrides(s.ConfigID))+len(b.configOverrides(n.ConfigID)) > 0 {
+		fx.config, fx.structural = true, true
+	}
+
+	if (fx.admin || fx.version || fx.pitr) && b.eng != nil && s.State != stateActive {
+		return errState("DB system " + s.ID +
+			" must be ACTIVE to change the administrator, the MySQL version or point-in-time recovery")
+	}
+
+	return b.inheritingReplicasOK(n)
+}
+
+func (b *InMemoryBackend) updateWork(s *DBSystem, fx updateEffect, replicas []string) func(ctx context.Context) error {
 	id, user, pass := s.ID, s.AdminUser, s.AdminPass
 	oldInst := b.eng.live[id]
 
+	on := s.BackupPolicy.PitrEnabled
+
 	return func(ctx context.Context) error {
-		if fx.version {
-			if oldInst != nil {
-				oldInst.Close(ctx, false)
+		if err := b.reconfigure(ctx, id, user, pass, oldInst, fx, replicas); err != nil {
+			return err
+		}
+
+		if fx.config && !fx.version {
+			if err := b.reapplyConfigs(ctx, id, replicas); err != nil {
+				return err
 			}
-
-			b.mu.Lock("updateWork")
-			delete(b.eng.live, id)
-			b.mu.Unlock()
-
-			return b.launchWork(id, launchIn{admin: user, password: pass})(ctx)
 		}
 
-		if oldInst == nil {
-			return errNoServer
+		if fx.pitr {
+			return b.togglePITR(ctx, id, on)
 		}
 
-		return oldInst.EnsureAdmin(ctx, user, pass) //nolint:wrapcheck // engine errors carry the cause
+		return nil
 	}
+}
+
+func (b *InMemoryBackend) reapplyConfigs(ctx context.Context, id string, replicas []string) error {
+	for _, rid := range replicas {
+		if err := b.reapplyConfig(ctx, rid); err != nil {
+			return err
+		}
+	}
+
+	return b.reapplyConfig(ctx, id)
+}
+
+func (b *InMemoryBackend) reconfigure(
+	ctx context.Context, id, user, pass string, oldInst Instance, fx updateEffect, replicas []string,
+) error {
+	if fx.version {
+		for _, rid := range replicas {
+			if err := b.replicaRelaunch(rid, stateActive)(ctx); err != nil {
+				return err
+			}
+		}
+
+		if oldInst != nil {
+			oldInst.Close(ctx, false)
+		}
+
+		b.mu.Lock("updateWork")
+		delete(b.eng.live, id)
+		b.mu.Unlock()
+
+		return b.launchWork(id, launchIn{admin: user, password: pass})(ctx)
+	}
+
+	if oldInst == nil {
+		return errNoServer
+	}
+
+	return oldInst.EnsureAdmin(ctx, user, pass) //nolint:wrapcheck // engine errors carry the cause
 }
 
 func parseShutdown(q *req) error {
@@ -557,15 +647,24 @@ func (b *InMemoryBackend) StopDBSystem(id, ifMatch, token string) (string, error
 	}
 
 	wr := b.begin(s, wrStopDBSystem, stateInactive, b.eng != nil)
+	b.freezePitr(s)
+	ids := b.cascadeReplicas(s, stateActive, stateInactive)
 
 	if b.eng != nil {
-		b.spawn(id, wr, func(ctx context.Context) error {
+		b.spawn(id, wr, b.replicaGuard(ids, func(ctx context.Context) error {
+			if err := b.stopReplicas(ctx, ids); err != nil {
+				return err
+			}
+
 			if inst := b.instance(id); inst != nil {
 				return inst.Stop(ctx) //nolint:wrapcheck // engine errors carry the cause
 			}
 
 			return nil
-		}, func(s *DBSystem) { s.State = stateInactive })
+		}), func(s *DBSystem) {
+			s.State = stateInactive
+			b.setReplicaStates(ids, stateInactive)
+		})
 	}
 
 	b.retry.Remember("StopDbSystem/"+id, token, wr, b.nowUTC())
@@ -588,9 +687,22 @@ func (b *InMemoryBackend) StartDBSystem(id, ifMatch, token string) (string, erro
 	}
 
 	wr := b.begin(s, wrStartDBSystem, stateActive, b.eng != nil)
+	s.PitrFreeze = nil
+	ids := b.cascadeReplicas(s, stateInactive, stateActive)
 
 	if b.eng != nil {
-		b.spawn(id, wr, b.startWork(s), func(s *DBSystem) { s.State = stateActive })
+		start := b.startWork(s)
+
+		b.spawn(id, wr, b.replicaGuard(ids, func(ctx context.Context) error {
+			if err := start(ctx); err != nil {
+				return err
+			}
+
+			return b.startReplicas(ctx, ids)
+		}), func(s *DBSystem) {
+			s.State = stateActive
+			b.setReplicaStates(ids, stateActive)
+		})
 	}
 
 	b.retry.Remember("StartDbSystem/"+id, token, wr, b.nowUTC())
@@ -604,7 +716,11 @@ func (b *InMemoryBackend) startWork(s *DBSystem) func(ctx context.Context) error
 
 	return func(ctx context.Context) error {
 		if inst := b.instance(id); inst != nil {
-			return inst.Start(ctx) //nolint:wrapcheck // engine errors carry the cause
+			if err := inst.Start(ctx); err != nil {
+				return err //nolint:wrapcheck // engine errors carry the cause
+			}
+
+			return b.syncConfig(ctx, id)
 		}
 
 		return b.launchWork(id, launchIn{admin: user, password: pass})(ctx)
@@ -662,6 +778,10 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 	}
 
 	wasStopped := s.State == stateInactive
+	if s.PitrFreeze == nil {
+		b.freezePitr(s)
+	}
+
 	s.State, s.After, s.TimeUpdated, s.Etag = stateDeleting, "", b.nowUTC(), newEtag()
 	s.TransitionAt = nil
 
@@ -673,6 +793,7 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 
 	if b.eng == nil {
 		s.TransitionAt = b.transitionAt()
+		b.cascadeReplicas(s, "", stateDeleted)
 		wr := b.newWR(wrDeleteDBSystem, s.CompartmentID, entityDBSystem, id, actionDeleted, s.TransitionAt)
 
 		if final {
@@ -684,12 +805,27 @@ func (b *InMemoryBackend) DeleteDBSystem(id, ifMatch string) (string, error) {
 
 	inst := b.eng.live[id]
 	delete(b.eng.live, id)
+	ids := b.cascadeReplicas(s, "", stateDeleted)
+
+	replicaInsts := map[string]Instance{}
+
+	for _, rid := range ids {
+		replicaInsts[rid] = b.eng.live[rid]
+		delete(b.eng.live, rid)
+	}
 
 	wr := b.newWR(wrDeleteDBSystem, s.CompartmentID, entityDBSystem, id, actionDeleted, nil)
 	snap := *s
 	b.spawn(id, wr, func(ctx context.Context) error {
+		for rid, ri := range replicaInsts {
+			b.closeReplica(ctx, rid, ri)
+		}
+
 		return b.teardown(ctx, &snap, inst, final, wasStopped)
-	}, func(s *DBSystem) { s.State = stateDeleted })
+	}, func(s *DBSystem) {
+		s.State = stateDeleted
+		b.setReplicaStates(ids, stateDeleted)
+	})
 
 	return wr, nil
 }

@@ -54,6 +54,8 @@ type InMemoryBackend struct {
 	eng         *dbEngine
 	Auth        *ociauth.Registry
 	channels    map[string]*Channel
+	replicas    map[string]*Replica
+	events      map[string]*MaintenanceEvent
 	configs     map[string]*Configuration
 	retry       *ociretry.Store
 	workReqs    map[string]*WorkRequest
@@ -93,6 +95,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.systems, b.backups, b.channels = map[string]*DBSystem{}, map[string]*Backup{}, map[string]*Channel{}
 	b.configs, b.workReqs = map[string]*Configuration{}, map[string]*WorkRequest{}
+	b.replicas, b.events = map[string]*Replica{}, map[string]*MaintenanceEvent{}
 	b.retry = ociretry.New()
 }
 

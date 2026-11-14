@@ -36,6 +36,8 @@ const (
 	teardownLimit  = 30 * time.Second
 	stderrLimit    = 512
 	maxDumpBytes   = 256 << 20
+	maxHostLabel   = 63
+	separators     = 2
 	fileMode       = 0o600
 	volumeLabel    = "gopherstack.mysqlengine"
 	mysqlBin       = "mysql"
@@ -254,7 +256,7 @@ func (s *Server) prepare() (container.Spec, error) {
 		return container.Spec{}, fmt.Errorf("host port: %w", err)
 	}
 
-	name := s.e.cfg.Prefix + "-" + sanitize(s.spec.ID) + "-" + strconv.Itoa(port)
+	name := containerName(s.e.cfg.Prefix, s.spec.ID, port)
 
 	s.mu.Lock()
 	s.port, s.ctrNm = port, name
@@ -281,6 +283,20 @@ func (s *Server) prepare() (container.Spec, error) {
 	}
 
 	return spec, nil
+}
+
+// containerName keeps the name within the 63-character hostname limit replicas resolve it by, cutting the front of
+// long ids (their distinguishing part is at the end).
+func containerName(prefix, id string, port int) string {
+	p := strconv.Itoa(port)
+	room := max(maxHostLabel-len(prefix)-len(p)-separators, 1)
+
+	id = sanitize(id)
+	if len(id) > room {
+		id = id[len(id)-room:]
+	}
+
+	return prefix + "-" + strings.TrimLeft(id, "-") + "-" + p
 }
 
 func (s *Server) releasePort() {

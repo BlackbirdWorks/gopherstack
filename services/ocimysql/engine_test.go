@@ -151,7 +151,7 @@ func TestEngineBackupAndRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, my.BackupLifecycleStateCreating, resp.LifecycleState)
 
-	bk := e.awaitBackup(t, resp.Id, my.BackupLifecycleStateActive)
+	bk := e.awaitBackup(t, resp.Id)
 	assert.GreaterOrEqual(t, *bk.BackupSizeInGBs, 1)
 
 	l.addTable(*src.Id, "after_backup")

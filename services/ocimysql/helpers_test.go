@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	my "github.com/oracle/oci-go-sdk/v65/mysql"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -109,6 +111,7 @@ type env struct {
 	bk      my.DbBackupsClient
 	ch      my.ChannelsClient
 	aas     my.MysqlaasClient
+	rp      my.ReplicasClient
 	wr      my.WorkRequestsClient
 	base    string
 	port    int
@@ -174,7 +177,11 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	e.wr, err = my.NewWorkRequestsClientWithConfigurationProvider(e.prov)
 	require.NoError(t, err)
 
+	e.rp, err = my.NewReplicasClientWithConfigurationProvider(e.prov)
+	require.NoError(t, err)
+
 	e.db.Host, e.bk.Host, e.ch.Host, e.aas.Host, e.wr.Host = e.base, e.base, e.base, e.base, e.base
+	e.rp.Host = e.base
 
 	return e
 }
@@ -272,7 +279,7 @@ func (e *env) awaitState(t *testing.T, id *string, state my.DbSystemLifecycleSta
 	return got
 }
 
-func (e *env) awaitBackup(t *testing.T, id *string, state my.BackupLifecycleStateEnum) my.Backup {
+func (e *env) awaitBackup(t *testing.T, id *string) my.Backup {
 	t.Helper()
 
 	var got my.Backup
@@ -285,7 +292,7 @@ func (e *env) awaitBackup(t *testing.T, id *string, state my.BackupLifecycleStat
 
 		got = r.Backup
 
-		return got.LifecycleState == state
+		return got.LifecycleState == my.BackupLifecycleStateActive
 	}, e.waitFor(), 20*time.Millisecond)
 
 	return got
@@ -303,13 +310,20 @@ type fakeLauncher struct {
 }
 
 type fakeInst struct {
+	prepAt  time.Time
+	source  *mysqlengine.ReplSource
+	applied *mysqlengine.Recovery
 	admins  map[string]string
+	seed    []byte
+	queries []string
 	tables  []string
+	pitrOff int
 	port    int
+	starts  int
+	pitrOn  bool
 	stopped bool
 	closed  bool
 	purged  bool
-	starts  int
 }
 
 func newFakeLauncher() *fakeLauncher { return &fakeLauncher{insts: map[string]*fakeInst{}} }
@@ -407,6 +421,118 @@ func (h *fakeHandle) Close(_ context.Context, purge bool) {
 	h.l.mu.Lock()
 	h.in.closed, h.in.purged = true, purge
 	h.l.mu.Unlock()
+}
+
+func (h *fakeHandle) UserDatabases(context.Context) ([]string, error) { return []string{"shop"}, nil }
+
+func (h *fakeHandle) ReplicationSource(context.Context) (mysqlengine.ReplSource, error) {
+	return mysqlengine.ReplSource{
+		Network:   "net-" + strconv.Itoa(h.in.port),
+		NetworkID: "id",
+		Host:      "src",
+		Port:      3306,
+	}, nil
+}
+
+func (h *fakeHandle) ReplicaSeed(context.Context, []string) ([]byte, error) {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	return []byte(strings.Join(h.in.tables, ",")), nil
+}
+
+func (h *fakeHandle) AttachReplica(_ context.Context, src mysqlengine.ReplSource, seed []byte) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.source, h.in.seed = &src, seed
+
+	if len(seed) > 0 {
+		h.in.tables = strings.Split(string(seed), ",")
+	}
+
+	return nil
+}
+
+func (h *fakeHandle) EnablePITR(context.Context, []string) (time.Time, error) {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.pitrOn = true
+
+	return time.Now().UTC(), nil
+}
+
+func (h *fakeHandle) DisablePITR(context.Context) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.pitrOn = false
+	h.in.pitrOff++
+
+	return nil
+}
+
+func (h *fakeHandle) PrepareRecovery(_ context.Context, at time.Time) (mysqlengine.Recovery, error) {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.prepAt = at
+
+	return mysqlengine.Recovery{
+		At: at, Source: &mysqlengine.ReplSource{Network: "recovery-net", NetworkID: "rid"},
+	}, nil
+}
+
+func (h *fakeHandle) ApplyRecovery(_ context.Context, rec mysqlengine.Recovery) error {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.applied = &rec
+
+	return nil
+}
+
+var errReadOnlyVar = errors.New("sql: variable 'skip_name_resolve' is a read only variable")
+var errUnknownVar = errors.New("sql: unknown system variable 'thread_pool_size'")
+
+func (h *fakeHandle) Query(_ context.Context, _, q string) ([][]string, error) {
+	h.l.mu.Lock()
+	defer h.l.mu.Unlock()
+
+	h.in.queries = append(h.in.queries, q)
+
+	switch {
+	case strings.HasPrefix(q, "SET PERSIST_ONLY"), strings.HasPrefix(q, "RESET"):
+		return [][]string{{}}, nil
+	case strings.Contains(q, "skip_name_resolve") && strings.HasPrefix(q, "SET PERSIST "):
+		return nil, errReadOnlyVar
+	case strings.Contains(q, "thread_pool_size"):
+		return nil, errUnknownVar
+	case strings.HasPrefix(q, "SET PERSIST"):
+		return [][]string{{}}, nil
+	case q == "SELECT 1":
+		return [][]string{{"1"}, {"1"}}, nil
+	case strings.HasPrefix(q, "SELECT @@offline_mode"):
+		return [][]string{{"a", "b"}, {"0", "0"}}, nil
+	case strings.Contains(q, "GTID_SUBSET"):
+		return [][]string{{"x"}, {"1"}}, nil
+	case strings.Contains(q, "GTID_SUBTRACT"):
+		return [][]string{{"x"}, {"uuid:3-5"}}, nil
+	case strings.Contains(q, "gtid_executed"):
+		return [][]string{{"x"}, {"uuid:1-5"}}, nil
+	case strings.Contains(q, "SUM(DATA_LENGTH"):
+		return [][]string{{"x"}, {"1000"}}, nil
+	case strings.Contains(q, "information_schema.TABLES t"):
+		return [][]string{
+			{"s", "t", "r", "c", "v", "b"},
+			{"shop", "orders", "120", "4", "2", "3145729"},
+			{"shop", "items", "5", "2", "0", "10"},
+			{"sales", "facts", "9", "3", "1", "1048576"},
+		}, nil
+	}
+
+	return [][]string{{}}, nil
 }
 
 func (l *fakeLauncher) addTable(id, name string) {

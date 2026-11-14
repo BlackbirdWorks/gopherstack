@@ -87,6 +87,8 @@ func entityPath(entityType string) string {
 		return "backups"
 	case entityChannel:
 		return "channels"
+	case entityReplica:
+		return "replicas"
 	default:
 		return "dbSystems"
 	}

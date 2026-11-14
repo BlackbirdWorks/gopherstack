@@ -308,8 +308,17 @@ func (b *InMemoryBackend) backupDoc(bk *Backup, full bool) Doc {
 		d["dataStorageSizeInGBs"], d["mysqlVersion"], d["shapeName"] = sn.DataGB, sn.Version, sn.Shape
 	}
 
+	if bk.ImmediateSrc != "" {
+		d["immediateSourceBackupId"], d["originalSourceBackupId"] = bk.ImmediateSrc, bk.OriginalSrc
+	}
+
+	if bk.TimeCopied != nil {
+		d["timeCopyCreated"] = *bk.TimeCopied
+	}
+
 	if full {
 		d[keyTimeUpdated] = bk.TimeUpdated
+		d["backupValidationDetails"] = bk.validationDoc()
 
 		if sn := bk.Snapshot; sn != nil {
 			snap := b.systemDoc(sn)
