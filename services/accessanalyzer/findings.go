@@ -100,8 +100,10 @@ func findingFilterValues(f *Finding, key string) ([]string, bool) {
 		return []string{f.ID}, true
 	case "resourceOwnerAccount":
 		return findingOwnerAccount(f), true
-	case "error", "resourceControlPolicyRestriction":
+	case "error", "resourceControlPolicyRestriction", "serviceControlPolicyRestriction":
 		return nil, true
+	case "findingType":
+		return []string{"ExternalAccess"}, true
 	case "action":
 		return f.Action, true
 	case "isPublic":
